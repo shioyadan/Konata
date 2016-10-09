@@ -1,0 +1,103 @@
+Kanata
+* Viewer(Kanata log -> div)
+* Kanata log
+  * Set
+    * Array
+    * Append
+    * ID
+      # op struct
+        * ID
+        * Label
+        * Lane(Array)
+          * Stages(Array)
+            * Local start cycle
+            * Name
+        * Global start/end cycle
+        * Commit/Flush ?
+        * Dependency ops info(Array)
+          * ID
+          * Generated cycle
+          * Used cycle
+  * Get
+    * Next N
+    * Prev N
+    * Range 
+* ParserIF(Raw log -> Kanata log)
+  * For onikiri
+  * For GEM5
+  * For ...
+
+
+* For onikiri parser
+  * C=
+  * C 経過サイクル数
+    * 前回からの経過サイクル数を通知
+  * I Kanata内の<ID>  シミュレータ内のID スレッドのID
+  * L <ID> Type message
+  * S <ID> <Lane> <Name>
+  * E <ID> <Lane> <Name>
+  * R <ID> <RetireID> <Commit/Flush>
+  * W <ConsumerID> <ProducerID> <Type>
+
+
+# Use process image
+Viewer tab1(fileName, type="onikiri");
+tab1.DrawByCycle(range) {
+  Parser* parser = SelectParser(logType);
+  parser.GenerateKanataLog();
+  KanataLog log = parser.GetLog();
+  for log.Range(range) {
+    $(".tab1").append(log.GetOpInfo(i));
+  }
+}
+
+op = {
+  label:[ [], [], [] ],
+  lane:[[Lane1, [Stage, Cycle_s, Cycle_e],[]],[Line2,[Stage,s,e],[]],[]],
+  fetch:[0],
+  retire:[10],
+  prod:[[],[]],
+  cons:[[],[],[]]
+}
+
+# op struct
+* ID
+* Label(Array)
+* Lane(Associative)
+  * Stages(Array)
+     * Local start cycle
+     * Local end cycle
+     * Name
+* Global start/end cycle
+* Commit/Flush ?
+* Producer ops info(Array)
+  * ID
+  * Generated cycle
+  * Used cycle
+* Consumer ops info(Array)
+  * ID
+  * Generated cycle
+  * Used cycle
+これをhtmlで表現すると
+<div class="op">
+  <span class="spacer" width="">
+  <span id="op_id" data_start="12" data_end="20" class="Flush">
+    <span class="Label" class="default">Plane text</span>
+    <span class="Label" class="mouseover">Plane text</span>
+    <span class="Label" class="mouseover">Plane text</span>
+    <div class="Lane,Lane1">
+      <span class="stage,F" data_start="0">F</div>
+      <span class="stage,RN" data_start="2">RN</div>
+      <span class="stage,D" data_start="4">D</div>
+      <span class="stage,I" data_start="6">I</div>
+      <span class="stage,Cm" data_start="7">Cm</div>
+    </div>
+    <div class="Lane,IXU">
+      <span class="stage,iX0" data_start="3">iX0</div>
+      <span class="stage,f" data_start="4">f</div>
+    </div>
+  </span>
+</div>
+
+* どんどんと入り込んでいく構造にすれば、直前のopとの差分の距離を設定するだけでよくて簡単？
+* 別に、

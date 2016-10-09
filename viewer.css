@@ -1,0 +1,83 @@
+.tab {
+    position: relative;
+    display:table;
+}
+/*----------------------------*/
+.labels-window {
+    border: 1px solid #666666;
+    color: #000000;
+    width: 150px;
+    position: relative;
+    overflow-x: scroll;
+    white-space: nowrap;
+
+    display:table-cell;
+}
+.pipelines-window {
+    border: 1px solid #666666;
+    color: #000000;
+
+    position: relative;
+    display:table-cell;
+}
+/*----------------------------*/
+.labels-parent .pipeline{
+    border: 1px solid #666666;
+    min-height: 72px;
+    max-height: 72px;
+    overflow-x: scroll;
+}
+/*----------------------------*/
+
+.line {
+}
+/*----------------------------*/
+.spacer {
+    /*border: 1px solid #666666;*/
+    background-color: #ff00ff;
+    display: table-cell;
+}
+.block {
+    display: table-cell;
+}
+
+.lanesParent {
+    display:table-row;
+}
+.lane {
+    min-height: 24px;
+    max-height: 24px;
+    display:table-row;
+}
+
+.label {
+    table-layout: fixed;
+    overflow-x: scroll;
+}
+.stage {
+    border: 1px solid #666666;
+    min-height: 12px;
+    max-height: 12px;
+    min-width: 36px;
+    display:table-cell;
+    table-layout: fixed;
+    overflow: hidden;
+}
+div.lane.0 {
+    color:#000000;
+}
+
+span.stage {
+}
+
+div.lane_0 span.stage_F {
+    background-color: #ff8888;
+}
+
+div.lane_0 span.stage_Rn {
+    background-color: #88ff88;
+}
+
+div.lane_1 span.stage_iX {
+    background-color: #447744;
+}

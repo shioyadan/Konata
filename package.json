@@ -1,0 +1,13 @@
+{
+  "name": "kanata",
+  "version": "1.0.0",
+  "description": "instruction pipeline visualizer",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "izuoka",
+  "license": "ISC",
+  "devDependencies": {
+  }
+}
