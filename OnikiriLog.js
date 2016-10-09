@@ -45,6 +45,8 @@ function OnikiriLog (path) {
             "R":["retire"],
             "W":["prod", "cons"],
         };
+        // 末尾に意味のないTabが付いてるとデータが壊れるので、消す。
+        line = line.trim();
         var TAB = String.fromCharCode(9);
         var elm = line.split(TAB);
         elm.push(this.cycle);
