@@ -18,10 +18,10 @@ ipc.on('asynchronous-message', function(event, arg) {
             jquery(".labels-window").append(label);
             jquery(".pipelines-window").append(pipeline);
             var lineHeight = pipeline.css("max-height");
-            lineHeight = 144*i;
+            lineHeight = 48;
             console.log(lineHeight);
-            jquery(".labels-parent").css("top", lineHeight + "px");
-            jquery(".pipeline").css("top", lineHeight + "px");
+            jquery(".labels-parent").css("height", lineHeight + "px");
+            jquery(".pipeline").css("height", lineHeight + "px");
             //jquery(".pipeline").css("position", "relative");
         }
     }
