@@ -83,39 +83,9 @@ function OpToHTML (op) {
         root.after(jquery("<br/>"));
         this.published = true;
         this.root = root;
-        this.Resize();
         return root;
     };
     
-    this.Resize = function() {
-        this.root.find("[data-width]").each(
-            function() {
-                var w = 36 * jquery(this).attr("data-width");
-                console.log (jquery(this).attr("class")) 
-                jquery(this).css("width", w + "px");
-                jquery(this).css("max-width", w + "px");
-                jquery(this).css("min-width", w + "px");
-                if (w == 0) {
-                    jquery(this).css("display", "none");
-                }
-            }
-        );
-        this.root.find("[data-relative-pos-left]").each(
-            function() {
-                var w = 36 * jquery(this).attr("data-relative-pos-left");
-                //jquery(this).css("position", "absolute");
-                jquery(this).css("left", w + "px");
-            }
-        );
-        this.root.find("[data-relative-pos-top]").each(
-            function() {
-                var h = 12 * jquery(this).attr("data-relative-pos-top");
-                console.log("Pos top:", h, "px");
-                //jquery(this).css("position", "absolute");
-                jquery(this).css("top", h + "px");
-            }
-        );
-    }
 
     // stage_b: [[Lane1, stage, start], [Lane2, stage, start], ...]
     // stage_e: [[Lane2, stage ,end], [Lane1, stage, end], ...]
