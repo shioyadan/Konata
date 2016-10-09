@@ -22,6 +22,7 @@ function OpToHTML (op) {
         var info = this.op.info;
         var start = Number(info.fetch[0][2]);
         var root = jquery("<div></div>", {"class":"line", "id":"line_" + this.id});
+        this.root = root;
         var labelsParent = jquery("<div></div>", {"class":"labels-parent"});
         var spacer = jquery("<span></span>", {"class":"spacer"});
         var pipeline = jquery("<div></div>", {"class":"pipeline"});
@@ -49,43 +50,65 @@ function OpToHTML (op) {
             labelsParent.append(label);
         }
         // Set lanes
+        block.append(this.MakeLanesHTML(start));
+        // Set producers, consumers
+        
+        this.published = true;
+        //this.Resize();
+        return root;
+    };
+    
+    this.MakeLanesHTML = function (start) {
         var lanes = this.OrderedLane();
+        var activeNum = this.GetViewedLaneNum();
+        var height = 1/activeNum;
         var lanesParent = jquery("<div></div>", {"class": "lanes-parent"});
         for (var i = 0; i < lanes.length; i++) {
             var lane = jquery("<div></div>", {"class":"lane"});
+            var prevStage;
             lane.addClass("lane_" + lanes[i][0][0]);
             for (var j = 0; j < lanes[i].length; j++) {
-                var s = lanes[i][j];
+                var array = lanes[i][j];
                 var stage = jquery("<span></span>", {"class":"stage"});
-                stage.addClass("stage_" + s[1]); // Stage name
-                console.log(s);
-                stage.text(s[1]);
-                stage.attr("data-begin", s[2]); // Stage start
-                if (s[3]) {
-                    stage.attr("data-end", s[3]); // Stage end
-                    stage.attr("data-width", s[3] - s[2]);
+                stage.addClass("stage_" + array[1]); // Stage name
+                stage.text(array[1]);
+                stage.attr("data-begin", array[2]); // Stage start
+                if (array[3]) {
+                    stage.attr("data-end", array[3]); // Stage end
+                    stage.attr("data-width", array[3] - array[2]);
                 }
-                if (j == 0 && (Number(s[2]) - start != 0)) {
-                    console.log("Set spacer");
+                if (prevStage != null && prevStage.attr("data-end") == null) {
+                    prevStage.attr("data-end", array[2]);
+                    prevStage.attr("data-width", array[2] - prevStage.attr("data-begin"));
+                }
+                if (j == 0 && (Number(array[2]) - start != 0)) {
                     var laneSpacer = jquery("<span></span>", {"class":"spacer"});
-                    laneSpacer.attr("data-width", Number(s[2]) - start);
-                    console.log("Spacer width: ", s[2], " - ", start);
+                    laneSpacer.attr("data-width", Number(array[2]) - start);
                     lane.append(laneSpacer);
-                //stage.attr("data-relative-pos-top", i);
                 }
+                stage.attr("data-height", height);
                 lane.append(stage);
+                prevStage = stage;
             }
             
             lanesParent.append(lane);
         }
-        block.append(lanesParent);
-        // Set producers, consumers
-        root.after(jquery("<br/>"));
-        this.published = true;
-        this.root = root;
-        return root;
+        return lanesParent;
     };
     
+    this.GetViewedLaneNum = function () {
+        var lanes = this.OrderedLane();
+        var actives = 0;
+        for (var i = 0; i < lanes.length; i++) {
+            if (this.IsViewedLane(lanes[i])) {
+                actives++;
+            }
+        }
+        return actives;
+    };
+    this.IsViewedLane = function (lane) {
+        return true;
+    };
 
     // stage_b: [[Lane1, stage, start], [Lane2, stage, start], ...]
     // stage_e: [[Lane2, stage ,end], [Lane1, stage, end], ...]
@@ -153,7 +176,6 @@ function OpToHTML (op) {
         }
         this.lane = lane;
         this.ordered = true;
-        console.log(keys.length , " lanes ordered");
         return this.lane;
     };
 }
