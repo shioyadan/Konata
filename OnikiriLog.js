@@ -68,7 +68,7 @@ function OnikiriLog (path) {
         else if (elm[0] == "C") {
             this.cycle += Number(elm[1]);
         } else if (elm[0] == "C=") {
-            this.cycle = Number(elm[1]);
+            //this.cycle = Number(elm[1]);
         }
         return request;
     };
