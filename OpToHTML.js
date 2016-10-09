@@ -44,7 +44,7 @@ function OpToHTML (op) {
         var labels = info.label;
         // Set labels
         for (var i = 0; i < labels.length; i++) {
-            var label = jquery("<span></span>", {"class":"label"});
+            var label = jquery("<div></div>", {"class":"label"});
             label.addClass("type_" + labels[i][0]);
             label.text(labels[i][1]);
             labelsParent.append(label);
