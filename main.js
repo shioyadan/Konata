@@ -60,19 +60,8 @@ app.on('ready', function() {
 
 
 ipc.on('asynchronous-message', function(event, arg) {
-    var onikiri = new OnikiriLog();
-    var kanataData = new KanataData();
-    
-    var lines = text.split("¥n");    
-    for (var i = 0; i < lines.length; i++) {
-        var line = lines[i];
-        var rawDatas = onikiri.ReadLine(line);
-        for (var j = 0; j < rawDatas.length; j++) {
-            var data = rawDatas[j];
-            kanataData.SetDataById(data[0], data[1]);
-        }
-    }
-    console.log("Parse complete");
+    var onikiri = new OnikiriLog("./vis.150.txt");
+    var kanataData = onikiri.Process();
     
     event.sender.send('asynchronous-reply', 'pong');  // 送信元へレスポンスを返す
     console.log("main:recieved message: " + arg[0]);
