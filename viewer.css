@@ -9,6 +9,9 @@
     overflow-x: scroll;
     white-space: nowrap;
 
+    table-layout: fixed;
+    left:5px;
+    height:90%;
     display:table-cell;
     position:absolute;
 }
@@ -16,6 +19,10 @@
     border: 1px solid #666666;
     color: #000000;
 
+    table-layout: fixed;
+    width:65%;
+    height:90%;
+    left:155px;
     display:table-cell;
     position: absolute;
     overflow-x:scroll;
