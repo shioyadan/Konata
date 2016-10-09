@@ -165,7 +165,8 @@ function OpToHTML (op) {
         keys.sort();
         
         var lane = [];
-        for (var key in keys) {
+        for (var i = 0; i < keys.length; i++) {
+            var key = keys[i];
             if (key == baseLane) {
                 // Base laneならば先頭に。
                 lane.unshift(lanes[key]);
