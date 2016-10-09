@@ -20,7 +20,7 @@ function OpToHTML (op) {
     
     this.MakeHTML = function () {
         var info = this.op.info;
-        var start = info.fetch[0][2];
+        var start = Number(info.fetch[0][2]);
         var root = jquery("<div></div>", {"class":"line", "id":"line_" + this.id});
         var labelsParent = jquery("<div></div>", {"class":"labels-parent"});
         var spacer = jquery("<span></span>", {"class":"spacer"});
@@ -65,10 +65,11 @@ function OpToHTML (op) {
                     stage.attr("data-end", s[3]); // Stage end
                     stage.attr("data-width", s[3] - s[2]);
                 }
-                if (j == 0 && (s[2] - start != 0)) {
+                if (j == 0 && (Number(s[2]) - start != 0)) {
                     console.log("Set spacer");
                     var laneSpacer = jquery("<span></span>", {"class":"spacer"});
-                    laneSpacer.attr("data-width", s[2] - start);
+                    laneSpacer.attr("data-width", Number(s[2]) - start);
+                    console.log("Spacer width: ", s[2], " - ", start);
                     lane.append(laneSpacer);
                 //stage.attr("data-relative-pos-top", i);
                 }
