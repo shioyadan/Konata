@@ -54,6 +54,9 @@
     table-layout: fixed;
     overflow-x: scroll;
 }
+.label.type_1 {
+    display: none;
+}
 .stage {
     border: 1px solid #666666;
     min-height: 12px;
