@@ -32,10 +32,10 @@ function Op(id) {
                 case "stage_b":
                 //    this.SetInfoAsArray(key, elm);
                 //    break;
-                case "stage_b": // stage_b: [Lane, Name, Cycle]
+                case "stage_b": // stage_b: [Lane, Stage name, Cycle]
                 //    this.SetStageBegin(key, elm);
                 //    break;
-                case "stage_e": // stage_e: [Lane, Name, Cycle]
+                case "stage_e": // stage_e: [Lane, Stage name, Cycle]
                 //    this.SetStageEnd(key, elm);
                 //    break;
                     this.SetInfoAsArray(key, elm);
