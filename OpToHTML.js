@@ -93,6 +93,11 @@ function OpToHTML (op) {
                 var w = 36 * jquery(this).attr("data-width");
                 console.log (jquery(this).attr("class")) 
                 jquery(this).css("width", w + "px");
+                jquery(this).css("max-width", w + "px");
+                jquery(this).css("min-width", w + "px");
+                if (w == 0) {
+                    jquery(this).css("display", "none");
+                }
             }
         );
         this.root.find("[data-relative-pos-left]").each(
