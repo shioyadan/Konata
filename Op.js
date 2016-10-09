@@ -53,9 +53,6 @@ function Op(id) {
     
     this.SetInfoAsArray = function(key, elm) {
         var info = this.info;
-        if (key == "fetch") {
-            console.log("Cycle:", elm[2]);
-        }
         if (info[key] == null) {
             info[key] = [elm];
         } else {
