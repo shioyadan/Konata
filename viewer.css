@@ -28,8 +28,7 @@
     overflow-x:scroll;
 }
 /*----------------------------*/
-.labels-parent .pipeline{
-    border: 1px solid #666666;
+.labels-parent, .pipeline{
     min-height: 72px;
     max-height: 72px;
 }
