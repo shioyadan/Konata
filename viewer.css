@@ -59,6 +59,8 @@
 }
 .stage {
     border: 1px solid #666666;
+    box-sizing:border-box;
+    background-color: #777777;
     min-height: 12px;
     max-height: 12px;
     min-width: 36px;
