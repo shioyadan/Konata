@@ -1,9 +1,40 @@
-function OnikiriLog (cycle) {
-    if (cycle) {
-        this.cycle = cycle;
-    } else {
-        this.cycle = 0;
+var fs = require('fs');
+var KanataData = require("./KanataData");
+var Op = require("./Op");
+
+function OnikiriLog (path) {
+    this.cycle = 0;
+    this.path = path;
+    if (path == null) {
+        return;
     }
+    var buf = fs.readFileSync(path);
+    this.text = buf.toString();
+    //console.log(this.text);
+    
+    this.Process = function () {
+        if (this.text == null) {
+            // error;
+            
+            return;
+        }
+        var kanataData = new KanataData();
+        var lines = this.text.split('\n');
+        console.log("Process start! Lines:", lines.length);
+
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            var rawDatas = this.ReadLine(line);
+            for (var j = 0; j < rawDatas.length; j++) {
+                var data = rawDatas[j];
+                kanataData.SetDataById(data[0], data[1]);
+            }
+            //console.log(i);
+        }
+        console.log("Parse complete");
+        return kanataData;
+    }
+    
     this.ReadLine = function (line) {
         var request = [];
         var mapping = {
