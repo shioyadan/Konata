@@ -5,7 +5,7 @@ var jquery = require("./jquery.js");
 // 非同期通信
 ipc.on('asynchronous-message', function(event, arg) {
     //event.sender.send('asynchronous-reply', 'pong');  // 送信元へレスポンスを返す
-    console.log("function:recieved message: " + arg[0]);
+    //console.log("function:recieved message: " + arg[0]);
     var message = arg[0];
     if (message == 'Draw') {
         var ops = arg[1].ops;
@@ -18,7 +18,7 @@ ipc.on('asynchronous-message', function(event, arg) {
             Resize(op.node());
             var label = op.node().find(".labels-parent");
             var pipeline = op.node().find(".pipeline");
-            var lineHeight = 24;//pipeline.css("max-height");
+            var lineHeight = pipeline.css("max-height");
 
             label.css("height", lineHeight + "px");
             pipeline.css("height", lineHeight + "px");
@@ -33,7 +33,7 @@ function Resize(node) {
     node.find("[data-width]").each(
         function() {
             var w = 36 * jquery(this).attr("data-width");
-            console.log (jquery(this).attr("class")) 
+            //console.log (jquery(this).attr("class")) 
             jquery(this).css("width", w + "px");
             jquery(this).css("max-width", w + "px");
             jquery(this).css("min-width", w + "px");
@@ -44,8 +44,8 @@ function Resize(node) {
     );
     node.find("[data-height]").each(
         function() {
-            var w = 48 * jquery(this).attr("data-height");
-            console.log (jquery(this).attr("class")) 
+            var w = 24 * jquery(this).attr("data-height");
+            //console.log (jquery(this).attr("class")) 
             jquery(this).css("height", w + "px");
             jquery(this).css("max-height", w + "px");
             jquery(this).css("min-height", w + "px");
@@ -64,7 +64,7 @@ function Resize(node) {
     node.find("[data-relative-pos-top]").each(
         function() {
             var h = 12 * jquery(this).attr("data-relative-pos-top");
-            console.log("Pos top:", h, "px");
+            //console.log("Pos top:", h, "px");
             //jquery(this).css("position", "absolute");
             jquery(this).css("top", h + "px");
         }
