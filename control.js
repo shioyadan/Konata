@@ -8,7 +8,8 @@ control.left = true;
 control.mouse = false;
 control.mouseX = Array(0,0);
 control.mouseY = Array(0,0);
-
+control.zoom = {w:2, h:2};
+control.resizeing = false;
 
 function WindowResize() {
     var tab = jquery(".tab");
@@ -22,7 +23,39 @@ function WindowResize() {
     l_window.css("width", l_width + "px");
     p_window.css("left", p_left + "px");
     p_window.css("width", p_width + "px");
-    //console.log(jquery(window).width());
+}
+
+function Zoom(dir) {
+    if (control.resizeing) {
+        return;
+    }
+    control.resizeing = true;
+    if (dir) {
+        control.zoom.w = control.zoom.w * 1.2;
+        control.zoom.h = control.zoom.h * 1.2;
+        if (control.zoom.w > 24) {
+            control.zoom.w = 24;
+        }
+        if (control.zoom.h > 24) {
+            control.zoom.h = 24;
+        }
+    } else {
+        control.zoom.w = control.zoom.w / 1.2;
+        control.zoom.h = control.zoom.h / 1.2;
+        if (control.zoom.w < 0.02) {
+            control.zoom.w = 0.02;
+        }
+        if (control.zoom.h < 0.02) {
+            control.zoom.h = 0.02;
+        }
+    }
+    var tab = jquery(".tab");
+    Resize(tab, control.zoom);
+    control.resizeing = false;
+}
+
+function GetCenter () {
+    
 }
 
 jquery(window).ready(function(){
@@ -33,11 +66,15 @@ jquery(window).ready(function(){
     var p_cell = tab.find(".pipelines-cell");
     
     p_window.scroll (function() {
-        if (control.mouse) {
-            //return;
-        }
         l_window.scrollTop(p_window.scrollTop());
         ScrollLeft(p_window);
+    });
+    p_window.dblclick(function(){
+        console.log("Double click!");
+        Zoom(true);
+    });
+    p_window.contextmenu(function(){
+        
     });
     l_window.scroll (function() {
         p_window.scrollTop(l_window.scrollTop());
@@ -56,6 +93,20 @@ jquery(window).ready(function(){
         WindowResize();
     });
     OnDrag(p_cell);
+    
+    p_window.mousewheel(function(e, delta, deltaX, deltaY){
+        if (e.ctrlKey) {
+            if (event.preventDefault) {
+                // デフォルトのスクロール処理をキャンセル
+                event.preventDefault();
+            }
+            if (deltaY > 0) {
+                Zoom(true);
+            } else {
+                Zoom(false);
+            }
+        }
+    });
 });
 
 function Sum(array) {
@@ -70,7 +121,6 @@ function OnDrag (obj) {
     var tab = jquery(".tab");
     var p_window = tab.find(".pipelines-window");
     obj.on("mousedown", function (e) {
-        console.log("pipeline cell click!");
         control.mouse = true;
         control.initialX = e.screenX;
         control.initialY = e.screenY;
@@ -80,7 +130,6 @@ function OnDrag (obj) {
         control.positionX = p_window.scrollLeft();
     });
     obj.on("mousemove", function (e) {
-        console.log("mouse move");
         if (control.mouse) {
             var top = control.positionY;
             var left = control.positionX;
@@ -103,12 +152,9 @@ function OnDrag (obj) {
         }
     });
     obj.on("mouseup", function(e) {
-        console.log("mouse release!");
         control.mouse = false;
     });
     obj.on("mouseleave", function(e) {
-        //console.log("mouse release!");
-        //control.mouse = false;
     });
 }
 

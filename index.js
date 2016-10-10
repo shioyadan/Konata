@@ -25,15 +25,21 @@ ipc.on('asynchronous-message', function(event, arg) {
             l_window.append(label);
             p_window.append(pipeline);
         }
-        Resize(tab);
+        Resize(tab, control.zoom);
     }
 });
 
 
-function Resize(node) {
+function Resize(node, optBaseSize) {
+    var baseSize; // javascript的にここで宣言する意味は特にない。
+    if (optBaseSize == null) {
+        baseSize = {"w":0.3, "h": 0.2};
+    } else {
+        baseSize = optBaseSize;
+    }
     node.find("[data-width]").each(
         function() {
-            var w = 36 * jquery(this).attr("data-width");
+            var w = baseSize.w * jquery(this).attr("data-width");
             //console.log (jquery(this).attr("class")) 
             jquery(this).css("width", w + "px");
             jquery(this).css("max-width", w + "px");
@@ -45,26 +51,34 @@ function Resize(node) {
     );
     node.find("[data-height]").each(
         function() {
-            var w = 24 * jquery(this).attr("data-height");
+            var h = baseSize.h * jquery(this).attr("data-height");
             //console.log (jquery(this).attr("class")) 
-            jquery(this).css("height", w + "px");
-            jquery(this).css("max-height", w + "px");
-            jquery(this).css("min-height", w + "px");
-            if (w == 0) {
+            jquery(this).css("height", h + "px");
+            jquery(this).css("max-height", h + "px");
+            jquery(this).css("min-height", h + "px");
+            if (h == 0) {
                 jquery(this).css("display", "none");
             }
         }
     );
+    var h = baseSize.h * node.find("[data-height]").attr("data-height");
+    if (h < 14) {
+        node.find(".label").css("visibility", "hidden");
+        //node.find(".stage").css("visibility", "hidden");
+    } else {
+        node.find(".label").css("visibility", "visible");
+        //node.find(".stage").css("visibility", "visible");
+    }
     node.find("[data-relative-pos-left]").each(
         function() {
-            var w = 36 * jquery(this).attr("data-relative-pos-left");
+            var w = baseSize.w * jquery(this).attr("data-relative-pos-left");
             //jquery(this).css("position", "absolute");
             jquery(this).css("left", w + "px");
         }
     );
     node.find("[data-relative-pos-top]").each(
         function() {
-            var h = 12 * jquery(this).attr("data-relative-pos-top");
+            var h = baseSize.h * jquery(this).attr("data-relative-pos-top");
             //console.log("Pos top:", h, "px");
             //jquery(this).css("position", "absolute");
             jquery(this).css("top", h + "px");
