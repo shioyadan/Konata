@@ -10,11 +10,49 @@ function OnikiriLog (path) {
     }
     var buf = fs.readFileSync(path);
     this.text = buf.toString();
+
+    this.AsyncProcess = function(callback) {
+        if (this.text == null) {
+            // error;
+            return;
+        }
+        this.kanataData = new KanataData();
+        this.lines = this.text.split('\n');
+        max = 500;
+        while (this.lines.length > 0) {
+            this.AsyncReadLines(max).then(function(ops){callback(ops)});
+            max += 2000;
+        }
+    };
+
+    this.AsyncReadLines = function(max) {
+        var i = 0;
+        var len = this.lines.length;
+        while (len - i > 0 && i < max) {
+            var rawDatas = this.ReadLine(this.lines.shift());
+            for (var j = 0, len_in = rawDatas.length; j < len_in; j++) {
+                var data = rawDatas[j];
+                this.kanataData.SetDataById(data[0], data[1]);
+            }
+            i++;
+        }
+        var ops = [];
+        var linesEmpty = !(len - i > 0);
+        for (var i = 0, len = this.kanataData.ops.length; i < len; i++) {
+            var op = this.kanataData.ops[0];
+            if (op.retired || linesEmpty) {
+                ops.push(op);
+                this.kanataData.ops.shift();
+            } else {
+                break;
+            }
+        }
+        return new Promise(function(callback) {callback(ops);});
+    }
     
     this.Process = function () {
         if (this.text == null) {
             // error;
-            
             return;
         }
         var kanataData = new KanataData();
@@ -66,6 +104,7 @@ function OnikiriLog (path) {
             this.cycle += Number(elm[1]);
         } else if (elm[0] == "C=") {
             //this.cycle = Number(elm[1]);
+            this.cycle = 0;
         }
         return request;
     };
