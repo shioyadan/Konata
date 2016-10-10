@@ -10,7 +10,6 @@ function OnikiriLog (path) {
     }
     var buf = fs.readFileSync(path);
     this.text = buf.toString();
-    //console.log(this.text);
     
     this.Process = function () {
         if (this.text == null) {
@@ -29,7 +28,6 @@ function OnikiriLog (path) {
                 var data = rawDatas[j];
                 kanataData.SetDataById(data[0], data[1]);
             }
-            //console.log(i);
         }
         console.log("Parse complete");
         return kanataData;
