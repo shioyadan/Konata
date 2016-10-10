@@ -20,11 +20,10 @@ function OnikiriLog (path) {
         var kanataData = new KanataData();
         var lines = this.text.split('\n');
         console.log("Process start! Lines:", lines.length);
-
-        for (var i = 0; i < lines.length; i++) {
+        for (var i = 0, len = lines.length; i < len; i++) {
             var line = lines[i];
             var rawDatas = this.ReadLine(line);
-            for (var j = 0; j < rawDatas.length; j++) {
+            for (var j = 0, len_in = rawDatas.length; j < len_in; j++) {
                 var data = rawDatas[j];
                 kanataData.SetDataById(data[0], data[1]);
             }
@@ -50,7 +49,7 @@ function OnikiriLog (path) {
         elm.push(this.cycle);
         var id = elm[1];
         if (mapping[elm[0]]) {
-            for (var i = 0; i < mapping[elm[0]].length; i++) {
+            for (var i = 0, len = mapping[elm[0]].length; i < len; i++) {
                 var key = mapping[elm[0]][i];
                 var args = elm.slice(2);
                 if (key == "cons") {

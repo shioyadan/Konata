@@ -23,7 +23,7 @@ function KanataData() {
     
     this.GetOpById = function(id) {
         var ops = this.ops;
-        for (var i = 0; i < ops.length; i++) {
+        for (var i = 0, len = ops.length; i < len; i++) {
             var op = ops[i];
             if (op.id == id) {
                 return op;
@@ -41,7 +41,7 @@ function KanataData() {
 
     this.Print = function () {
         var ops = this.ops;
-        for (var i = 0; i < ops.length; i++) {
+        for (var i = 0, len = ops.length; i < len; i++) {
             var op = ops[i];
             op.PrintOpInfo();
         }

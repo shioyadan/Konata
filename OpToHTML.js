@@ -46,7 +46,7 @@ function OpToHTML (op) {
         }
         var labels = info.label;
         // Set labels
-        for (var i = 0; i < labels.length; i++) {
+        for (var i = 0, len = labels.length; i < len; i++) {
             var label = jquery("<div></div>", {"class":"label"});
             label.addClass("type_" + labels[i][0]);
             label.text(labels[i][1]);
@@ -66,12 +66,12 @@ function OpToHTML (op) {
         var activeNum = this.GetViewedLaneNum();
         var height = 1/activeNum;
         var lanesParent = jquery("<div></div>", {"class": "lanes-parent"});
-        for (var i = 0; i < lanes.length; i++) {
+        for (var i = 0, len = lanes.length; i < len; i++) {
             var lane = jquery("<div></div>", {"class":"lane"});
             var prevStage;
             var stage, begin, finish, laneBegin, laneEnd;
             lane.addClass("lane_" + lanes[i][0][0]);
-            for (var j = 0; j < lanes[i].length; j++) {
+            for (var j = 0, len_in = lanes[i].length; j < len_in; j++) {
                 var array = lanes[i][j];
                 begin = array[2]; // Stage begin
                 finish = array[3]; // Stage end
@@ -125,7 +125,7 @@ function OpToHTML (op) {
     this.GetViewedLaneNum = function () {
         var lanes = this.OrderedLane();
         var actives = 0;
-        for (var i = 0; i < lanes.length; i++) {
+        for (var i = 0, len = lanes.length; i < len; i++) {
             if (this.IsViewedLane(lanes[i])) {
                 actives++;
             }
@@ -154,7 +154,7 @@ function OpToHTML (op) {
         var stage_b = this.op.info.stage_b;
         var stage_e = this.op.info.stage_e;
         // まずは、Lane名ごとに配列を分ける。
-        for (var i = 0; i < stage_b.length; i++) {
+        for (var i = 0, len = stage_b.length; i < len; i++) {
             var info = stage_b[i];
             var name = info[0];
             if(lanes[name] == null) {
@@ -163,25 +163,27 @@ function OpToHTML (op) {
             lanes[name].push(info);
         }
         // ステージの終了情報をくっつける
-        for (var i = 0; stage_e && i < stage_e.length; i++) {
-            // ログを意図的に切った場合は，stage_eがないこともある．
-            var info = stage_e[i];
-            var name = info[0];
-            var stage = info[1];
-            var endCycle = info[2];
-            var found = false;
-            for (var j = 0; j < lanes[name].length; j++) {
-                var lane = lanes[name][j];
-                if (lane[1] == stage) {
-                    lane.push(endCycle);
-                    found = true;
-                    break;
+        if (stage_e) {
+            for (var i = 0, len = stage_e.length; i < len; i++) {
+                // ログを意図的に切った場合は，stage_eがないこともある．
+                var info = stage_e[i];
+                var name = info[0];
+                var stage = info[1];
+                var endCycle = info[2];
+                var found = false;
+                for (var j = 0; j < lanes[name].length; j++) {
+                    var lane = lanes[name][j];
+                    if (lane[1] == stage) {
+                        lane.push(endCycle);
+                        found = true;
+                        break;
+                    }
                 }
-            }
-            if (!found) {
-                // ステージの終了だけがダンプされていることはありえない。
-                // エラー処理;
-                return;
+                if (!found) {
+                    // ステージの終了だけがダンプされていることはありえない。
+                    // エラー処理;
+                    return;
+                }
             }
         }
         // 並び順が一意になるようにソート。
@@ -192,7 +194,7 @@ function OpToHTML (op) {
         keys.sort();
         
         var lane = [];
-        for (var i = 0; i < keys.length; i++) {
+        for (var i = 0, len = keys.length; i < len; i++) {
             var key = keys[i];
             if (key == baseLane) {
                 // Base laneならば先頭に。

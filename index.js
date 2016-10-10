@@ -13,7 +13,7 @@ ipc.on('asynchronous-message', function(event, arg) {
         var l_window = tab.find(".labels-window");
         var p_window = tab.find(".pipelines-window");
         l_window.empty(); p_window.empty();
-        for (var i = 0; i < ops.length; i++) {
+        for (var i = 0, len = ops.length; i < len; i++) {
             op = new OpToHTML(ops[i]);
             Resize(op.node());
             var label = op.node().find(".labels-parent");
