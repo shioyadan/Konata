@@ -51,16 +51,15 @@ jquery(window).ready(function(){
 
 function ScrollLeft(obj) {
     var height = parseInt(obj.find(".pipeline").css("max-height"));
-    var prev = control.position;
+    var prevIndex = control.position;
     var now = obj.scrollTop() + height/2;
-    var prevIndex = parseInt(prev/height);
     var nowIndex = parseInt(now/height);
     if (control.left && nowIndex != prevIndex) {
         var distance = CalcPipelineDistance(prevIndex, nowIndex);
         var left = obj.scrollLeft();
         obj.scrollLeft(left + distance);
     }
-    control.position = now;
+    control.position = nowIndex;
 }
 
 function CalcPipelineDistance (prev, now) {
