@@ -50,9 +50,9 @@ jquery(window).ready(function(){
 });
 
 function ScrollLeft(obj) {
-    var prev = control.position;
-    var now = obj.scrollTop();
     var height = parseInt(obj.find(".pipeline").css("max-height"));
+    var prev = control.position;
+    var now = obj.scrollTop() + height/2;
     var prevIndex = parseInt(prev/height);
     var nowIndex = parseInt(now/height);
     if (control.left && nowIndex != prevIndex) {
