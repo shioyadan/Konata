@@ -86,11 +86,13 @@ span.stage {
 }
 
 div.lane_0 span.stage_F {
-    background-color: #ee88ee;
+    /*background-color: #ee88ee;*/
+    background: linear-gradient(to bottom, #ffaaff, #ee88ee);
 }
 
 div.lane_0 span.stage_Rn {
-    background-color: #88ff88;
+    /*background-color: #88ff88;*/
+    background: linear-gradient(to bottom, #aaffaa, #88ff88);
 }
 
 div.lane_2 span[class*="stage_iX"] {
