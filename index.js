@@ -1,6 +1,7 @@
 var ipc = require("electron").ipcRenderer;
 var OpToHTML = require("./OpToHTML");
 var jquery = require("./jquery");
+var jQuery = jquery;
 
 // 非同期通信
 ipc.on('asynchronous-message', function(event, arg) {
