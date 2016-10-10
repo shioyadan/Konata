@@ -83,6 +83,7 @@ function OpToHTML (op) {
                 stage.text(array[1]);
                 stage.attr("data-begin", begin); 
                 stage.attr("data-relative-pos-left", begin); 
+                stage.attr("data-height", 1);
                 //stage.attr("data-relative-pos-top", i);
                 if (finish) {
                     stage.attr("data-end", finish); // Stage end
@@ -112,6 +113,7 @@ function OpToHTML (op) {
             filter.attr("data-end", laneEnd);
             filter.attr("data-width", laneEnd - laneBegin);
             filter.attr("data-relative-pos-left", laneBegin);
+            filter.attr("data-height", 1);
             if (flushed) {
                 filter.css("opacity", 0.5);
                 filter.css("background-color", "#000");

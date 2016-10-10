@@ -12,20 +12,20 @@ ipc.on('asynchronous-message', function(event, arg) {
         var ops = arg[1].ops;
         var tab = jquery(".tab");
         var l_window = tab.find(".labels-window");
-        var p_window = tab.find(".pipelines-window");
+        var p_window = tab.find(".pipelines-cell");
         l_window.empty(); p_window.empty();
         for (var i = 0, len = ops.length; i < len; i++) {
             op = new OpToHTML(ops[i]);
-            Resize(op.node());
             var label = op.node().find(".labels-parent");
             var pipeline = op.node().find(".pipeline");
             var lineHeight = pipeline.css("max-height");
-
-            label.css("height", lineHeight + "px");
-            pipeline.css("height", lineHeight + "px");
+            p_window.attr("data-height", i);
+            label.attr("data-height", 1);
+            pipeline.attr("data-height", 1);
             l_window.append(label);
             p_window.append(pipeline);
         }
+        Resize(tab);
     }
 });
 
