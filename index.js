@@ -9,11 +9,11 @@ ipc.on('asynchronous-message', function(event, arg) {
     //console.log("function:recieved message: " + arg[0]);
     var message = arg[0];
     if (message == 'Draw') {
-        var ops = arg[1].ops;
+        var ops = arg[1];
         var tab = jquery(".tab");
         var l_window = tab.find(".labels-window");
         var p_window = tab.find(".pipelines-cell");
-        l_window.empty(); p_window.empty();
+        //l_window.empty(); p_window.empty();
         for (var i = 0, len = ops.length; i < len; i++) {
             op = new OpToHTML(ops[i]);
             var label = op.node().find(".labels-parent");

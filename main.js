@@ -46,15 +46,12 @@ app.on('ready', function() {
 
 
 ipc.on('asynchronous-message', function(event, arg) {
-    var onikiri = new OnikiriLog("./vis.150.txt");
-    var kanataData = onikiri.Process();
-    
-    event.sender.send('asynchronous-reply', 'pong');  // 送信元へレスポンスを返す
-    console.log("main:recieved message: " + arg[0]);
-    var op = kanataData.ops[0];
-    console.log(op.info.fetch[0]);
-    mainWindow.webContents
-        .send('asynchronous-message', ['Draw', kanataData]);
-    }
-);
+    var onikiri = new OnikiriLog("./vis.1500000.log");
+    onikiri.AsyncProcess(SendOps);
+});
 
+function SendOps(ops) {
+    //console.log("aaa");
+    mainWindow.webContents
+        .send('asynchronous-message', ['Draw', ops]);
+}
