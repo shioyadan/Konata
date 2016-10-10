@@ -7,7 +7,7 @@
     display:table-row;
 }
 /* span要素同士は横に並べたいので table-cell */
-.labels-window, .pipelines-window, .spacer, .block, .stage {
+.labels-window, .pipelines-window, .spacer, .block {
     display: table-cell;
     table-layout: fixed;
 }
@@ -42,6 +42,7 @@
 .lane {
     min-height: 24px;
     max-height: 24px;
+    position: relative;
 }
 
 .label {
@@ -53,12 +54,20 @@
 .stage {
     border: 1px solid #666666;
     box-sizing:border-box;
-    background-color: #777777;
+    background-color: #bbb;
     min-height: 24px;
     max-height: 24px;
     min-width: 36px;
-    table-layout: fixed;
+    /*table-layout: fixed;*/
     overflow: hidden;
+    position: absolute;
+}
+
+.cannot-set-end {
+    background-color: #777 !important;
+}
+.stage.filter {
+    background-color: transparent;
 }
 
 div.lane.0 {
@@ -76,6 +85,6 @@ div.lane_0 span.stage_Rn {
     background-color: #88ff88;
 }
 
-div.lane_1 span.stage_iX {
-    background-color: #447744;
+div.lane_2 span[class*="stage_iX"] {
+    background-color: #ff7744;
 }
