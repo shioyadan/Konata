@@ -53,7 +53,7 @@ function OpToHTML (op) {
             labelsParent.append(label);
         }
         // Set lanes
-        block.append(this.MakeLanesHTML(start, end));
+        block.append(this.MakeLanesHTML(start, end, flush));
         // Set producers, consumers
         
         this.published = true;
@@ -61,7 +61,7 @@ function OpToHTML (op) {
         return root;
     };
     
-    this.MakeLanesHTML = function (start, end) {
+    this.MakeLanesHTML = function (start, end, flushed) {
         var lanes = this.OrderedLane();
         var activeNum = this.GetViewedLaneNum();
         var height = 1/activeNum;
@@ -69,33 +69,34 @@ function OpToHTML (op) {
         for (var i = 0; i < lanes.length; i++) {
             var lane = jquery("<div></div>", {"class":"lane"});
             var prevStage;
-            var stage;
+            var stage, begin, finish, laneBegin, laneEnd;
             lane.addClass("lane_" + lanes[i][0][0]);
             for (var j = 0; j < lanes[i].length; j++) {
                 var array = lanes[i][j];
+                begin = array[2]; // Stage begin
+                finish = array[3]; // Stage end
+                if (j == 0) {
+                    laneBegin = begin;
+                }
                 stage = jquery("<span></span>", {"class":"stage"});
                 stage.addClass("stage_" + array[1]); // Stage name
                 stage.text(array[1]);
-                stage.attr("data-begin", array[2]); // Stage start
-                stage.attr("data-relative-pos-left", array[2]); 
+                stage.attr("data-begin", begin); 
+                stage.attr("data-relative-pos-left", begin); 
                 //stage.attr("data-relative-pos-top", i);
-                if (array[3]) {
-                    stage.attr("data-end", array[3]); // Stage end
-                    stage.attr("data-width", array[3] - array[2]);
+                if (finish) {
+                    stage.attr("data-end", finish); // Stage end
+                    stage.attr("data-width", finish - begin);
+                    laneEnd = finish;
                 } else {
                     stage.addClass("cannot-set-end");
                 }
                 if (prevStage != null && prevStage.attr("data-end") == null) {
-                    prevStage.attr("data-end", array[2]);
-                    prevStage.attr("data-width", array[2] - prevStage.attr("data-begin"));
+                    prevStage.attr("data-end", begin);
+                    prevStage.attr("data-width", begin - prevStage.attr("data-begin"));
                     prevStage.removeClass("cannot-set-end");
                 }
-                if (j == 0 && (Number(array[2]) - start != 0)) {
-                    var laneSpacer = jquery("<span></span>", {"class":"spacer"});
-                    laneSpacer.attr("data-width", Number(array[2]) - start);
-                    lane.append(laneSpacer);
-                }
-                stage.attr("data-height", height);
+                //stage.attr("data-height", height);
                 lane.append(stage);
                 prevStage = stage;
             }
@@ -103,7 +104,19 @@ function OpToHTML (op) {
                 stage.attr("data-end", end);
                 stage.attr("data-width", end - lane.attr("data-begin"));
                 stage.removeClass("cannot-set-end");
+                laneEnd = end;
             }
+            var filter = jquery("<span></span>", {"class":"filter"});
+            filter.addClass("stage");
+            filter.attr("data-begin", laneBegin);
+            filter.attr("data-end", laneEnd);
+            filter.attr("data-width", laneEnd - laneBegin);
+            filter.attr("data-relative-pos-left", laneBegin);
+            if (flushed) {
+                filter.css("opacity", 0.5);
+                filter.css("background-color", "#000");
+            }
+            lane.append(filter);
             lanesParent.append(lane);
         }
         return lanesParent;
