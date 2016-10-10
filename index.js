@@ -2,20 +2,6 @@ var ipc = require("electron").ipcRenderer;
 var OpToHTML = require("./OpToHTML");
 var jquery = require("./jquery");
 
-jquery(window).ready(function(){
-    var tab = jquery(".tab");
-    var l_window = tab.find(".labels-window");
-    var p_window = tab.find(".pipelines-window");
-    p_window.html("test message");
-    p_window.scroll (function() {
-        l_window.scrollTop(p_window.scrollTop());
-    });
-    l_window.scroll (function() {
-        p_window.scrollTop(l_window.scrollTop());
-    });
-    //});
-});
-
 // 非同期通信
 ipc.on('asynchronous-message', function(event, arg) {
     //event.sender.send('asynchronous-reply', 'pong');  // 送信元へレスポンスを返す
