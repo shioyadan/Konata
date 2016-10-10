@@ -17,21 +17,7 @@ var ipc = electron.ipcMain;
 var KanataData = require("./KanataData");
 var Op = require("./Op");
 var OnikiriLog = require("./OnikiriLog");
-
-var text = "Kanata	0004¥n" +
-    "C=	1¥n" +
-    "I	0	0	0¥n" +
-    "L	0	0	12000d918 r4 = iALU(r3, r2)¥n" +
-    "S	0	0	F¥n" +
-    "I	1	1	0¥n" +
-    "L	1	0	12000d91c iBC(r17)¥n" +
-    "S	1	0	F¥n" +
-    "C	1¥n" +
-    "E	0	0	F¥n" +
-    "S	0	0	Rn¥n" +
-    "S	0	1	iX¥n" +
-    "E	1	0	F¥n" +
-    "S	1	0	Rn¥n"	// 命令1のFステージ開始
+//var Module = require("./Module");
     
 //var mo = require("./Module");
 
