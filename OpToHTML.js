@@ -35,10 +35,14 @@ function OpToHTML (op) {
         root.append(pipeline);
         block.append(op);
         var end, flush;
-        if (info.retired) {
+        if (this.op.retired) {
             end = info.retire[0][2];
-            flush = info.retire[0][1];
+            flush = Number(info.retire[0][1]);
             op.attr("data-width", end - start);
+            console.log("Op retired ", flush);
+        }
+        if (flush == 1) {
+            pipeline.addClass("flushed");
         }
         var labels = info.label;
         // Set labels
@@ -49,7 +53,7 @@ function OpToHTML (op) {
             labelsParent.append(label);
         }
         // Set lanes
-        block.append(this.MakeLanesHTML(start));
+        block.append(this.MakeLanesHTML(start, end));
         // Set producers, consumers
         
         this.published = true;
@@ -57,7 +61,7 @@ function OpToHTML (op) {
         return root;
     };
     
-    this.MakeLanesHTML = function (start) {
+    this.MakeLanesHTML = function (start, end) {
         var lanes = this.OrderedLane();
         var activeNum = this.GetViewedLaneNum();
         var height = 1/activeNum;
@@ -65,20 +69,26 @@ function OpToHTML (op) {
         for (var i = 0; i < lanes.length; i++) {
             var lane = jquery("<div></div>", {"class":"lane"});
             var prevStage;
+            var stage;
             lane.addClass("lane_" + lanes[i][0][0]);
             for (var j = 0; j < lanes[i].length; j++) {
                 var array = lanes[i][j];
-                var stage = jquery("<span></span>", {"class":"stage"});
+                stage = jquery("<span></span>", {"class":"stage"});
                 stage.addClass("stage_" + array[1]); // Stage name
                 stage.text(array[1]);
                 stage.attr("data-begin", array[2]); // Stage start
+                stage.attr("data-relative-pos-left", array[2]); 
+                //stage.attr("data-relative-pos-top", i);
                 if (array[3]) {
                     stage.attr("data-end", array[3]); // Stage end
                     stage.attr("data-width", array[3] - array[2]);
+                } else {
+                    stage.addClass("cannot-set-end");
                 }
                 if (prevStage != null && prevStage.attr("data-end") == null) {
                     prevStage.attr("data-end", array[2]);
                     prevStage.attr("data-width", array[2] - prevStage.attr("data-begin"));
+                    prevStage.removeClass("cannot-set-end");
                 }
                 if (j == 0 && (Number(array[2]) - start != 0)) {
                     var laneSpacer = jquery("<span></span>", {"class":"spacer"});
@@ -89,7 +99,11 @@ function OpToHTML (op) {
                 lane.append(stage);
                 prevStage = stage;
             }
-            
+            if (stage &&stage.attr("data-end") == null && end != null) {
+                stage.attr("data-end", end);
+                stage.attr("data-width", end - lane.attr("data-begin"));
+                stage.removeClass("cannot-set-end");
+            }
             lanesParent.append(lane);
         }
         return lanesParent;
@@ -136,7 +150,8 @@ function OpToHTML (op) {
             lanes[name].push(info);
         }
         // ステージの終了情報をくっつける
-        for (var i = 0; i < stage_e.length; i++) {
+        for (var i = 0; stage_e && i < stage_e.length; i++) {
+            // ログを意図的に切った場合は，stage_eがないこともある．
             var info = stage_e[i];
             var name = info[0];
             var stage = info[1];
