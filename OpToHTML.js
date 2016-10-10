@@ -25,15 +25,14 @@ function OpToHTML (op) {
         this.root = root;
         var labelsParent = jquery("<div></div>", {"class":"labels-parent"});
         var spacer = jquery("<span></span>", {"class":"spacer"});
-        var pipeline = jquery("<div></div>", {"class":"pipeline"});
         var block = jquery("<span></span>", {"class":"block"});
+        var pipeline = jquery("<div></div>", {"class":"pipeline"});
+        var op = jquery("<div></div>", {"id":"op_" + this.op.id, "class":"op"});
         spacer.attr("data-width", start);
-        //block.attr("data-relative-pos-left", start);
         root.append(labelsParent);
         pipeline.append(spacer);
         pipeline.append(block);
         root.append(pipeline);
-        var op = jquery("<div></div>", {"id":"op_" + this.op.id, "class":"op"});
         block.append(op);
         var end, flush;
         if (info.retired) {
