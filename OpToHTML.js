@@ -39,7 +39,6 @@ function OpToHTML (op) {
             end = info.retire[0][2];
             flush = Number(info.retire[0][1]);
             op.attr("data-width", end - start);
-            console.log("Op retired ", flush);
         }
         if (flush == 1) {
             pipeline.addClass("flushed");
