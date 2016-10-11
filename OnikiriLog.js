@@ -49,8 +49,8 @@ function OnikiriLog (path) {
         }
         return new Promise(function(callback) {callback(ops);});
     }
-    
-    this.Process = function () {
+
+    this.Process = function (callback) {
         if (this.text == null) {
             // error;
             return;
@@ -67,9 +67,10 @@ function OnikiriLog (path) {
             }
         }
         console.log("Parse complete");
+        callback(kanataData.ops);
         return kanataData;
     }
-    
+
     this.ReadLine = function (line) {
         var request = [];
         var mapping = {
