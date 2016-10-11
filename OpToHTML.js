@@ -4,7 +4,7 @@ function OpToHTML (op) {
     this.op = op;
     this.published = false;
     this.ordered = false;
-    
+
     this.node = function () {
         if (!this.published) {
             this.MakeHTML();
@@ -17,7 +17,7 @@ function OpToHTML (op) {
         }
         return this.root.prop('outerHTML');;
     };
-    
+
     this.MakeHTML = function () {
         var info = this.op.info;
         var start = Number(info.fetch[0][2]);
@@ -52,14 +52,14 @@ function OpToHTML (op) {
             labelsParent.append(label);
         }
         // Set lanes
-        block.append(this.MakeLanesHTML(start, end, flush));
+        //block.append(this.MakeLanesHTML(start, end, flush));
         // Set producers, consumers
-        
+
         this.published = true;
         //this.Resize();
         return root;
     };
-    
+
     this.MakeLanesHTML = function (start, end, flushed) {
         var lanes = this.OrderedLane();
         var activeNum = this.GetViewedLaneNum();
@@ -80,8 +80,8 @@ function OpToHTML (op) {
                 stage = jquery("<span></span>", {"class":"stage"});
                 stage.addClass("stage_" + array[1]); // Stage name
                 stage.text(array[1]);
-                stage.attr("data-begin", begin); 
-                stage.attr("data-relative-pos-left", begin); 
+                stage.attr("data-begin", begin);
+                stage.attr("data-relative-pos-left", begin);
                 stage.attr("data-height", 1);
                 //stage.attr("data-relative-pos-top", i);
                 if (finish) {
@@ -122,7 +122,7 @@ function OpToHTML (op) {
         }
         return lanesParent;
     };
-    
+
     this.GetViewedLaneNum = function () {
         var lanes = this.OrderedLane();
         var actives = 0;
@@ -193,7 +193,7 @@ function OpToHTML (op) {
             keys.push(key);
         }
         keys.sort();
-        
+
         var lane = [];
         for (var i = 0, len = keys.length; i < len; i++) {
             var key = keys[i];
