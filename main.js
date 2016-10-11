@@ -9,7 +9,7 @@ const {BrowserWindow} = electron;
 // 起動URL
 var currentURL = 'file://' + __dirname + '/index.html';
 // クラッジュレポーター
-require('crash-reporter').start();
+//require('crash-reporter').start();
 // メインウィンドウはGCされないようにグローバル宣言
 var mainWindow = null;
 var ipc = electron.ipcMain;
@@ -18,7 +18,7 @@ var KanataData = require("./KanataData");
 var Op = require("./Op");
 var OnikiriLog = require("./OnikiriLog");
 //var Module = require("./Module");
-    
+
 //var mo = require("./Module");
 
 // 全てのウィンドウが閉じたら終了
@@ -29,14 +29,12 @@ app.on('window-all-closed', function() {
 });
 // Electronの初期化完了後に実行
 app.on('ready', function() {
-    
-    mainWindow = new BrowserWindow(
-        {width: 800, height: 600, 
-            //webPreferences: {nodeIntegration: false}
-    });
 
+    mainWindow = new BrowserWindow({width: 800, height: 600});
     //kanataData.PrintAsHTML();
-    mainWindow.loadUrl(currentURL);
+    mainWindow.loadURL(currentURL);
+    // OSX のときは loadUrlで動いていた．（loadURLでも動くかは知らない）
+    //mainWindow.loadUrl(currentURL);
     mainWindow.toggleDevTools();
     // ウィンドウが閉じられたらアプリも終了
     mainWindow.on('closed', function() {
@@ -46,7 +44,7 @@ app.on('ready', function() {
 
 
 ipc.on('asynchronous-message', function(event, arg) {
-    var onikiri = new OnikiriLog("./vis.1500000.log");
+    var onikiri = new OnikiriLog("./vis.c0.log");
     onikiri.AsyncProcess(SendOps);
 });
 
