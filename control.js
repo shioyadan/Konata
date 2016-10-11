@@ -8,7 +8,7 @@ control.left = true;
 control.mouse = false;
 control.mouseX = Array(0,0);
 control.mouseY = Array(0,0);
-control.zoom = {w:2, h:2};
+control.zoom = {w:20, h:20};
 control.resizeing = false;
 
 function WindowResize() {
@@ -64,8 +64,9 @@ jquery(window).ready(function(){
     var p_window = tab.find(".pipelines-window");
     var w_sizing = tab.find(".window-sizing");
     var p_cell = tab.find(".pipelines-cell");
-    
+
     p_window.scroll (function() {
+        // ラベルウィンドウとパイプラインウィンドウのスクロールを同期
         l_window.scrollTop(p_window.scrollTop());
         ScrollLeft(p_window);
     });
@@ -74,12 +75,20 @@ jquery(window).ready(function(){
         Zoom(true);
     });
     p_window.contextmenu(function(){
-        
     });
-    l_window.scroll (function() {
-        p_window.scrollTop(l_window.scrollTop());
-    });
-    
+        p_window.mousewheel(function(e, delta, deltaX, deltaY){
+            if (e.ctrlKey) {
+                if (event.preventDefault) {
+                    // デフォルトのスクロール処理をキャンセル
+                    event.preventDefault();
+                }
+                if (deltaY > 0) {
+                    Zoom(true);
+                } else {
+                    Zoom(false);
+                }
+            }
+        });
     w_sizing.draggable({
         axis:'x'
     });
@@ -93,8 +102,8 @@ jquery(window).ready(function(){
         WindowResize();
     });
     OnDrag(p_cell);
-    
-    p_window.mousewheel(function(e, delta, deltaX, deltaY){
+
+    l_window.mousewheel(function(e, delta, deltaX, deltaY){
         if (e.ctrlKey) {
             if (event.preventDefault) {
                 // デフォルトのスクロール処理をキャンセル
@@ -105,7 +114,16 @@ jquery(window).ready(function(){
             } else {
                 Zoom(false);
             }
+        } else {
+            // 環境によっては，deltaに倍率をかけて手動でスクロールした方がいいかもしれない．
         }
+    });
+    l_window.scroll (function() {
+        // ラベルウィンドウとパイプラインウィンドウのスクロールを同期
+        p_window.scrollTop(l_window.scrollTop());
+    });
+    l_window.dblclick(function(){
+        Zoom(true);
     });
 });
 
