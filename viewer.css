@@ -47,9 +47,8 @@
 }
 .pipelines-window {
     left:157px; /* labels-window の width + left 以上に設定 */
-    background-color: #aaffaa;
+    background-color: #fff;
 }
-
 .label {
     table-layout: fixed;
 }

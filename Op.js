@@ -12,8 +12,8 @@ function Op(args) {
     this.labels = []; // ラベル情報の入っている配列
     this.prods = []; // プロデューサ命令のIDの配列
     this.cons = []; // コンシューマ命令のIDの配列
-    var opH = 25; // スケール1のときの1命令の高さ[px]
-    var opW = 25; // スケール1のときの1サイクルの幅[px]
+    var m_opH = 25; // スケール1のときの1命令の高さ[px]
+    var m_opW = 25; // スケール1のときの1サイクルの幅[px]
     for (var key in args) {
         this[key] = args[key];
     }
@@ -23,8 +23,8 @@ function Op(args) {
             console.log("Not context object");
             return false;
         }
-        var top = h * opH * scale;
-        context.clearRect(0, top, (endCycle - startCycle) * scale, opH * scale);
+        var top = h * m_opH * scale;
+        context.clearRect(0, top, (endCycle - startCycle) * scale, m_opH * scale);
         if (this.retiredCycle < startCycle) {
             return true;
         } else if (endCycle < this.fetchedCycle) {
@@ -35,10 +35,15 @@ function Op(args) {
         }
         var l = startCycle > this.fetchedCycle ? (startCycle - 1) : this.fetchedCycle; l -= startCycle;
         var r = endCycle >= this.retiredCycle ? this.retiredCycle : (endCycle + 1); r -= startCycle;
-        var left = l * scale * opW;
-        var right = r * scale * opW;
+        var left = l * scale * m_opW;
+        var right = r * scale * m_opW;
+        if (scale < 0.2) {
+            context.strokeStyle = "#888888";
+        } else {
+            context.strokeStyle = "#333333";
+        }
         context.fillStyle = "#888888";
-        context.strokeRect(left, top, right - left, opH * scale);
+        context.strokeRect(left, top, right - left, m_opH * scale);
         if (scale >= 0.1) {
             var keys = [];
             for (var key in this.lanes) {
@@ -47,43 +52,64 @@ function Op(args) {
             keys = keys.sort();
             for (var i = 0, len = keys.length; i < len; i++) {
                 var key = keys[i];
-                this.DrawLane(h, startCycle, endCycle, scale, context, this.lanes[key]);
+                this.DrawLane(h, startCycle, endCycle, scale, context, key);
             }
         }
         return true;
     };
 
-    this.DrawLane = function (h, startCycle, endCycle, scale, context, lane) {
-        var top = h * opH * scale;
+    this.DrawLane = function (h, startCycle, endCycle, scale, context, laneName) {
+        var lane = this.lanes[laneName];
+        var top = h * m_opH * scale;
         for (var i = 0, len = lane.length; i < len; i++) {
             var stage = lane[i];
             if (stage.endCycle == null) {
                 stage.endCycle = this.retiredCycle;
             }
+            if (stage.endCycle < startCycle) {
+                continue;
+            } else if (endCycle < stage.startCycle) {
+                break; // stage.startCycle が endCycleを超えているなら，以降のステージはこのcanvasに描画されない．
+            }
             if (stage.endCycle == stage.startCycle) {
                 continue;
             }
-            if (stage.name == "Rn") {
-                context.fillStyle = "#ff88ff"; // ステージの色はなんか別に設定表を作る．
-            } else if (stage.name == "F") {
-                context.fillStyle = "#ff8888";
-            } else if (stage.name == "D") {
-                context.fillStyle = "#0088ff";
-            } else {
-                context.fillStyle = "#888888";
-            }
+            var color = getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "background-color", 1) || 
+            getStyleRuleValue(".default", "background-color", 1) || "#888";
             var l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
             var r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
-            var left = l * scale * opW;
-            var right = r * scale * opW;
-            context.fillRect(left, top, right - left, opH * scale);
-            context.strokeRect(left, top, right - left, opH * scale);
-            left = (stage.startCycle - startCycle) * scale * opW;
+            var left = l * scale * m_opW;
+            var right = r * scale * m_opW;
+            var grad = context.createLinearGradient(0,top,0,top+m_opH * scale);
+            grad.addColorStop(1, color);
+            grad.addColorStop(0, "#eee");
+            context.fillStyle = grad;
+            context.fillRect(left, top, right - left, m_opH * scale);
+            context.strokeRect(left, top, right - left, m_opH * scale);
+            left = (stage.startCycle - startCycle) * scale * m_opW;
             if (scale >= 0.5) {
                 context.fillStyle = "#000000";
-                context.fillText(stage.name, left + 5, top + opH * scale - 2);
+                context.fillText(stage.name, left + 5, top + m_opH * scale - 2);
             }
         }
+    };
+    
+    function getStyleRuleValue(selector, style, sheetIndex) {
+        if (sheetIndex != null) {
+            var sheet = document.styleSheets[ sheetIndex ];
+        }
+        var sheets = typeof sheet !== 'undefined' ? [sheet] : document.styleSheets;
+        for (var i = 0, l = sheets.length; i < l; i++) {
+            var sheet = sheets[i];
+            if( !sheet.cssRules ) { continue; }
+            for (var j = 0, k = sheet.cssRules.length; j < k; j++) {
+                var rule = sheet.cssRules[j];
+                if (rule.selectorText && rule.selectorText.split(',').indexOf(selector) !== -1) {
+                    return rule.style[style];
+                }
+            }
+        }
+        return null;
     }
 }
 module.exports = Op;

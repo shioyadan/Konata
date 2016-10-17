@@ -1,0 +1,39 @@
+.lane_0 .stage_F {
+    background-color: #aaaaff;
+}
+.lane_0 .stage_Rn {
+    background-color: #88ff88;
+}
+.lane_0 .stage_D {
+    background-color: #11ffff;
+}
+.lane_0 .stage_Slc {
+    background-color: #11ff88;
+}
+.lane_0 .stage_I {
+    background-color: #ffdd11;
+}
+.lane_0 .stage_X {
+    background-color: #dd7722;
+}
+.lane_0 .stage_Wb {
+    background-color: #ee1111;
+}
+.lane_0 .stage_Cm {
+    background-color: #ffaaff;
+}
+.lane_0 .stage_f {
+    background-color: #888;
+}
+
+.lane_2 [class*="stage_iX"] {
+    background-color: #ff7744;
+}
+
+.lane_1 .stage_stl {
+    background-color: #888888;
+}
+
+.default {
+    background-color: #aaffaa;
+}
