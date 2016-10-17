@@ -15,13 +15,34 @@ function Konata (that) {
     var jQuery = require("./jquery");
     this.skip = 1;
     this.scale = {};
+    this.lastFetchedId = {};
+    this.prefetch = null;
+    this.prefetchInterval = 2000;
+    this.prefetchNum = 1000;
 
     this.GetOp = function (path, id, remote) {
         var file = this.files[path];
         if (file == null) {
             file = this.OpenFile(path, remote);
         }
-        return file.GetOp(id);
+        var op = file.GetOp(id);
+        if (op != null) {
+            this.lastFetchedId[path] = id;
+        }
+        return op;
+    };
+
+    this.Prefetch = function () {
+        for (var key in this.lastFetchedId) {
+            var start = this.lastFetchedId[key] + 1;
+            var end = start + this.prefetchNum;
+            for (var id = start; id < end; id++) {
+                var op = this.GetOp(key, id);
+                if (op == null) {
+                    break;
+                }
+            }
+        }
     };
 
     this.OpenFile = function (path, remote) {
@@ -62,6 +83,9 @@ function Konata (that) {
 
     // Use renderer process only
     this.Draw = function (path, position, obj) {
+        if (this.prefech) {
+            clearInterval(this.prefetch);
+        }
         this.position[path] = position;
         if (this.scale[path] == null) {
             this.scale[path] = 1;
@@ -88,6 +112,8 @@ function Konata (that) {
             }
             top += 300/(scale * 25);
         }
+        var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
+        this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
         return tab;
     };
 
