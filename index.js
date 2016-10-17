@@ -1,5 +1,4 @@
 var ipc = require("electron").ipcRenderer;
-var Op = require("./Op");
 var jquery = require("./jquery");
 var jQuery = jquery;
 var Konata = require("./Konata");
