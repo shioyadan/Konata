@@ -30,39 +30,19 @@ function Konata (that) {
     var opH = 25; // スケール1のときの1命令の高さ
     var opW = 25; // スケール1のときの1サイクルの幅
 
-    this.GetOp = function (path, id, remote) {
-        var file = this.files[path];
-        if (file == null) {
-            file = this.OpenFile(path, remote);
-        }
-        var op = file.GetOp(id);
-        if (op != null) {
-            this.lastFetchedId[path] = id;
-        }
-        return op;
-    };
-
-    this.Prefetch = function () {
-        for (var key in this.lastFetchedId) {
-            var start = this.lastFetchedId[key] + 1;
-            var end = start + this.prefetchNum;
-            for (var id = start; id < end; id++) {
-                var op = this.GetOp(key, id);
-                if (op == null) {
-                    break;
-                }
-            }
-        }
-    };
-
     this.OpenFile = function (path, remote) {
         if (this.files[path] != null) {
             // 既に開かれている。
             return this.files[path];
         }
+        if (this.prefech) {
+            clearInterval(this.prefetch);
+        }
         console.log("Open :", path);
         if (remote) { // 通信による解決を図る
             var connection = this.Connect(path);
+            var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
+            this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
             return connection;
         }
         var file = new this.File(path);
@@ -71,9 +51,13 @@ function Konata (that) {
             if (parser.SetFile(file)) {
                 console.log("Selected parser:" , parser.GetName());
                 this.files[path] = new this.Cache(path, parser);
+                var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
+                this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
                 return this.files[path];
             }
         }
+        var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
+        this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
         return null;
     };
 
@@ -157,6 +141,31 @@ function Konata (that) {
         }
         this.Draw(path, this.position[path]);
     }
+
+    this.GetOp = function (path, id, remote) {
+        var file = this.files[path];
+        if (file == null) {
+            file = this.OpenFile(path, remote);
+        }
+        var op = file.GetOp(id);
+        if (op != null) {
+            this.lastFetchedId[path] = id;
+        }
+        return op;
+    };
+
+    this.Prefetch = function () {
+        for (var key in this.lastFetchedId) {
+            var start = this.lastFetchedId[key] + 1;
+            var end = start + this.prefetchNum;
+            for (var id = start; id < end; id++) {
+                var op = this.GetOp(key, id);
+                if (op == null) {
+                    break;
+                }
+            }
+        }
+    };
 
     // private methods
     this.DrawTile = function (tile, top, left, path) {
