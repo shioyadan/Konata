@@ -19,12 +19,12 @@ function Konata (that) {
     this.lastFetchedId = {};
     this.prefetch = null;
     this.prefetchInterval = 2000;
-    this.prefetchNum = 1000;
+    this.prefetchNum = 500;
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
     // jQuery HTMLをいじるときに使う．
     var jQuery = require("./jquery");
     // キャンバスの縦横．0でなければなんでもいいと思う．
-    var canvasW = 100;
+    var canvasW = 300;
     var canvasH = 300;
     // 以下のパラメータはOp.jsと合わせる．(そうしないと表示がズレる)
     var opH = 25; // スケール1のときの1命令の高さ
@@ -201,8 +201,8 @@ function Konata (that) {
             var tab = tabs[key];
             var p = tab.find(".pipelines-window");
             // 必要なcanvas数を考える
-            var x = p.width()/width + 2;
-            var y = p.height()/height + 2;
+            var x = Math.ceil(p.width()/width) + 2;
+            var y = Math.ceil(p.height()/height) + 2;
             this.LayTiles(p, x, y, width, height, key);
             //console.log(key , "set tiles:", p.width(), p.height());
         }

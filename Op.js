@@ -63,7 +63,15 @@ function Op(args) {
             if (stage.endCycle == stage.startCycle) {
                 continue;
             }
-            context.fillStyle = "#ff88ff"; // ステージの色はなんか別に設定表を作る．
+            if (stage.name == "Rn") {
+                context.fillStyle = "#ff88ff"; // ステージの色はなんか別に設定表を作る．
+            } else if (stage.name == "F") {
+                context.fillStyle = "#ff8888";
+            } else if (stage.name == "D") {
+                context.fillStyle = "#0088ff";
+            } else {
+                context.fillStyle = "#888888";
+            }
             var l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
             var r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
             var left = l * scale * opW;
