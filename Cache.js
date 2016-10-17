@@ -1,59 +1,59 @@
 function Cache(filePath, parser, that) {
-    this.Konata = that;
-    this.filePath = filePath;
-    this.parser = parser;
-    this.cache = [];
-    this.range = 10;
-    this.lastIndex; // 最終要素以降を無駄に要求しないように覚えておく
-    if (this.parser.GetOp == null && this.parser.GetOps == null) {
+    var m_konata = that;
+    var m_filePath = filePath;
+    var m_parser = parser;
+    var m_cache = [];
+    var m_range = 10;
+    var m_lastIndex; // 最終要素以降を無駄に要求しないように覚えておく
+    if (m_parser.GetOp == null && m_parser.GetOps == null) {
         // Error処理
     }
 
     this.GetOp = function(id) {
-        if (this.cache[id] == null) {
-            this.CacheRequest(id);
+        if (m_cache[id] == null) {
+            CacheRequest(id);
         }
-        if (id > this.lastIndex) {
+        if (id > m_lastIndex) {
             return null;
         }
-        return this.cache[id];
+        return m_cache[id];
     };
 
-    this.CacheRequest = function(id) {
-        if (id > this.lastIndex) {
+    function CacheRequest(id) {
+        if (id > m_lastIndex) {
             return;
         }
-        var start = id - this.range;
-        var end = id + this.range;
+        var start = id - m_range;
+        var end = id + m_range;
         if (start < 0) {
             start = 0;
         }
-        if (end > this.lastIndex) {
-            end = this.lastIndex;
+        if (end > m_lastIndex) {
+            end = m_lastIndex;
         }
         var ops = null;
-        if (this.parser.GetOps) {
-            ops = this.parser.GetOps(start,end);
+        if (m_parser.GetOps) {
+            ops = m_parser.GetOps(start,end);
         }
         for (var i = start; i < end; i++) {
-            if (this.cache[i] != null) {
+            if (m_cache[i] != null) {
                 continue;
             }
             if (ops) {
                 var op = ops[i - start];
             } else {
-                var op = this.parser.GetOp(i);
+                var op = m_parser.GetOp(i);
             }
             if (op == null) {
-                if (this.lastIndex == null || this.lastIndex > i - 1) {
-                    this.lastIndex = i - 1;
+                if (m_lastIndex == null || m_lastIndex > i - 1) {
+                    m_lastIndex = i - 1;
                 }
                 break;
             }
             if (op.Draw == null) { // 
-                op = new this.Konata.Op(op);
+                op = new m_konata.Op(op);
             }
-            this.cache[i] = op;
+            m_cache[i] = op;
         }
     };
 }
