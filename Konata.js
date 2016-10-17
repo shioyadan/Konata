@@ -10,39 +10,42 @@ function Konata (that) {
     this.Label = require("./Label");
     // 以下の変数は（基本的に）外部から直接触らないことを前提にしてるので，
     // その内 var m_* の形に変える．
-    this.files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
-    this.tabs = {}; // 表示用HTML(jQuery)オブジェクトの連想配列
-    this.tiles = {}; // ファイルごとのtileの二重配列を覚えておく連想配列
     this.position = {}; // ファイル毎の現在位置を覚えておく連想配列
-    this.skip = 1;
-    this.scale = {};
-    this.lastFetchedId = {};
-    this.prefetch = null;
-    this.prefetchInterval = 2000;
-    this.prefetchNum = 500;
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
+    // ローカル変数と区別するため m_ を付ける．
+    var m_files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
+    var m_tabs = {}; // 表示用HTML(jQuery)オブジェクトの連想配列
+    var m_tiles = {}; // ファイルごとのtileの二重配列を覚えておく連想配列
+    var m_scale = {};
+    var m_lastFetchedId = {};
+    var m_prefetch = null;
+    var m_prefetchInterval = 2000;
+    var m_prefetchNum = 500;
     // jQuery HTMLをいじるときに使う．
-    var jQuery = require("./jquery");
+    var m_jquery = require("./jquery");
     // キャンバスの縦横．0でなければなんでもいいと思う．
-    var canvasW = 300;
-    var canvasH = 300;
+    var m_canvasW = 300;
+    var m_canvasH = 300;
     // 以下のパラメータはOp.jsと合わせる．(そうしないと表示がズレる)
-    var opH = 25; // スケール1のときの1命令の高さ
-    var opW = 25; // スケール1のときの1サイクルの幅
+    var m_opH = 25; // スケール1のときの1命令の高さ
+    var m_opW = 25; // スケール1のときの1サイクルの幅
+    var m_skip = 1;
 
+    this.GetScale = function (path) {
+        return m_scale[path];
+    }
     this.OpenFile = function (path, remote) {
-        if (this.files[path] != null) {
+        if (m_files[path] != null) {
             // 既に開かれている。
-            return this.files[path];
+            return m_files[path];
         }
         if (this.prefech) {
-            clearInterval(this.prefetch);
+            clearTimeout(m_prefetch);
         }
         console.log("Open :", path);
         if (remote) { // 通信による解決を図る
             var connection = this.Connect(path);
-            var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
-            this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
+            this.Prefetch()
             return connection;
         }
         var file = new this.File(path);
@@ -50,14 +53,12 @@ function Konata (that) {
             var parser = new this.Parsers[i](this);
             if (parser.SetFile(file)) {
                 console.log("Selected parser:" , parser.GetName());
-                this.files[path] = new this.Cache(path, parser);
-                var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
-                this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
-                return this.files[path];
+                m_files[path] = new this.Cache(path, parser);
+                this.Prefetch();
+                return m_files[path];
             }
         }
-        var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
-        this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
+        this.Prefetch();
         return null;
     };
 
@@ -67,8 +68,8 @@ function Konata (that) {
             var parser = new this.RemoteParser[i](this);
             if (parser.SetFile(path)) {
                 console.log("Selected remote parser:", parser.GetName());
-                this.files[path] = new this.Cache(path, parser, this);
-                return this.files[path];
+                m_files[path] = new this.Cache(path, parser, this);
+                return m_files[path];
             }
         }
         console.log("Not found");
@@ -78,36 +79,35 @@ function Konata (that) {
     // Use renderer process only
     this.Draw = function (path, position, obj) {
         if (this.prefech) {
-            clearInterval(this.prefetch);
+            clearTimeout(m_prefetch);
         }
         this.position[path] = position;
-        if (this.scale[path] == null) {
-            this.scale[path] = 1;
+        if (m_scale[path] == null) {
+            m_scale[path] = 1;
         }
-        var scale = this.scale[path];
-        if (this.tabs[path] == null) {
+        var scale = m_scale[path];
+        if (m_tabs[path] == null) {
             // pathは空白なしに変換する(HTMLの属性値に空白文字を利用できないため)
-            this.tabs[path] = this.MakeTable(obj, path);
+            m_tabs[path] = this.MakeTable(obj, path);
         }
-        if (this.tiles[path] == null) {
+        if (m_tiles[path] == null) {
             this.SetTile(path);
             console.log("Set tiles");
         }
-        var tab = this.tabs[path];
-        var tiles = this.tiles[path];
+        var tab = m_tabs[path];
+        var tiles = m_tiles[path];
         var top = position.top;
-        this.skip = Math.floor(20/(scale * Math.log(scale)/0.005));
+        m_skip = Math.floor(20/(scale * Math.log(scale)/0.005));
         for (var y = 0; y < tiles.length; y++) {
             var left = position.left;
             for (var x = 0; x < tiles[y].length; x++) {
                 var tile = tiles[y][x];
                 this.DrawTile(tile, top, left, path);
-                left += canvasW/(scale * opW);
+                left += m_canvasW/(scale * m_opW);
             }
-            top += canvasH/(scale * opH);
+            top += m_canvasH/(scale * m_opH);
         }
-        var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
-        this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
+        this.Prefetch();
         return tab;
     };
 
@@ -129,35 +129,37 @@ function Konata (that) {
     };
 
     this.Zoom = function (path, scale) {
-        if (this.tiles[path] == null) {
+        if (m_tiles[path] == null) {
             console.log("tile null");
             return;
         }
-        this.scale[path] = this.scale[path] * scale;
-        if (this.scale[path] > 1) {
-            this.scale[path] = 1;
-        } else if (this.scale[path] < 0.00006103515625) {
-            this.scale[path] = 0.00006103515625;
+        m_scale[path] = m_scale[path] * scale;
+        if (m_scale[path] > 2) {
+            m_scale[path] = 1;
+        } else if (m_scale[path] < 0.00006103515625) {
+            m_scale[path] = 0.00006103515625;
         }
         this.Draw(path, this.position[path]);
     }
 
     this.GetOp = function (path, id, remote) {
-        var file = this.files[path];
+        var file = m_files[path];
         if (file == null) {
             file = this.OpenFile(path, remote);
         }
         var op = file.GetOp(id);
         if (op != null) {
-            this.lastFetchedId[path] = id;
+            m_lastFetchedId[path] = id;
         }
         return op;
     };
 
     this.Prefetch = function () {
-        for (var key in this.lastFetchedId) {
-            var start = this.lastFetchedId[key] + 1;
-            var end = start + this.prefetchNum;
+        var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
+        m_prefetch = setTimeout(function(){self.Prefetch()}, m_prefetchInterval);
+        for (var key in m_lastFetchedId) {
+            var start = m_lastFetchedId[key] + 1;
+            var end = start + m_prefetchNum;
             for (var id = start; id < end; id++) {
                 var op = this.GetOp(key, id);
                 if (op == null) {
@@ -169,11 +171,11 @@ function Konata (that) {
 
     // private methods
     this.DrawTile = function (tile, top, left, path) {
-        var scale = this.scale[path];
-        var height = canvasH / (scale * opH);
-        var width = canvasW / (scale * opW);
+        var scale = m_scale[path];
+        var height = m_canvasH / (scale * m_opH);
+        var width = m_canvasW / (scale * m_opW);
         for (var id = Math.floor(top); id < top + height; id++) {
-            if (scale < 0.005 && id % this.skip  != 0) {
+            if (scale < 0.005 && id % m_skip  != 0) {
                 continue;
             }
             var op = this.GetOp(path, id, true);
@@ -187,11 +189,11 @@ function Konata (that) {
     }
 
     this.MakeTable = function (obj, path) {
-        var tab = jQuery("<div></div>", {"class":"tab"}).appendTo(obj);
+        var tab = m_jquery("<div></div>", {"class":"tab"}).appendTo(obj);
         tab.attr("id", "Konata_" + path);
-        jQuery("<span></span>", {"class":"labels-window"}).appendTo(tab);
-        jQuery("<span></span>", {"class":"window-sizing"}).appendTo(tab);
-        var p = jQuery("<span></span>", {"class":"pipelines-window"}).appendTo(tab);
+        m_jquery("<span></span>", {"class":"labels-window"}).appendTo(tab);
+        m_jquery("<span></span>", {"class":"window-sizing"}).appendTo(tab);
+        var p = m_jquery("<span></span>", {"class":"pipelines-window"}).appendTo(tab);
         console.log("Make tab");
         return tab;
     };
@@ -199,13 +201,13 @@ function Konata (that) {
     this.SetTile = function (path) {
         var tabs = {};
         if (path) {
-            tabs[path] = this.tabs[path];
+            tabs[path] = m_tabs[path];
         } else {
-            var tabs = this.tabs;
+            var tabs = m_tabs;
         }
         // canvasのサイズを定義する[px]
-        var width = canvasW;
-        var height = canvasH;
+        var width = m_canvasW;
+        var height = m_canvasH;
         for (var key in tabs) {
             var tab = tabs[key];
             var p = tab.find(".pipelines-window");
@@ -222,10 +224,10 @@ function Konata (that) {
         obj.html("");
         var tiles = [];
         for (var h = 0; h < y; h++) {
-            var tileY = jQuery("<div></div>", {class:"tileY"}).appendTo(obj);
+            var tileY = m_jquery("<div></div>", {class:"tileY"}).appendTo(obj);
             tiles.push([]);
             for (var w = 0; w < x; w++) {
-                var tileX = jQuery("<canvas></canvas>", {class:"tileX"}).appendTo(tileY);
+                var tileX = m_jquery("<canvas></canvas>", {class:"tileX"}).appendTo(tileY);
                 tileX.attr("width", width);
                 tileX.attr("height", height);
                 if (!tileX[0].getContext) {
@@ -235,7 +237,7 @@ function Konata (that) {
                 tiles[h].push( tileX[0].getContext("2d") );
             }
         }
-        this.tiles[path] = tiles;
+        m_tiles[path] = tiles;
     }
 }
 

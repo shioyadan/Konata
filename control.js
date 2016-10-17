@@ -84,7 +84,7 @@ function SetControl (tab) {
             }
         } else {
             konata.SetTile(index.path);
-            var scroll = 3/konata.scale[index.path];
+            var scroll = 3/konata.GetScale(index.path);
             if (deltaY < 0) {
                 control.position = konata.Move(index.path, scroll);
             } else {
@@ -143,8 +143,8 @@ function OnDrag (obj) {
             }
             var diffY = Average(control.mouseY) - oldY;
             var diffX = Average(control.mouseX) - oldX;
-            control.position.top -= diffY/25/konata.scale[index.path];
-            control.position.left -= diffX/25/konata.scale[index.path];
+            control.position.top -= diffY/25/konata.GetScale(index.path);
+            control.position.left -= diffX/25/konata.GetScale(index.path);
             if (control.position.top < 0) {
                 control.position.top = 0;
             }
