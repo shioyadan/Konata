@@ -1,6 +1,4 @@
-var Op = require("./Op");
 /* （主に）メインプロセス側の勉強用の.jsファイル．色々試しに使ってる． */
-
 function Module(id) {
     this.id = id;
 

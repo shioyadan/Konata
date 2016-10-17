@@ -2,24 +2,14 @@
 const electron = require("electron");
 const {app} = electron;
 const {BrowserWindow} = electron;
-// アプリケーションをコントロールするモジュール
-//var app = require('app');
-// ウィンドウを作成するモジュール
-//var BrowserWindow = require('browser-window');
-// 起動URL
 var currentURL = 'file://' + __dirname + '/index.html';
-// クラッジュレポーター
-//require('crash-reporter').start();
 // メインウィンドウはGCされないようにグローバル宣言
 var mainWindow = null;
 var ipc = electron.ipcMain;
 
-var KanataData = require("./KanataData");
-var Op = require("./Op");
-var OnikiriLog = require("./OnikiriLog");
-//var Module = require("./Module");
-
-//var mo = require("./Module");
+// メインプロセス側のKonata
+var Konata = require("./Konata");
+var konata = new Konata();
 
 // 全てのウィンドウが閉じたら終了
 app.on('window-all-closed', function() {
@@ -31,10 +21,7 @@ app.on('window-all-closed', function() {
 app.on('ready', function() {
 
     mainWindow = new BrowserWindow({width: 800, height: 600});
-    //kanataData.PrintAsHTML();
     mainWindow.loadURL(currentURL);
-    // OSX のときは loadUrlで動いていた．（loadURLでも動くかは知らない）
-    //mainWindow.loadUrl(currentURL);
     mainWindow.toggleDevTools();
     // ウィンドウが閉じられたらアプリも終了
     mainWindow.on('closed', function() {
@@ -42,14 +29,29 @@ app.on('ready', function() {
     });
 });
 
-
-ipc.on('asynchronous-message', function(event, arg) {
-    var onikiri = new OnikiriLog("./vis.c0.log");
-    onikiri.AsyncProcess(SendOps);
+// レンダラプロセスのkonataからの通信
+ipc.on('Konata', function(event, args) {
+    var request = args.request;
+    if (request == "Please parser") { // args.pathのパーサーとして働くように頼まれた
+        var path = args.path;
+        if (konata.OpenFile(path)) { // pathをOpenできたので解析できそう。
+            event.returnValue = "Success";
+        } else { // pathは開けなかった、または非対応の形式だった。
+            event.returnValue = "Can not parse";
+        }
+    } else if (request == "GetOp") { // Op情報を要求された
+        var id = args.id;
+        var path = args.path;
+        event.returnValue = konata.GetOp(path, id); // メインプロセス側のkonataにデータを要求して返却
+    }
 });
 
 function SendOps(ops) {
-    //console.log("aaa");
     mainWindow.webContents
-        .send('asynchronous-message', ['Draw', ops]);
+        .send('asynchronous-message', {request:'DrawOps', ops:ops});
+}
+
+function SendOp(op) {
+    mainWindow.webContents
+        .send('asynchronous-message', {request:'Draw', op:op});
 }

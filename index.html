@@ -2,25 +2,19 @@
 <html>
   <head>
     <meta charset="UTF-8">
-    <title>Electron</title>
     <script src="./jquery.js" type="text/javascript"></script>
-    <script src="./KanataData.js" type="text/javascript"></script>
     <script src="./Op.js" type="text/javascript"></script>
-    <script src="./OpToHTML.js" type="text/javascript"></script>
     <script src="./index.js" type="text/javascript"></script>
     <script src="./jquery-ui.js" type="text/javascript"></script>
     <script src="./jquery.mousewheel.js" type="text/javascript"></script>
     <script src="./control.js" type="text/javascript"></script>
     <link rel="stylesheet" type="text/css" href="./viewer.css"></link>
+    <title>Konata</title>
   </head>
   <body>
-    <a href="javascript:Send()">aaa</a><br/>
-    <div class="tab">
-        <span class="labels-window"></span>
-        <span class="window-sizing"></span>
-        <span class="pipelines-window">
-            <span class="pipelines-cell"></span>
-        </span>
-    </div>
+    <a href="javascript:Send()">aaa</a>
+    <a href="javascript:Zoom(1)">zoom1</a>
+    <a href="javascript:Zoom(0)">zoom0</a><br/>
+    <div id="tabs"></div>
   </body>
 </html>

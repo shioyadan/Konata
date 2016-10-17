@@ -2,6 +2,7 @@
 .tab {
     display: table;
 }
+
 /* div要素同士は縦に並べたいので table-row */
 .lanesParent, .lane {
     display:table-row;
@@ -10,6 +11,12 @@
 .labels-window, .window-sizing, .pipelines-window, .spacer, .block {
     display: table-cell;
     table-layout: fixed;
+}
+
+.tileY {
+    margin: 0;
+    padding: 0;
+    max-height: 300px;
 }
 
 /* 表示窓の設定．ラベル欄の大きさなどを変えたいときに変更 */
@@ -24,7 +31,7 @@
     table-layout: fixed;
     white-space: nowrap;
 
-    height:90%;
+    height:95%;
 }
 .labels-window {
     width:150px; /* ラベル窓の幅を変えるならここ */
@@ -39,21 +46,8 @@
     cursor: col-resize;
 }
 .pipelines-window {
-    width:65%;
     left:157px; /* labels-window の width + left 以上に設定 */
-}
-.pipelines-cell {
-}
-/* 行の高さ．内容によって変化することを防ぐため，minとmaxを同時に設定する． */
-.labels-parent, .pipeline {
-}
-/* レーンの高さ．（行の高さ/レーン数によって動的に計算）*/
-.lane {
-    position: relative;
-    /* 文字の選択を拒否 */
-    -ms-user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;  
+    background-color: #aaffaa;
 }
 
 .label {
@@ -61,40 +55,4 @@
 }
 .label.type_1 {
     display: none;
-}
-.stage {
-    border: 1px solid #666666;
-    box-sizing:border-box;
-    background-color: #bbb;
-    /*table-layout: fixed;*/
-    overflow: hidden;
-    position: absolute;
-}
-
-.cannot-set-end {
-    background-color: #777 !important;
-}
-.stage.filter {
-    background-color: transparent;
-}
-
-div.lane.0 {
-    color:#000000;
-}
-
-span.stage {
-}
-
-div.lane_0 span.stage_F {
-    /*background-color: #ee88ee;*/
-    background: linear-gradient(to bottom, #ffaaff, #ee88ee);
-}
-
-div.lane_0 span.stage_Rn {
-    /*background-color: #88ff88;*/
-    background: linear-gradient(to bottom, #aaffaa, #88ff88);
-}
-
-div.lane_2 span[class*="stage_iX"] {
-    background-color: #ff7744;
 }

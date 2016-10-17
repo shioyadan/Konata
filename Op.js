@@ -1,72 +1,46 @@
-var jquery = require("./jquery");
-//if(!window || !window.document) {
-//    window = require('jsdom').createWindow();
-//    window.document = require('jsdom').jsdom();
-
-function Op(id) {
-    if (id == null) {
-        // エラー処理
+function Op(args) {
+    this.id = null;
+    this.gid = null; // シミュレータ上のグローバルID
+    this.rid = null; // シミュレータ上のリタイアID
+    this.tid = null; // スレッドID
+    this.retired = false; // リタイアしてるかどうか
+    this.flush = false; // Flushであるかどうか
+    this.eof = false; // ファイル終端による終了
+    this.lanes = {}; // レーン情報の連想配列
+    this.fetchedCycle = null;
+    this.retiredCycle = null;
+    this.labels = []; // ラベル情報の入っている配列
+    this.prods = []; // プロデューサ命令のIDの配列
+    this.cons = []; // コンシューマ命令のIDの配列
+    for (var key in args) {
+        this[key] = args[key];
     }
-    this.id = id;
-    this.info = {};
-    //this.root = jquery("<div></div>");//, {"class":"op", "id":"line_" + id});
-    this.published = true;
-    this.retired = false;
-    this.lane = [];
-    this.ordered = true;
-    
-    this.SetData = function (args) {
-        if (this.retired) {
-            // エラー処理;
-            return;
-        }
-        this.published = false;
-        for (var key in args) {
-            var elm = args[key];
-            switch(key) {
-                case "label":  // [Type, "message", Cycle] (Type:0 or 1)
-                case "fetch":  // fetch: [GID, TID, Cycle]
-                case "retire": // retire: [RID, Commit/Flush, Cycle]
-                case "prod":   // prod: [Consumer ID, Type, Cycle]
-                case "cons":   // cons: [Producer ID, Type, Cycle]
-                case "stage_b":
-                //    this.SetInfoAsArray(key, elm);
-                //    break;
-                case "stage_b": // stage_b: [Lane, Stage name, Cycle]
-                //    this.SetStageBegin(key, elm);
-                //    break;
-                case "stage_e": // stage_e: [Lane, Stage name, Cycle]
-                //    this.SetStageEnd(key, elm);
-                //    break;
-                    this.SetInfoAsArray(key, elm);
-                    break;
-                default:
-                    break;
-            }
-            if (key == "retire") {
-                this.retired = true;
-            } else if (key.match(/^stage_(?:b|e)$/)) {
-                this.ordered = false;
-            }
-        } 
-    };
-    
-    this.SetInfoAsArray = function(key, elm) {
-        var info = this.info;
-        if (info[key] == null) {
-            info[key] = [elm];
-        } else {
-            info[key].push(elm);
-        }
-    };
-    
-    this.PrintOpInfo = function () {
-        for (var key in this.info) {
-            console.log(key + ": " + this.info[key]);
-        }
-    };
 
-    
-
+    this.Draw = function (h, startCycle, endCycle, scale, context) {
+        if (!context.fillRect) {
+            console.log("Not context object");
+            return false;
+        }
+        var unit = 25; // 1 cycle width(or an op height) = unit * scale
+        var top = h * unit * scale;
+        context.clearRect(0, top, (endCycle - startCycle) * scale, unit);
+        if (this.retiredCycle < startCycle) {
+            return true;
+        } else if (endCycle < this.fetchedCycle) {
+            return false;
+        }
+        var l = startCycle > this.fetchedCycle ? (startCycle - 1) : this.fetchedCycle; l -= startCycle;
+        var r = endCycle >= this.retiredCycle ? this.retiredCycle : (endCycle + 1); r -= startCycle;
+        var left = l * scale * unit;
+        var right = r * scale * unit;
+        context.fillStyle = "#888888";
+        context.strokeRect(left, top, right - left, unit * scale);
+        if (scale >= 0.5) { // これより小さいスケールだと見えないからいらない。
+            left = (this.fetchedCycle - startCycle) * scale * unit;
+            context.fillText(this.id + " " + this.fetchedCycle + " " + this.retiredCycle, left + 5, top + unit * scale - 2);
+        }
+        //console.log("Drawn!");
+        return true;
+    };
 }
 module.exports = Op;
