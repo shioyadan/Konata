@@ -27,7 +27,7 @@
     color: #000000;
     /* テーブル内で横スクロールを可能にするための設定．さわらない */
     position:absolute;
-    overflow-x: scroll;
+    overflow: hidden;
     table-layout: fixed;
     white-space: nowrap;
 
