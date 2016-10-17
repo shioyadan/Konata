@@ -4,8 +4,8 @@ var control = {};
 control.name = "Controler name space";
 control.left = true;
 control.mouse = false;
-control.mouseX = Array(0,0);
-control.mouseY = Array(0,0);
+control.mouseX = [];
+control.mouseY = [];
 control.zoom = {w:20, h:20};
 control.resizeing = false;
 control.position = {top:0, left:0};
@@ -130,17 +130,13 @@ function Sum(array) {
 function OnDrag (obj) {
     obj.on("mousedown", function (e) {
         control.mouse = true;
-        control.initialX = e.screenX;
-        control.initialY = e.screenY;
         control.mouseX = [e.screenX];
         control.mouseY = [e.screenY];
     });
     obj.on("mousemove", function (e) {
         if (control.mouse) {
-            var top = control.positionY;
-            var left = control.positionX;
-            var oldX = control.initialX;
-            var oldY = control.initialY;
+            var oldX = Average(control.mouseX)
+            var oldY = Average(control.mouseY)
             control.mouseY.push(e.screenY); // 値に多少のブレがあっても平滑化すればいいかなと。
             control.mouseX.push(e.screenX); // 今となってはあまり意味がないかもしれない。
             if (control.mouseX.length > 1) {
@@ -151,8 +147,8 @@ function OnDrag (obj) {
             }
             var diffY = Average(control.mouseY) - oldY;
             var diffX = Average(control.mouseX) - oldX;
-            control.position.top -= diffY/250/konata.scale[index.path];
-            control.position.left -= diffX/250/konata.scale[index.path];
+            control.position.top -= diffY/25/konata.scale[index.path];
+            control.position.left -= diffX/25/konata.scale[index.path];
             if (control.position.top < 0) {
                 control.position.top = 0;
             }
@@ -161,6 +157,7 @@ function OnDrag (obj) {
             }
             konata.SetTile(index.path);
             konata.Draw(index.path, control.position, jquery("#tabs"));
+            control.position = konata.position[index.path];
         }
     });
     obj.on("mouseup", function(e) {
