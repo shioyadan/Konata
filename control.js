@@ -2,11 +2,9 @@ var jquery = require("./jquery");
 
 var control = {};
 control.name = "Controler name space";
-control.left = true;
 control.mouse = false;
 control.mouseX = [];
 control.mouseY = [];
-control.zoom = {w:20, h:20};
 control.resizeing = false;
 control.position = {top:0, left:0};
 
@@ -45,7 +43,6 @@ function Zoom(dir) {
     }
     konata.SetTile(index.path);
     konata.Zoom(index.path, scale);
-    //WindowResize();
     console.log("Complete");
     control.resizeing = false;
 }
@@ -64,14 +61,13 @@ function SetControl (tab) {
     var l_window = tab.find(".labels-window");
     var p_window = tab.find(".pipelines-window");
     var w_sizing = tab.find(".window-sizing");
-    //var p_cell = tab.find(".pipelines-cell");
 
     p_window.scroll (function() {
         // ラベルウィンドウとパイプラインウィンドウのスクロールを同期
     });
     p_window.dblclick(function(){
         console.log("Double click!");
-        //Zoom(true);
+        Zoom(true);
     });
     p_window.contextmenu(function(){
     });
@@ -155,7 +151,8 @@ function OnDrag (obj) {
             if (control.position.left < 0) {
                 control.position.left = 0;
             }
-            konata.SetTile(index.path);
+
+            konata.SetTile();
             konata.Draw(index.path, control.position, jquery("#tabs"));
             control.position = konata.position[index.path];
         }

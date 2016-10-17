@@ -24,12 +24,10 @@ function Send() {
     index.pos = pos;
     index.scale = scale;
     console.log(pos.top, pos.left);
+
     var tab = konata.Draw(path, control.position, jquery("#tabs"));
-    
-    //var op = konata.GetOp(path, index.id);
     console.log(scale);
     SetControl(tab);
-    WindowResize();
     index.id++;
 }
 
