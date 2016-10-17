@@ -149,18 +149,29 @@ function OnikiriParser (Konata) {
                 op.labels.push(label);
                 break;
             case "S":
+                var laneName = args[1];
                 var stageName = args[2];
                 var stage = new this.Konata.Stage({name:stageName, startCycle:cycle});
-                var lane = op.lanes[args[1]];
-                if (lane == null) {
-                    lane = {};
-                    op.lanes[args[1]] = lane;
+                if (op.lanes[laneName] == null) {
+                    op.lanes[laneName] = [];
                 }
-                lane[stageName] = stage;
+                //var lane = op.lanes[laneName];
+                op.lanes[laneName].push(stage);
                 break;
             case "E":
+                var laneName = args[1];
                 var stageName = args[2];
-                var stage = op.lanes[args[1]][stageName];
+                var stage = null;
+                var lane = op.lanes[laneName];
+                for (var i = lane.length - 1; i >= 0; i--) {
+                    if (lane[i].name == stageName) {
+                        stage = lane[i];
+                        break;
+                    }
+                }
+                if (stage == null) {
+                    break;
+                }
                 stage.endCycle = cycle;
                 break;
             case "R":
