@@ -23,7 +23,6 @@ function Op(args) {
             console.log("Not context object");
             return false;
         }
-        //var unit = 25; // 1 cycle width(or an op height) = unit * scale
         var top = h * opH * scale;
         context.clearRect(0, top, (endCycle - startCycle) * scale, opH * scale);
         if (this.retiredCycle < startCycle) {
@@ -31,18 +30,52 @@ function Op(args) {
         } else if (endCycle < this.fetchedCycle) {
             return false;
         }
+        if (this.retiredCycle == this.fetchedCycle) {
+            return true;
+        }
         var l = startCycle > this.fetchedCycle ? (startCycle - 1) : this.fetchedCycle; l -= startCycle;
         var r = endCycle >= this.retiredCycle ? this.retiredCycle : (endCycle + 1); r -= startCycle;
         var left = l * scale * opW;
         var right = r * scale * opW;
         context.fillStyle = "#888888";
         context.strokeRect(left, top, right - left, opH * scale);
-        if (scale >= 0.5) { // これより小さいスケールだと見えないからいらない。
-            left = (this.fetchedCycle - startCycle) * scale * opW;
-            context.fillText(this.id + " " + this.fetchedCycle + " " + this.retiredCycle, left + 5, top + opH * scale - 2);
+        if (scale >= 0.1) {
+            var keys = [];
+            for (var key in this.lanes) {
+                keys.push(key);
+            }
+            keys = keys.sort();
+            for (var i = 0, len = keys.length; i < len; i++) {
+                var key = keys[i];
+                this.DrawLane(h, startCycle, endCycle, scale, context, this.lanes[key]);
+            }
         }
-        //console.log("Drawn!");
         return true;
     };
+
+    this.DrawLane = function (h, startCycle, endCycle, scale, context, lane) {
+        var top = h * opH * scale;
+        for (var i = 0, len = lane.length; i < len; i++) {
+            var stage = lane[i];
+            if (stage.endCycle == null) {
+                stage.endCycle = this.retiredCycle;
+            }
+            if (stage.endCycle == stage.startCycle) {
+                continue;
+            }
+            context.fillStyle = "#ff88ff"; // ステージの色はなんか別に設定表を作る．
+            var l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
+            var r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
+            var left = l * scale * opW;
+            var right = r * scale * opW;
+            context.fillRect(left, top, right - left, opH * scale);
+            context.strokeRect(left, top, right - left, opH * scale);
+            left = (stage.startCycle - startCycle) * scale * opW;
+            if (scale >= 0.5) {
+                context.fillStyle = "#000000";
+                context.fillText(stage.name, left + 5, top + opH * scale - 2);
+            }
+        }
+    }
 }
 module.exports = Op;
