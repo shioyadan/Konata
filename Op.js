@@ -12,6 +12,8 @@ function Op(args) {
     this.labels = []; // ラベル情報の入っている配列
     this.prods = []; // プロデューサ命令のIDの配列
     this.cons = []; // コンシューマ命令のIDの配列
+    var opH = 25; // スケール1のときの1命令の高さ[px]
+    var opW = 25; // スケール1のときの1サイクルの幅[px]
     for (var key in args) {
         this[key] = args[key];
     }
@@ -21,9 +23,9 @@ function Op(args) {
             console.log("Not context object");
             return false;
         }
-        var unit = 25; // 1 cycle width(or an op height) = unit * scale
-        var top = h * unit * scale;
-        context.clearRect(0, top, (endCycle - startCycle) * scale, unit);
+        //var unit = 25; // 1 cycle width(or an op height) = unit * scale
+        var top = h * opH * scale;
+        context.clearRect(0, top, (endCycle - startCycle) * scale, opH * scale);
         if (this.retiredCycle < startCycle) {
             return true;
         } else if (endCycle < this.fetchedCycle) {
@@ -31,13 +33,13 @@ function Op(args) {
         }
         var l = startCycle > this.fetchedCycle ? (startCycle - 1) : this.fetchedCycle; l -= startCycle;
         var r = endCycle >= this.retiredCycle ? this.retiredCycle : (endCycle + 1); r -= startCycle;
-        var left = l * scale * unit;
-        var right = r * scale * unit;
+        var left = l * scale * opW;
+        var right = r * scale * opW;
         context.fillStyle = "#888888";
-        context.strokeRect(left, top, right - left, unit * scale);
+        context.strokeRect(left, top, right - left, opH * scale);
         if (scale >= 0.5) { // これより小さいスケールだと見えないからいらない。
-            left = (this.fetchedCycle - startCycle) * scale * unit;
-            context.fillText(this.id + " " + this.fetchedCycle + " " + this.retiredCycle, left + 5, top + unit * scale - 2);
+            left = (this.fetchedCycle - startCycle) * scale * opW;
+            context.fillText(this.id + " " + this.fetchedCycle + " " + this.retiredCycle, left + 5, top + opH * scale - 2);
         }
         //console.log("Drawn!");
         return true;

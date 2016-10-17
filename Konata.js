@@ -8,17 +8,27 @@ function Konata (that) {
     this.File = require("./File");
     this.Stage = require("./Stage");
     this.Label = require("./Label");
+    // 以下の変数は（基本的に）外部から直接触らないことを前提にしてるので，
+    // その内 var m_* の形に変える．
     this.files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
     this.tabs = {}; // 表示用HTML(jQuery)オブジェクトの連想配列
     this.tiles = {}; // ファイルごとのtileの二重配列を覚えておく連想配列
     this.position = {}; // ファイル毎の現在位置を覚えておく連想配列
-    var jQuery = require("./jquery");
     this.skip = 1;
     this.scale = {};
     this.lastFetchedId = {};
     this.prefetch = null;
     this.prefetchInterval = 2000;
     this.prefetchNum = 1000;
+    // private変数．外部からはアクセサを用意しない限りアクセスできない．
+    // jQuery HTMLをいじるときに使う．
+    var jQuery = require("./jquery");
+    // キャンバスの縦横．0でなければなんでもいいと思う．
+    var canvasW = 100;
+    var canvasH = 300;
+    // 以下のパラメータはOp.jsと合わせる．(そうしないと表示がズレる)
+    var opH = 25; // スケール1のときの1命令の高さ
+    var opW = 25; // スケール1のときの1サイクルの幅
 
     this.GetOp = function (path, id, remote) {
         var file = this.files[path];
@@ -108,9 +118,9 @@ function Konata (that) {
             for (var x = 0; x < tiles[y].length; x++) {
                 var tile = tiles[y][x];
                 this.DrawTile(tile, top, left, path);
-                left += 300/(scale * 25);
+                left += canvasW/(scale * opW);
             }
-            top += 300/(scale * 25);
+            top += canvasH/(scale * opH);
         }
         var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
         this.prefetch = setInterval(function(){self.Prefetch()}, this.prefetchInterval);
@@ -151,8 +161,8 @@ function Konata (that) {
     // private methods
     this.DrawTile = function (tile, top, left, path) {
         var scale = this.scale[path];
-        var height = 300/(scale*25);
-        var width = 300/(scale*25);
+        var height = canvasH / (scale * opH);
+        var width = canvasW / (scale * opW);
         for (var id = Math.floor(top); id < top + height; id++) {
             if (scale < 0.005 && id % this.skip  != 0) {
                 continue;
@@ -185,8 +195,8 @@ function Konata (that) {
             var tabs = this.tabs;
         }
         // canvasのサイズを定義する[px]
-        var width = 300;
-        var height = 300;
+        var width = canvasW;
+        var height = canvasH;
         for (var key in tabs) {
             var tab = tabs[key];
             var p = tab.find(".pipelines-window");
