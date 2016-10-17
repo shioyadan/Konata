@@ -2,9 +2,7 @@ function Konata (that) {
     this.that = that;
     this.name = "Konata";
     this.Op = require("./Op");
-    this.Cache = require("./Cache");
-    this.Parsers = [require("./OnikiriParser")];
-    this.RemoteParser = [require("./MainProcessIF")]; // 通信によってパース結果を受け取る場合に利用する。
+    var m_Cache = require("./Cache");
     this.File = require("./File");
     this.Stage = require("./Stage");
     this.Label = require("./Label");
@@ -23,6 +21,8 @@ function Konata (that) {
     var m_prefetchNum = 500;
     // jQuery HTMLをいじるときに使う．
     var m_jquery = require("./jquery");
+    var m_Parsers = [require("./OnikiriParser")];
+    var m_RemoteParsers = [require("./MainProcessIF")]; // 通信によってパース結果を受け取る場合に利用する。
     // キャンバスの縦横．0でなければなんでもいいと思う．
     var m_canvasW = 300;
     var m_canvasH = 300;
@@ -44,31 +44,31 @@ function Konata (that) {
         }
         console.log("Open :", path);
         if (remote) { // 通信による解決を図る
-            var connection = this.Connect(path);
-            this.Prefetch()
+            var connection = Connect(path, this);
+            Prefetch(this);
             return connection;
         }
         var file = new this.File(path);
-        for (var i = 0, len = this.Parsers.length; i < len; i++) {
-            var parser = new this.Parsers[i](this);
+        for (var i = 0, len = m_Parsers.length; i < len; i++) {
+            var parser = new m_Parsers[i](this);
             if (parser.SetFile(file)) {
                 console.log("Selected parser:" , parser.GetName());
-                m_files[path] = new this.Cache(path, parser);
-                this.Prefetch();
+                m_files[path] = new m_Cache(path, parser);
+                Prefetch(this);
                 return m_files[path];
             }
         }
-        this.Prefetch();
+        Prefetch(this);
         return null;
     };
 
-    this.Connect = function (path) {
+    function Connect (path, self) {
         console.log("Challenge connection");
-        for (var i = 0, len = this.RemoteParser.length; i < len; i++) {
-            var parser = new this.RemoteParser[i](this);
+        for (var i = 0, len = m_RemoteParsers.length; i < len; i++) {
+            var parser = new m_RemoteParsers[i](self);
             if (parser.SetFile(path)) {
                 console.log("Selected remote parser:", parser.GetName());
-                m_files[path] = new this.Cache(path, parser, this);
+                m_files[path] = new m_Cache(path, parser, self);
                 return m_files[path];
             }
         }
@@ -107,7 +107,7 @@ function Konata (that) {
             }
             top += m_canvasH/(scale * m_opH);
         }
-        this.Prefetch();
+        Prefetch(this);
         return tab;
     };
 
@@ -154,14 +154,13 @@ function Konata (that) {
         return op;
     };
 
-    this.Prefetch = function () {
-        var self = this; // これ以外の書き方をすると Prefetch()内でthisがKonataでなくなる．
-        m_prefetch = setTimeout(function(){self.Prefetch()}, m_prefetchInterval);
+    function Prefetch(self) {
+        m_prefetch = setTimeout(function(){Prefetch(self)}, m_prefetchInterval);
         for (var key in m_lastFetchedId) {
             var start = m_lastFetchedId[key] + 1;
             var end = start + m_prefetchNum;
             for (var id = start; id < end; id++) {
-                var op = this.GetOp(key, id);
+                var op = self.GetOp(key, id);
                 if (op == null) {
                     break;
                 }
@@ -182,7 +181,7 @@ function Konata (that) {
             if (op == null) {
                 return;
             }
-            if ( !op.Draw(id - top, left, left + width, scale, tile) ) {
+            if ( !op.Draw(id - top, left, left + width, scale, tile, m_jquery) ) {
                 return;
             }
         }
