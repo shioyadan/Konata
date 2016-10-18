@@ -14,6 +14,7 @@ function Op(args) {
     this.cons = []; // コンシューマ命令のIDの配列
     var m_opH = 25; // スケール1のときの1命令の高さ[px]
     var m_opW = 25; // スケール1のときの1サイクルの幅[px]
+    var m_margin = 5; //
     for (var key in args) {
         this[key] = args[key];
     }
@@ -43,7 +44,7 @@ function Op(args) {
             context.strokeStyle = "#333333";
         }
         context.fillStyle = "#888888";
-        context.strokeRect(left, top, right - left, m_opH * scale);
+        context.strokeRect(left, top, right - left, (m_opH - m_margin) * scale);
         if (scale >= 0.1) {
             var keys = [];
             for (var key in this.lanes) {
@@ -84,12 +85,12 @@ function Op(args) {
             grad.addColorStop(1, color);
             grad.addColorStop(0, "#eee");
             context.fillStyle = grad;
-            context.fillRect(left, top, right - left, m_opH * scale);
-            context.strokeRect(left, top, right - left, m_opH * scale);
+            context.fillRect(left, top, right - left, (m_opH - m_margin) * scale);
+            context.strokeRect(left, top, right - left, (m_opH - m_margin) * scale);
             left = (stage.startCycle - startCycle) * scale * m_opW;
             if (scale >= 0.5) {
                 context.fillStyle = "#000000";
-                context.fillText(stage.name, left + 5, top + m_opH * scale - 2);
+                context.fillText(stage.name, left + (m_opW * scale/3), top + (m_opH - m_margin) * scale*3/4);
             }
         }
     };
