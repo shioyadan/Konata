@@ -1,5 +1,5 @@
-.lane_0 .stage_F {
-    background-color: #aaaaff;
+.lane_0 .stage_F { /* レーン名 + ステージ名の設定が最優先 */
+    background-color: #aaaaff; /* グラデーションはKonata側の魔法により実現されているのでベース色を指定する */
 }
 .lane_0 .stage_Rn {
     background-color: #88ff88;
@@ -22,22 +22,54 @@
 .lane_0 .stage_Cm {
     background-color: #ffaaff;
 }
-.stage_f {
-    background-color: #888;
-}
 
-.lane_2 [class*="stage_iX"] {
-    background-color: #ff7744;
-}
-
-.lane_1 .stage_stl {
+.stage_f { /* ステージ名だけでも指定可能 */
     background-color: #888888;
 }
 
-.default {
+.stage_f { /* 同じセレクタなら後ろのほうが優先される */
+    background-color: #666;
+}
+
+.stage_stl {
+    background-color: #888888;
+}
+
+.stage_iXlR0 {
+    background-color: #ff8888;
+}
+
+.lane_0 { /* レーン名 + ステージ名，ステージ名だけより優先度は低いが，レーン名だけで指定も可能 */
     background-color: #aaffaa;
+    font-style: italic;
 }
 
 .lane_2 {
+    background-color: #ffffaa;
     font-style: italic;
+}
+
+.default { /* どこにもヒットしない場合，.default設定を利用する （ここでも設定しないとKonata内標準の値を利用）*/
+    background-color: #aaffaa;
+    font-size:12px;
+    font-family: Arial; /* 一般的に保険のためにやるカンマ区切りの複数指定はできない． */
+    font-style: normal;
+}
+
+
+/* 少し凝ったCSSはパースできない（上手くパースできないサンプル集） */
+.lane_2 [class*="stage_iX"] { /* 属性検索系は全くできない */
+    background-color: #ff7744;
+}
+
+.stage_aaa, .stage_bbb { /* aaaはパースされるがbbbはパースされない */
+    background-color: #ff7744;
+}
+
+.lane_0 .stage_smpl{
+    background-color: #000 !important; /* importantに意味はない */
+}
+
+.lane_2 {
+    font-size:12pt; /* font-sizeの単位はpxであるとして扱われる */
 }
