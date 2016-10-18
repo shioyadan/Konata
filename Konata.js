@@ -1,8 +1,7 @@
-function Konata (that) {
+function Konata (that, retina) {
     this.that = that;
     this.name = "Konata";
     this.Op = require("./Op");
-    var m_Cache = require("./Cache");
     this.File = require("./File");
     this.Stage = require("./Stage");
     this.Label = require("./Label");
@@ -23,6 +22,7 @@ function Konata (that) {
     var m_jquery = require("./jquery");
     var m_Parsers = [require("./OnikiriParser")];
     var m_RemoteParsers = [require("./MainProcessIF")]; // 通信によってパース結果を受け取る場合に利用する。
+    var m_Cache = require("./Cache");
     // キャンバスの縦横．0でなければなんでもいいと思う．
     var m_canvasW = 300;
     var m_canvasH = 300;
@@ -30,7 +30,11 @@ function Konata (that) {
     var m_opH = 25; // スケール1のときの1命令の高さ
     var m_opW = 25; // スケール1のときの1サイクルの幅
     var m_skip = 1;
-
+    var m_retina = retina;
+    var m_normalScale = m_retina? 2:1;
+    var m_maxScale = m_retina? 4:2; // retinaの場合、倍精度必要なので最大倍率も倍
+    var m_minScale = m_retina? 0.00006103515625 * 2: 0.00006103515625;
+    
     this.GetScale = function (path) {
         return m_scale[path];
     }
@@ -83,7 +87,7 @@ function Konata (that) {
         }
         this.position[path] = position;
         if (m_scale[path] == null) {
-            m_scale[path] = 1;
+            m_scale[path] = m_normalScale;
         }
         var scale = m_scale[path];
         if (m_tabs[path] == null) {
@@ -134,10 +138,10 @@ function Konata (that) {
             return;
         }
         m_scale[path] = m_scale[path] * scale;
-        if (m_scale[path] > 2) {
-            m_scale[path] = 1;
-        } else if (m_scale[path] < 0.00006103515625) {
-            m_scale[path] = 0.00006103515625;
+        if (m_scale[path] > m_maxScale) {
+            m_scale[path] = m_maxScale;
+        } else if (m_scale[path] < m_minScale) {
+            m_scale[path] = m_minScale;
         }
         this.Draw(path, this.position[path]);
     }
@@ -205,30 +209,41 @@ function Konata (that) {
             var tabs = m_tabs;
         }
         // canvasのサイズを定義する[px]
-        var width = m_canvasW;
-        var height = m_canvasH;
         for (var key in tabs) {
             var tab = tabs[key];
             var p = tab.find(".pipelines-window");
             // 必要なcanvas数を考える
-            var x = Math.ceil(p.width()/width) + 2;
-            var y = Math.ceil(p.height()/height) + 2;
-            this.LayTiles(p, x, y, width, height, key);
+            if (m_retina) { // retinaだと倍精度で描かないとボケる
+                var x = Math.ceil(p.width()/m_canvasW) * 2 + 2;
+                var y = Math.ceil(p.height()/m_canvasH) * 2 + 2;
+            } else {
+                var x = Math.ceil(p.width()/m_canvasW) + 2;
+                var y = Math.ceil(p.height()/m_canvasH) + 2;
+            }
+            this.LayTiles(p, x, y, key);
             //console.log(key , "set tiles:", p.width(), p.height());
         }
     }
 
     // obj内に幅width, 高さheightのタイルをx * y個敷き詰める。
-    this.LayTiles = function (obj, x, y, width, height, path) {
+    this.LayTiles = function (obj, x, y, path) {
         obj.html("");
         var tiles = [];
         for (var h = 0; h < y; h++) {
             var tileY = m_jquery("<div></div>", {class:"tileY"}).appendTo(obj);
+            if (m_retina) {
+                tileY.css("max-height", m_canvasH/2);
+            } else {
+                tileY.css("max-height", m_canvasH);
+            }
             tiles.push([]);
             for (var w = 0; w < x; w++) {
                 var tileX = m_jquery("<canvas></canvas>", {class:"tileX"}).appendTo(tileY);
-                tileX.attr("width", width);
-                tileX.attr("height", height);
+                tileX.attr("width", m_canvasW);
+                tileX.attr("height", m_canvasH);
+                if (m_retina) {
+                    tileX.css({"width":m_canvasW/2, "height":m_canvasH/2}); // Retinaディスプレイの解像度に対応
+                }
                 if (!tileX[0].getContext) {
                     console.log("tileX.getContext not found");
                     return;
