@@ -14,7 +14,7 @@ function Op(args) {
     this.cons = []; // コンシューマ命令のIDの配列
     var m_opH = 25; // スケール1のときの1命令の高さ[px]
     var m_opW = 25; // スケール1のときの1サイクルの幅[px]
-    var m_margin = 5; //
+    var m_margin = 5; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
     for (var key in args) {
         this[key] = args[key];
     }
@@ -53,19 +53,19 @@ function Op(args) {
             keys = keys.sort();
             for (var i = 0, len = keys.length; i < len; i++) {
                 var key = keys[i];
-                this.DrawLane(h, startCycle, endCycle, scale, context, key);
+                DrawLane(h, startCycle, endCycle, scale, context, key, this);
             }
         }
         return true;
     };
 
-    this.DrawLane = function (h, startCycle, endCycle, scale, context, laneName) {
-        var lane = this.lanes[laneName];
+    function DrawLane(h, startCycle, endCycle, scale, context, laneName, op) {
+        var lane = op.lanes[laneName];
         var top = h * m_opH * scale;
         for (var i = 0, len = lane.length; i < len; i++) {
             var stage = lane[i];
             if (stage.endCycle == null) {
-                stage.endCycle = this.retiredCycle;
+                stage.endCycle = op.retiredCycle;
             }
             if (stage.endCycle < startCycle) {
                 continue;
@@ -75,25 +75,12 @@ function Op(args) {
             if (stage.endCycle == stage.startCycle) {
                 continue;
             }
-            var color = 
-            getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "background-color", 1) || 
-            getStyleRuleValue(".stage_" + stage.name, "background-color", 1) || 
-            getStyleRuleValue(".lane_" + laneName, "background-color", 1) || 
-            getStyleRuleValue(".default", "background-color", 1) || "#888";
-            var fontSize = getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "font-size", 1) || 
-            getStyleRuleValue(".stage_" + stage.name, "font-size", 1) || 
-            getStyleRuleValue(".lane_" + laneName, "font-size", 1) || 
-            getStyleRuleValue(".default", "font-size", 1) || "12px";
+            var color = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "background-color", 1, "#888");
+            var fontSize = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-size", 1, "12px");
             fontSize = parseInt(fontSize) * scale;
             fontSize = fontSize + "px";
-            var fontFamily = getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "font-family", 1) || 
-            getStyleRuleValue(".stage_" + stage.name, "font-family", 1) || 
-            getStyleRuleValue(".lane_" + laneName, "font-family", 1) || 
-            getStyleRuleValue(".default", "font-family", 1) || "MS Gothic";
-            var fontStyle = getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "font-style", 1) || 
-            getStyleRuleValue(".stage_" + stage.name, "font-style", 1) || 
-            getStyleRuleValue(".lane_" + laneName, "font-style", 1) || 
-            getStyleRuleValue(".default", "font-style", 1) || "normal";
+            var fontFamily = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-family", 1, "MS Gothc");
+            var fontStyle = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-style", 1, "normal");
             var l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
             var r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
             var left = l * scale * m_opW;
@@ -112,6 +99,29 @@ function Op(args) {
             }
         }
     };
+
+    function getStyleRule(selectors, style, sheetIndex, defaultValue) {
+        var s = [];
+        var copyArray = [];
+        while (selectors.length > 1) {
+            s.push(selectors.join(" "));
+            copyArray.push(selectors.shift());
+        }
+        copyArray.push(selectors.shift());
+        copyArray = copyArray.reverse();
+        s = s.concat(copyArray);
+        for (var i = 0, len = s.length; i < len; i++) {
+            var prop = getStyleRuleValue(s[i], style, sheetIndex);
+            if (prop) {
+                return prop;
+            }
+        }
+        var d = getStyleRuleValue(".default", style, 1);
+        if (d) {
+            return d;
+        }
+        return defaultValue;
+    };
     
     function getStyleRuleValue(selector, style, sheetIndex) {
         if (sheetIndex != null) {
@@ -122,8 +132,11 @@ function Op(args) {
             var sheet = sheets[i];
             if( !sheet.cssRules ) { continue; }
             for (var j = 0, k = sheet.cssRules.length; j < k; j++) {
-                var rule = sheet.cssRules[j];
+                var rule = sheet.cssRules[k-j-1]; // 後ろの結果を優先する．
                 if (rule.selectorText && rule.selectorText.split(',').indexOf(selector) !== -1) {
+                    if (rule.style[style] == "" || rule.style[style] == null) {
+                        continue;
+                    }
                     return rule.style[style];
                 }
             }
