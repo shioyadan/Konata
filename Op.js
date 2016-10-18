@@ -75,8 +75,25 @@ function Op(args) {
             if (stage.endCycle == stage.startCycle) {
                 continue;
             }
-            var color = getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "background-color", 1) || 
+            var color = 
+            getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "background-color", 1) || 
+            getStyleRuleValue(".stage_" + stage.name, "background-color", 1) || 
+            getStyleRuleValue(".lane_" + laneName, "background-color", 1) || 
             getStyleRuleValue(".default", "background-color", 1) || "#888";
+            var fontSize = getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "font-size", 1) || 
+            getStyleRuleValue(".stage_" + stage.name, "font-size", 1) || 
+            getStyleRuleValue(".lane_" + laneName, "font-size", 1) || 
+            getStyleRuleValue(".default", "font-size", 1) || "12px";
+            fontSize = parseInt(fontSize) * scale;
+            fontSize = fontSize + "px";
+            var fontFamily = getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "font-family", 1) || 
+            getStyleRuleValue(".stage_" + stage.name, "font-family", 1) || 
+            getStyleRuleValue(".lane_" + laneName, "font-family", 1) || 
+            getStyleRuleValue(".default", "font-family", 1) || "MS Gothic";
+            var fontStyle = getStyleRuleValue(".lane_" + laneName + " .stage_" + stage.name, "font-style", 1) || 
+            getStyleRuleValue(".stage_" + stage.name, "font-style", 1) || 
+            getStyleRuleValue(".lane_" + laneName, "font-style", 1) || 
+            getStyleRuleValue(".default", "font-style", 1) || "normal";
             var l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
             var r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
             var left = l * scale * m_opW;
@@ -85,6 +102,7 @@ function Op(args) {
             grad.addColorStop(1, color);
             grad.addColorStop(0, "#eee");
             context.fillStyle = grad;
+            context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
             context.fillRect(left, top, right - left, (m_opH - m_margin) * scale);
             context.strokeRect(left, top, right - left, (m_opH - m_margin) * scale);
             left = (stage.startCycle - startCycle) * scale * m_opW;
