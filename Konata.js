@@ -14,8 +14,8 @@ function Konata (that, retina) {
     var m_scale = {};
     var m_lastFetchedId = {};
     var m_prefetch = null;
-    var m_prefetchInterval = 2000;
-    var m_prefetchNum = 500;
+    var m_prefetchInterval = 1000;
+    var m_prefetchNum = 1000;
     // jQuery HTMLをいじるときに使う．
     var m_jquery = require("./jquery");
     var m_Parsers = [require("./OnikiriParser")];
@@ -39,18 +39,28 @@ function Konata (that, retina) {
     this.GetScale = function (path) {
         return m_scale[path];
     }
+
+    // なにか時間のかかりそうな処理の前には呼び出す．
+    function CancelPrefetch () {
+        if (m_prefetch !== null) {
+            clearTimeout(m_prefetch);
+            m_prefetch = null;
+        }
+    }
+    // 時間のかかりそうな処理の終わりに呼んでおく．
+    function SetPrefetch (self) {
+        CancelPrefetch(); // 多重予約を防ぐために予約済のプリフェッチがあればキャンセルする．
+        m_prefetch = setTimeout(function(){Prefetch(self);}, m_prefetchInterval);
+    }
+
     this.OpenFile = function (path, remote) {
         if (m_files[path] != null) {
             // 既に開かれている。
             return m_files[path];
         }
-        if (m_prefetch) {
-            clearTimeout(m_prefetch);
-        }
         console.log("Open :", path);
         if (remote) { // 通信による解決を図る
             var connection = Connect(path, this);
-            Prefetch(this);
             return connection;
         }
         var file = new this.File(path);
@@ -59,11 +69,9 @@ function Konata (that, retina) {
             if (parser.SetFile(file)) {
                 console.log("Selected parser:" , parser.GetName());
                 m_files[path] = new m_Cache(path, parser);
-                Prefetch(this);
                 return m_files[path];
             }
         }
-        Prefetch(this);
         return null;
     };
 
@@ -87,9 +95,7 @@ function Konata (that, retina) {
             m_position[path] = {top:0, left:0};
         }
         var pos = m_position[path];
-        if (m_prefetch) {
-            clearTimeout(m_prefetch);
-        }
+        CancelPrefetch();
         //this.position[path] = position;
         if (m_scale[path] == null) {
             m_scale[path] = m_normalScale;
@@ -116,7 +122,7 @@ function Konata (that, retina) {
             }
             top += m_canvasH/(scale * m_opH);
         }
-        Prefetch(this);
+        SetPrefetch(this);
         return tab;
     };
 
@@ -168,8 +174,9 @@ function Konata (that, retina) {
         return op;
     };
 
+    // この関数を直接呼ぶことは禁止．
+    // プリフェッチしたければSetPrefetchメソッドを利用する．
     function Prefetch(self) {
-        m_prefetch = setTimeout(function(){Prefetch(self);}, m_prefetchInterval);
         for (var key in m_lastFetchedId) {
             var start = m_lastFetchedId[key] + 1;
             var end = start + m_prefetchNum;
@@ -180,6 +187,7 @@ function Konata (that, retina) {
                 }
             }
         }
+        SetPrefetch(self);
     };
 
     // private methods
