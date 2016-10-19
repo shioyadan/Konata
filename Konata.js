@@ -28,8 +28,11 @@ function Konata (that, retina) {
     var m_opH = 25; // スケール1のときの1命令の高さ
     var m_opW = 25; // スケール1のときの1サイクルの幅
     var m_skip = 1;
-    var m_retina = retina;
+    var m_retina = false;//retina;
     if (retina) {
+        // MacのRetinaディスプレイだとm_retinaをtrueにしないとぼやけるが，
+        // Ubuntu上ではRetinaディスプレイ判定されても通常通りの描画の方が綺麗．
+        // もう少し別の判定方法が必要？
         console.log("Retina display");
     }
     var m_normalScale = m_retina? 2:1;
