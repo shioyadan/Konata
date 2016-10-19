@@ -5,11 +5,9 @@ function Konata (that, retina) {
     this.File = require("./File");
     this.Stage = require("./Stage");
     this.Label = require("./Label");
-    // 以下の変数は（基本的に）外部から直接触らないことを前提にしてるので，
-    // その内 var m_* の形に変える．
-    this.position = {}; // ファイル毎の現在位置を覚えておく連想配列
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
     // ローカル変数と区別するため m_ を付ける．
+    var m_position = {}; // ファイル毎の現在位置を覚えておく連想配列
     var m_files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
     var m_tabs = {}; // 表示用HTML(jQuery)オブジェクトの連想配列
     var m_tiles = {}; // ファイルごとのtileの二重配列を覚えておく連想配列
@@ -31,6 +29,9 @@ function Konata (that, retina) {
     var m_opW = 25; // スケール1のときの1サイクルの幅
     var m_skip = 1;
     var m_retina = retina;
+    if (retina) {
+        console.log("Retina display");
+    }
     var m_normalScale = m_retina? 2:1;
     var m_maxScale = m_retina? 4:2; // retinaの場合、倍精度必要なので最大倍率も倍
     var m_minScale = m_retina? 0.00006103515625 * 2: 0.00006103515625;
@@ -43,7 +44,7 @@ function Konata (that, retina) {
             // 既に開かれている。
             return m_files[path];
         }
-        if (this.prefech) {
+        if (m_prefetch) {
             clearTimeout(m_prefetch);
         }
         console.log("Open :", path);
@@ -81,11 +82,15 @@ function Konata (that, retina) {
     };
 
     // Use renderer process only
-    this.Draw = function (path, position, obj) {
-        if (this.prefech) {
+    this.Draw = function (path, obj) {
+        if (m_position[path] == null) {
+            m_position[path] = {top:0, left:0};
+        }
+        var pos = m_position[path];
+        if (m_prefetch) {
             clearTimeout(m_prefetch);
         }
-        this.position[path] = position;
+        //this.position[path] = position;
         if (m_scale[path] == null) {
             m_scale[path] = m_normalScale;
         }
@@ -100,10 +105,10 @@ function Konata (that, retina) {
         }
         var tab = m_tabs[path];
         var tiles = m_tiles[path];
-        var top = position.top;
+        var top = pos.top;
         m_skip = Math.floor(20/(scale * Math.log(scale)/0.005));
         for (var y = 0; y < tiles.length; y++) {
-            var left = position.left;
+            var left = pos.left;
             for (var x = 0; x < tiles[y].length; x++) {
                 var tile = tiles[y][x];
                 this.DrawTile(tile, top, left, path);
@@ -115,21 +120,26 @@ function Konata (that, retina) {
         return tab;
     };
 
-    this.Move = function (path, scrollY) {
-        var posY = this.position[path].top + scrollY
+    this.MoveTo = function (diff, path, adjust) {
+        var posY = m_position[path].top + diff.top;
         if (posY < 0) {
             posY = 0;
         }
         var id = Math.floor(posY);
         var op = this.GetOp(path, id);
         if (op == null) {
-            return this.position[path];
+            return; //this.position[path];
         }
-        this.position[path].top = posY;
-        this.position[path].left = op.fetchedCycle;
-        //console.log(path, this.position[path]);
-        this.Draw(path, this.position[path]);
-        return this.position[path];
+        m_position[path].top = posY;
+        if (adjust) {
+            m_position[path].left = op.fetchedCycle;
+        } else {
+            m_position[path].left += diff.left;
+            if (m_position[path].left < 0) {
+                m_position[path].left = 0;
+            }
+        }
+        this.Draw(path);
     };
 
     this.Zoom = function (path, scale) {
@@ -143,7 +153,7 @@ function Konata (that, retina) {
         } else if (m_scale[path] < m_minScale) {
             m_scale[path] = m_minScale;
         }
-        this.Draw(path, this.position[path]);
+        this.Draw(path);
     }
 
     this.GetOp = function (path, id, remote) {
@@ -159,7 +169,7 @@ function Konata (that, retina) {
     };
 
     function Prefetch(self) {
-        m_prefetch = setTimeout(function(){Prefetch(self)}, m_prefetchInterval);
+        m_prefetch = setTimeout(function(){Prefetch(self);}, m_prefetchInterval);
         for (var key in m_lastFetchedId) {
             var start = m_lastFetchedId[key] + 1;
             var end = start + m_prefetchNum;
@@ -220,13 +230,13 @@ function Konata (that, retina) {
                 var x = Math.ceil(p.width()/m_canvasW) + 2;
                 var y = Math.ceil(p.height()/m_canvasH) + 2;
             }
-            this.LayTiles(p, x, y, key);
+            LayTiles(p, x, y, key);
             //console.log(key , "set tiles:", p.width(), p.height());
         }
     }
 
     // obj内に幅width, 高さheightのタイルをx * y個敷き詰める。
-    this.LayTiles = function (obj, x, y, path) {
+    function LayTiles(obj, x, y, path) {
         obj.html("");
         var tiles = [];
         for (var h = 0; h < y; h++) {

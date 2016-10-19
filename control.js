@@ -6,7 +6,6 @@ control.mouse = false;
 control.mouseX = [];
 control.mouseY = [];
 control.resizeing = false;
-control.position = {top:0, left:0};
 
 function WindowResize(draw) {
     var tab = jquery(".tab");
@@ -26,7 +25,7 @@ function WindowResize(draw) {
     var path = index.path;
     if (draw) {
         konata.SetTile();
-        konata.Draw(path, control.position, jquery("#tabs"));
+        konata.Draw(path,jquery("#tabs"));
     }
 }
 
@@ -86,10 +85,16 @@ function SetControl (tab) {
             konata.SetTile(index.path);
             var scroll = 3/konata.GetScale(index.path);
             if (deltaY < 0) {
-                control.position = konata.Move(index.path, scroll);
+                deltaY = scroll;
             } else {
-                control.position = konata.Move(index.path, -scroll);
+                deltaY = -scroll;
             }
+            if (deltaX < 0) {
+
+            } else {
+
+            }
+            konata.MoveTo({top:deltaY, left:0}, index.path, true);
         }
     });
     OnDrag(p_window);
@@ -143,18 +148,10 @@ function OnDrag (obj) {
             }
             var diffY = Average(control.mouseY) - oldY;
             var diffX = Average(control.mouseX) - oldX;
-            control.position.top -= diffY/25/konata.GetScale(index.path);
-            control.position.left -= diffX/25/konata.GetScale(index.path);
-            if (control.position.top < 0) {
-                control.position.top = 0;
-            }
-            if (control.position.left < 0) {
-                control.position.left = 0;
-            }
-
+            diffX = -diffX/25/konata.GetScale(index.path);
+            diffY = -diffY/25/konata.GetScale(index.path)
             konata.SetTile();
-            konata.Draw(index.path, control.position, jquery("#tabs"));
-            control.position = konata.position[index.path];
+            konata.MoveTo({left:diffX, top:diffY}, index.path, null);
         }
     });
     obj.on("mouseup", function(e) {
