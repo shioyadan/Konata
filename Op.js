@@ -56,6 +56,13 @@ function Op(args) {
                 DrawLane(h, startCycle, endCycle, scale, context, key, this);
             }
         }
+        if (this.flush) {
+            var opacity = getStyleRule([".flush"], "opacity", 1, "0.8");
+            var bgc = getStyleRule([".flush"], "background-color", 1, "#888");
+            context.globalAlpha = opacity;
+            context.fillStyle = bgc;
+            context.fillRect(left, top, right - left, (m_opH - m_margin) * scale);
+        }
         return true;
     };
 
@@ -116,7 +123,7 @@ function Op(args) {
                 return prop;
             }
         }
-        var d = getStyleRuleValue(".default", style, 1);
+        var d = getStyleRuleValue(".default", style, sheetIndex);
         if (d) {
             return d;
         }

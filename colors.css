@@ -56,6 +56,10 @@
     font-style: normal;
 }
 
+.flush {
+    opacity: 0.5;
+    background-color:#888;
+}
 
 /* 少し凝ったCSSはパースできない（上手くパースできないサンプル集） */
 .lane_2 [class*="stage_iX"] { /* 属性検索系は全くできない */
