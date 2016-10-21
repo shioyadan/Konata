@@ -1,14 +1,9 @@
-/* table に関する設定．基本的に固定．． */
 .tab {
     display: table;
 }
 
-/* div要素同士は縦に並べたいので table-row */
-.lanesParent, .lane {
-    display:table-row;
-}
 /* span要素同士は横に並べたいので table-cell */
-.labels-window, .window-sizing, .pipelines-window, .spacer, .block {
+.labels-window, .window-sizing, .pipelines-window {
     display: table-cell;
     table-layout: fixed;
 }
@@ -19,9 +14,7 @@
     max-height: 300px;
 }
 
-/* 表示窓の設定．ラベル欄の大きさなどを変えたいときに変更 */
 .labels-window, .pipelines-window, .window-sizing {
-    /* 枠線の設定．お好みにどうぞ． */
     border: 1px solid #666666;
     box-sizing:border-box;
     color: #000000;
@@ -34,7 +27,7 @@
     height:95%;
 }
 .labels-window {
-    width:150px; /* ラベル窓の幅を変えるならここ */
+    width:150px;
     left:5px;
 }
 .window-sizing {
@@ -48,10 +41,4 @@
 .pipelines-window {
     left:157px; /* labels-window の width + left 以上に設定 */
     background-color: #fff;
-}
-.label {
-    table-layout: fixed;
-}
-.label.type_1 {
-    display: none;
 }
