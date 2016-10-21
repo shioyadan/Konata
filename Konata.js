@@ -93,8 +93,18 @@ function Konata (that, retina) {
         return null;
     };
 
+    this.InitDraw = function (path, obj) {
+        if (m_tabs[path]) {
+            // 既にタブが有るのはおかしい．
+            return false;
+        }
+        m_tabs[path] = this.MakeTable(obj, path);
+        this.Draw(path);
+        return true;
+    }
+
     // Use renderer process only
-    this.Draw = function (path, obj) {
+    this.Draw = function (path) {
         if (m_position[path] == null) {
             m_position[path] = {top:0, left:0};
         }
@@ -104,10 +114,6 @@ function Konata (that, retina) {
             m_scale[path] = m_normalScale;
         }
         var scale = m_scale[path];
-        if (m_tabs[path] == null) {
-            // pathは空白なしに変換する(HTMLの属性値に空白文字を利用できないため)
-            m_tabs[path] = this.MakeTable(obj, path);
-        }
         if (m_tiles[path] == null) {
             this.SetTile(path);
             console.log("Set tiles");
@@ -125,8 +131,8 @@ function Konata (that, retina) {
             }
             top += m_canvasH/(scale * m_opH);
         }
-        SetPrefetch(this);
-        return tab;
+        //SetPrefetch(this);
+        return true;
     };
 
     this.MoveTo = function (diff, path, adjust) {
@@ -213,8 +219,10 @@ function Konata (that, retina) {
     }
 
     this.MakeTable = function (obj, path) {
+        // pathは空白なしに変換する(HTMLの一般的な属性値に空白文字を利用できないため)
+        var noSpacePath = path; // 面倒臭い．
         var tab = m_jquery("<div></div>", {"class":"tab"}).appendTo(obj);
-        tab.attr("id", "Konata_" + path);
+        tab.attr("id", "Konata_" + noSpacePath);
         tab.attr("data-path", path);
         m_jquery("<span></span>", {"class":"labels-window"}).appendTo(tab);
         m_jquery("<span></span>", {"class":"window-sizing"}).appendTo(tab);

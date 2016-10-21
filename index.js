@@ -17,10 +17,11 @@ function Send(path) {
     }
     index.path = path;
     console.log(path);
-
-    var tab = konata.Draw(path, jquery("#tabs"));
-    SetControl(tab);
-    WindowResize();
+    var tabs = jquery("#tabs");
+    if ( konata.InitDraw(path, tabs) ) {
+        SetControl(tabs);
+        WindowResize();
+    }
 }
 
 function Change() {
@@ -38,7 +39,7 @@ function Change() {
     if (len < 1) {
         return;
     }
-    konata.Draw(index.path, tabs);
+    konata.Draw(index.path);
     index.order++;
 }
 
