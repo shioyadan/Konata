@@ -11,8 +11,12 @@ index.order = 0;
 index.path = "./vis.c0.log";
 
 
-function Send() {
-    var path = index.path;
+function Send(path) {
+    if (!path) {
+        return;
+    }
+    index.path = path;
+    console.log(path);
 
     var tab = konata.Draw(path, jquery("#tabs"));
     SetControl(tab);
@@ -38,3 +42,17 @@ function Change() {
     index.order++;
 }
 
+function OpenFile(){
+    ipc.send('index.js', {request:"Open file"});
+}
+
+ipc.on('main.js', function(event, args) {
+    var request = args.request;
+    if (request == "Open file") {
+        var path = args.path;
+        console.log(path);
+        if (path) {
+            Send(path);
+        }
+    }
+});

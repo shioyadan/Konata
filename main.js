@@ -4,8 +4,9 @@ const {app} = electron;
 const {BrowserWindow} = electron;
 var currentURL = 'file://' + __dirname + '/index.html';
 // メインウィンドウはGCされないようにグローバル宣言
-var mainWindow = null;
+var m_window = null;
 var ipc = electron.ipcMain;
+var dialog = electron.dialog;//remote.require('dialog');
 
 // メインプロセス側のKonata
 var Konata = require("./Konata");
@@ -17,15 +18,16 @@ app.on('window-all-closed', function() {
     app.quit();
   }
 });
+
 // Electronの初期化完了後に実行
 app.on('ready', function() {
 
-    mainWindow = new BrowserWindow({width: 800, height: 600});
-    mainWindow.loadURL(currentURL);
-    mainWindow.toggleDevTools();
+    m_window = new BrowserWindow({width: 800, height: 600});
+    m_window.loadURL(currentURL);
+    m_window.toggleDevTools();
     // ウィンドウが閉じられたらアプリも終了
-    mainWindow.on('closed', function() {
-        mainWindow = null;
+    m_window.on('closed', function() {
+        m_window = null;
     });
 });
 
@@ -46,12 +48,42 @@ ipc.on('Konata', function(event, args) {
     }
 });
 
+ipc.on('index.js', function(event, args) {
+    var request = args.request;
+    if (request == "Open file") {
+        OpenFile();
+    }
+});
+
 function SendOps(ops) {
-    mainWindow.webContents
+    m_window.webContents
         .send('asynchronous-message', {request:'DrawOps', ops:ops});
 }
 
 function SendOp(op) {
-    mainWindow.webContents
+    m_window.webContents
         .send('asynchronous-message', {request:'Draw', op:op});
+}
+
+function OpenFile() {
+    var win = BrowserWindow.getFocusedWindow();
+    dialog.showOpenDialog(
+        win,
+        // どんなダイアログを出すかを指定するプロパティ
+        {
+            properties: ['openFile'],
+            filters: [
+                {
+                    name: 'Konata log data',
+                    extensions: ['txt', 'text', 'log']
+                }
+            ]
+        },
+        // [ファイル選択]ダイアログが閉じられた後のコールバック関数
+        function (filenames) {
+            if (filenames) {
+                m_window.webContents
+                .send('main.js', {request:'Open file', path:filenames[0]});
+            }
+        });
 }
