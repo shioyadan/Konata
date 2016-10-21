@@ -25,7 +25,7 @@ function OnikiriParser (Konata) {
         this.file = file;
         var text = "";
         if (this.file.IsText()) {
-            text = this.file.buf.toString();
+            text = this.file.GetText();
         } else {
             // 圧縮データなら展開する
             text = "Extracted";

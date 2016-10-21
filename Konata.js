@@ -56,17 +56,18 @@ function Konata (that, retina) {
         m_prefetch = setTimeout(function(){Prefetch(self);}, m_prefetchInterval);
     }
 
-    this.OpenFile = function (path, remote) {
+    this.OpenFile = function (path) {
         if (m_files[path] != null) {
             // 既に開かれている。
             return m_files[path];
         }
+        var file = new this.File(path);
         console.log("Open :", path);
-        if (remote) { // 通信による解決を図る
+        if (!file.success) { // pathを理解できないので外部の人に解決を頼む
             var connection = Connect(path, this);
             return connection;
         }
-        var file = new this.File(path);
+
         for (var i = 0, len = m_Parsers.length; i < len; i++) {
             var parser = new m_Parsers[i](this);
             if (parser.SetFile(file)) {
@@ -99,7 +100,6 @@ function Konata (that, retina) {
         }
         var pos = m_position[path];
         CancelPrefetch();
-        //this.position[path] = position;
         if (m_scale[path] == null) {
             m_scale[path] = m_normalScale;
         }
@@ -165,10 +165,10 @@ function Konata (that, retina) {
         this.Draw(path);
     }
 
-    this.GetOp = function (path, id, remote) {
+    this.GetOp = function (path, id) {
         var file = m_files[path];
         if (file == null) {
-            file = this.OpenFile(path, remote);
+            file = this.OpenFile(path);
         }
         var op = file.GetOp(id);
         if (op != null) {
@@ -202,7 +202,7 @@ function Konata (that, retina) {
             if (scale < 0.005 && id % m_skip  != 0) {
                 continue;
             }
-            var op = this.GetOp(path, id, true);
+            var op = this.GetOp(path, id);
             if (op == null) {
                 return;
             }

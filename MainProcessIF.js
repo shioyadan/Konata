@@ -6,6 +6,7 @@ function MainProcessIF (that) {
 
     this.SetFile = function (path) {
         this.path = path;
+        return false;
         //console.log("Send message now");
         var response = ipc.sendSync('Konata', {request:"Please parser", path:path});
         console.log("Recieve response:", response);
