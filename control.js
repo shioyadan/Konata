@@ -150,7 +150,7 @@ function OnDrag (obj) {
             var diffX = Average(control.mouseX) - oldX;
             diffX = -diffX/25/konata.GetScale(index.path);
             diffY = -diffY/25/konata.GetScale(index.path)
-            konata.SetTile();
+            konata.SetTile(index.path);
             konata.MoveTo({left:diffX, top:diffY}, index.path, null);
         }
     });

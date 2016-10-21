@@ -215,6 +215,7 @@ function Konata (that, retina) {
     this.MakeTable = function (obj, path) {
         var tab = m_jquery("<div></div>", {"class":"tab"}).appendTo(obj);
         tab.attr("id", "Konata_" + path);
+        tab.attr("data-path", path);
         m_jquery("<span></span>", {"class":"labels-window"}).appendTo(tab);
         m_jquery("<span></span>", {"class":"window-sizing"}).appendTo(tab);
         var p = m_jquery("<span></span>", {"class":"pipelines-window"}).appendTo(tab);
