@@ -63,8 +63,15 @@ function Op(args) {
             context.fillStyle = bgc;
             context.fillRect(left, top, right - left, (m_opH - m_margin) * scale);
         }
+        ClearStyle(context);
         return true;
     };
+
+    function ClearStyle (context) {
+        context.globalAlpha = 1;
+        context.fillStyle = null;
+        context.strokeStyle = null;
+    }
 
     function DrawLane(h, startCycle, endCycle, scale, context, laneName, op) {
         var lane = op.lanes[laneName];
