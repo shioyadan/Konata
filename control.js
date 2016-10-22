@@ -4,7 +4,8 @@ const Menu = remote.Menu;
 const MenuItem = remote.MenuItem;
 
 var p_menu = new Menu();
-p_menu.append(new MenuItem({ label: 'このタブを半透明化', click: function() { Transparent(true); } }));
+p_menu.append(new MenuItem({ label: '全体を半透明化', click: function() { Transparent(true); } }));
+p_menu.append(new MenuItem({ label: '背景だけ透明化', click: function() { Transparent(true, true); } }));
 p_menu.append(new MenuItem({ label: '透明化を解除', click: function() { Transparent(false); } }));
 p_menu.append(new MenuItem({ label: '全体を橙色に', click: function() { Color("#f80"); } }));
 p_menu.append(new MenuItem({ label: '全体を青色に', click: function() { Color("#08f"); } }));
@@ -26,11 +27,15 @@ function Color(color) {
     konata.Draw(index.path);
 }
 
-function Transparent (enable) {
+function Transparent (enable, all) {
     var tabs = jquery("#tabs");
     var tab = tabs.find('[data-path="' + index.path + '"]');
     if (enable) {
-        SetOpacity(0.5);
+        if (!all) {
+            SetOpacity(0.5);
+        } else {
+            SetOpacity(1);
+        }
         tab.find("*").css("background-color", "transparent");
     } else {
         SetOpacity(1);
@@ -41,14 +46,13 @@ function Transparent (enable) {
 function SetOpacity(alpha) {
     var tabs = jquery("#tabs");
     var tab = tabs.find('[data-path="' + index.path + '"]');
-    //SetZIndex(index.path, 0, true);
     konata.ParentStyle(index.path, "opacity", alpha);
     konata.Draw(index.path);
-    //tab.find("*").css("opacity", alpha);
 }
 
 function CreateTabMenu (path) {
-    var shortPath = path; // なんかタブ上に表示できる程度に加工した名前にしたい。
+    var array = path.split("/");
+    var shortPath = array[array.length - 1]; // なんかタブ上に表示できる程度に加工した名前にしたい。
     var tabs = jquery("#tabs-selector");
     var tab = jquery("<span>" + shortPath + "</span>").appendTo(tabs);
     tabs = tabs.find(".tab-selector");
