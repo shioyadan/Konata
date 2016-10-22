@@ -10,8 +10,6 @@ p_menu.append(new MenuItem({ label: '透明化を解除', click: function() { Tr
 p_menu.append(new MenuItem({ label: '全体を橙色に', click: function() { Color("#f80"); } }));
 p_menu.append(new MenuItem({ label: '全体を青色に', click: function() { Color("#08f"); } }));
 p_menu.append(new MenuItem({ label: 'デフォルトの配色', click: function() { Color(null); } }));
-//p_menu.append(new MenuItem({ type: 'separator' }));
-//p_menu.append(new MenuItem({ label: 'MenuItem2', type: 'checkbox', checked: true }));
 
 
 var control = {};
@@ -21,6 +19,30 @@ control.mouseX = [];
 control.mouseY = [];
 control.resizeing = false;
 control.tabnum = 0;
+control.bind = {};
+
+function Bind(path) {
+    //var path = control.temp;
+    if (index.path == path) {
+        return;
+    }
+    if (control.bind[index.path]) {
+        console.log(control.bind[index.path]);
+    }
+    var i = jquery.inArray(path, control.bind[index.path]);
+    if (i < 0) {
+        control.bind[index.path].push(path);
+    }
+}
+
+function Release(path) {
+    //var path = control.temp;
+    var i = jquery.inArray(path, control.bind[index.path]);
+    if (i > -1) {
+        control.bind[index.path].splice(i, 1);
+    }
+
+}
 
 function Color(color) {
     konata.ParentStyle(index.path, "color", color);
@@ -58,6 +80,22 @@ function CreateTabMenu (path) {
     tabs = tabs.find(".tab-selector");
     tab.attr("data-path", path);
     tab.addClass("tab-selector");
+
+    // コンテキストメニューの内容
+    var t_menu = new Menu();
+    t_menu.append(new MenuItem({label: "スクロール・ズームを連携", 
+        click: function() {
+            Bind(path);
+        }
+    }));
+    t_menu.append(new MenuItem({label: "連携を解除",
+        click:function() {
+            Release(path);
+        }
+    }));
+
+
+    // 各種イベントを設定
     tab.click(function () {
         var tabs = jquery("#tabs-selector").find(".tab-selector");
         if (!SetZIndex(path, control.tabnum)) {
@@ -69,13 +107,17 @@ function CreateTabMenu (path) {
             var p = t.attr("data-path");
             if (p == path) {
                 t.css("background-color", "#ddd");
-                t.css("min-height", 18);
+                t.css("min-height", 20);
             } else {
                 SetZIndex(p, -1, true);
                 t.css("background-color", "#fff");
-                t.css("min-height", 16);
+                t.css("min-height", 18);
             }
         });
+    });
+    // 右クリック
+    tab.contextmenu(function () {
+        t_menu.popup(remote.getCurrentWindow());
     });
 }
 
@@ -115,6 +157,14 @@ function Zoom(dir) {
     konata.Zoom(index.path, scale);
     console.log("Complete");
     control.resizeing = false;
+}
+
+function MoveTo (diff, adjust) {
+    konata.MoveTo(diff, index.path, adjust);
+    for (var i = 0, len = control.bind[index.path].length; i < len; i++) {
+        var path = control.bind[index.path][i];
+        konata.MoveTo(diff, path, adjust);
+    }
 }
 
 jquery(window).ready(function(){
@@ -166,7 +216,7 @@ function SetControl (tab) {
             } else {
 
             }
-            konata.MoveTo({top:deltaY, left:0}, index.path, true);
+            MoveTo({top:deltaY, left:0}, true);
         }
     });
     OnDrag(p_window);
@@ -221,8 +271,8 @@ function OnDrag (obj) {
             var diffY = Average(control.mouseY) - oldY;
             var diffX = Average(control.mouseX) - oldX;
             diffX = -diffX/25/konata.GetScale(index.path);
-            diffY = -diffY/25/konata.GetScale(index.path)
-            konata.MoveTo({left:diffX, top:diffY}, index.path, null);
+            diffY = -diffY/25/konata.GetScale(index.path);
+            MoveTo({left:diffX, top:diffY},  null);
         }
     });
     obj.on("mouseup", function(e) {

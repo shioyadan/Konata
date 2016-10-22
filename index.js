@@ -24,6 +24,7 @@ function Send(path) {
         CreateTabMenu(path);
         SetZIndex(path, control.tabnum);
         index.path = path;
+        control.bind[path] = [];
     }
 }
 
