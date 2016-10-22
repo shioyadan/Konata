@@ -59,21 +59,29 @@ function Konata (that, retina) {
     this.OpenFile = function (path) {
         if (m_files[path] != null) {
             // 既に開かれている。
-            return m_files[path];
+            return;
         }
         var file = new this.File(path);
         console.log("Open :", path);
         if (!file.success) { // pathを理解できないので外部の人に解決を頼む
             var connection = Connect(path, this);
-            return connection;
+            return;
         }
 
         for (var i = 0, len = m_Parsers.length; i < len; i++) {
             var parser = new m_Parsers[i](this);
-            if (parser.SetFile(file)) {
-                console.log("Selected parser:" , parser.GetName());
-                m_files[path] = new m_Cache(path, parser);
-                return m_files[path];
+            try {
+                if (parser.SetFile(file)) {
+                    console.log("Selected parser:" , parser.GetName());
+                    m_files[path] = new m_Cache(path, parser);
+                    return;
+                }
+            } catch (e) {
+                if (e == "Wait") {
+                    console.log("Selected parser:" , parser.GetName());
+                    m_files[path] = new m_Cache(path, parser);
+                    throw e;
+                }
             }
         }
         return null;
@@ -86,7 +94,7 @@ function Konata (that, retina) {
             if (parser.SetFile(path)) {
                 console.log("Selected remote parser:", parser.GetName());
                 m_files[path] = new m_Cache(path, parser, self);
-                return m_files[path];
+                return;
             }
         }
         console.log("Not found");
@@ -99,7 +107,17 @@ function Konata (that, retina) {
             return false;
         }
         m_tabs[path] = this.MakeTable(obj, path);
-        this.Draw(path);
+        try {
+            this.OpenFile(path);
+            this.Draw(path);
+        } catch(e) {
+            if (e == "Wait") {
+                console.log(path, " extract waiting..,");
+                var self = this;
+                setTimeout(self.Draw(path), 10000);
+            }
+        }
+
         return true;
     }
 
@@ -141,7 +159,12 @@ function Konata (that, retina) {
             posY = 0;
         }
         var id = Math.floor(posY);
-        var op = this.GetOp(path, id);
+        try {
+            var op = this.GetOp(path, id);
+        } catch (e) {
+            console.log(e);
+            return;
+        }
         if (op == null) {
             return; //this.position[path];
         }
@@ -174,7 +197,7 @@ function Konata (that, retina) {
     this.GetOp = function (path, id) {
         var file = m_files[path];
         if (file == null) {
-            file = this.OpenFile(path);
+            throw "Not open " + path;
         }
         var op = file.GetOp(id);
         if (op != null) {
@@ -190,7 +213,12 @@ function Konata (that, retina) {
             var start = m_lastFetchedId[key] + 1;
             var end = start + m_prefetchNum;
             for (var id = start; id < end; id++) {
-                var op = self.GetOp(key, id);
+                try {
+                    var op = self.GetOp(key, id);
+                } catch(e) {
+                    console.log(e);
+                    break;
+                }
                 if (op == null) {
                     break;
                 }
@@ -208,7 +236,12 @@ function Konata (that, retina) {
             if (scale < 0.005 && id % m_skip  != 0) {
                 continue;
             }
-            var op = this.GetOp(path, id);
+            try {
+                var op = this.GetOp(path, id);
+            } catch(e) {
+                console.log(e);
+                return;
+            }
             if (op == null) {
                 return;
             }

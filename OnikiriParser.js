@@ -1,39 +1,41 @@
 function OnikiriParser (Konata) {
     // メインプロセス内のKonataオブジェクト(親オブジェクト)
     // Op.js, Stage.js, Label.jsと色々使いたい物を持ってる
-    this.Konata = Konata;
-    this.file = null; 
+    var m_Konata = Konata;
+    var m_file = null; 
     this.text = null;
     this.lines = null;
      // op情報のキャッシュ（配列）
      // op情報とはOp.jsで定義される連想配列とフェッチされた行数情報（メタデータ）
      // [op, lineIndex];
-    this.opCache = [];
+    var m_opCache = [];
     // Line情報のキャッシュ（配列）
     // Line情報とは、Nライン目においてフェッチされているOP番号やサイクル数の情報
     this.lineCache = [];
     this.lastIndex = null;
     this.name = "OnikiriParser";
     this.timeout = 600 * 1000; // パースを諦めるまでの時間[ms](0なら諦めない)
-
+    var m_complete = false;
     // Public methods
     this.GetName = function () {
-        return "OnikiriParser:(" + this.file.path + ")";
+        return "OnikiriParser:(" + m_file.GetPath() + ")";
     };
 
     this.SetFile = function (file) {
-        this.file = file;
+        m_file = file;
         var text = "";
-        if (this.file.IsText()) {
-            text = this.file.GetText();
+        if (m_file.IsText()) {
+            text = m_file.GetText();
+            this.lines = text.split("\n");
         } else {
             // 圧縮データなら展開する
-            text = "Extracted";
+            console.log("Extract");
+            m_file.Extract().then(this.ParseAllLines, null);
+            throw "Wait";
         }
-        if (!this.Check(text)) {
+        if (!Check(text)) {
             return false;   // 知らない文法ならなにもしない。
         }
-        this.lines = text.split("\n");
         return this.ParseAllLines();
     };
 
@@ -52,44 +54,30 @@ function OnikiriParser (Konata) {
 
     this.GetOp = function(id) {
         var op;
-        if (this.opCache[id] != null) {
-            op = this.opCache[id][0];
+        if (m_opCache[id] != null) {
+            op = m_opCache[id][0];
         } else {
             op = null;//this.Search(id);
-            //this.opCache[id][0] = op;
+            //m_opCache[id][0] = op;
+        }
+        if (op == null && !m_complete) {
+            throw("Parsing...");
         }
         return op;
     }
 
-    // Private mothods(javascriptにそういう機能があるわけではない)
+    // Private methods
     // this.textの文法を確認し、Onikiriのものでなさそうならfalse
-    this.Check = function (text) {
+    function Check (text) {
         return true;
     }
 
-    // idに対応するop情報をthis.linesから検索する。
-    this.Search = function (id) {
-        var op = new this.Konata.Op({"id":id});
-        for (var cachedId = id; cachedId > 0; i--) {
-            if (this.cache[cachedId] != null) {
-                break;
-            }
+    this.ParseAllLines = function (text) {
+        if (text) {
+            this.text = text;
+            this.lines = text.split("\n");
         }
-        var start = cache[cachedId][1]; // 
-        for (var i = start, len = this.lines.length; i < len; i++) {
-            var line = this.GetLine(id, i);
-            if (line == null) {
-                continue;
-            }
-        }
-    }
-
-    // ops[id]に関係する行であればその行を返す
-    this.GetLine = function (id, lineIndex) {
-
-    }
-
-    this.ParseAllLines = function () {
+        m_complete = false;
         var lines = this.lines;
         var cycle = 0;
         var startTime = new Date();
@@ -106,13 +94,13 @@ function OnikiriParser (Konata) {
                 cycle += Number(command[1]);
                 continue;
             }
-            this.ParseCommand(c, cycle, command.slice(1), i);
+            ParseCommand(c, cycle, command.slice(1), i);
         }
-        var i = this.opCache.length - 1;
+        var i = m_opCache.length - 1;
         while (i >= 0) {
-            var op = this.opCache[i][0];
+            var op = m_opCache[i][0];
             if (op.retired && !op.flush) {
-                break; // フラッシュされた命令がきたら終了
+                break; // コミットされた命令がきたら終了
             }
             i--;
             if (op.flush) {
@@ -121,14 +109,16 @@ function OnikiriParser (Konata) {
             op.retiredCycle = cycle;
             op.eof = true;
         }
+        m_complete = true;
+        console.log("parse complete");
         return true;
     }
 
-    this.ParseCommand = function(command, cycle ,args, lineIdx) {
+    function ParseCommand (command, cycle ,args, lineIdx) {
         var id = Number(args[0]);
         var op;
-        if (this.opCache[id]) {
-            op = this.opCache[id][0];
+        if (m_opCache[id]) {
+            op = m_opCache[id][0];
         } else {
             op = null;
         }
@@ -137,21 +127,21 @@ function OnikiriParser (Konata) {
         }
         switch(command) {
             case "I":
-                op = new this.Konata.Op({id:id});
+                op = new m_Konata.Op({id:id});
                 op.gid = args[1];
                 op.tid = args[2];
                 op.fetchedCycle = cycle;
-                this.opCache[id] = [op, lineIdx];
+                m_opCache[id] = [op, lineIdx];
                 break;
             case "L":
                 var visible = Number(args[1]) == 0? true:false;
-                var label = new this.Konata.Label({text:args[2], visible:visible});
+                var label = new m_Konata.Label({text:args[2], visible:visible});
                 op.labels.push(label);
                 break;
             case "S":
                 var laneName = args[1];
                 var stageName = args[2];
-                var stage = new this.Konata.Stage({name:stageName, startCycle:cycle});
+                var stage = new m_Konata.Stage({name:stageName, startCycle:cycle});
                 if (op.lanes[laneName] == null) {
                     op.lanes[laneName] = [];
                 }
@@ -186,7 +176,7 @@ function OnikiriParser (Konata) {
                 var prodId = Number(args[1]);
                 var type = Number(args[2]);
                 op.prods.push([prodId, type, cycle]);
-                this.opCache[prodId][0].cons.push([id, type, cycle]);
+                m_opCache[prodId][0].cons.push([id, type, cycle]);
                 break;
          }
     }

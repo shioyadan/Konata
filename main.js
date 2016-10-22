@@ -75,7 +75,7 @@ function OpenFile() {
             filters: [
                 {
                     name: 'Konata log data',
-                    extensions: ['txt', 'text', 'log']
+                    extensions: ['txt', 'text', 'log', 'gz']
                 }
             ]
         },
