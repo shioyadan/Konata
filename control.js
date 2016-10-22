@@ -6,6 +6,32 @@ control.mouse = false;
 control.mouseX = [];
 control.mouseY = [];
 control.resizeing = false;
+control.tabnum = 0;
+
+function CreateTabMenu (path) {
+    var shortPath = path; // なんかタブ上に表示できる程度に加工した名前にしたい。
+    var tabs = jquery("#tabs-selector");
+    var tab = jquery("<span>" + shortPath + "</span>").appendTo(tabs);
+    tabs = tabs.find(".tab-selector");
+    tab.attr("data-path", path);
+    tab.addClass("tab-selector");
+    tab.click(function () {
+        var tabs = jquery("#tabs-selector").find(".tab-selector");
+        if (!SetZIndex(path, control.tabnum)) {
+            return;
+        }
+        index.path = path;
+        tabs.each (function(i, box) {
+            var t = jquery(box);
+            var p = t.attr("data-path");
+            if (p == path) {
+            } else {
+                SetZIndex(p, -1, true);
+            }
+        });
+    });
+}
+
 
 function WindowResize(draw) {
     var tab = jquery(".tab");

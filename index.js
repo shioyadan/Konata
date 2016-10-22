@@ -21,26 +21,27 @@ function Send(path) {
     if ( konata.InitDraw(path, tabs) ) {
         SetControl(tabs);
         WindowResize();
+        control.tabnum++;
+        CreateTabMenu(path);
+        SetZIndex(path, control.tabnum);
     }
 }
 
-function Change() {
-    var tabs = jquery("#tabs").children(".tab");
-    var len = tabs.length;
-    tabs.each(function(i, box) {
-        var tab = jquery(box);
-        var z = (index.order + i) % len
-        tab.find("*").css("zIndex", z );
-        if (z == len - 1) {
-            // 最前面にあるオブジェクトを操作する．
-            index.path = tab.attr("data-path");
+function SetZIndex (path, z, relative) {
+    var tabs = jquery("#tabs");
+    var tab = tabs.find('[data-path="' + path + '"]');
+    if (!relative) {
+        if (tab.data("zIndex") == z) {
+            return false;
         }
-    });
-    if (len < 1) {
-        return;
     }
-    konata.Draw(index.path);
-    index.order++;
+    if (relative) {
+        z += parseInt(tab.data("zIndex"));
+    }
+    tab.find("*").css("zIndex", z);
+    tab.css("zIndex", z);
+    tab.data("zIndex", z);
+    return true;
 }
 
 function OpenFile(){

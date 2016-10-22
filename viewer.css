@@ -14,6 +14,35 @@
     max-height: 300px;
 }
 
+#tabs-selector {
+    overflow: scroll;
+    margin: 0;
+    padding: 0;
+    max-height:16px;
+}
+.tab-selector {
+    max-width: 120px;
+    width:20%;
+    transition: min-width 0.5s;
+    min-width:30px;
+    min-height:16px;
+    max-height:16px;
+    margin: 0;
+    padding: 0;
+    background-color: #fff;
+    overflow: hidden;
+    display: inline-block;
+    border: 1px solid #666666;
+    box-sizing:border-box;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+}
+
+.tab-selector:hover {
+    transition: min-width 0.5s;
+    min-width: 120px;
+}
+
 .labels-window, .pipelines-window, .window-sizing {
     border: 1px solid #666666;
     box-sizing:border-box;
