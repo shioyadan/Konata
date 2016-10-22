@@ -179,6 +179,10 @@ function Zoom(dir) {
         var scale = 0.5
     }
     konata.Zoom(index.path, scale);
+    for (var i = 0, len = control.bind[index.path].length; i < len; i++) {
+        var path = control.bind[index.path][i];
+        konata.Zoom(path, scale);
+    }
     control.resizeing = false;
 }
 
