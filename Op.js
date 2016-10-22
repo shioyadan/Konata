@@ -28,15 +28,14 @@ function Op(args) {
             context.globalAlpha = parentStyle.opacity;
         }
         if (parentStyle && parentStyle["color"]) {
-            //context.globalAlpha = parentStyle.opacity;
             context.fillStyle = parentStyle.color;
             context.strokeStyle = parentStyle.color;
             var colorSet = true;
         }
         var top = h * m_opH * scale;
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, top, (endCycle - startCycle) * scale, m_opH * scale);
-        context.fillStyle = null;
+        //context.fillStyle = "#ffffff";
+        context.clearRect(0, top, (endCycle - startCycle) * scale, m_opH * scale);
+        //context.fillStyle = null;
         if (this.retiredCycle < startCycle) {
             return true;
         } else if (endCycle < this.fetchedCycle) {
