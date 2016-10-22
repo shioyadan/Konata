@@ -135,6 +135,7 @@ function Konata (that, retina) {
 
     // Use renderer process only
     this.Draw = function (path) {
+        this.SetTile(path);
         var pos = m_position[path];
         CancelPrefetch();
         var scale = m_scale[path];

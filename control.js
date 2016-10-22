@@ -97,7 +97,6 @@ function WindowResize(draw) {
     p_window.css("width", p_width + "px");
     var path = index.path;
     if (draw) {
-        konata.SetTile();
         konata.Draw(path,jquery("#tabs"));
     }
 }
@@ -113,7 +112,6 @@ function Zoom(dir) {
     } else {
         var scale = 0.5
     }
-    konata.SetTile(index.path);
     konata.Zoom(index.path, scale);
     console.log("Complete");
     control.resizeing = false;
@@ -157,7 +155,6 @@ function SetControl (tab) {
                 Zoom(false);
             }
         } else {
-            konata.SetTile(index.path);
             var scroll = 3/konata.GetScale(index.path);
             if (deltaY < 0) {
                 deltaY = scroll;
@@ -225,7 +222,6 @@ function OnDrag (obj) {
             var diffX = Average(control.mouseX) - oldX;
             diffX = -diffX/25/konata.GetScale(index.path);
             diffY = -diffY/25/konata.GetScale(index.path)
-            konata.SetTile(index.path);
             konata.MoveTo({left:diffX, top:diffY}, index.path, null);
         }
     });
