@@ -1,4 +1,17 @@
 var jquery = require("./jquery");
+const remote = require('electron').remote;
+const Menu = remote.Menu;
+const MenuItem = remote.MenuItem;
+
+var p_menu = new Menu();
+p_menu.append(new MenuItem({ label: 'このタブを半透明化', click: function() { Transparent(true); } }));
+p_menu.append(new MenuItem({ label: '透明化を解除', click: function() { Transparent(false); } }));
+p_menu.append(new MenuItem({ label: '全体を橙色に', click: function() { Color("#f80"); } }));
+p_menu.append(new MenuItem({ label: '全体を青色に', click: function() { Color("#08f"); } }));
+p_menu.append(new MenuItem({ label: 'デフォルトの配色', click: function() { Color(null); } }));
+//p_menu.append(new MenuItem({ type: 'separator' }));
+//p_menu.append(new MenuItem({ label: 'MenuItem2', type: 'checkbox', checked: true }));
+
 
 var control = {};
 control.name = "Controler name space";
@@ -7,6 +20,32 @@ control.mouseX = [];
 control.mouseY = [];
 control.resizeing = false;
 control.tabnum = 0;
+
+function Color(color) {
+    konata.ParentStyle(index.path, "color", color);
+    konata.Draw(index.path);
+}
+
+function Transparent (enable) {
+    var tabs = jquery("#tabs");
+    var tab = tabs.find('[data-path="' + index.path + '"]');
+    if (enable) {
+        SetOpacity(0.5);
+        tab.find("*").css("background-color", "transparent");
+    } else {
+        SetOpacity(1);
+        tab.find("*").css("background-color", "#fff");
+    }
+}
+
+function SetOpacity(alpha) {
+    var tabs = jquery("#tabs");
+    var tab = tabs.find('[data-path="' + index.path + '"]');
+    //SetZIndex(index.path, 0, true);
+    konata.ParentStyle(index.path, "opacity", alpha);
+    konata.Draw(index.path);
+    //tab.find("*").css("opacity", alpha);
+}
 
 function CreateTabMenu (path) {
     var shortPath = path; // なんかタブ上に表示できる程度に加工した名前にしたい。
@@ -25,8 +64,12 @@ function CreateTabMenu (path) {
             var t = jquery(box);
             var p = t.attr("data-path");
             if (p == path) {
+                t.css("background-color", "#ddd");
+                t.css("min-height", 18);
             } else {
                 SetZIndex(p, -1, true);
+                t.css("background-color", "#fff");
+                t.css("min-height", 16);
             }
         });
     });
@@ -95,6 +138,8 @@ function SetControl (tab) {
         Zoom(true);
     });
     p_window.contextmenu(function(){
+        console.log("Context menu");
+        p_menu.popup(remote.getCurrentWindow());
     });
     p_window.mousewheel(function(e, delta, deltaX, deltaY){
         if (event.preventDefault) {

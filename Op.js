@@ -19,13 +19,24 @@ function Op(args) {
         this[key] = args[key];
     }
 
-    this.Draw = function (h, startCycle, endCycle, scale, context) {
+    this.Draw = function (h, startCycle, endCycle, scale, context, parentStyle) {
         if (!context.fillRect) {
             console.log("Not context object");
             return false;
         }
+        if (parentStyle && parentStyle["opacity"]) {
+            context.globalAlpha = parentStyle.opacity;
+        }
+        if (parentStyle && parentStyle["color"]) {
+            //context.globalAlpha = parentStyle.opacity;
+            context.fillStyle = parentStyle.color;
+            context.strokeStyle = parentStyle.color;
+            var colorSet = true;
+        }
         var top = h * m_opH * scale;
-        context.clearRect(0, top, (endCycle - startCycle) * scale, m_opH * scale);
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, top, (endCycle - startCycle) * scale, m_opH * scale);
+        context.fillStyle = null;
         if (this.retiredCycle < startCycle) {
             return true;
         } else if (endCycle < this.fetchedCycle) {
@@ -38,12 +49,15 @@ function Op(args) {
         var r = endCycle >= this.retiredCycle ? this.retiredCycle : (endCycle + 1); r -= startCycle;
         var left = l * scale * m_opW;
         var right = r * scale * m_opW;
-        if (scale < 0.2) {
+        if (colorSet) {
+        } else if (scale < 0.2) {
             context.strokeStyle = "#888888";
         } else {
             context.strokeStyle = "#333333";
         }
-        context.fillStyle = "#888888";
+        if (!colorSet) {
+            context.fillStyle = "#888888";
+        }
         context.strokeRect(left, top, right - left, (m_opH - m_margin) * scale);
         if (scale >= 0.1) {
             var keys = [];
@@ -53,13 +67,13 @@ function Op(args) {
             keys = keys.sort();
             for (var i = 0, len = keys.length; i < len; i++) {
                 var key = keys[i];
-                DrawLane(h, startCycle, endCycle, scale, context, key, this);
+                DrawLane(h, startCycle, endCycle, scale, context, key, this, parentStyle);
             }
         }
         if (this.flush) {
             var opacity = getStyleRule([".flush"], "opacity", 1, "0.8");
             var bgc = getStyleRule([".flush"], "background-color", 1, "#888");
-            context.globalAlpha = opacity;
+            context.globalAlpha *= opacity;
             context.fillStyle = bgc;
             context.fillRect(left, top, right - left, (m_opH - m_margin) * scale);
         }
@@ -73,7 +87,10 @@ function Op(args) {
         context.strokeStyle = null;
     }
 
-    function DrawLane(h, startCycle, endCycle, scale, context, laneName, op) {
+    function DrawLane(h, startCycle, endCycle, scale, context, laneName, op, parentStyle) {
+        if (parentStyle && parentStyle["color"]) {
+            var colorSet = true;
+        }
         var lane = op.lanes[laneName];
         var top = h * m_opH * scale;
         for (var i = 0, len = lane.length; i < len; i++) {
@@ -89,7 +106,11 @@ function Op(args) {
             if (stage.endCycle == stage.startCycle) {
                 continue;
             }
-            var color = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "background-color", 1, "#888");
+            if (!colorSet) {
+                var color = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "background-color", 1, "#888");
+            } else {
+                var color = parentStyle.color;
+            }
             var fontSize = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-size", 1, "12px");
             fontSize = parseInt(fontSize) * scale;
             fontSize = fontSize + "px";

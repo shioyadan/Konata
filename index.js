@@ -15,7 +15,6 @@ function Send(path) {
     if (!path) {
         return;
     }
-    index.path = path;
     console.log(path);
     var tabs = jquery("#tabs");
     if ( konata.InitDraw(path, tabs) ) {
@@ -24,6 +23,7 @@ function Send(path) {
         control.tabnum++;
         CreateTabMenu(path);
         SetZIndex(path, control.tabnum);
+        index.path = path;
     }
 }
 

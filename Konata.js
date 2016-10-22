@@ -11,6 +11,7 @@ function Konata (that, retina) {
     var m_files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
     var m_tabs = {}; // 表示用HTML(jQuery)オブジェクトの連想配列
     var m_tiles = {}; // ファイルごとのtileの二重配列を覚えておく連想配列
+    var m_parentStyle = {}; // 親要素(.tab)の持つスタイル
     var m_scale = {};
     var m_lastFetchedId = {};
     var m_prefetch = null;
@@ -54,6 +55,14 @@ function Konata (that, retina) {
     function SetPrefetch (self) {
         CancelPrefetch(); // 多重予約を防ぐために予約済のプリフェッチがあればキャンセルする．
         m_prefetch = setTimeout(function(){Prefetch(self);}, m_prefetchInterval);
+    }
+
+    this.ParentStyle = function (path, style, value) {
+        if (value !== undefined) {
+            m_parentStyle[path][style] = value;
+        } else {
+            return m_parentStyle[path][style];
+        }
     }
 
     this.OpenFile = function (path) {
@@ -106,15 +115,18 @@ function Konata (that, retina) {
             // 既にタブが有るのはおかしい．
             return false;
         }
+        m_position[path] = {top:0, left:0};
         m_tabs[path] = this.MakeTable(obj, path);
+        m_scale[path] = m_normalScale;
+        m_parentStyle[path] = {};
         try {
             this.OpenFile(path);
             this.Draw(path);
         } catch(e) {
             if (e == "Wait") {
-                console.log(path, " extract waiting..,");
-                var self = this;
-                setTimeout(self.Draw(path), 10000);
+                //console.log(path, " extract waiting..,");
+                //var self = this;
+                //setTimeout(self.Draw(path), 10000);
             }
         }
 
@@ -123,19 +135,9 @@ function Konata (that, retina) {
 
     // Use renderer process only
     this.Draw = function (path) {
-        if (m_position[path] == null) {
-            m_position[path] = {top:0, left:0};
-        }
         var pos = m_position[path];
         CancelPrefetch();
-        if (m_scale[path] == null) {
-            m_scale[path] = m_normalScale;
-        }
         var scale = m_scale[path];
-        if (m_tiles[path] == null) {
-            this.SetTile(path);
-            console.log("Set tiles");
-        }
         var tab = m_tabs[path];
         var tiles = m_tiles[path];
         var top = pos.top;
@@ -245,7 +247,7 @@ function Konata (that, retina) {
             if (op == null) {
                 return;
             }
-            if ( !op.Draw(id - top, left, left + width, scale, tile, m_jquery) ) {
+            if ( !op.Draw(id - top, left, left + width, scale, tile, m_parentStyle[path]) ) {
                 return;
             }
         }

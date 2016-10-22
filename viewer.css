@@ -1,5 +1,6 @@
 .tab {
     display: table;
+    background-color: transparent;
 }
 
 /* span要素同士は横に並べたいので table-cell */
@@ -24,6 +25,7 @@
     max-width: 120px;
     width:20%;
     transition: min-width 0.5s;
+    transition: min-height 0.1s;
     min-width:30px;
     min-height:16px;
     max-height:16px;
