@@ -44,6 +44,16 @@ function Konata (that, retina) {
         return m_scale[path];
     }
 
+    this.Close = function (path) {
+        m_position[path] = null;
+        m_files[path] = null;
+        m_tabs[path] = null;
+        m_tiles[path] = null;
+        m_parentStyle[path] = null;
+        m_scale[path] = null;
+        m_lastFetchedId[path] = null;
+    }
+
     this.RetinaSwitch = function () {
         m_retina = !m_retina;
         m_maxScale = m_retina? 4:2;

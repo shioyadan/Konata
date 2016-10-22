@@ -30,6 +30,11 @@ function Send(path) {
     }
 }
 
+function Close(path) {
+    konata.Close(path);
+    jquery('[data-path="' + path + '"]').remove();
+}
+
 function SetZIndex (path, z, relative) {
     var tabs = jquery("#tabs");
     var tab = tabs.find('[data-path="' + path + '"]');
@@ -45,10 +50,6 @@ function SetZIndex (path, z, relative) {
     tab.css("zIndex", z);
     tab.data("zIndex", z);
     return true;
-}
-
-function OpenFile(){
-    ipc.send('index.js', {request:"Open file"});
 }
 
 ipc.on('main.js', function(event, args) {
