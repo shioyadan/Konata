@@ -11,7 +11,6 @@ p_menu.append(new MenuItem({ label: '全体を橙色に', click: function() { Co
 p_menu.append(new MenuItem({ label: '全体を青色に', click: function() { Color("#08f"); } }));
 p_menu.append(new MenuItem({ label: 'デフォルトの配色', click: function() { Color(null); } }));
 
-
 var control = {};
 control.name = "Controler name space";
 control.mouse = false;
@@ -20,6 +19,28 @@ control.mouseY = [];
 control.resizeing = false;
 control.tabnum = 0;
 control.bind = {};
+
+function NextTab(dir) {
+    var tabs = jquery("#tabs");
+    var tab = tabs.find('[data-path="' + index.path + '"]');
+    var next;
+    if (dir) {
+        next = tab.next();
+    } else {
+        next = tab.prev();
+    }
+    if (next.length == 0) {
+        if (dir) {
+            next = tabs.find(".tab").first();
+        } else {
+            next = tabs.find(".tab").last();
+        }    
+    }
+    var path = next.attr("data-path");
+    if(path) {
+        MoveFront(path);
+    }
+}
 
 function Bind(path) {
     //var path = control.temp;
@@ -94,30 +115,34 @@ function CreateTabMenu (path) {
         }
     }));
 
-
     // 各種イベントを設定
     tab.click(function () {
-        var tabs = jquery("#tabs-selector").find(".tab-selector");
-        if (!SetZIndex(path, control.tabnum)) {
-            return;
-        }
-        index.path = path;
-        tabs.each (function(i, box) {
-            var t = jquery(box);
-            var p = t.attr("data-path");
-            if (p == path) {
-                t.css("background-color", "#ddd");
-                t.css("min-height", 20);
-            } else {
-                SetZIndex(p, -1, true);
-                t.css("background-color", "#fff");
-                t.css("min-height", 18);
-            }
-        });
+        MoveFront(path);
     });
     // 右クリック
     tab.contextmenu(function () {
         t_menu.popup(remote.getCurrentWindow());
+    });
+}
+
+function MoveFront(path) {
+    var tabs = jquery("#tabs-selector").find(".tab-selector");
+    if (!SetZIndex(path, control.tabnum)) {
+        return; // 既に最前面にある。
+    }
+    index.path = path; // 操作するタブを自身に変更。
+    // 自身以外のタブを一つずつ後ろに移動。
+    tabs.each (function(i, box) {
+        var t = jquery(box);
+        var p = t.attr("data-path");
+        if (p == path) {
+            t.css("background-color", "#ddd");
+            t.css("min-height", 20);
+        } else {
+            SetZIndex(p, -1, true);
+            t.css("background-color", "#fff");
+            t.css("min-height", 18);
+        }
     });
 }
 
@@ -147,7 +172,6 @@ function Zoom(dir) {
     if (control.resizeing) {
         return;
     }
-    console.log("Zoom", dir);
     control.resizeing = true;
     if (dir) {
         var scale = 2;
@@ -155,7 +179,6 @@ function Zoom(dir) {
         var scale = 0.5
     }
     konata.Zoom(index.path, scale);
-    console.log("Complete");
     control.resizeing = false;
 }
 

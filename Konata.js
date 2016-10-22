@@ -44,6 +44,12 @@ function Konata (that, retina) {
         return m_scale[path];
     }
 
+    this.RetinaSwitch = function () {
+        m_retina = !m_retina;
+        m_maxScale = m_retina? 4:2;
+        m_minScale = m_retina? 0.00006103515625 * 2: 0.00006103515625;
+    }
+
     // なにか時間のかかりそうな処理の前には呼び出す．
     function CancelPrefetch () {
         if (m_prefetch !== null) {
@@ -135,6 +141,9 @@ function Konata (that, retina) {
 
     // Use renderer process only
     this.Draw = function (path) {
+        if (!path) {
+            return;
+        }
         this.SetTile(path);
         var pos = m_position[path];
         CancelPrefetch();

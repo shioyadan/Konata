@@ -2,11 +2,113 @@
 const electron = require("electron");
 const {app} = electron;
 const {BrowserWindow} = electron;
+const {Menu} = electron;
 var currentURL = 'file://' + __dirname + '/index.html';
 // メインウィンドウはGCされないようにグローバル宣言
 var m_window = null;
 var ipc = electron.ipcMain;
 var dialog = electron.dialog;//remote.require('dialog');
+
+function installMenu() {
+    var template;
+
+    template = [
+    {
+        label: 'app-name', // なににしてもElectronになる。
+        submenu: [
+            {
+                label: 'Open',
+                accelerator: 'Command+O',
+                click: function() { OpenFile(); }
+            },
+            {
+                label: 'Quit',
+                accelerator: 'Command+Q',
+                click: function() { app.quit(); }
+            },
+        ]
+    },
+    {
+        label: '操作',
+        submenu: [
+            {
+                label:"Next Tab",
+                accelerator:"Command+N",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'NextTab', dir:true});;}
+            },
+            {
+                label:"Previous Tab",
+                accelerator:"Command+P",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'NextTab', dir:false});;}
+            },
+            {
+                label:"Zoom up",
+                accelerator:"Command+Shift+=",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Zoom up'});;}
+            },
+            {
+                label:"Zoom down",
+                accelerator:"Command+-",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Zoom down'});;}
+            },
+        ]
+    },
+    {
+        label: '表示',
+        submenu: [
+            {
+                label:"全体を半透明化",
+                accelerator:"Command+Shift+O",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Transparent', enable:true, all:false});;}
+            },
+            {
+                label:"背景を透明化",
+                //accelerator:"Command+P",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Transparent', enable:true, all:true});;}
+            },
+            {
+                label:"透明化を解除",
+                //accelerator:"Command+Shift+=",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Transparent', enable:false});;}
+            },
+            {
+                label:"全体を橙色に",
+                //accelerator:"Command+-",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Color', color:"#f80"});;}
+            },
+            {
+                label:"全体を青色に",
+                //accelerator:"Command+-",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Color', color:"#08f"});;}
+            },
+            {
+                label:"デフォルトの配色",
+                //accelerator:"Command+-",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Color', color:null});;}
+            },
+            {
+                label:"Retina切り替え",
+                //accelerator:"Command+-",
+                click: function () {m_window.webContents
+                .send('main.js', {request:'Retina'});;}
+            },
+        ]
+    }
+    ];
+
+    const menu = Menu.buildFromTemplate(template)
+    Menu.setApplicationMenu(menu);
+}
 
 // メインプロセス側のKonata
 var Konata = require("./Konata");
@@ -21,7 +123,6 @@ app.on('window-all-closed', function() {
 
 // Electronの初期化完了後に実行
 app.on('ready', function() {
-
     m_window = new BrowserWindow({width: 800, height: 600});
     m_window.loadURL(currentURL);
     m_window.toggleDevTools();
@@ -29,6 +130,7 @@ app.on('ready', function() {
     m_window.on('closed', function() {
         m_window = null;
     });
+    installMenu();
 });
 
 // レンダラプロセスのkonataからの通信

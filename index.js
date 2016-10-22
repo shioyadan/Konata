@@ -8,7 +8,7 @@ var konata = new Konata(null, window.devicePixelRatio);
 var index = {};
 index.id = 0;
 index.order = 0;
-index.path = "./vis.c0.log";
+index.path = null;
 
 
 function Send(path) {
@@ -23,8 +23,10 @@ function Send(path) {
         control.tabnum++;
         CreateTabMenu(path);
         SetZIndex(path, control.tabnum);
-        index.path = path;
         control.bind[path] = [];
+        MoveFront(index.path);
+        MoveFront(path);
+        index.path = path;
     }
 }
 
@@ -57,5 +59,24 @@ ipc.on('main.js', function(event, args) {
         if (path) {
             Send(path);
         }
+    }
+    if (request == "Zoom up") {
+        Zoom(true);
+    }
+    if (request == "Zoom down") {
+        Zoom(false);
+    }
+    if (request == "Color") {
+        Color(args.color);
+    }
+    if (request == "Transparent") {
+        Transparent(args.enable, args.all);
+    }
+    if (request == "NextTab") {
+        NextTab(args.dir);
+    }
+    if (request == "Retina") {
+        konata.RetinaSwitch();
+        konata.Draw(index.path);
     }
 });
