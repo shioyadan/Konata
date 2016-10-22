@@ -39,6 +39,13 @@
     box-sizing:border-box;
     border-top-left-radius: 3px;
     border-top-right-radius: 3px;
+    position: relative;
+}
+.close {
+    position:absolute;
+    right:5px;
+    background-color: #f00;
+    top:0;
 }
 
 .tab-selector:hover {

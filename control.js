@@ -98,6 +98,8 @@ function CreateTabMenu (path) {
     var shortPath = array[array.length - 1]; // なんかタブ上に表示できる程度に加工した名前にしたい。
     var tabs = jquery("#tabs-selector");
     var tab = jquery("<span>" + shortPath + "</span>").appendTo(tabs);
+    var close = jquery("<span>X</span>").appendTo(tab);
+    close.addClass("close");
     tabs = tabs.find(".tab-selector");
     tab.attr("data-path", path);
     tab.addClass("tab-selector");
@@ -122,6 +124,9 @@ function CreateTabMenu (path) {
     // 右クリック
     tab.contextmenu(function () {
         t_menu.popup(remote.getCurrentWindow());
+    });
+    close.click(function() {
+        Close(path);
     });
 }
 
