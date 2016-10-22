@@ -1,26 +1,59 @@
 .lane_0 .stage_F { /* レーン名 + ステージ名の設定が最優先 */
-    background-color: #aaaaff; /* グラデーションはKonata側の魔法により実現されているのでベース色を指定する */
+    background-color: #b9a5e8; /* グラデーションはKonata側の魔法により実現されているのでベース色を指定する */
 }
 .lane_0 .stage_Rn {
-    background-color: #88ff88;
+    background-color: #a0c0ff;
 }
 .lane_0 .stage_D {
-    background-color: #11ffff;
+    background-color: #8cdddf;
+}
+.lane_0 .stage_Sr {
+    background-color: #9bed88;
+}
+.lane_0 .stage_Sw {
+    background-color: #83d2ab;
+}
+.lane_0 .stage_rs {
+    background-color: #73d29b;
+}
+
+.lane_0 .stage_Wku {
+    background-color: #abed88;
 }
 .lane_0 .stage_Slc {
-    background-color: #11ff88;
+    background-color: #e6d990;
+}
+.lane_0 .stage_rsc {
+    background-color: #83e2ab;
+}
+
+.lane_0 .stage_Ip {
+    background-color: #eebb77;
 }
 .lane_0 .stage_I {
-    background-color: #ffdd11;
+    background-color: #eeaa88;
 }
 .lane_0 .stage_X {
-    background-color: #dd7722;
+    background-color: #ee7777;
 }
+.lane_0 .stage_Xam {
+    background-color: #ee7777;
+}
+.lane_0 .stage_Xbm {
+    background-color: #ee7777;
+}
+.lane_0 .stage_Xlu {
+    background-color: #ee7777;
+}
+.lane_0 .stage_Xlm {
+    background-color: #aa6666;
+}
+
 .lane_0 .stage_Wb {
-    background-color: #ee1111;
+    background-color: #dd8899;
 }
-.lane_0 .stage_Cm {
-    background-color: #ffaaff;
+.stage_Cm {
+    background-color: #cca5c8;
 }
 
 .stage_f { /* ステージ名だけでも指定可能 */
@@ -28,16 +61,23 @@
 }
 
 .stage_f { /* 同じセレクタなら後ろのほうが優先される */
-    background-color: #666;
+    background-color: #aaaaaa;
 }
 
 .stage_stl {
-    background-color: #888888;
+    background-color: #aaaaaa;
 }
 
 .stage_iXlR0 {
-    background-color: #ff8888;
+    background-color: #ee7777;
 }
+.stage_iXlR1 {
+    background-color: #ee7777;
+}
+.stage_iXlR2 {
+    background-color: #ee7777;
+}
+
 
 .lane_0 { /* レーン名 + ステージ名，ステージ名だけより優先度は低いが，レーン名だけで指定も可能 */
     background-color: #aaffaa;
