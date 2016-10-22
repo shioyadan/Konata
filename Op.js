@@ -125,12 +125,19 @@ function Op(args) {
             grad.addColorStop(0, "#eee");
             context.fillStyle = grad;
             context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
+            context.clearRect(left, top, right - left, (m_opH - m_margin) * scale);
             context.fillRect(left, top, right - left, (m_opH - m_margin) * scale);
             context.strokeRect(left, top, right - left, (m_opH - m_margin) * scale);
             left = (stage.startCycle - startCycle) * scale * m_opW;
             if (scale >= 0.5) {
+                context.fillStyle = "#555555";
+                var textTop = top + (m_opH - m_margin) * scale*3/4
+                var textLeft = left + (m_opW * scale/3);
+                for (var j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
+                    context.fillText(j, textLeft + j * scale * m_opW, textTop)
+                }
                 context.fillStyle = "#000000";
-                context.fillText(stage.name, left + (m_opW * scale/3), top + (m_opH - m_margin) * scale*3/4);
+                context.fillText(stage.name, textLeft, textTop);
             }
         }
     };
