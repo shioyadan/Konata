@@ -22,6 +22,11 @@
     padding: 0;
     max-height:16px;
 }
+
+#tabs-selector::-webkit-scrollbar { /* スクロールバーを非表示 */
+  display: none;
+}
+
 .tab-selector {
     max-width: 120px;
     width:20%;
