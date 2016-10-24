@@ -27,11 +27,13 @@ function OnikiriParser (Konata) {
         if (m_file.IsText()) {
             text = m_file.GetText();
             this.lines = text.split("\n");
-        } else {
+        } else if (m_file.GetExtension() == ".gz") {
             // 圧縮データなら展開する
             console.log("Extract");
             m_file.Extract().then(this.ParseAllLines, null);
             throw "Wait";
+        } else {
+            return false;
         }
         if (!Check(text)) {
             return false;   // 知らない文法ならなにもしない。

@@ -90,7 +90,7 @@ function Konata (that, retina) {
         console.log("Open :", path);
         if (!file.success) { // pathを理解できないので外部の人に解決を頼む
             var connection = Connect(path, this);
-            return;
+            return true;
         }
 
         for (var i = 0, len = m_Parsers.length; i < len; i++) {
@@ -99,7 +99,7 @@ function Konata (that, retina) {
                 if (parser.SetFile(file)) {
                     console.log("Selected parser:" , parser.GetName());
                     m_files[path] = new m_Cache(path, parser);
-                    return;
+                    return true;
                 }
             } catch (e) {
                 if (e == "Wait") {
@@ -109,7 +109,7 @@ function Konata (that, retina) {
                 }
             }
         }
-        return null;
+        return false;
     };
 
     function Connect (path, self) {
@@ -131,12 +131,16 @@ function Konata (that, retina) {
             // 既にタブが有るのはおかしい．
             return false;
         }
+        m_tabs[path] = this.MakeTable(obj, path);
         m_position[path] = {top:0, left:0};
         m_tabs[path] = this.MakeTable(obj, path);
         m_scale[path] = m_normalScale;
         m_parentStyle[path] = {};
         try {
-            this.OpenFile(path);
+            if (!this.OpenFile(path)) {
+                Close(path);
+                return false;
+            }
             this.Draw(path);
         } catch(e) {
             if (e == "Wait") {

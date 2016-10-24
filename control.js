@@ -199,11 +199,22 @@ function MoveTo (diff, adjust) {
     }
 }
 
+document.ondragover = function(e) {
+    e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
+    return false;
+};
+
 jquery(window).ready(function(){
     jquery(window).resize(function() {
         WindowResize();
     });
     WindowResize();
+
+    document.ondrop = function (e) {
+      e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
+      var file = e.dataTransfer.files[0];
+      Send(file.path);
+    };
 });
 
 function SetControl (tab) {

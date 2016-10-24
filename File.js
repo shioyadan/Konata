@@ -31,7 +31,7 @@ function File (path) {
         var txts = [".txt",".log",".text"];
         for (var i = 0, len = txts.length; i < len; i++) {
             var ext = txts[i];
-            if (GetExtension() == ext) {
+            if (this.GetExtension() == ext) {
                 console.log("This file is text");
                 return true;
             }
@@ -71,7 +71,7 @@ function File (path) {
         return m_text;
     };
 
-    function GetExtension () {
+    this.GetExtension = function () {
         var ext = m_Path.extname(m_path);
         return ext;
     };
