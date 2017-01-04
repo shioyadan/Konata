@@ -133,7 +133,6 @@ function Konata (that, retina) {
         }
         m_tabs[path] = this.MakeTable(obj, path);
         m_position[path] = {top:0, left:0};
-        m_tabs[path] = this.MakeTable(obj, path);
         m_scale[path] = m_normalScale;
         m_parentStyle[path] = {};
         try {
