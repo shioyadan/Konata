@@ -2,7 +2,8 @@
 
 
 const ACTION = {
-    // TREE_LOAD: 0,
+    DIALOG_FILE_OPEN: 0,
+    FILE_OPEN: 10
 };
 
 function Store(){
