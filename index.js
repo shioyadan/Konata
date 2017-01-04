@@ -53,14 +53,7 @@ function SetZIndex (path, z, relative) {
 
 ipc.on('main.js', function(event, args) {
     var request = args.request;
-    if (request == "Transparent") {
-        Transparent(args.enable, args.all);
-    }
     if (request == "NextTab") {
         NextTab(args.dir);
-    }
-    if (request == "Retina") {
-        konata.RetinaSwitch();
-        konata.Draw(index.path);
     }
 });

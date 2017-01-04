@@ -24,7 +24,7 @@
                     {
                         label: "Quit",
                         accelerator: "Command+Q",
-                        click: function() { app.quit(); }
+                        click: function(){self.remote.app.quit();}
                     },
                 ]
             },
@@ -34,14 +34,12 @@
                     {
                         label:"Next Tab",
                         accelerator:"Command+N",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"NextTab", dir:true});;}
+                        click: function(){NextTab(true);}
                     },
                     {
                         label:"Previous Tab",
                         accelerator:"Command+P",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"NextTab", dir:false});;}
+                        click: function(){NextTab(false);}
                     },
                     {
                         label:"Zoom up",
@@ -91,8 +89,10 @@
                     {
                         label:"Retina切り替え",
                         //accelerator:"Command+-",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Retina"});;}
+                        click: function(){
+                            konata.RetinaSwitch();
+                            konata.Draw(index.path);
+                        }
                     },
                 ]
             }
