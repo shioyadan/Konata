@@ -10,29 +10,9 @@ index.order = 0;
 index.path = null;
 
 
-function Send(path) {
-    if (!path) {
-        return;
-    }
-    console.log(path);
-    var tabs = jquery("#tabs");
-    if ( konata.InitDraw(path, tabs) ) {
-        SetControl(tabs);
-        WindowResize();
-        control.tabnum++;
-        CreateTabMenu(path);
-        SetZIndex(path, control.tabnum);
-        control.bind[path] = [];
-        MoveFront(index.path);
-        MoveFront(path);
-        index.path = path;
-    }
-}
 
-function Close(path) {
-    konata.Close(path);
-    jquery('[data-path="' + path + '"]').remove();
-}
+
+
 
 function SetZIndex (path, z, relative) {
     var tabs = jquery("#tabs");

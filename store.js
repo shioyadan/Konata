@@ -3,7 +3,12 @@
 
 const ACTION = {
     DIALOG_FILE_OPEN: 0,
-    FILE_OPEN: 10
+    
+    FILE_OPEN: 10,
+    FILE_CLOSE: 11,
+
+    TAB_OPEN: 20,
+    TAB_CLOSE: 21,
 };
 
 function Store(){
@@ -12,10 +17,18 @@ function Store(){
 
     let self = this;
 
-    /*
-    self.on(ACTION.TREE_LOAD, function(folderName) {
+    self.fileName = null;
+
+    // ファイルオープン
+    self.on(ACTION.FILE_OPEN, function(fileName){
+        self.fileName = fileName;
+        self.trigger(ACTION.TAB_OPEN, fileName);
     });
-    */
+
+    // ファイルクローズ
+    self.on(ACTION.FILE_CLOSE, function(fileName){
+        self.trigger(ACTION.TAB_CLOSE, fileName);
+    });
 
 }
 

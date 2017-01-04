@@ -96,7 +96,7 @@ function installMenu(){
 
     // 読み込みダイアログ
     rc.on(ACTION.DIALOG_FILE_OPEN, function(){
-        const dialog = self.remote.dialog;
+        const dialog = remote.dialog;
         dialog.showOpenDialog(
             null, {
                 properties: ["openFile"],
@@ -113,9 +113,8 @@ function installMenu(){
                     return;
                 }
 
-                // 事実上のオープン
-                /* Send */
-                Send(fileNames[0]);
+                // Store にファイルを開いて貰う
+                rc.trigger(ACTION.FILE_OPEN, fileNames[0]);
             }
         );
     });

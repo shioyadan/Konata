@@ -12,6 +12,36 @@
 
         self.remote = require("electron").remote;
 
+        // 新規タブのオープン
+        RiotControl.on(ACTION.TAB_OPEN,
+            function(path){
+                if (!path) {
+                    return;
+                }
+                console.log(path);
+                let tabs = jquery("#tabs");
+                if ( konata.InitDraw(path, tabs) ) {
+                    SetControl(tabs);
+                    WindowResize();
+                    control.tabnum++;
+                    CreateTabMenu(path);
+                    SetZIndex(path, control.tabnum);
+                    control.bind[path] = [];
+                    MoveFront(index.path);
+                    MoveFront(path);
+                    index.path = path;
+                }
+            }
+        );
+
+        // タブのクローズ
+        RiotControl.on(ACTION.TAB_CLOSE,
+            function(path){
+                konata.Close(path);
+                jquery('[data-path="' + path + '"]').remove();
+            }
+        );
+
         // 初期化
         // マウント時に呼ばれる
         self.init = function(){
