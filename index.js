@@ -50,10 +50,3 @@ function SetZIndex (path, z, relative) {
     tab.data("zIndex", z);
     return true;
 }
-
-ipc.on('main.js', function(event, args) {
-    var request = args.request;
-    if (request == "NextTab") {
-        NextTab(args.dir);
-    }
-});
