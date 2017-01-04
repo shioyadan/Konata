@@ -53,9 +53,6 @@ function SetZIndex (path, z, relative) {
 
 ipc.on('main.js', function(event, args) {
     var request = args.request;
-    if (request == "Color") {
-        Color(args.color);
-    }
     if (request == "Transparent") {
         Transparent(args.enable, args.all);
     }

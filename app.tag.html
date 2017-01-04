@@ -79,20 +79,17 @@
                     {
                         label:"全体を橙色に",
                         //accelerator:"Command+-",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Color", color:"#f80"});;}
+                        click: function(){Color("#f80");}
                     },
                     {
                         label:"全体を青色に",
                         //accelerator:"Command+-",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Color", color:"#08f"});;}
+                        click: function(){Color("#08f");}
                     },
                     {
                         label:"デフォルトの配色",
                         //accelerator:"Command+-",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Color", color:null});;}
+                        click: function(){Color(null);}
                     },
                     {
                         label:"Retina切り替え",
