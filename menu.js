@@ -93,6 +93,32 @@ function installMenu(){
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);
     Menu.setApplicationMenu(menu);
+
+    // 読み込みダイアログ
+    rc.on(ACTION.DIALOG_FILE_OPEN, function(){
+        const dialog = self.remote.dialog;
+        dialog.showOpenDialog(
+            null, {
+                properties: ["openFile"],
+                filters: [
+                    {
+                        name: "Konata log",
+                        extensions: ["txt", "text", "log", "gz"]
+                    }
+                ],
+                defaultPath: "."
+            },
+            function(fileNames){
+                if (!fileNames) {
+                    return;
+                }
+
+                // 事実上のオープン
+                /* Send */
+                Send(fileNames[0]);
+            }
+        );
+    });
 }
 
 module.exports = installMenu;

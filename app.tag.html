@@ -12,37 +12,11 @@
 
         self.remote = require("electron").remote;
 
-        // 読み込みダイアログ
-        rc.on(ACTION.DIALOG_FILE_OPEN, function(){
-            const dialog = self.remote.dialog;
-            dialog.showOpenDialog(
-                null, {
-                    properties: ["openFile"],
-                    filters: [
-                        {
-                            name: "Konata log",
-                            extensions: ["txt", "text", "log", "gz"]
-                        }
-                    ],
-                    defaultPath: "."
-                },
-                function(fileNames){
-                    if (!fileNames) {
-                        return;
-                    }
-
-                    // 事実上のオープン
-                    /* Send */
-                    Send(fileNames[0]);
-                }
-            );
-        });
-
-
         // 初期化
         // マウント時に呼ばれる
         self.init = function(){
             // メニューを追加
+            /* global installMenu */
             installMenu();
         };
 
