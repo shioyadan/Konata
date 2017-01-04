@@ -14,7 +14,7 @@
 
         let menuTemplate = [
             {
-                label: "ファイル", // なににしてもElectronになる。
+                label: "ファイル",
                 submenu: [
                     {
                         label: "Open",
@@ -46,14 +46,12 @@
                     {
                         label:"Zoom up",
                         accelerator:"Command+Shift+=",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Zoom up"});;}
+                        click: function(){Zoom(true);}
                     },
                     {
                         label:"Zoom down",
                         accelerator:"Command+-",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Zoom down"});;}
+                        click: function(){Zoom(false);}
                     },
                 ]
             },

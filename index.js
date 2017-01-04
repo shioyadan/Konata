@@ -53,19 +53,6 @@ function SetZIndex (path, z, relative) {
 
 ipc.on('main.js', function(event, args) {
     var request = args.request;
-    if (request == "Open file") {
-        var path = args.path;
-        console.log(path);
-        if (path) {
-            Send(path);
-        }
-    }
-    if (request == "Zoom up") {
-        Zoom(true);
-    }
-    if (request == "Zoom down") {
-        Zoom(false);
-    }
     if (request == "Color") {
         Color(args.color);
     }

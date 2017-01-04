@@ -2,7 +2,6 @@
 const electron = require("electron");
 const {app} = electron;
 const {BrowserWindow} = electron;
-const {Menu} = electron;
 var currentURL = 'file://' + __dirname + '/index.html';
 // メインウィンドウはGCされないようにグローバル宣言
 var m_window = null;
@@ -29,7 +28,6 @@ app.on('ready', function() {
     m_window.on('closed', function() {
         m_window = null;
     });
-    //installMenu();
 });
 
 // レンダラプロセスのkonataからの通信
@@ -49,13 +47,6 @@ ipc.on('Konata', function(event, args) {
     }
 });
 
-ipc.on('index.js', function(event, args) {
-    var request = args.request;
-    if (request == "Open file") {
-        OpenFile();
-    }
-});
-
 function SendOps(ops) {
     m_window.webContents
         .send('asynchronous-message', {request:'DrawOps', ops:ops});
@@ -64,27 +55,4 @@ function SendOps(ops) {
 function SendOp(op) {
     m_window.webContents
         .send('asynchronous-message', {request:'Draw', op:op});
-}
-
-function OpenFile() {
-    var win = BrowserWindow.getFocusedWindow();
-    dialog.showOpenDialog(
-        win,
-        // どんなダイアログを出すかを指定するプロパティ
-        {
-            properties: ['openFile'],
-            filters: [
-                {
-                    name: 'Konata log data',
-                    extensions: ['txt', 'text', 'log', 'gz']
-                }
-            ]
-        },
-        // [ファイル選択]ダイアログが閉じられた後のコールバック関数
-        function (filenames) {
-            if (filenames) {
-                m_window.webContents
-                .send('main.js', {request:'Open file', path:filenames[0]});
-            }
-        });
 }
