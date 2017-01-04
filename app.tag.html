@@ -20,7 +20,11 @@
                 }
                 console.log(path);
                 let tabs = jquery("#tabs");
-                if ( konata.InitDraw(path, tabs) ) {
+
+                let child = MakeTable(tabs, path);
+
+                
+                if (konata.InitDraw(path, child)) {
                     SetControl(tabs);
                     WindowResize();
                     control.tabnum++;
@@ -92,6 +96,21 @@
         control.resizeing = false;
         control.tabnum = 0;
         control.bind = {};
+
+
+        // 新しいタブのためのラベルやスプリッタ，描画の DOM を生成する
+        function MakeTable(obj, path){
+            // pathは空白なしに変換する(HTMLの一般的な属性値に空白文字を利用できないため)
+            let noSpacePath = path; // 面倒臭い．
+            let tab = jquery("<div></div>", {"class":"tab"}).appendTo(obj);
+            tab.attr("id", "Konata_" + noSpacePath);
+            tab.attr("data-path", path);
+            jquery("<span></span>", {"class":"labels-window"}).appendTo(tab);
+            jquery("<span></span>", {"class":"window-sizing"}).appendTo(tab);
+            jquery("<span></span>", {"class":"pipelines-window"}).appendTo(tab);
+            console.log("Make tab");
+            return tab;
+        }
 
         function SetZIndex(path, z, relative){
             var tabs = jquery("#tabs");
