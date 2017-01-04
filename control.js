@@ -1,4 +1,4 @@
-var jquery = require("./jquery");
+var jquery = require("./lib/js/jquery");
 const remote = require('electron').remote;
 const Menu = remote.Menu;
 const MenuItem = remote.MenuItem;

@@ -18,7 +18,7 @@ function Konata (that, retina) {
     var m_prefetchInterval = 1000;
     var m_prefetchNum = 1000;
     // jQuery HTMLをいじるときに使う．
-    var m_jquery = require("./jquery");
+    var m_jquery = require("./lib/js/jquery");
     var m_Parsers = [require("./OnikiriParser")];
     var m_RemoteParsers = [require("./MainProcessIF")]; // 通信によってパース結果を受け取る場合に利用する。
     var m_Cache = require("./Cache");

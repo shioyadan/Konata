@@ -1,6 +1,5 @@
 var ipc = require("electron").ipcRenderer;
-var jquery = require("./jquery");
-var jQuery = jquery;
+var jquery = jQuery;
 var Konata = require("./Konata");
 var konata = new Konata(null, window.devicePixelRatio);
 

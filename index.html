@@ -5,22 +5,25 @@
         <meta charset="UTF-8">
         <title>Konata</title>
 
-        <script src="./lib/js/jquery.js" type="text/javascript"></script>
+        <!-- jquery -->
+        <script type="text/javascript">
+            // Electron の仕様で jquery が正しくロードされないので，その対策
+            // https://github.com/electron/electron/issues/254
+            window.jQuery = window.$ = require("./lib/js/jquery.js");
+        </script>
         <script src="./lib/js/jquery-ui.js" type="text/javascript"></script>
-
-        <!--For drag event-->
         <script src="./lib/js/jquery.mousewheel.js" type="text/javascript"></script>
 
-        <!--For mousewheel event-->
-        <script src="./control.js" type="text/javascript"></script>
-
-        <script src="./index.js" type="text/javascript"></script>
 
         <link rel="stylesheet" type="text/css" href="./viewer.css"></link>
         <link rel="stylesheet" type="text/css" href="./colors.css"></link>
     </head>
 
     <body>
+        <!-- 実装 -->
+        <script src="./index.js" type="text/javascript"></script>
+        <script src="./control.js" type="text/javascript"></script>
+
         <div id="tabs-selector"></div>
         <div id="tabs"></div>
     </body>
