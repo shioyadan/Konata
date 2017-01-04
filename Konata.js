@@ -7,38 +7,38 @@ function Konata (that, retina) {
     this.Label = require("./Label");
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
     // ローカル変数と区別するため m_ を付ける．
-    var m_position = {}; // ファイル毎の現在位置を覚えておく連想配列
-    var m_files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
-    var m_tabs = {}; // 表示用HTML(jQuery)オブジェクトの連想配列
-    var m_tiles = {}; // ファイルごとのtileの二重配列を覚えておく連想配列
-    var m_parentStyle = {}; // 親要素(.tab)の持つスタイル
-    var m_scale = {};
-    var m_lastFetchedId = {};
-    var m_prefetch = null;
-    var m_prefetchInterval = 1000;
-    var m_prefetchNum = 1000;
+    let m_position = {}; // ファイル毎の現在位置を覚えておく連想配列
+    let m_files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
+    let m_tabs = {}; // 表示用HTML(jQuery)オブジェクトの連想配列
+    let m_tiles = {}; // ファイルごとのtileの二重配列を覚えておく連想配列
+    let m_parentStyle = {}; // 親要素(.tab)の持つスタイル
+    let m_scale = {};
+    let m_lastFetchedId = {};
+    let m_prefetch = null;
+    let m_prefetchInterval = 1000;
+    let m_prefetchNum = 1000;
     // jQuery HTMLをいじるときに使う．
-    var m_jquery = require("./lib/js/jquery");
-    var m_Parsers = [require("./OnikiriParser")];
-    var m_RemoteParsers = [require("./MainProcessIF")]; // 通信によってパース結果を受け取る場合に利用する。
-    var m_Cache = require("./Cache");
+    let m_jquery = require("./lib/js/jquery");
+    let m_Parsers = [require("./OnikiriParser")];
+    let m_RemoteParsers = [require("./MainProcessIF")]; // 通信によってパース結果を受け取る場合に利用する。
+    let m_Cache = require("./Cache");
     // キャンバスの縦横．0でなければなんでもいいと思う．
-    var m_canvasW = 300;
-    var m_canvasH = 300;
+    let m_canvasW = 300;
+    let m_canvasH = 300;
     // 以下のパラメータはOp.jsと合わせる．(そうしないと表示がズレる)
-    var m_opH = 25; // スケール1のときの1命令の高さ
-    var m_opW = 25; // スケール1のときの1サイクルの幅
-    var m_skip = 1;
-    var m_retina = false;//retina;
+    let m_opH = 25; // スケール1のときの1命令の高さ
+    let m_opW = 25; // スケール1のときの1サイクルの幅
+    let m_skip = 1;
+    let m_retina = false;//retina;
     if (retina) {
         // MacのRetinaディスプレイだとm_retinaをtrueにしないとぼやけるが，
         // Ubuntu上ではRetinaディスプレイ判定されても通常通りの描画の方が綺麗．
         // もう少し別の判定方法が必要？
         console.log("Retina display");
     }
-    var m_normalScale = m_retina? 2:1;
-    var m_maxScale = m_retina? 4:2; // retinaの場合、倍精度必要なので最大倍率も倍
-    var m_minScale = m_retina? 0.00006103515625 * 2: 0.00006103515625;
+    let m_normalScale = m_retina? 2:1;
+    let m_maxScale = m_retina? 4:2; // retinaの場合、倍精度必要なので最大倍率も倍
+    let m_minScale = m_retina? 0.00006103515625 * 2: 0.00006103515625;
     
     this.GetScale = function (path) {
         return m_scale[path];
@@ -86,15 +86,15 @@ function Konata (that, retina) {
             // 既に開かれている。
             return;
         }
-        var file = new this.File(path);
+        let file = new this.File(path);
         console.log("Open :", path);
         if (!file.success) { // pathを理解できないので外部の人に解決を頼む
-            var connection = Connect(path, this);
+            let connection = Connect(path, this);
             return true;
         }
 
-        for (var i = 0, len = m_Parsers.length; i < len; i++) {
-            var parser = new m_Parsers[i](this);
+        for (let i = 0, len = m_Parsers.length; i < len; i++) {
+            let parser = new m_Parsers[i](this);
             try {
                 if (parser.SetFile(file)) {
                     console.log("Selected parser:" , parser.GetName());
@@ -114,8 +114,8 @@ function Konata (that, retina) {
 
     function Connect (path, self) {
         console.log("Challenge connection");
-        for (var i = 0, len = m_RemoteParsers.length; i < len; i++) {
-            var parser = new m_RemoteParsers[i](self);
+        for (let i = 0, len = m_RemoteParsers.length; i < len; i++) {
+            let parser = new m_RemoteParsers[i](self);
             if (parser.SetFile(path)) {
                 console.log("Selected remote parser:", parser.GetName());
                 m_files[path] = new m_Cache(path, parser, self);
@@ -144,7 +144,7 @@ function Konata (that, retina) {
         } catch(e) {
             if (e == "Wait") {
                 //console.log(path, " extract waiting..,");
-                //var self = this;
+                //let self = this;
                 //setTimeout(self.Draw(path), 10000);
             }
         }
@@ -158,17 +158,17 @@ function Konata (that, retina) {
             return;
         }
         this.SetTile(path);
-        var pos = m_position[path];
+        let pos = m_position[path];
         CancelPrefetch();
-        var scale = m_scale[path];
-        var tab = m_tabs[path];
-        var tiles = m_tiles[path];
-        var top = pos.top;
+        let scale = m_scale[path];
+        let tab = m_tabs[path];
+        let tiles = m_tiles[path];
+        let top = pos.top;
         m_skip = Math.floor(20/(scale * Math.log(scale)/0.005));
-        for (var y = 0; y < tiles.length; y++) {
-            var left = pos.left;
-            for (var x = 0; x < tiles[y].length; x++) {
-                var tile = tiles[y][x];
+        for (let y = 0; y < tiles.length; y++) {
+            let left = pos.left;
+            for (let x = 0; x < tiles[y].length; x++) {
+                let tile = tiles[y][x];
                 this.DrawTile(tile, top, left, path);
                 left += m_canvasW/(scale * m_opW);
             }
@@ -179,13 +179,13 @@ function Konata (that, retina) {
     };
 
     this.MoveTo = function (diff, path, adjust) {
-        var posY = m_position[path].top + diff.top;
+        let posY = m_position[path].top + diff.top;
         if (posY < 0) {
             posY = 0;
         }
-        var id = Math.floor(posY);
+        let id = Math.floor(posY);
         try {
-            var op = this.GetOp(path, id);
+            let op = this.GetOp(path, id);
         } catch (e) {
             console.log(e);
             return;
@@ -220,11 +220,11 @@ function Konata (that, retina) {
     }
 
     this.GetOp = function (path, id) {
-        var file = m_files[path];
+        let file = m_files[path];
         if (file == null) {
             throw "Not open " + path;
         }
-        var op = file.GetOp(id);
+        let op = file.GetOp(id);
         if (op != null) {
             m_lastFetchedId[path] = id;
         }
@@ -234,12 +234,12 @@ function Konata (that, retina) {
     // この関数を直接呼ぶことは禁止．
     // プリフェッチしたければSetPrefetchメソッドを利用する．
     function Prefetch(self) {
-        for (var key in m_lastFetchedId) {
-            var start = m_lastFetchedId[key] + 1;
-            var end = start + m_prefetchNum;
-            for (var id = start; id < end; id++) {
+        for (let key in m_lastFetchedId) {
+            let start = m_lastFetchedId[key] + 1;
+            let end = start + m_prefetchNum;
+            for (let id = start; id < end; id++) {
                 try {
-                    var op = self.GetOp(key, id);
+                    let op = self.GetOp(key, id);
                 } catch(e) {
                     console.log(e);
                     break;
@@ -254,15 +254,15 @@ function Konata (that, retina) {
 
     // private methods
     this.DrawTile = function (tile, top, left, path) {
-        var scale = m_scale[path];
-        var height = m_canvasH / (scale * m_opH);
-        var width = m_canvasW / (scale * m_opW);
-        for (var id = Math.floor(top); id < top + height; id++) {
+        let scale = m_scale[path];
+        let height = m_canvasH / (scale * m_opH);
+        let width = m_canvasW / (scale * m_opW);
+        for (let id = Math.floor(top); id < top + height; id++) {
             if (scale < 0.005 && id % m_skip  != 0) {
                 continue;
             }
             try {
-                var op = this.GetOp(path, id);
+                let op = this.GetOp(path, id);
             } catch(e) {
                 console.log(e);
                 return;
@@ -277,23 +277,23 @@ function Konata (that, retina) {
     }
 
     this.SetTile = function (path) {
-        var tabs = {};
+        let tabs = {};
         if (path) {
             tabs[path] = m_tabs[path];
         } else {
-            var tabs = m_tabs;
+            let tabs = m_tabs;
         }
         // canvasのサイズを定義する[px]
-        for (var key in tabs) {
-            var tab = tabs[key];
-            var p = tab.find(".pipelines-window");
+        for (let key in tabs) {
+            let tab = tabs[key];
+            let p = tab.find(".pipelines-window");
             // 必要なcanvas数を考える
             if (m_retina) { // retinaだと倍精度で描かないとボケる
-                var x = Math.ceil(p.width()/m_canvasW) * 2 + 2;
-                var y = Math.ceil(p.height()/m_canvasH) * 2 + 2;
+                let x = Math.ceil(p.width()/m_canvasW) * 2 + 2;
+                let y = Math.ceil(p.height()/m_canvasH) * 2 + 2;
             } else {
-                var x = Math.ceil(p.width()/m_canvasW) + 2;
-                var y = Math.ceil(p.height()/m_canvasH) + 2;
+                let x = Math.ceil(p.width()/m_canvasW) + 2;
+                let y = Math.ceil(p.height()/m_canvasH) + 2;
             }
             LayTiles(p, x, y, key);
             //console.log(key , "set tiles:", p.width(), p.height());
@@ -303,17 +303,17 @@ function Konata (that, retina) {
     // obj内に幅width, 高さheightのタイルをx * y個敷き詰める。
     function LayTiles(obj, x, y, path) {
         obj.html("");
-        var tiles = [];
-        for (var h = 0; h < y; h++) {
-            var tileY = m_jquery("<div></div>", {class:"tileY"}).appendTo(obj);
+        let tiles = [];
+        for (let h = 0; h < y; h++) {
+            let tileY = m_jquery("<div></div>", {class:"tileY"}).appendTo(obj);
             if (m_retina) {
                 tileY.css("max-height", m_canvasH/2);
             } else {
                 tileY.css("max-height", m_canvasH);
             }
             tiles.push([]);
-            for (var w = 0; w < x; w++) {
-                var tileX = m_jquery("<canvas></canvas>", {class:"tileX"}).appendTo(tileY);
+            for (let w = 0; w < x; w++) {
+                let tileX = m_jquery("<canvas></canvas>", {class:"tileX"}).appendTo(tileY);
                 tileX.attr("width", m_canvasW);
                 tileX.attr("height", m_canvasH);
                 if (m_retina) {
