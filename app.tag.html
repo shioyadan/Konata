@@ -61,20 +61,17 @@
                     {
                         label:"全体を半透明化",
                         accelerator:"Command+Shift+O",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Transparent", enable:true, all:false});;}
+                        click: function(){Transparent(true, false);}
                     },
                     {
                         label:"背景を透明化",
                         //accelerator:"Command+P",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Transparent", enable:true, all:true});;}
+                        click: function(){Transparent(true, true);}
                     },
                     {
                         label:"透明化を解除",
                         //accelerator:"Command+Shift+=",
-                        click: function () {m_window.webContents
-                        .send("main.js", {request:"Transparent", enable:false});;}
+                        click: function(){Transparent(false, false);}
                     },
                     {
                         label:"全体を橙色に",
