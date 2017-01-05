@@ -87,6 +87,20 @@ function installMenu(){
                     }
                 },
             ]
+        },
+        {
+            label: "ヘルプ",
+            submenu: [
+                {
+                    label: "バージョン情報",
+                    click: function(){
+                        RiotControl.trigger(
+                            ACTION.DIALOG_MODAL_MESSAGE,
+                            "Konata ver 0.0.2, Kojiro Izuoka and Ryota Shioya."
+                        );
+                    }
+                }
+            ]
         }
     ];
 
@@ -94,30 +108,7 @@ function installMenu(){
     let menu = Menu.buildFromTemplate(menuTemplate);
     Menu.setApplicationMenu(menu);
 
-    // 読み込みダイアログ
-    rc.on(ACTION.DIALOG_FILE_OPEN, function(){
-        const dialog = remote.dialog;
-        dialog.showOpenDialog(
-            null, {
-                properties: ["openFile"],
-                filters: [
-                    {
-                        name: "Konata log",
-                        extensions: ["txt", "text", "log", "gz"]
-                    }
-                ],
-                defaultPath: "."
-            },
-            function(fileNames){
-                if (!fileNames) {
-                    return;
-                }
 
-                // Store にファイルを開いて貰う
-                rc.trigger(ACTION.FILE_OPEN, fileNames[0]);
-            }
-        );
-    });
 }
 
 module.exports = installMenu;
