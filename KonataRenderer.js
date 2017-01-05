@@ -3,8 +3,6 @@ function KonataRenderer(konata) {
     this.konata = konata;
     this.name = "KonataRenderer";
 
-    this.Op = require("./Op");
-
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
     // ローカル変数と区別するため m_ を付ける．
     let m_position = {}; // ファイル毎の現在位置を覚えておく連想配列
@@ -94,7 +92,7 @@ function KonataRenderer(konata) {
         this.SetTile(path);
         let pos = m_position[path];
         
-        this.konata.CancelPrefetch();
+        //this.konata.CancelPrefetch();
 
         let scale = m_scale[path];
         //let tab = m_tabs[path];
