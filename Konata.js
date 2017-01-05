@@ -1,16 +1,13 @@
 function Konata(){
     
     this.name = "Konata";
-    this.Op = require("./Op");
-    this.File = require("./File");
-    this.Stage = require("./Stage");
-    this.Label = require("./Label");
 
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
     // ローカル変数と区別するため m_ を付ける．
     let m_files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
     let m_lastFetchedId = {};
 
+    let File = require("./File");
     let OnikiriParser_ = require("./OnikiriParser");
     let m_Cache = require("./Cache");
 
@@ -24,10 +21,10 @@ function Konata(){
             // 既に開かれている。
             return;
         }
-        let file = new this.File(path);
+        let file = new File(path);
         console.log("Open :", path);
 
-        let parser = new OnikiriParser_(this);
+        let parser = new OnikiriParser_();
         try {
             if (parser.SetFile(file)) {
                 console.log("Selected parser:" , parser.GetName());

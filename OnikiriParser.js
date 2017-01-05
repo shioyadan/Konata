@@ -1,7 +1,10 @@
-function OnikiriParser (Konata) {
-    // メインプロセス内のKonataオブジェクト(親オブジェクト)
-    // Op.js, Stage.js, Label.jsと色々使いたい物を持ってる
-    var m_Konata = Konata;
+function OnikiriParser () {
+
+    let Op = require("./Op");
+    let File = require("./File");
+    let Stage = require("./Stage");
+    let Label = require("./Label");
+
     var m_file = null; 
     this.text = null;
     this.lines = null;
@@ -129,7 +132,7 @@ function OnikiriParser (Konata) {
         }
         switch(command) {
             case "I":
-                op = new m_Konata.Op({id:id});
+                op = new Op({id:id});
                 op.gid = args[1];
                 op.tid = args[2];
                 op.fetchedCycle = cycle;
@@ -137,13 +140,13 @@ function OnikiriParser (Konata) {
                 break;
             case "L":
                 var visible = Number(args[1]) == 0? true:false;
-                var label = new m_Konata.Label({text:args[2], visible:visible});
+                var label = new Label({text:args[2], visible:visible});
                 op.labels.push(label);
                 break;
             case "S":
                 var laneName = args[1];
                 var stageName = args[2];
-                var stage = new m_Konata.Stage({name:stageName, startCycle:cycle});
+                var stage = new Stage({name:stageName, startCycle:cycle});
                 if (op.lanes[laneName] == null) {
                     op.lanes[laneName] = [];
                 }
