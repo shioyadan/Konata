@@ -7,8 +7,10 @@ const ACTION = {
     FILE_OPEN: 10,
     FILE_CLOSE: 11,
 
-    TAB_UPDATE: 20,
-    TAB_CLOSE: 21,
+    TAB_OPEN: 20,
+    TAB_UPDATE: 21,
+    TAB_CLOSE: 22,
+    TAB_ACTIVATE: 23,
 
     APP_QUIT: 30
 };
@@ -40,12 +42,18 @@ function Store(){
         self.activeTabID = self.nextTabID;
         self.nextTabID++;
         
-        self.trigger(ACTION.TAB_UPDATE, self, tab);
+        self.trigger(ACTION.TAB_OPEN, self, tab);
     });
 
     // ファイルクローズ
     self.on(ACTION.FILE_CLOSE, function(fileName){
         self.trigger(ACTION.TAB_CLOSE, fileName);
+    });
+
+    // アクティブなタブの変更
+    self.on(ACTION.TAB_ACTIVATE, function(id){
+        self.activeTabID = id;
+        self.trigger(ACTION.TAB_UPDATE, self);
     });
 
     // アプリケーション終了
