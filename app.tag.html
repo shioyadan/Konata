@@ -59,14 +59,15 @@
 
 
         // オリジナル実装
-        let ipc = require("electron").ipcRenderer;
-
         let jquery = jQuery;
 
-        let Konata = require("./Konata");
-        let konata = new Konata(null, window.devicePixelRatio);
+        let Konata = require("./Konata.js");
+        let KonataRenderer = require("./KonataRenderer.js");
 
-        const remote = require('electron').remote;
+        let konataInternal = new Konata();
+        let konata = new KonataRenderer(konataInternal);
+
+        const remote = require("electron").remote;
         const Menu = remote.Menu;
         const MenuItem = remote.MenuItem;
 
