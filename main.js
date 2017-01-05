@@ -1,31 +1,27 @@
-'user strict';
+"user strict";
+
 const electron = require("electron");
 const {app} = electron;
 const {BrowserWindow} = electron;
-var currentURL = 'file://' + __dirname + '/index.html';
-// メインウィンドウはGCされないようにグローバル宣言
-var m_window = null;
-var ipc = electron.ipcMain;
-var dialog = electron.dialog;//remote.require('dialog');
+let currentURL = "file://" + __dirname + "/index.html";
 
-// メインプロセス側のKonata
-var Konata = require("./Konata");
-var konata = new Konata();
+// メインウィンドウはGCされないようにグローバル宣言
+let m_window = null;
 
 // 全てのウィンドウが閉じたら終了
-app.on('window-all-closed', function() {
-  if (process.platform != 'darwin') {
-    app.quit();
-  }
+app.on("window-all-closed", function(){
+    if (process.platform != "darwin") {
+        app.quit();
+    }
 });
 
 // Electronの初期化完了後に実行
-app.on('ready', function() {
+app.on("ready", function() {
     m_window = new BrowserWindow({width: 800, height: 600});
     m_window.loadURL(currentURL);
     m_window.toggleDevTools();
     // ウィンドウが閉じられたらアプリも終了
-    m_window.on('closed', function() {
+    m_window.on("closed", function() {
         m_window = null;
     });
 });
@@ -33,6 +29,13 @@ app.on('ready', function() {
 /*
 
 // 現在使われていないので，とりあえずコメントアウト
+
+let ipc = electron.ipcMain;
+let dialog = electron.dialog;//remote.require('dialog');
+
+// メインプロセス側のKonata
+let Konata = require("./Konata");
+let konata = new Konata();
 
 // レンダラプロセスのkonataからの通信
 ipc.on('Konata', function(event, args) {
