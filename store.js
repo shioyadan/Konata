@@ -3,7 +3,9 @@
 
 const ACTION = {
     DIALOG_FILE_OPEN: 0,
-    
+    DIALOG_MODAL_MESSAGE: 1,
+    DIALOG_MODAL_ERROR: 2,
+
     FILE_OPEN: 10,
     FILE_CLOSE: 11,
 
@@ -39,6 +41,7 @@ function Store(){
         let konata = new Konata();
         if (!konata.OpenFile(fileName)) {
             konata.Close(fileName);
+            self.trigger(ACTION.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
             return;
         }
 

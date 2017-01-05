@@ -1,0 +1,90 @@
+<!-- Notification dialog -->
+<app_modal_dialog>
+    <div ref="top_div" class="modal fade">
+        <div class="modal-dialog modal-content">
+
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-hidden="true">
+                    <i class="glyphicon glyphicon-remove"></i>
+                </button>
+                <h4 class="modal-title">
+                    {opts.title}
+                </h4>
+            </div>
+            
+            <div class="modal-body">
+                {opts.msg}
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-default" data-dismiss="modal">
+                    {opts.button}
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+        /* global RiotControl ACTION */
+        let rc = RiotControl;
+
+        let self = this;
+        self.modal = function(title, msg, button) {
+            self.opts.title = title;
+            self.opts.msg = msg;
+            self.opts.button = button;
+            self.update();
+            $(self.refs["top_div"]).modal();
+        };
+        self.modal_message = function(msg) {
+            self.modal("おしらせ", msg, "OK");
+        };
+
+        rc.on(ACTION.DIALOG_MODAL_ERROR, function(msg){
+            self.modal("Error", msg, "OK");
+        });
+
+        rc.on(ACTION.DIALOG_MODAL_MESSAGE, function(msg){
+            self.modal("おしらせ", msg, "OK");
+        });
+    </script>
+</app_modal_dialog>
+
+<!-- ファイルオープン -->
+<app_file_open_dialog>
+    <script>
+        /* global RiotControl ACTION */
+        let rc = RiotControl;
+        let remote = require("electron").remote;
+
+        // 読み込みダイアログ
+        rc.on(ACTION.DIALOG_FILE_OPEN, function(){
+            const dialog = remote.dialog;
+            dialog.showOpenDialog(
+                null, {
+                    properties: ["openFile"],
+                    filters: [
+                        {
+                            name: "Konata log",
+                            extensions: ["txt", "text", "log", "gz"]
+                        }
+                    ],
+                    defaultPath: "."
+                },
+                function(fileNames){
+                    if (!fileNames) {
+                        return;
+                    }
+
+                    // Store にファイルを開いて貰う
+                    rc.trigger(ACTION.FILE_OPEN, fileNames[0]);
+                }
+            );
+        });
+    </script>
+</app_file_open_dialog>
+
+<app_dialogs>
+    <app_modal_dialog></app_modal_dialog>
+    <app_file_open_dialog></app_file_open_dialog>
+</app_dialogs>
+    

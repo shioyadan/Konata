@@ -18,7 +18,7 @@
             for (let id in store.tabs) {
                 self.tabs.push(store.tabs[id]);
             }
-            
+
             for (let tab of self.tabs) {
                 // クリックのハンドラを ID ごと埋め込む
                 tab.onclick = function(){
@@ -49,6 +49,9 @@
     <app_tabbar></app_tabbar>
     <div id="tabs-selector"></div>
     <div id="tabs"></div>
+
+    <!-- 色々なダイアログ -->
+    <app_dialogs></app_dialogs>
 
     <script>
         let self = this;
