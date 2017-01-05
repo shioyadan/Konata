@@ -21,10 +21,27 @@
                 console.log(path);
                 let tabs = jquery("#tabs");
 
-                let child = MakeTable(tabs, path);
+                let sheet = MakeTable(tabs, path);
+                let Konata = require("./Konata.js");
+                let konataInternal = new Konata();
+                try {
 
+                    if (!konataInternal.OpenFile(path)) {
+                        konataInternal.Close(path);
+                        return;
+                    }
+                } catch(e) {
+                    if (e == "Wait") {
+                        //console.log(path, " extract waiting..,");
+                        //let self = this;
+                        //setTimeout(self.Draw(path), 10000);
+                    }
+                    else{
+                        return;
+                    }
+                }
                 
-                if (konata.InitDraw(path, child)) {
+                if (konata.InitDraw(path, konataInternal, sheet)) {
                     SetControl(tabs);
                     WindowResize();
                     control.tabnum++;
@@ -61,11 +78,8 @@
         // オリジナル実装
         let jquery = jQuery;
 
-        let Konata = require("./Konata.js");
         let KonataRenderer = require("./KonataRenderer.js");
-
-        let konataInternal = new Konata();
-        let konata = new KonataRenderer(konataInternal);
+        let konata = new KonataRenderer();
 
         const remote = require("electron").remote;
         const Menu = remote.Menu;

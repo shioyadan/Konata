@@ -1,6 +1,5 @@
-function KonataRenderer(konata) {
+function KonataRenderer(){
 
-    this.konata = konata;
     this.name = "KonataRenderer";
 
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
@@ -10,6 +9,7 @@ function KonataRenderer(konata) {
     let m_tiles = {}; // ファイルごとのtileの二重配列を覚えておく連想配列
     let m_parentStyle = {}; // 親要素(.tab)の持つスタイル
     let m_scale = {};
+    this.konata = {};
 
     // jQuery HTMLをいじるときに使う．
     let m_jquery = require("./lib/js/jquery");
@@ -39,7 +39,8 @@ function KonataRenderer(konata) {
         m_parentStyle[path] = null;
         m_scale[path] = null;
 
-        this.konata.Close(path);
+        this.konata[path].Close(path);
+        this.konata[path] = null;
         //m_files[path] = null;
         //m_lastFetchedId[path] = null;
     };
@@ -58,7 +59,7 @@ function KonataRenderer(konata) {
         }
     };
 
-    this.InitDraw = function (path, tab) {
+    this.InitDraw = function (path, konata, tab) {
         if (m_tabs[path]) {
             // 既にタブが有るのはおかしい．
             return false;
@@ -67,20 +68,8 @@ function KonataRenderer(konata) {
         m_position[path] = {top:0, left:0};
         m_scale[path] = m_normalScale;
         m_parentStyle[path] = {};
-        try {
-            if (!this.konata.OpenFile(path)) {
-                this.Close(path);
-                return false;
-            }
-            this.Draw(path);
-        } catch(e) {
-            if (e == "Wait") {
-                //console.log(path, " extract waiting..,");
-                //let self = this;
-                //setTimeout(self.Draw(path), 10000);
-            }
-        }
-
+        this.konata[path] = konata;
+        this.Draw(path);
         return true;
     };
 
@@ -120,7 +109,7 @@ function KonataRenderer(konata) {
         let id = Math.floor(posY);
         let op = null;
         try {
-            op = this.konata.GetOp(path, id);
+            op = this.konata[path].GetOp(path, id);
         } catch (e) {
             console.log(e);
             return;
@@ -165,7 +154,7 @@ function KonataRenderer(konata) {
             }
             let op = null;
             try {
-                op = this.konata.GetOp(path, id);
+                op = this.konata[path].GetOp(path, id);
             } catch(e) {
                 console.log(e);
                 return;
