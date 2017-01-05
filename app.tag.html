@@ -61,6 +61,9 @@
 
         self.remote = require("electron").remote;
 
+        let KonataRenderer = require("./KonataRenderer.js");
+        let renderer = {}; // id -> konata
+
         // 新規タブのオープン
         RiotControl.on(ACTION.TAB_OPEN,
             function(store, tab){
@@ -72,7 +75,12 @@
                 let tabs = jquery("#tabs");
                 let sheet = MakeTable(tabs, path);
                 
-                if (konata.InitDraw(path, tab.konata, sheet)) {
+                renderer[tab.id] = new KonataRenderer();
+
+                if (renderer[tab.id].InitDraw(path, tab.konata, sheet)) {
+                    index.path = path;
+                    index.id = tab.id;
+
                     SetControl(tabs);
                     WindowResize();
                     control.tabnum++;
@@ -81,7 +89,6 @@
                     control.bind[path] = [];
                     MoveFront(index.path);
                     MoveFront(path);
-                    index.path = path;
                 }
             }
         );
@@ -108,9 +115,6 @@
 
         // オリジナル実装
         let jquery = jQuery;
-
-        let KonataRenderer = require("./KonataRenderer.js");
-        let konata = new KonataRenderer();
 
         const remote = require("electron").remote;
         const Menu = remote.Menu;
@@ -221,8 +225,8 @@
         }
 
         function Color(color) {
-            konata.ParentStyle(index.path, "color", color);
-            konata.Draw(index.path);
+            renderer[index.id].ParentStyle(index.path, "color", color);
+            renderer[index.id].Draw(index.path);
         }
 
         function Transparent (enable, all) {
@@ -244,8 +248,8 @@
         function SetOpacity(alpha) {
             let tabs = jquery("#tabs");
             let tab = tabs.find('[data-path="' + index.path + '"]');
-            konata.ParentStyle(index.path, "opacity", alpha);
-            konata.Draw(index.path);
+            renderer[index.id].ParentStyle(index.path, "opacity", alpha);
+            renderer[index.id].Draw(index.path);
         }
 
         function CreateTabMenu (path) {
@@ -324,7 +328,7 @@
             p_window.css("width", p_width + "px");
             let path = index.path;
             if (draw) {
-                konata.Draw(path,jquery("#tabs"));
+                renderer[index.id].Draw(path,jquery("#tabs"));
             }
         }
 
@@ -339,19 +343,19 @@
             } else {
                 scale = 0.5;
             }
-            konata.Zoom(index.path, scale);
+            renderer[index.id].Zoom(index.path, scale);
             for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
                 let path = control.bind[index.path][i];
-                konata.Zoom(path, scale);
+                renderer[index.id].Zoom(path, scale);
             }
             control.resizeing = false;
         }
 
         function MoveTo (diff, adjust) {
-            konata.MoveTo(diff, index.path, adjust);
+            renderer[index.id].MoveTo(diff, index.path, adjust);
             for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
                 let path = control.bind[index.path][i];
-                konata.MoveTo(diff, path, adjust);
+                renderer[index.id].MoveTo(diff, path, adjust);
             }
         }
 
@@ -404,7 +408,7 @@
                         Zoom(false);
                     }
                 } else {
-                    let scroll = 3/konata.GetScale(index.path);
+                    let scroll = 3/renderer[index.id].GetScale(index.path);
                     if (deltaY < 0) {
                         deltaY = scroll;
                     } else {
@@ -469,8 +473,8 @@
                     }
                     let diffY = Average(control.mouseY) - oldY;
                     let diffX = Average(control.mouseX) - oldX;
-                    diffX = -diffX/25/konata.GetScale(index.path);
-                    diffY = -diffY/25/konata.GetScale(index.path);
+                    diffX = -diffX/25/renderer[index.id].GetScale(index.path);
+                    diffY = -diffY/25/renderer[index.id].GetScale(index.path);
                     MoveTo({left:diffX, top:diffY},  null);
                 }
             });
