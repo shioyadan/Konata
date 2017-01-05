@@ -1,23 +1,23 @@
 function Konata(){
-    
+
     this.name = "Konata";
 
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
     // ローカル変数と区別するため m_ を付ける．
-    let m_files = {}; // 見たいファイル名とパース結果を関連付ける連想配列
-    let m_lastFetchedId = {};
+    let m_files = null; // 見たいファイル名とパース結果を関連付ける連想配列
+    let m_lastFetchedId = 0;
 
     let File = require("./File");
     let OnikiriParser_ = require("./OnikiriParser");
     let m_Cache = require("./Cache");
 
-    this.Close = function (path) {
-        m_files[path] = null;
-        m_lastFetchedId[path] = null;
+    this.Close = function(){
+        m_files = null;
+        m_lastFetchedId = null;
     };
 
-    this.OpenFile = function (path) {
-        if (m_files[path] != null) {
+    this.OpenFile = function(path){
+        if (m_files != null) {
             // 既に開かれている。
             return;
         }
@@ -29,27 +29,27 @@ function Konata(){
         try {
             if (parser.SetFile(file)) {
                 console.log("Selected parser:" , parser.GetName());
-                m_files[path] = new m_Cache(path, parser);
+                m_files = new m_Cache(path, parser);
                 return true;
             }
         } catch (e) {
             if (e == "Wait") {
                 console.log("Selected parser:" , parser.GetName());
-                m_files[path] = new m_Cache(path, parser);
+                m_files = new m_Cache(path, parser);
                 throw e;
             }
         }
         return false;
     };
 
-    this.GetOp = function (path, id) {
-        let file = m_files[path];
+    this.GetOp = function (id) {
+        let file = m_files;
         if (file == null) {
-            throw "Not open " + path;
+            throw "Not opened";
         }
         let op = file.GetOp(id);
         if (op != null) {
-            m_lastFetchedId[path] = id;
+            m_lastFetchedId = id;
         }
         return op;
     };

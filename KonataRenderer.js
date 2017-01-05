@@ -39,7 +39,7 @@ function KonataRenderer(){
         m_parentStyle[path] = null;
         m_scale[path] = null;
 
-        this.konata[path].Close(path);
+        this.konata[path].Close();
         this.konata[path] = null;
         //m_files[path] = null;
         //m_lastFetchedId[path] = null;
@@ -109,7 +109,7 @@ function KonataRenderer(){
         let id = Math.floor(posY);
         let op = null;
         try {
-            op = this.konata[path].GetOp(path, id);
+            op = this.konata[path].GetOp(id);
         } catch (e) {
             console.log(e);
             return;
@@ -154,7 +154,7 @@ function KonataRenderer(){
             }
             let op = null;
             try {
-                op = this.konata[path].GetOp(path, id);
+                op = this.konata[path].GetOp(id);
             } catch(e) {
                 console.log(e);
                 return;
