@@ -32,6 +32,11 @@ module.exports = {
         // let の場合，二重定義は実行時にエラーとされる
         "no-redeclare": [
             "off"
+        ],
+
+        // console.log を仕様できるように
+        "no-console": [
+            "off"
         ]
     },
 
