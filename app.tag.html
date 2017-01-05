@@ -1,6 +1,36 @@
+<app_tabbar>
+    <ul class="nav nav-tabs">
+        <!--
+        <li><a href="#sampleContentA" data-toggle="tab">タブＡ</a></li>
+        <li><a href="#sampleContentB" data-toggle="tab">タブＢ</a></li>
+        <li><a href="#sampleContentC" data-toggle="tab">タブＣ</a></li>
+        <li><a href="#sampleContentD" data-toggle="tab">タブＤ</a></li>
+        -->
+        <li each="{tab, i in tabs}">
+            <a href={"#" + tab.id} onclick={tab.onclick} data-toggle="tab">{tab.name}</a>
+        </li>
+    </ul>
+
+    <script>
+        let self = this;
+
+        self.tabs = [
+            {id: 0, active: false, name: "tabA", onclick: function(){self.onClick(0);}},
+            {id: 1, active: true,  name: "tabB", onclick: function(){self.onClick(1);}},
+            {id: 2, active: false, name: "tabC", onclick: function(){self.onClick(2);}},
+        ];
+
+        self.onClick = function(id){
+            console.log(`${id} is clicked`);
+        };
+
+    </script>
+</app_tabbar>
+
+
 <!-- Application -->
 <app>
-
+    <app_tabbar></app_tabbar>
     <div id="tabs-selector"></div>
     <div id="tabs"></div>
 
