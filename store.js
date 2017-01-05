@@ -20,25 +20,35 @@ function Store(){
     riot.observable(this);
     
     let remote = require("electron").remote;
+    let Konata = require("./Konata.js");
 
     let self = this;
     self.fileName = null;
 
     // Tab
-    self.tabs = [];
+    self.tabs = {}; // id -> tab
     self.nextTabID = 0;
     self.activeTabID = 0;
+
 
     // ファイルオープン
     self.on(ACTION.FILE_OPEN, function(fileName){
         self.fileName = fileName;
 
+        // Load a file
+        let konata = new Konata();
+        if (!konata.OpenFile(fileName)) {
+            konata.Close(fileName);
+            return;
+        }
+
         // Create a new tab
         let tab = {
             id: self.nextTabID, 
-            fileName: fileName
+            fileName: fileName,
+            konata: konata
         };
-        self.tabs.push(tab);
+        self.tabs[self.nextTabID] = tab;
         self.activeTabID = self.nextTabID;
         self.nextTabID++;
         
