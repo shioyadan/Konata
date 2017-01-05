@@ -16,10 +16,12 @@ const ACTION = {
 function Store(){
     /* globals riot */
     riot.observable(this);
+    
+    let remote = require("electron").remote;
 
     let self = this;
-
     self.fileName = null;
+        
 
     // ファイルオープン
     self.on(ACTION.FILE_OPEN, function(fileName){
@@ -31,6 +33,12 @@ function Store(){
     self.on(ACTION.FILE_CLOSE, function(fileName){
         self.trigger(ACTION.TAB_CLOSE, fileName);
     });
+
+    // アプリケーション終了
+    self.on(ACTION.APP_QUIT, function(){
+        remote.app.quit();
+    });
+
 
 }
 

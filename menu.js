@@ -16,7 +16,7 @@ function installMenu(){
                 {
                     label: "Quit",
                     accelerator: "Command+Q",
-                    click: function(){remote.app.quit();}
+                    click: function(){rc.trigger(ACTION.APP_QUIT);}
                 },
             ]
         },
