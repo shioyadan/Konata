@@ -4,6 +4,15 @@
     <head>
         <meta charset="UTF-8">
         <title>Konata</title>
+        
+        <!-- 
+            スタイルシートは最初に読み込んでおく必要がある．
+            Op 内でタイルの色を決定するためにスタイルシートを参照している部分がある．
+            そこではスタイルシートの順番をハードコーディングして参照している．
+            各ライブラリは内部でスタイルシートを挿入することがあり，その場合参照がずれる．
+        -->
+        <link rel="stylesheet" type="text/css" href="./viewer.css"></link>
+        <link rel="stylesheet" type="text/css" href="./colors.css"></link>
 
         <!-- jquery -->
         <script type="text/javascript">
@@ -19,8 +28,6 @@
         <script src="./lib/js/route.js" type="text/javascript"></script>
         <script src="./lib/js/riotcontrol.js" type="text/javascript"></script>
 
-        <link rel="stylesheet" type="text/css" href="./viewer.css"></link>
-        <link rel="stylesheet" type="text/css" href="./colors.css"></link>
     </head>
 
     <body>
