@@ -225,8 +225,8 @@
         }
 
         function Color(color) {
-            renderer[index.id].ParentStyle(index.path, "color", color);
-            renderer[index.id].Draw(index.path);
+            renderer[index.id].ParentStyle("color", color);
+            renderer[index.id].Draw();
         }
 
         function Transparent (enable, all) {
@@ -246,10 +246,8 @@
         }
 
         function SetOpacity(alpha) {
-            let tabs = jquery("#tabs");
-            let tab = tabs.find('[data-path="' + index.path + '"]');
-            renderer[index.id].ParentStyle(index.path, "opacity", alpha);
-            renderer[index.id].Draw(index.path);
+            renderer[index.id].ParentStyle("opacity", alpha);
+            renderer[index.id].Draw();
         }
 
         function CreateTabMenu (path) {
@@ -326,9 +324,8 @@
             l_window.css("width", l_width + "px");
             p_window.css("left", p_left + "px");
             p_window.css("width", p_width + "px");
-            let path = index.path;
             if (draw) {
-                renderer[index.id].Draw(path,jquery("#tabs"));
+                renderer[index.id].Draw();
             }
         }
 
@@ -343,19 +340,19 @@
             } else {
                 scale = 0.5;
             }
-            renderer[index.id].Zoom(index.path, scale);
+            renderer[index.id].Zoom(scale);
             for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
                 let path = control.bind[index.path][i];
-                renderer[index.id].Zoom(path, scale);
+                renderer[index.id].Zoom(scale);
             }
             control.resizeing = false;
         }
 
         function MoveTo (diff, adjust) {
-            renderer[index.id].MoveTo(diff, index.path, adjust);
+            renderer[index.id].MoveTo(diff, adjust);
             for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
                 let path = control.bind[index.path][i];
-                renderer[index.id].MoveTo(diff, path, adjust);
+                renderer[index.id].MoveTo(diff, adjust);
             }
         }
 
@@ -408,7 +405,7 @@
                         Zoom(false);
                     }
                 } else {
-                    let scroll = 3/renderer[index.id].GetScale(index.path);
+                    let scroll = 3/renderer[index.id].GetScale();
                     if (deltaY < 0) {
                         deltaY = scroll;
                     } else {
@@ -473,8 +470,8 @@
                     }
                     let diffY = Average(control.mouseY) - oldY;
                     let diffX = Average(control.mouseX) - oldX;
-                    diffX = -diffX/25/renderer[index.id].GetScale(index.path);
-                    diffY = -diffY/25/renderer[index.id].GetScale(index.path);
+                    diffX = -diffX/25/renderer[index.id].GetScale();
+                    diffY = -diffY/25/renderer[index.id].GetScale();
                     MoveTo({left:diffX, top:diffY},  null);
                 }
             });
