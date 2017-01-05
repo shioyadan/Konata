@@ -1,24 +1,28 @@
 <app_tabbar>
     <ul class="nav nav-tabs">
-        <!--
-        <li><a href="#sampleContentA" data-toggle="tab">タブＡ</a></li>
-        <li><a href="#sampleContentB" data-toggle="tab">タブＢ</a></li>
-        <li><a href="#sampleContentC" data-toggle="tab">タブＣ</a></li>
-        <li><a href="#sampleContentD" data-toggle="tab">タブＤ</a></li>
-        -->
-        <li each="{tab, i in tabs}">
-            <a href={"#" + tab.id} onclick={tab.onclick} data-toggle="tab">{tab.name}</a>
+        <li each="{tab, i in tabs}" class={tab.active}>
+            <a href={"#" + tab.id} onclick={tab.onclick} data-toggle="tab">{tab.tabName}</a>
         </li>
     </ul>
 
     <script>
         let self = this;
+        self.tabs = [];
 
-        self.tabs = [
-            {id: 0, active: false, name: "tabA", onclick: function(){self.onClick(0);}},
-            {id: 1, active: true,  name: "tabB", onclick: function(){self.onClick(1);}},
-            {id: 2, active: false, name: "tabC", onclick: function(){self.onClick(2);}},
-        ];
+        // タブの更新イベント
+        RiotControl.on(ACTION.TAB_UPDATE, function(store){
+            // 表示用に加工するためコピー
+            self.tabs = store.tabs.slice();
+
+            for (let tab of self.tabs) {
+                tab.onclick = function(){
+                    self.onClick(tab.id);
+                };
+                tab.tabName = tab.fileName.match(/[^\/\\]+$/)[0];
+                tab.active = (store.activeTabID == tab.id) ? "active" : "";
+            }
+            self.update();
+        });
 
         self.onClick = function(id){
             console.log(`${id} is clicked`);
@@ -43,8 +47,9 @@
         self.remote = require("electron").remote;
 
         // 新規タブのオープン
-        RiotControl.on(ACTION.TAB_OPEN,
-            function(path){
+        RiotControl.on(ACTION.TAB_UPDATE,
+            function(store, tab){
+                let path = tab.fileName;
                 if (!path) {
                     return;
                 }
