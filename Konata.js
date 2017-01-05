@@ -21,10 +21,11 @@ function Konata(){
             // 既に開かれている。
             return;
         }
+
         let file = new File(path);
+        let parser = new OnikiriParser_();
         console.log("Open :", path);
 
-        let parser = new OnikiriParser_();
         try {
             if (parser.SetFile(file)) {
                 console.log("Selected parser:" , parser.GetName());
