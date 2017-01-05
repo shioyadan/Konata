@@ -30,6 +30,10 @@ app.on('ready', function() {
     });
 });
 
+/*
+
+// 現在使われていないので，とりあえずコメントアウト
+
 // レンダラプロセスのkonataからの通信
 ipc.on('Konata', function(event, args) {
     var request = args.request;
@@ -56,3 +60,4 @@ function SendOp(op) {
     m_window.webContents
         .send('asynchronous-message', {request:'Draw', op:op});
 }
+*/
