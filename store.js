@@ -9,6 +9,8 @@ const ACTION = {
 
     TAB_OPEN: 20,
     TAB_CLOSE: 21,
+
+    APP_QUIT: 30
 };
 
 function Store(){

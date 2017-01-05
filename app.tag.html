@@ -39,7 +39,7 @@
         );
 
         // タブのクローズ
-        RiotControl.on(ACTION.TAB_CLOSE,
+        rc.on(ACTION.TAB_CLOSE,
             function(path){
                 konata.Close(path);
                 jquery('[data-path="' + path + '"]').remove();
@@ -113,8 +113,8 @@
         }
 
         function SetZIndex(path, z, relative){
-            var tabs = jquery("#tabs");
-            var tab = tabs.find('[data-path="' + path + '"]');
+            let tabs = jquery("#tabs");
+            let tab = tabs.find('[data-path="' + path + '"]');
             if (!relative) {
                 if (tab.data("zIndex") == z) {
                     return false;
@@ -130,9 +130,9 @@
         }
 
         function NextTab(dir) {
-            var tabs = jquery("#tabs");
-            var tab = tabs.find('[data-path="' + index.path + '"]');
-            var next;
+            let tabs = jquery("#tabs");
+            let tab = tabs.find('[data-path="' + index.path + '"]');
+            let next;
             if (dir) {
                 next = tab.next();
             } else {
@@ -145,29 +145,29 @@
                     next = tabs.find(".tab").last();
                 }    
             }
-            var path = next.attr("data-path");
+            let path = next.attr("data-path");
             if(path) {
                 MoveFront(path);
             }
         }
 
         function Bind(path) {
-            //var path = control.temp;
+            //let path = control.temp;
             if (index.path == path) {
                 return;
             }
             if (control.bind[index.path]) {
                 console.log(control.bind[index.path]);
             }
-            var i = jquery.inArray(path, control.bind[index.path]);
+            let i = jquery.inArray(path, control.bind[index.path]);
             if (i < 0) {
                 control.bind[index.path].push(path);
             }
         }
 
         function Release(path) {
-            //var path = control.temp;
-            var i = jquery.inArray(path, control.bind[index.path]);
+            //let path = control.temp;
+            let i = jquery.inArray(path, control.bind[index.path]);
             if (i > -1) {
                 control.bind[index.path].splice(i, 1);
             }
@@ -180,8 +180,8 @@
         }
 
         function Transparent (enable, all) {
-            var tabs = jquery("#tabs");
-            var tab = tabs.find('[data-path="' + index.path + '"]');
+            let tabs = jquery("#tabs");
+            let tab = tabs.find('[data-path="' + index.path + '"]');
             if (enable) {
                 if (!all) {
                     SetOpacity(0.5);
@@ -196,25 +196,25 @@
         }
 
         function SetOpacity(alpha) {
-            var tabs = jquery("#tabs");
-            var tab = tabs.find('[data-path="' + index.path + '"]');
+            let tabs = jquery("#tabs");
+            let tab = tabs.find('[data-path="' + index.path + '"]');
             konata.ParentStyle(index.path, "opacity", alpha);
             konata.Draw(index.path);
         }
 
         function CreateTabMenu (path) {
-            var array = path.split("/");
-            var shortPath = array[array.length - 1]; // なんかタブ上に表示できる程度に加工した名前にしたい。
-            var tabs = jquery("#tabs-selector");
-            var tab = jquery("<span>" + shortPath + "</span>").appendTo(tabs);
-            var close = jquery("<span>X</span>").appendTo(tab);
+            let array = path.split("/");
+            let shortPath = array[array.length - 1]; // なんかタブ上に表示できる程度に加工した名前にしたい。
+            let tabs = jquery("#tabs-selector");
+            let tab = jquery("<span>" + shortPath + "</span>").appendTo(tabs);
+            let close = jquery("<span>X</span>").appendTo(tab);
             close.addClass("close");
             tabs = tabs.find(".tab-selector");
             tab.attr("data-path", path);
             tab.addClass("tab-selector");
 
             // コンテキストメニューの内容
-            var t_menu = new Menu();
+            let t_menu = new Menu();
             t_menu.append(new MenuItem({label: "スクロール・ズームを連携", 
                 click: function() {
                     Bind(path);
@@ -240,15 +240,15 @@
         }
 
         function MoveFront(path) {
-            var tabs = jquery("#tabs-selector").find(".tab-selector");
+            let tabs = jquery("#tabs-selector").find(".tab-selector");
             if (!SetZIndex(path, control.tabnum)) {
                 return; // 既に最前面にある。
             }
             index.path = path; // 操作するタブを自身に変更。
             // 自身以外のタブを一つずつ後ろに移動。
             tabs.each (function(i, box) {
-                var t = jquery(box);
-                var p = t.attr("data-path");
+                let t = jquery(box);
+                let p = t.attr("data-path");
                 if (p == path) {
                     t.css("background-color", "#ddd");
                     t.css("min-height", 20);
@@ -262,21 +262,21 @@
 
 
         function WindowResize(draw) {
-            var tab = jquery(".tab");
+            let tab = jquery(".tab");
             if (tab.length == 0) {
                 return;
             }
-            var l_window = tab.find(".labels-window");
-            var p_window = tab.find(".pipelines-window");
-            var w_sizing = tab.find(".window-sizing");
-            var offset = w_sizing.offset();
-            var l_width = offset.left - parseInt(l_window.css("left"));
-            var p_left = offset.left + parseInt(w_sizing.css("width"));
-            var p_width = jquery(window).width() - p_left - 5;
+            let l_window = tab.find(".labels-window");
+            let p_window = tab.find(".pipelines-window");
+            let w_sizing = tab.find(".window-sizing");
+            let offset = w_sizing.offset();
+            let l_width = offset.left - parseInt(l_window.css("left"));
+            let p_left = offset.left + parseInt(w_sizing.css("width"));
+            let p_width = jquery(window).width() - p_left - 5;
             l_window.css("width", l_width + "px");
             p_window.css("left", p_left + "px");
             p_window.css("width", p_width + "px");
-            var path = index.path;
+            let path = index.path;
             if (draw) {
                 konata.Draw(path,jquery("#tabs"));
             }
@@ -287,14 +287,15 @@
                 return;
             }
             control.resizeing = true;
+            let scale = 0;
             if (dir) {
-                var scale = 2;
+                scale = 2;
             } else {
-                var scale = 0.5
+                scale = 0.5;
             }
             konata.Zoom(index.path, scale);
-            for (var i = 0, len = control.bind[index.path].length; i < len; i++) {
-                var path = control.bind[index.path][i];
+            for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
+                let path = control.bind[index.path][i];
                 konata.Zoom(path, scale);
             }
             control.resizeing = false;
@@ -302,8 +303,8 @@
 
         function MoveTo (diff, adjust) {
             konata.MoveTo(diff, index.path, adjust);
-            for (var i = 0, len = control.bind[index.path].length; i < len; i++) {
-                var path = control.bind[index.path][i];
+            for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
+                let path = control.bind[index.path][i];
                 konata.MoveTo(diff, path, adjust);
             }
         }
@@ -320,9 +321,9 @@
             WindowResize();
 
             document.ondrop = function (e) {
-            e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
-            var file = e.dataTransfer.files[0];
-            Send(file.path);
+                e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
+                let file = e.dataTransfer.files[0];
+                Send(file.path);
             };
         });
 
@@ -330,9 +331,9 @@
             if (tab.length == 0) {
                 return;
             }
-            var l_window = tab.find(".labels-window");
-            var p_window = tab.find(".pipelines-window");
-            var w_sizing = tab.find(".window-sizing");
+            let l_window = tab.find(".labels-window");
+            let p_window = tab.find(".pipelines-window");
+            let w_sizing = tab.find(".window-sizing");
 
             p_window.scroll (function() {
                 // ラベルウィンドウとパイプラインウィンドウのスクロールを同期
@@ -357,7 +358,7 @@
                         Zoom(false);
                     }
                 } else {
-                    var scroll = 3/konata.GetScale(index.path);
+                    let scroll = 3/konata.GetScale(index.path);
                     if (deltaY < 0) {
                         deltaY = scroll;
                     } else {
@@ -395,8 +396,8 @@
         }
 
         function Sum(array) {
-            var sum = 0;
-            for (var i = 0, len = array.length; i < len; i++) {
+            let sum = 0;
+            for (let i = 0, len = array.length; i < len; i++) {
                 sum += array[i];
             }
             return sum;
@@ -410,8 +411,8 @@
             });
             obj.on("mousemove", function (e) {
                 if (control.mouse) {
-                    var oldX = Average(control.mouseX)
-                    var oldY = Average(control.mouseY)
+                    let oldX = Average(control.mouseX);
+                    let oldY = Average(control.mouseY);
                     control.mouseY.push(e.screenY); // 値に多少のブレがあっても平滑化すればいいかなと。
                     control.mouseX.push(e.screenX); // 今となってはあまり意味がないかもしれない。
                     if (control.mouseX.length > 1) {
@@ -420,19 +421,19 @@
                     if (control.mouseY.length > 1) {
                         control.mouseY.shift();
                     }
-                    var diffY = Average(control.mouseY) - oldY;
-                    var diffX = Average(control.mouseX) - oldX;
+                    let diffY = Average(control.mouseY) - oldY;
+                    let diffX = Average(control.mouseX) - oldX;
                     diffX = -diffX/25/konata.GetScale(index.path);
                     diffY = -diffY/25/konata.GetScale(index.path);
                     MoveTo({left:diffX, top:diffY},  null);
                 }
             });
-            obj.on("mouseup", function(e) {
-                if (control.mouse) {
-                }
+            obj.on("mouseup", function(e){
+                //if (control.mouse) {
+                //}
                 control.mouse = false;
             });
-            obj.on("mouseleave", function(e) {
+            obj.on("mouseleave", function(e){
             });
         }
 

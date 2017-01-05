@@ -42,7 +42,7 @@ function Konata (that, retina) {
     
     this.GetScale = function (path) {
         return m_scale[path];
-    }
+    };
 
     this.Close = function (path) {
         m_position[path] = null;
@@ -52,13 +52,13 @@ function Konata (that, retina) {
         m_parentStyle[path] = null;
         m_scale[path] = null;
         m_lastFetchedId[path] = null;
-    }
+    };
 
     this.RetinaSwitch = function () {
         m_retina = !m_retina;
         m_maxScale = m_retina? 4:2;
         m_minScale = m_retina? 0.00006103515625 * 2: 0.00006103515625;
-    }
+    };
 
     // なにか時間のかかりそうな処理の前には呼び出す．
     function CancelPrefetch () {
@@ -79,7 +79,7 @@ function Konata (that, retina) {
         } else {
             return m_parentStyle[path][style];
         }
-    }
+    };
 
     this.OpenFile = function (path) {
         if (m_files[path] != null) {
@@ -124,7 +124,7 @@ function Konata (that, retina) {
         }
         console.log("Not found");
         return null;
-    };
+    }
 
     this.InitDraw = function (path, tab) {
         if (m_tabs[path]) {
@@ -161,7 +161,7 @@ function Konata (that, retina) {
         let pos = m_position[path];
         CancelPrefetch();
         let scale = m_scale[path];
-        let tab = m_tabs[path];
+        //let tab = m_tabs[path];
         let tiles = m_tiles[path];
         let top = pos.top;
         m_skip = Math.floor(20/(scale * Math.log(scale)/0.005));
@@ -184,8 +184,9 @@ function Konata (that, retina) {
             posY = 0;
         }
         let id = Math.floor(posY);
+        let op = null;
         try {
-            let op = this.GetOp(path, id);
+            op = this.GetOp(path, id);
         } catch (e) {
             console.log(e);
             return;
@@ -217,7 +218,7 @@ function Konata (that, retina) {
             m_scale[path] = m_minScale;
         }
         this.Draw(path);
-    }
+    };
 
     this.GetOp = function (path, id) {
         let file = m_files[path];
@@ -238,8 +239,9 @@ function Konata (that, retina) {
             let start = m_lastFetchedId[key] + 1;
             let end = start + m_prefetchNum;
             for (let id = start; id < end; id++) {
+                let op = null;
                 try {
-                    let op = self.GetOp(key, id);
+                    op = self.GetOp(key, id);
                 } catch(e) {
                     console.log(e);
                     break;
@@ -250,7 +252,7 @@ function Konata (that, retina) {
             }
         }
         SetPrefetch(self);
-    };
+    }
 
     // private methods
     this.DrawTile = function (tile, top, left, path) {
@@ -261,8 +263,9 @@ function Konata (that, retina) {
             if (scale < 0.005 && id % m_skip  != 0) {
                 continue;
             }
+            let op = null;
             try {
-                let op = this.GetOp(path, id);
+                op = this.GetOp(path, id);
             } catch(e) {
                 console.log(e);
                 return;
@@ -274,31 +277,32 @@ function Konata (that, retina) {
                 return;
             }
         }
-    }
+    };
 
     this.SetTile = function (path) {
         let tabs = {};
         if (path) {
             tabs[path] = m_tabs[path];
         } else {
-            let tabs = m_tabs;
+            tabs = m_tabs;
         }
         // canvasのサイズを定義する[px]
         for (let key in tabs) {
             let tab = tabs[key];
             let p = tab.find(".pipelines-window");
             // 必要なcanvas数を考える
+            let x, y;
             if (m_retina) { // retinaだと倍精度で描かないとボケる
-                let x = Math.ceil(p.width()/m_canvasW) * 2 + 2;
-                let y = Math.ceil(p.height()/m_canvasH) * 2 + 2;
+                x = Math.ceil(p.width()/m_canvasW) * 2 + 2;
+                y = Math.ceil(p.height()/m_canvasH) * 2 + 2;
             } else {
-                let x = Math.ceil(p.width()/m_canvasW) + 2;
-                let y = Math.ceil(p.height()/m_canvasH) + 2;
+                x = Math.ceil(p.width()/m_canvasW) + 2;
+                y = Math.ceil(p.height()/m_canvasH) + 2;
             }
             LayTiles(p, x, y, key);
             //console.log(key , "set tiles:", p.width(), p.height());
         }
-    }
+    };
 
     // obj内に幅width, 高さheightのタイルをx * y個敷き詰める。
     function LayTiles(obj, x, y, path) {
