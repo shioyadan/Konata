@@ -26,6 +26,10 @@ const VIEW = {
     TAB_OPEN: 100,
     TAB_UPDATE: 101,
     PANE_UPDATE: 102,
+
+    DIALOG_FILE_OPEN: 110,
+    DIALOG_MODAL_MESSAGE: 111,
+    DIALOG_MODAL_ERROR: 112,
 };
 
 
@@ -37,7 +41,7 @@ function Store(){
     let Konata = require("./Konata.js");
 
     /** @type {{
-        tabs: object, 
+        tabs: {}, 
         nextTabID: number, 
         activeTabID: number,
         window: {width: number, height: number},
@@ -56,6 +60,19 @@ function Store(){
     };
 
 
+    // ダイアログ
+    // 基本的に中継してるだけ
+    self.on(ACTION.DIALOG_FILE_OPEN, function(){
+        self.trigger(VIEW.DIALOG_FILE_OPEN);
+    });
+    self.on(ACTION.DIALOG_MODAL_MESSAGE, function(msg){
+        self.trigger(VIEW.DIALOG_MODAL_MESSAGE, msg);
+    });
+    self.on(ACTION.DIALOG_MODAL_ERROR, function(msg){
+        self.trigger(VIEW.DIALOG_MODAL_ERROR, msg);
+    });
+
+
     // ファイルオープン
     self.on(ACTION.FILE_OPEN, function(fileName){
 
@@ -63,7 +80,7 @@ function Store(){
         let konata = new Konata();
         if (!konata.OpenFile(fileName)) {
             konata.Close(fileName);
-            self.trigger(ACTION.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
+            self.trigger(VIEW.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
             return;
         }
 
@@ -73,7 +90,8 @@ function Store(){
             fileName: fileName,
             konata: konata,
             splitter: { // スプリッタの位置
-                position: 150
+                position: 150,
+                initial: true   // 初期状態なので，position の値を VIEW に適用する
             }
         };
         self.tabs[self.nextTabID] = tab;

@@ -39,11 +39,11 @@
             self.modal("おしらせ", msg, "OK");
         };
 
-        rc.on(ACTION.DIALOG_MODAL_ERROR, function(msg){
+        rc.on(VIEW.DIALOG_MODAL_ERROR, function(msg){
             self.modal("Error", msg, "OK");
         });
 
-        rc.on(ACTION.DIALOG_MODAL_MESSAGE, function(msg){
+        rc.on(VIEW.DIALOG_MODAL_MESSAGE, function(msg){
             self.modal("おしらせ", msg, "OK");
         });
     </script>
@@ -52,12 +52,12 @@
 <!-- ファイルオープン -->
 <app_file_open_dialog>
     <script>
-        /* global RiotControl ACTION */
+        /* global RiotControl ACTION VIEW*/
         let rc = RiotControl;
         let remote = require("electron").remote;
 
         // 読み込みダイアログ
-        rc.on(ACTION.DIALOG_FILE_OPEN, function(){
+        rc.on(VIEW.DIALOG_FILE_OPEN, function(){
             const dialog = remote.dialog;
             dialog.showOpenDialog(
                 null, {
