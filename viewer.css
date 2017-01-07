@@ -1,3 +1,38 @@
+html, body {
+  width: 100%;      /* ウィンドウ全体に*/
+  height: 100%;
+  margin: 0;        /* すきまなく */
+  overflow: hidden; /* はみ出た部分は表示されない */
+}
+
+/* 左側のラベルペーン */
+.label_pane {
+    float: left;    /* 水平方向に並べるために float に*/
+    width:150px;    /* 初期幅は150*/
+
+    background-color: #eee; /* ラベル部分は少し暗く */
+}
+
+/* ラベルとパイプラインの間のスプリッタ */
+.window_splitter {
+    float: left;
+    width:10px;
+    min-width: 10px;
+    max-width: 10px;
+
+    background-color: #eee; /* ラベル部分と一体化させる */
+    cursor: col-resize;
+}
+
+/* パイプライン表示のペーン */
+.pipeline_pane {
+    float: left;
+    background-color: #fff;
+}
+
+
+
+/* こっからしたがオリジナル */
 .tab {
     display: table;
     background-color: transparent;

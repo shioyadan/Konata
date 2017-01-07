@@ -1,6 +1,6 @@
 <!-- tab -->
 <app_tabbar>
-    <ul class="nav nav-tabs">
+    <ul class="nav nav-tabs" ref="app_tabbar">
         <li each="{tab, i in tabs}" class={tab.active}>
             <a href={"#" + tab.id} onclick={tab.onclick} data-toggle="tab">{tab.tabName}</a>
         </li>
@@ -37,16 +37,93 @@
         };
 
         // Open と Update を listen
-        RiotControl.on(ACTION.TAB_OPEN, self.updateTab);
-        RiotControl.on(ACTION.TAB_UPDATE, self.updateTab);
+        RiotControl.on(VIEW.TAB_UPDATE, self.updateTab);
 
+        // 高さを取得
+        self.getHeight = function() {
+            return self.refs.app_tabbar.offsetHeight;
+        };
     </script>
 </app_tabbar>
 
 
+<!-- label + splitter + stages -->
+<app_sheet>
+    <div class="label_pane" ref="label_pane">
+        <canvas></canvas>
+    </div>
+
+    <div class="window_splitter" ref="window_splitter">
+    </div>
+
+    <div class="pipeline_pane" ref="pipeline_pane">
+        <canvas></canvas>
+    </div>
+
+    <script>
+        let self = this;
+        self.on("update", function(){
+            
+        });
+
+        self.on("mount", function(){
+            // ドラッグ可能に
+            $(self.refs.window_splitter).draggable({
+                axis: "x"
+            });
+
+            let label_pane = self.refs.label_pane;
+            let splitter = self.refs.window_splitter;
+
+            // CSS にあるスプリッタの初期位置を伝える
+            //RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, label_pane.style.offsetWidth);
+
+            splitter.ondrag = function(){
+
+            };
+
+        });
+
+
+        RiotControl.on(VIEW.PANE_UPDATE, function(store){
+            //self.refs.label_pane.style.width = "" + store.window.width + "px";
+            self.refs.label_pane.style.height = "" + store.window.height + "px";
+            self.refs.window_splitter.style.height = "" + store.window.height + "px";
+            self.refs.pipeline_pane.style.height = "" + store.window.height + "px";
+            self.update();
+        });
+
+    </script>
+</app_sheet>
+
+<!-- List of sheets -->
+<app_sheet_list>
+    <app_sheet each="{sheet, i in sheets}" id={sheet.id}>
+    </app_sheet>
+    <script>
+        let self = this;
+        self.width = 0;
+        self.height = 0;
+        
+        RiotControl.on(VIEW.TAB_UPDATE, function(store){
+            self.sheets = [];
+            for (let id in store.tabs) {
+                self.sheets.push(store.tabs[id]);
+            }
+            self.update();
+        });
+    </script>
+</app_sheet_list>
+
+
 <!-- Application -->
 <app>
+    <!-- tab bar -->
     <app_tabbar></app_tabbar>
+    
+    <!-- client -->
+    <app_sheet_list></app_sheet_list>
+
     <div id="tabs-selector"></div>
     <div id="tabs"></div>
 
@@ -56,7 +133,7 @@
     <script>
         let self = this;
 
-        /* global RiotControl ACTION */
+        /* global RiotControl ACTION VIEW */
         let rc = RiotControl;
 
         self.remote = require("electron").remote;
@@ -65,17 +142,19 @@
         let renderer = {}; // id -> konata
 
         // 新規タブのオープン
-        RiotControl.on(ACTION.TAB_OPEN,
+        RiotControl.on(VIEW.TAB_OPEN,
             function(store, tab){
                 let path = tab.fileName;
                 if (!path) {
                     return;
                 }
                 console.log(path);
+
+                renderer[tab.id] = new KonataRenderer();
+
+                /*
                 let tabs = jquery("#tabs");
                 let sheet = MakeTable(tabs, path);
-                
-                renderer[tab.id] = new KonataRenderer();
 
                 if (renderer[tab.id].InitDraw(tab.konata, sheet)) {
                     index.path = path;
@@ -88,8 +167,8 @@
                     SetZIndex(path, control.tabnum);
                     control.bind[path] = [];
                     MoveFront(index.path);
-                    MoveFront(path);
                 }
+                */
             }
         );
 
@@ -101,12 +180,26 @@
             }
         );
 
+        // リサイズハンドラ
+        self.onResize = function(){
+            let width = document.body.offsetWidth;
+            let height = 
+                document.body.offsetHeight - 
+                self.tags.app_tabbar.getHeight();
+            rc.trigger(ACTION.WINDOW_RESIZE, width, height);
+        };
+
         // 初期化
         // マウント時に呼ばれる
         self.init = function(){
+
             // メニューを追加
             /* global installMenu */
             installMenu();
+
+            // リサイズハンドラ
+            window.addEventListener("resize", self.onResize, false);
+            self.onResize();    // サイズを適用しておくために1回呼んでおく
         };
 
         // エントリポイント

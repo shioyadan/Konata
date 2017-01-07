@@ -1,20 +1,27 @@
 // アプリケーションの状態を保持する store
 
-
 const ACTION = {
-    DIALOG_FILE_OPEN: 0,
-    DIALOG_MODAL_MESSAGE: 1,
-    DIALOG_MODAL_ERROR: 2,
+    APP_QUIT: 0,
 
-    FILE_OPEN: 10,
-    FILE_CLOSE: 11,
+    DIALOG_FILE_OPEN: 10,
+    DIALOG_MODAL_MESSAGE: 11,
+    DIALOG_MODAL_ERROR: 12,
 
-    TAB_OPEN: 20,
-    TAB_UPDATE: 21,
-    TAB_CLOSE: 22,
-    TAB_ACTIVATE: 23,
+    FILE_OPEN: 20,
+    FILE_CLOSE: 21,
 
-    APP_QUIT: 30
+    TAB_OPEN: 30,
+    TAB_CLOSE: 32,
+    TAB_ACTIVATE: 33,
+
+    WINDOW_RESIZE: 40,
+    PANE_SPLITTER_MOVE: 50,
+};
+
+const VIEW = {
+    TAB_OPEN: 100,
+    TAB_UPDATE: 101,
+    PANE_UPDATE: 102,
 };
 
 function Store(){
@@ -32,6 +39,11 @@ function Store(){
     self.nextTabID = 0;
     self.activeTabID = 0;
 
+    // ウィンドウサイズ
+    self.window = {
+        width: 800,
+        height: 600
+    };
 
     // ファイルオープン
     self.on(ACTION.FILE_OPEN, function(fileName){
@@ -49,24 +61,42 @@ function Store(){
         let tab = {
             id: self.nextTabID, 
             fileName: fileName,
-            konata: konata
+            konata: konata,
+            splitter: { // スプリッタの位置
+                position: 150
+            }
         };
         self.tabs[self.nextTabID] = tab;
         self.activeTabID = self.nextTabID;
         self.nextTabID++;
         
-        self.trigger(ACTION.TAB_OPEN, self, tab);
+        self.trigger(VIEW.TAB_OPEN, self, tab);
+        self.trigger(VIEW.TAB_UPDATE, self, tab);
+        self.trigger(VIEW.PANE_UPDATE, self, tab);
     });
 
     // ファイルクローズ
     self.on(ACTION.FILE_CLOSE, function(fileName){
-        self.trigger(ACTION.TAB_CLOSE, fileName);
+        self.trigger(VIEW.TAB_CLOSE, fileName);
     });
 
     // アクティブなタブの変更
     self.on(ACTION.TAB_ACTIVATE, function(id){
         self.activeTabID = id;
-        self.trigger(ACTION.TAB_UPDATE, self);
+        self.trigger(VIEW.TAB_UPDATE, self);
+    });
+
+    // ウィンドウのサイズ変更
+    self.on(ACTION.WINDOW_RESIZE, function(width, height){
+        self.window.width = width;
+        self.window.height = height;
+        self.trigger(VIEW.PANE_UPDATE, self);
+    });
+
+    // スプリッタの位置変更
+    self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
+        self.tabs[self.activeTabID].splitter.position = position;
+        self.trigger(VIEW.PANE_UPDATE, self);
     });
 
     // アプリケーション終了
