@@ -131,11 +131,12 @@
 
             self.update();
 
-            self.draw();
+            self.draw(store);
         });
 
-        self.draw = function(){
-
+        self.draw = function(store){
+            let pipeline_canvas = self.refs.pipeline_canvas;
+            store.activeTab.renderer.draw(pipeline_canvas);
         };
 
     </script>

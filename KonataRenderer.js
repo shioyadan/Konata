@@ -5,8 +5,6 @@ function KonataRenderer(){
     // private変数．外部からはアクセサを用意しない限りアクセスできない．
     // ローカル変数と区別するため m_ を付ける．
     let m_position = null; // ファイル毎の現在位置
-    let m_tabs = null; // 表示用HTML(jQuery)オブジェクト
-    let m_tiles = null; // ファイルごとのtileの二重配列
     let m_parentStyle = null; // 親要素(.tab)の持つスタイル
     let m_scale = null;
     this.konata = null;
@@ -32,26 +30,13 @@ function KonataRenderer(){
         return m_scale;
     };
 
-    this.Close = function(){
-        m_position = null;
-        m_tabs = null;
-        m_tiles = null;
-        m_parentStyle = null;
-        m_scale = null;
-
-        this.konata.Close();
-        this.konata = null;
-        //m_files[path] = null;
-        //m_lastFetchedId[path] = null;
-    };
-
     this.RetinaSwitch = function () {
         m_retina = !m_retina;
         m_maxScale = m_retina? 4:2;
         m_minScale = m_retina? 0.00006103515625 * 2: 0.00006103515625;
     };
 
-    this.ParentStyle = function (style, value) {
+    this.ParentStyle = function(style, value){
         if (value !== undefined) {
             m_parentStyle[style] = value;
         } else {
@@ -59,31 +44,26 @@ function KonataRenderer(){
         }
     };
 
-    this.InitDraw = function(konata, tab){
-        if (m_tabs) {
-            // 既にタブが有るのはおかしい．
-            return false;
-        }
-        m_tabs = tab;
+    this.init = function(konata){
         m_position = {top:0, left:0};
         m_scale = m_normalScale;
         m_parentStyle = {};
         this.konata = konata;
-        this.Draw();
         return true;
     };
 
     // Use renderer process only
-    this.Draw = function(){
-        this.SetTile();
+    this.draw = function(canvas){
+        //this.SetTile();
         let pos = m_position;
-        
-        //this.konata.CancelPrefetch();
-
         let scale = m_scale;
-        let tiles = m_tiles;
         let top = pos.top;
+        let left = pos.left;
+
         m_skip = Math.floor(20/(scale * Math.log(scale)/0.005));
+        this.DrawTile(canvas, top, left);
+
+        /*
         for (let y = 0; y < tiles.length; y++) {
             let left = pos.left;
             for (let x = 0; x < tiles[y].length; x++) {
@@ -94,6 +74,7 @@ function KonataRenderer(){
             top += m_canvasH/(scale * m_opH);
         }
         //SetPrefetch(this);
+        */
         return true;
     };
 
@@ -142,8 +123,8 @@ function KonataRenderer(){
     // private methods
     this.DrawTile = function(tile, top, left){
         let scale = m_scale;
-        let height = m_canvasH / (scale * m_opH);
-        let width = m_canvasW / (scale * m_opW);
+        let height = tile.height / (scale * m_opH);
+        let width = tile.width / (scale * m_opW);
         for (let id = Math.floor(top); id < top + height; id++) {
             if (scale < 0.005 && id % m_skip  != 0) {
                 continue;
@@ -158,7 +139,7 @@ function KonataRenderer(){
             if (op == null) {
                 return;
             }
-            if (!op.Draw(id - top, left, left + width, scale, tile, m_parentStyle)) {
+            if (!op.Draw(id - top, left, left + width, scale, tile.getContext("2d"), m_parentStyle)) {
                 return;
             }
         }

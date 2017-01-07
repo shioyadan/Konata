@@ -91,7 +91,7 @@ function Store(){
             return;
         }
         let renderer = new KonataRenderer();
-        //renderer.InitDraw(konata);
+        renderer.init(konata);
 
         // Create a new tab
         let tab = {
@@ -99,10 +99,7 @@ function Store(){
             fileName: fileName,
             konata: konata,
             renderer: renderer,
-            splitter: { // スプリッタの位置
-                position: 150,
-                initial: true   // 初期状態なので，position の値を VIEW に適用する
-            }
+            splitterPos: 150, // スプリッタの位置
         };
         self.tabs[self.nextTabID] = tab;
         self.activeTabID = self.nextTabID;
