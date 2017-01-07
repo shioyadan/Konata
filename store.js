@@ -1,5 +1,7 @@
 // アプリケーションの状態を保持する store
 
+// ACTION は store の変更を行う
+// view -> store 
 const ACTION = {
     APP_QUIT: 0,
 
@@ -18,11 +20,14 @@ const ACTION = {
     PANE_SPLITTER_MOVE: 50,
 };
 
+// VIEW は store で行われた変更の通知に使う
+// store -> view
 const VIEW = {
     TAB_OPEN: 100,
     TAB_UPDATE: 101,
     PANE_UPDATE: 102,
 };
+
 
 function Store(){
     /* globals riot */
@@ -31,8 +36,13 @@ function Store(){
     let remote = require("electron").remote;
     let Konata = require("./Konata.js");
 
+    /** @type {{
+        tabs: object, 
+        nextTabID: number, 
+        activeTabID: number,
+        window: {width: number, height: number},
+    }} */
     let self = this;
-    self.fileName = null;
 
     // Tab
     self.tabs = {}; // id -> tab
@@ -45,9 +55,9 @@ function Store(){
         height: 600
     };
 
+
     // ファイルオープン
     self.on(ACTION.FILE_OPEN, function(fileName){
-        self.fileName = fileName;
 
         // Load a file
         let konata = new Konata();
@@ -69,7 +79,7 @@ function Store(){
         self.tabs[self.nextTabID] = tab;
         self.activeTabID = self.nextTabID;
         self.nextTabID++;
-        
+       
         self.trigger(VIEW.TAB_OPEN, self, tab);
         self.trigger(VIEW.TAB_UPDATE, self, tab);
         self.trigger(VIEW.PANE_UPDATE, self, tab);
