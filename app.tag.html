@@ -60,15 +60,22 @@
         let self = this;
         self.lastPos = 0;
         self.inDrag = false;
+        self.id = self.opts.id;
+
 
         self.on("mount", function(){
 
+
+
             let splitter = self.refs.window_splitter;
+
+            // 開始はスプリッタ
             splitter.onmousedown = function(e){
                 self.lastPos = e.clientX;
                 self.inDrag = true;
             };
 
+            // splitter 以外でも捉えられるように window に
             window.onmousemove = function(e){
                 if (!self.inDrag) {
                     return;
@@ -96,8 +103,7 @@
         });
 
 
-        RiotControl.on(VIEW.PANE_UPDATE, function(store){
-
+        RiotControl.on(VIEW.PANE_SIZE_UPDATE, function(store){
             let container = self.refs.pane_container;
             let label = self.refs.label_pane;
             let splitter = self.refs.window_splitter;
@@ -124,7 +130,13 @@
             pipeline_canvas.height = pipeline.offsetHeight;
 
             self.update();
+
+            self.draw();
         });
+
+        self.draw = function(){
+
+        };
 
     </script>
 </app_sheet>
@@ -208,18 +220,19 @@
         // タブのクローズ
         rc.on(ACTION.TAB_CLOSE,
             function(path){
-                konata.Close(path);
-                jquery('[data-path="' + path + '"]').remove();
+                //konata.Close(path);
+                //jquery('[data-path="' + path + '"]').remove();
             }
         );
 
         // リサイズハンドラ
         self.onResize = function(){
+            // シートのサイズを計算
             let width = document.body.offsetWidth;
             let height = 
                 document.body.offsetHeight - 
                 self.tags.app_tabbar.getHeight();
-            rc.trigger(ACTION.WINDOW_RESIZE, width, height);
+            rc.trigger(ACTION.SHEET_RESIZE, width, height);
         };
 
         // 初期化

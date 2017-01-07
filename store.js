@@ -25,7 +25,7 @@ const ACTION = {
 const VIEW = {
     TAB_OPEN: 100,
     TAB_UPDATE: 101,
-    PANE_UPDATE: 102,
+    PANE_SIZE_UPDATE: 102,
 
     DIALOG_FILE_OPEN: 110,
     DIALOG_MODAL_MESSAGE: 111,
@@ -38,7 +38,6 @@ function Store(){
     riot.observable(this);
     
     let remote = require("electron").remote;
-    let Konata = require("./Konata.js");
 
     /** @type {{
             tabs: {}, 
@@ -84,18 +83,22 @@ function Store(){
     self.on(ACTION.FILE_OPEN, function(fileName){
 
         // Load a file
+        /* global Konata KonataRenderer */
         let konata = new Konata();
         if (!konata.OpenFile(fileName)) {
             konata.Close(fileName);
             self.trigger(VIEW.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
             return;
         }
+        let renderer = new KonataRenderer();
+        //renderer.InitDraw(konata);
 
         // Create a new tab
         let tab = {
             id: self.nextTabID, 
             fileName: fileName,
             konata: konata,
+            renderer: renderer,
             splitter: { // スプリッタの位置
                 position: 150,
                 initial: true   // 初期状態なので，position の値を VIEW に適用する
@@ -108,7 +111,7 @@ function Store(){
        
         self.trigger(VIEW.TAB_OPEN, self, tab);
         self.trigger(VIEW.TAB_UPDATE, self, tab);
-        self.trigger(VIEW.PANE_UPDATE, self, tab);
+        self.trigger(VIEW.PANE_SIZE_UPDATE, self, tab);
     });
 
     // ファイルクローズ
@@ -127,13 +130,13 @@ function Store(){
     self.on(ACTION.SHEET_RESIZE, function(width, height){
         self.sheet.width = width;
         self.sheet.height = height;
-        self.trigger(VIEW.PANE_UPDATE, self);
+        self.trigger(VIEW.PANE_SIZE_UPDATE, self);
     });
 
     // スプリッタの位置変更
     self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
         self.activeTab.splitterPos = position;
-        self.trigger(VIEW.PANE_UPDATE, self);
+        self.trigger(VIEW.PANE_SIZE_UPDATE, self);
     });
 
     // アプリケーション終了
