@@ -41,17 +41,20 @@ function Store(){
     let Konata = require("./Konata.js");
 
     /** @type {{
-        tabs: {}, 
-        nextTabID: number, 
-        activeTabID: number,
-        window: {width: number, height: number},
-    }} */
+            tabs: {}, 
+            nextTabID: number, 
+            activeTabID: number,
+            activeTab: {},
+            window: {width: number, height: number},
+        }} 
+    */
     let self = this;
 
     // Tab
     self.tabs = {}; // id -> tab
     self.nextTabID = 0;
     self.activeTabID = 0;
+    self.activeTab = null;
 
     // ウィンドウサイズ
     self.window = {
@@ -96,6 +99,7 @@ function Store(){
         };
         self.tabs[self.nextTabID] = tab;
         self.activeTabID = self.nextTabID;
+        self.activeTab = self.tabs[self.activeTabID];
         self.nextTabID++;
        
         self.trigger(VIEW.TAB_OPEN, self, tab);
@@ -111,6 +115,7 @@ function Store(){
     // アクティブなタブの変更
     self.on(ACTION.TAB_ACTIVATE, function(id){
         self.activeTabID = id;
+        self.activeTab = self.tabs[self.activeTabID];
         self.trigger(VIEW.TAB_UPDATE, self);
     });
 
@@ -123,7 +128,8 @@ function Store(){
 
     // スプリッタの位置変更
     self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
-        self.tabs[self.activeTabID].splitter.position = position;
+        self.activeTab.splitter.position = position;
+        self.activeTab.splitter.initial = false;
         self.trigger(VIEW.PANE_UPDATE, self);
     });
 

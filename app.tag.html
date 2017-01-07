@@ -10,9 +10,13 @@
         let self = this;
         self.tabs = [];
 
-        // タブの表示更新
-        self.updateTab = function(store){
-            
+
+        // クリック
+        self.onClick = function(id){
+            RiotControl.trigger(ACTION.TAB_ACTIVATE, id);
+        };
+
+        RiotControl.on(VIEW.TAB_UPDATE, function(store){
             // hash to tab array
             self.tabs = [];
             for (let id in store.tabs) {
@@ -28,16 +32,7 @@
                 tab.active = (store.activeTabID == tab.id) ? "active" : "";
             }
             self.update();
-        };
-
-        // クリック
-        self.onClick = function(id){
-            RiotControl.trigger(ACTION.TAB_ACTIVATE, id);
-            //console.log(`tab ${id} is clicked`);
-        };
-
-        // Open と Update を listen
-        RiotControl.on(VIEW.TAB_UPDATE, self.updateTab);
+        });
 
         // 高さを取得
         self.getHeight = function() {
@@ -66,31 +61,37 @@
             
         });
 
+        self.on("updated", function(){
+            
+        });
+
+
         self.on("mount", function(){
             // ドラッグ可能に
             $(self.refs.window_splitter).draggable({
                 axis: "x"
             });
 
-            let label_pane = self.refs.label_pane;
             let splitter = self.refs.window_splitter;
-
-            // CSS にあるスプリッタの初期位置を伝える
-            //RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, label_pane.style.offsetWidth);
-
             splitter.ondrag = function(){
-
             };
-
         });
 
 
         RiotControl.on(VIEW.PANE_UPDATE, function(store){
-            //self.refs.label_pane.style.width = "" + store.window.width + "px";
-            self.refs.label_pane.style.height = "" + store.window.height + "px";
-            self.refs.window_splitter.style.height = "" + store.window.height + "px";
-            self.refs.pipeline_pane.style.height = "" + store.window.height + "px";
-            self.update();
+            if (store.activeTab.splitter.initial) {
+                // "mount" 時には CSS が適用されないので，このタイミングでやるしかない
+                // CSS にあるスプリッタの初期位置を伝える
+                let label_pane = self.refs.label_pane;
+                RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, label_pane.offsetWidth);
+            }
+            else{
+                //self.refs.label_pane.style.width = "" + store.window.width + "px";
+                self.refs.label_pane.style.height = "" + store.window.height + "px";
+                self.refs.window_splitter.style.height = "" + store.window.height + "px";
+                self.refs.pipeline_pane.style.height = "" + store.window.height + "px";
+                self.update();
+            }
         });
 
     </script>
