@@ -48,6 +48,10 @@
         self.width = 100;
         self.height = 100;
 
+        // マウスのドラッグ
+        self.inDrag = false;  // マウスでドラッグ中か
+        self.prevMousePoint = [0, 0]; // 前回のマウスポインタの位置
+
         // 初期化
         // タグのマウント時に呼ばれるようにする
         self.init = function(){
@@ -61,19 +65,33 @@
             canvas.onmouseleave = self.onMouseUp;
         };
 
+        // マウス操作
+        self.onMouseWheel = function(e){
+            if (e.ctrlKey) {
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY > 0, e.offsetX, e.offsetY);
+            } else {
+                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);
+            }
+        };
+
         // サイズを適用
         self.on("update", function() {
             // self.width, self.height にサイズが書き込まれているので，それを反映する
             let canvas = self.refs.canvas;
             canvas.width = self.width;
             canvas.height = self.height;
-            //self.draw();
         });
 
-        self.draw = function(store){
+        // ペーンの内容の更新
+        RiotControl.on(VIEW.PANE_CONTENT_UPDATE, function(store){
             let canvas = self.refs.canvas;
             store.activeTab.renderer.draw(canvas);
-        };
+        });
+
+        // エントリポイント
+        // マウント時に初期化を行う
+        self.on("mount", self.init);
+
     </script>
 </app_pipeline_canvas>
     
@@ -167,7 +185,6 @@
             pipeline_canvas.height = pipeline.offsetHeight;
 
             self.update();
-            pipeline_canvas.draw(store);
         });
 
 

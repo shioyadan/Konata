@@ -77,13 +77,8 @@ function KonataRenderer(){
         }
     };
 
-    this.Zoom = function (scale) {
-        m_scale = m_scale * scale;
-        if (m_scale > m_maxScale) {
-            m_scale = m_maxScale;
-        } else if (m_scale < m_minScale) {
-            m_scale = m_minScale;
-        }
+    this.setScale = function(scale){
+        m_scale = scale;
     };
 
     // private methods
