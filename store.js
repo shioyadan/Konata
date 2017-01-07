@@ -45,7 +45,8 @@ function Store(){
             nextTabID: number, 
             activeTabID: number,
             activeTab: {},
-            window: {width: number, height: number},
+            sheet: {width: number, height: number},
+            splitterPos: number,
         }} 
     */
     let self = this;
@@ -57,10 +58,13 @@ function Store(){
     self.activeTab = null;
 
     // ウィンドウサイズ
-    self.window = {
+    self.sheet = {
         width: 800,
         height: 600
     };
+
+    // スプリッタ位置
+    self.splitterPos = 150;
 
 
     // ダイアログ
@@ -121,15 +125,14 @@ function Store(){
 
     // ウィンドウのサイズ変更
     self.on(ACTION.WINDOW_RESIZE, function(width, height){
-        self.window.width = width;
-        self.window.height = height;
+        self.sheet.width = width;
+        self.sheet.height = height;
         self.trigger(VIEW.PANE_UPDATE, self);
     });
 
     // スプリッタの位置変更
     self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
-        self.activeTab.splitter.position = position;
-        self.activeTab.splitter.initial = false;
+        self.activeTab.splitterPos = position;
         self.trigger(VIEW.PANE_UPDATE, self);
     });
 

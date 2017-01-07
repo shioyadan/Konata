@@ -44,54 +44,86 @@
 
 <!-- label + splitter + stages -->
 <app_sheet>
-    <div class="label_pane" ref="label_pane">
-        <canvas></canvas>
-    </div>
-
-    <div class="window_splitter" ref="window_splitter">
-    </div>
-
-    <div class="pipeline_pane" ref="pipeline_pane">
-        <canvas></canvas>
+    <div class="pane_container" ref="pane_container">
+        <div class="label_pane" ref="label_pane">
+            <canvas ref="label_canvas"></canvas>
+        </div>
+        <div class="window_splitter" ref="window_splitter">
+        </div>
+        <div class="pipeline_pane" ref="pipeline_pane">
+            <canvas ref="pipeline_canvas"></canvas>
+        </div>
     </div>
 
     <script>
+
         let self = this;
-        self.on("update", function(){
-            
-        });
-
-        self.on("updated", function(){
-            
-        });
-
+        self.lastPos = 0;
+        self.inDrag = false;
 
         self.on("mount", function(){
-            // ドラッグ可能に
-            $(self.refs.window_splitter).draggable({
-                axis: "x"
-            });
 
             let splitter = self.refs.window_splitter;
-            splitter.ondrag = function(){
+            splitter.onmousedown = function(e){
+                self.lastPos = e.clientX;
+                self.inDrag = true;
+            };
+
+            window.onmousemove = function(e){
+                if (!self.inDrag) {
+                    return;
+                }
+
+                // ウィンドウ外にカーソルがでたときのため補正
+                let containerWidth = self.refs.pane_container.offsetWidth;
+                let pos = Math.min(Math.max(e.clientX, 0), containerWidth);
+                
+
+                // 差分を求める
+                let diff = pos - self.lastPos;
+                self.lastPos = pos;
+
+                let label_pane = self.refs.label_pane;
+                let splitterPos = label_pane.offsetWidth + diff;
+                RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
+            
+                //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
+            };
+
+            window.onmouseup = function(){
+                self.inDrag = false;
             };
         });
 
 
         RiotControl.on(VIEW.PANE_UPDATE, function(store){
-            if (store.activeTab.splitter.initial) {
-                // "mount" 時には CSS が適用されないので，このタイミングでやるしかない
-                // CSS にあるスプリッタの初期位置を伝える
-                let label_pane = self.refs.label_pane;
-                RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, label_pane.offsetWidth);
-            }
-            else{
-                //self.refs.label_pane.style.width = "" + store.window.width + "px";
-                self.refs.label_pane.style.height = "" + store.window.height + "px";
-                self.refs.window_splitter.style.height = "" + store.window.height + "px";
-                self.refs.pipeline_pane.style.height = "" + store.window.height + "px";
-                self.update();
-            }
+
+            let container = self.refs.pane_container;
+            let label = self.refs.label_pane;
+            let splitter = self.refs.window_splitter;
+            let pipeline = self.refs.pipeline_pane;
+
+            // 幅
+            container.style.width = "" + store.sheet.width + "px";
+            label.style.width = "" + store.activeTab.splitterPos + "px";
+            pipeline.style.width = 
+                "" + store.sheet.width - store.activeTab.splitterPos - splitter.offsetWidth + "px";
+            //console.log(`update ${store.window.width} ${store.activeTab.splitterPos} ${pipeline.offsetWidth}`);
+
+            // 高さ
+            label.style.height = "" + store.sheet.height + "px";
+            splitter.style.height = "" + store.sheet.height + "px";
+            pipeline.style.height = "" + store.sheet.height + "px";
+
+            // canvas
+            let label_canvas = self.refs.label_canvas;
+            let pipeline_canvas = self.refs.pipeline_canvas;
+            label_canvas.width = label.offsetWidth;
+            label_canvas.height = label.offsetHeight;
+            pipeline_canvas.width = pipeline.offsetWidth;
+            pipeline_canvas.height = pipeline.offsetHeight;
+
+            self.update();
         });
 
     </script>
