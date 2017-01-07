@@ -16,7 +16,7 @@ const ACTION = {
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
 
-    WINDOW_RESIZE: 40,
+    SHEET_RESIZE: 40,
     PANE_SPLITTER_MOVE: 50,
 };
 
@@ -124,7 +124,7 @@ function Store(){
     });
 
     // ウィンドウのサイズ変更
-    self.on(ACTION.WINDOW_RESIZE, function(width, height){
+    self.on(ACTION.SHEET_RESIZE, function(width, height){
         self.sheet.width = width;
         self.sheet.height = height;
         self.trigger(VIEW.PANE_UPDATE, self);
