@@ -41,6 +41,43 @@
     </script>
 </app_tabbar>
 
+<app_pipeline_canvas>
+    <canvas ref="canvas"></canvas>
+    <script>
+        let self = this;
+        self.width = 100;
+        self.height = 100;
+
+        // 初期化
+        // タグのマウント時に呼ばれるようにする
+        self.init = function(){
+            let canvas = self.refs.canvas;
+
+            canvas.ondblclick = self.onMouseDoubleClick;
+            canvas.onmousewheel = self.onMouseWheel;
+            canvas.onmousemove = self.onMouseMove;
+            canvas.onmousedown = self.onMouseDown;
+            canvas.onmouseup = self.onMouseUp;
+            canvas.onmouseleave = self.onMouseUp;
+        };
+
+        // サイズを適用
+        self.on("update", function() {
+            // self.width, self.height にサイズが書き込まれているので，それを反映する
+            let canvas = self.refs.canvas;
+            canvas.width = self.width;
+            canvas.height = self.height;
+            //self.draw();
+        });
+
+        self.draw = function(store){
+            let canvas = self.refs.canvas;
+            store.activeTab.renderer.draw(canvas);
+        };
+    </script>
+</app_pipeline_canvas>
+    
+
 
 <!-- label + splitter + stages -->
 <app_sheet>
@@ -51,7 +88,7 @@
         <div class="window_splitter" ref="window_splitter">
         </div>
         <div class="pipeline_pane" ref="pipeline_pane">
-            <canvas ref="pipeline_canvas"></canvas>
+            <app_pipeline_canvas></app_pipeline_canvas>
         </div>
     </div>
 
@@ -123,21 +160,16 @@
 
             // canvas
             let label_canvas = self.refs.label_canvas;
-            let pipeline_canvas = self.refs.pipeline_canvas;
+            let pipeline_canvas = self.tags.app_pipeline_canvas;
             label_canvas.width = label.offsetWidth;
             label_canvas.height = label.offsetHeight;
             pipeline_canvas.width = pipeline.offsetWidth;
             pipeline_canvas.height = pipeline.offsetHeight;
 
             self.update();
-
-            self.draw(store);
+            pipeline_canvas.draw(store);
         });
 
-        self.draw = function(store){
-            let pipeline_canvas = self.refs.pipeline_canvas;
-            store.activeTab.renderer.draw(pipeline_canvas);
-        };
 
     </script>
 </app_sheet>
