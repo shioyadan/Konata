@@ -23,6 +23,7 @@ html, body {
     min-width: 10px;
     max-width: 10px;
 
+    border-right: 1px solid grey;
     background-color: #eee; /* ラベル部分と一体化させる */
     cursor: col-resize;
 }
