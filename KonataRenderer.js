@@ -60,7 +60,10 @@ KonataRenderer.prototype.moveWheel = function(wheelUp){
 
 KonataRenderer.prototype.movePos = function(diff){
     let self = this;
-    self.moveTo(diff, false);
+    self.moveTo([
+        diff[0] / self.opW_ / self.zoomScale_,
+        diff[1] / self.opH_ / self.zoomScale_,
+    ], false);
 };
 
 KonataRenderer.prototype.moveTo = function(diff, adjust){

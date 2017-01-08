@@ -60,10 +60,10 @@
             canvas.ondblclick = self.onMouseDoubleClick;
             canvas.onmousewheel = self.onMouseWheel;
             canvas.onmousedown = self.onMouseDown;
-            canvas.onmousemove = self.onMouseMove;
+            canvas.onmouseleave = self.onMouseUp;
 
-            // ドラッグの解除はグローバルに見る必要がある
-            window.onmouseup = self.onMouseUp;
+            canvas.onmouseup = self.onMouseUp;
+            canvas.onmousemove = self.onMouseMove;
         };
 
         // マウス操作
