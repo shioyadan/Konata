@@ -9,7 +9,8 @@ function KonataRenderer(){
 
     this.name = "KonataRenderer";
 
-    // ファイル毎の現在位置
+    // 現在の論理位置
+    // この位置の単位は，横がサイクル数，縦が命令数となっている
     this.viewPos_ = {
         left: 0,
         top: 0
@@ -58,20 +59,31 @@ KonataRenderer.prototype.moveWheel = function(wheelUp){
     self.moveTo([0, wheelUp ? scroll : -scroll], true);
 };
 
+/**
+ * ピクセル数により表示位置を移動する
+ * @param {Array} diff - 移動量
+ */
 KonataRenderer.prototype.movePos = function(diff){
     let self = this;
-    self.moveTo([
+    // 論理座標に変換してから渡す
+    self.moveToLogical([
         diff[0] / self.opW_ / self.zoomScale_,
         diff[1] / self.opH_ / self.zoomScale_,
     ], false);
 };
 
-KonataRenderer.prototype.moveTo = function(diff, adjust){
+/**
+ * 論理座標により表示位置を移動する
+ * @param {Array} diff - 移動量
+ * @param {boolean} adjust - 命令が画面上左上にくるよう調整するかどうか
+ */
+KonataRenderer.prototype.moveToLogical = function(diff, adjust){
     let self = this;
     let posY = self.viewPos_.top + diff[1];
     if (posY < 0) {
         posY = 0;
     }
+
     let id = Math.floor(posY);
     let op = null;
     try {
@@ -83,10 +95,12 @@ KonataRenderer.prototype.moveTo = function(diff, adjust){
     if (op == null) {
         return; //self.position[path];
     }
+
     self.viewPos_.top = posY;
     if (adjust) {
         self.viewPos_.left = op.fetchedCycle;
-    } else {
+    } 
+    else {
         self.viewPos_.left += diff[0];
         if (self.viewPos_.left < 0) {
             self.viewPos_.left = 0;
