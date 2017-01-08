@@ -414,7 +414,7 @@
         }
 
         function Color(color) {
-            renderer[index.id].ParentStyle("color", color);
+            renderer[index.id].style("color", color);
             renderer[index.id].Draw();
         }
 
@@ -435,7 +435,7 @@
         }
 
         function SetOpacity(alpha) {
-            renderer[index.id].ParentStyle("opacity", alpha);
+            renderer[index.id].style("opacity", alpha);
             renderer[index.id].Draw();
         }
 
@@ -537,11 +537,11 @@
             control.resizeing = false;
         }
 
-        function MoveTo (diff, adjust) {
-            renderer[index.id].MoveTo(diff, adjust);
+        function moveTo (diff, adjust) {
+            renderer[index.id].moveTo(diff, adjust);
             for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
                 let path = control.bind[index.path][i];
-                renderer[index.id].MoveTo(diff, adjust);
+                renderer[index.id].moveTo(diff, adjust);
             }
         }
 
@@ -594,7 +594,7 @@
                         Zoom(false);
                     }
                 } else {
-                    let scroll = 3/renderer[index.id].GetScale();
+                    let scroll = 3/renderer[index.id].getScale();
                     if (deltaY < 0) {
                         deltaY = scroll;
                     } else {
@@ -605,7 +605,7 @@
                     } else {
 
                     }
-                    MoveTo({top:deltaY, left:0}, true);
+                    moveTo({top:deltaY, left:0}, true);
                 }
             });
             OnDrag(p_window);
@@ -659,9 +659,9 @@
                     }
                     let diffY = Average(control.mouseY) - oldY;
                     let diffX = Average(control.mouseX) - oldX;
-                    diffX = -diffX/25/renderer[index.id].GetScale();
-                    diffY = -diffY/25/renderer[index.id].GetScale();
-                    MoveTo({left:diffX, top:diffY},  null);
+                    diffX = -diffX/25/renderer[index.id].getScale();
+                    diffY = -diffY/25/renderer[index.id].getScale();
+                    moveTo({left:diffX, top:diffY},  null);
                 }
             });
             obj.on("mouseup", function(e){

@@ -114,10 +114,15 @@ function Store(){
             fileName: fileName,
             konata: konata,
             renderer: renderer,
-            splitterPos: 150, // スプリッタの位置
-            zoomLevel: 0,     // 拡大率
-            zoomScale: 1,     // zoomLevel に同期
-            viewPoint: [0, 0],  // タイルマップ上における表示領域の左上の座標
+            splitterPos: 150,   // スプリッタの位置
+            zoomLevel: 0,       // 拡大率
+            zoomScale: 1,       // zoomLevel に同期
+            viewPort: {         // 表示領域
+                top: 0,
+                left: 0,
+                width: 0,
+                height: 0,
+            },  
         };
         self.tabs[self.nextTabID] = tab;
         self.activeTabID = self.nextTabID;
@@ -162,12 +167,25 @@ function Store(){
         remote.app.quit();
     });
 
-    // 拡大/縮小
+    // 1段階の拡大/縮小
+    // zoomOut は true の際にズームアウト
+    // posX, posY はズームの中心点
     self.on(ACTION.KONATA_ZOOM, function(zoomOut, posX, posY){
         let tab = self.activeTab;
         tab.zoomLevel += zoomOut ? ZOOM_RATIO : -ZOOM_RATIO;
         tab.zoomScale = calcScale(tab.zoomLevel);
         tab.renderer.setScale(tab.zoomScale);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+    });
+
+    // ホイールによる移動
+    self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
+        let tab = self.activeTab;
+        /*
+        tab.viewPort.left += diffX;
+        tab.viewPort.top += diffY;
+        tab.renderer.setScale(tab.zoomScale);
+        */
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
