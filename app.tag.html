@@ -339,6 +339,20 @@
             // リサイズハンドラ
             window.addEventListener("resize", self.onResize, false);
             self.onResize();    // サイズを適用しておくために1回呼んでおく
+
+            // ドラッグアンドドロップ
+            document.ondragover = function(e) {
+                e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
+                return false;
+            };
+
+            document.ondrop = function (e) {
+                e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
+                let file = e.dataTransfer.files[0];
+                rc.trigger(ACTION.FILE_OPEN, file.path);
+            };
+
+
         };
 
         // エントリポイント
@@ -587,139 +601,6 @@
                 renderer[index.id].moveTo(diff, adjust);
             }
         }
-
-        document.ondragover = function(e) {
-            e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
-            return false;
-        };
-
-        jquery(window).ready(function(){
-            jquery(window).resize(function() {
-                WindowResize();
-            });
-            WindowResize();
-
-            document.ondrop = function (e) {
-                e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
-                let file = e.dataTransfer.files[0];
-                Send(file.path);
-            };
-        });
-
-        function SetControl (tab) {
-            if (tab.length == 0) {
-                return;
-            }
-            let l_window = tab.find(".labels-window");
-            let p_window = tab.find(".pipelines-window");
-            let w_sizing = tab.find(".window-sizing");
-
-            p_window.scroll (function() {
-                // ラベルウィンドウとパイプラインウィンドウのスクロールを同期
-            });
-            p_window.dblclick(function(){
-                console.log("Double click!");
-                Zoom(true);
-            });
-            p_window.contextmenu(function(){
-                console.log("Context menu");
-                p_menu.popup(remote.getCurrentWindow());
-            });
-            p_window.mousewheel(function(e, delta, deltaX, deltaY){
-                if (event.preventDefault) {
-                    // デフォルトのスクロール処理をキャンセル
-                    event.preventDefault();
-                }
-                if (e.ctrlKey) {
-                    if (deltaY > 0) {
-                        Zoom(true);
-                    } else {
-                        Zoom(false);
-                    }
-                } else {
-                    let scroll = 3/renderer[index.id].getScale();
-                    if (deltaY < 0) {
-                        deltaY = scroll;
-                    } else {
-                        deltaY = -scroll;
-                    }
-                    if (deltaX < 0) {
-
-                    } else {
-
-                    }
-                    moveTo({top:deltaY, left:0}, true);
-                }
-            });
-            OnDrag(p_window);
-
-            w_sizing.draggable({
-                axis:'x'
-            });
-            w_sizing.on("drag",function() {
-                WindowResize(false);
-            });
-            w_sizing.on("dragstop",function() {
-                WindowResize(true);
-            });
-            
-
-            l_window.mousewheel(function(e, delta, deltaX, deltaY){
-            });
-            l_window.scroll (function() {
-                // ラベルウィンドウとパイプラインウィンドウのスクロールを同期
-            });
-            l_window.dblclick(function(){
-                //Zoom(true);
-            });
-        }
-
-        function Sum(array) {
-            let sum = 0;
-            for (let i = 0, len = array.length; i < len; i++) {
-                sum += array[i];
-            }
-            return sum;
-        }
-
-        function OnDrag (obj) {
-            obj.on("mousedown", function (e) {
-                control.mouse = true;
-                control.mouseX = [e.screenX];
-                control.mouseY = [e.screenY];
-            });
-            obj.on("mousemove", function (e) {
-                if (control.mouse) {
-                    let oldX = Average(control.mouseX);
-                    let oldY = Average(control.mouseY);
-                    control.mouseY.push(e.screenY); // 値に多少のブレがあっても平滑化すればいいかなと。
-                    control.mouseX.push(e.screenX); // 今となってはあまり意味がないかもしれない。
-                    if (control.mouseX.length > 1) {
-                        control.mouseX.shift();
-                    }
-                    if (control.mouseY.length > 1) {
-                        control.mouseY.shift();
-                    }
-                    let diffY = Average(control.mouseY) - oldY;
-                    let diffX = Average(control.mouseX) - oldX;
-                    diffX = -diffX/25/renderer[index.id].getScale();
-                    diffY = -diffY/25/renderer[index.id].getScale();
-                    moveTo({left:diffX, top:diffY},  null);
-                }
-            });
-            obj.on("mouseup", function(e){
-                //if (control.mouse) {
-                //}
-                control.mouse = false;
-            });
-            obj.on("mouseleave", function(e){
-            });
-        }
-
-        function Average (array) {
-            return Sum(array)/array.length;
-        }
-
 
     </script>
 </app>
