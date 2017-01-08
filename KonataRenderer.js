@@ -56,7 +56,7 @@ KonataRenderer.prototype.init = function(konata){
 KonataRenderer.prototype.moveWheel = function(wheelUp){
     let self = this;
     let scroll = 3 / self.zoomScale_;
-    self.moveTo([0, wheelUp ? scroll : -scroll], true);
+    self.moveToLogical([0, wheelUp ? scroll : -scroll], true);
 };
 
 /**
