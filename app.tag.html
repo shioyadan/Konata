@@ -16,7 +16,7 @@
             RiotControl.trigger(ACTION.TAB_ACTIVATE, id);
         };
 
-        RiotControl.on(VIEW.TAB_UPDATE, function(store){
+        RiotControl.on(CHANGE.TAB_UPDATE, function(store){
             // hash to tab array
             self.tabs = [];
             for (let id in store.tabs) {
@@ -83,7 +83,7 @@
         });
 
         // ペーンの内容の更新
-        RiotControl.on(VIEW.PANE_CONTENT_UPDATE, function(store){
+        RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, function(store){
             let canvas = self.refs.canvas;
             store.activeTab.renderer.draw(canvas);
         });
@@ -158,7 +158,7 @@
         });
 
 
-        RiotControl.on(VIEW.PANE_SIZE_UPDATE, function(store){
+        RiotControl.on(CHANGE.PANE_SIZE_UPDATE, function(store){
             let container = self.refs.pane_container;
             let label = self.refs.label_pane;
             let splitter = self.refs.window_splitter;
@@ -200,7 +200,7 @@
         self.width = 0;
         self.height = 0;
         
-        RiotControl.on(VIEW.TAB_UPDATE, function(store){
+        RiotControl.on(CHANGE.TAB_UPDATE, function(store){
             self.sheets = [];
             for (let id in store.tabs) {
                 self.sheets.push(store.tabs[id]);
@@ -228,7 +228,7 @@
     <script>
         let self = this;
 
-        /* global RiotControl ACTION VIEW */
+        /* global RiotControl ACTION CHANGE */
         let rc = RiotControl;
 
         self.remote = require("electron").remote;
@@ -237,7 +237,7 @@
         let renderer = {}; // id -> konata
 
         // 新規タブのオープン
-        RiotControl.on(VIEW.TAB_OPEN,
+        RiotControl.on(CHANGE.TAB_OPEN,
             function(store, tab){
                 let path = tab.fileName;
                 if (!path) {

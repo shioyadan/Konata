@@ -23,9 +23,9 @@ const ACTION = {
     KONATA_MOVE_WHEEL: 61,  // ホイールによるスクロール
 };
 
-// VIEW は store で行われた変更の通知に使う
+// CHANGE は store で行われた変更の通知に使う
 // store -> view
-const VIEW = {
+const CHANGE = {
     TAB_OPEN: 100,
     TAB_UPDATE: 101,
 
@@ -84,13 +84,13 @@ function Store(){
     // ダイアログ
     // 基本的に中継してるだけ
     self.on(ACTION.DIALOG_FILE_OPEN, function(){
-        self.trigger(VIEW.DIALOG_FILE_OPEN);
+        self.trigger(CHANGE.DIALOG_FILE_OPEN);
     });
     self.on(ACTION.DIALOG_MODAL_MESSAGE, function(msg){
-        self.trigger(VIEW.DIALOG_MODAL_MESSAGE, msg);
+        self.trigger(CHANGE.DIALOG_MODAL_MESSAGE, msg);
     });
     self.on(ACTION.DIALOG_MODAL_ERROR, function(msg){
-        self.trigger(VIEW.DIALOG_MODAL_ERROR, msg);
+        self.trigger(CHANGE.DIALOG_MODAL_ERROR, msg);
     });
 
 
@@ -102,7 +102,7 @@ function Store(){
         let konata = new Konata();
         if (!konata.OpenFile(fileName)) {
             konata.Close(fileName);
-            self.trigger(VIEW.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
+            self.trigger(CHANGE.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
             return;
         }
         let renderer = new KonataRenderer();
@@ -124,37 +124,37 @@ function Store(){
         self.activeTab = self.tabs[self.activeTabID];
         self.nextTabID++;
        
-        self.trigger(VIEW.TAB_OPEN, self, tab);
-        self.trigger(VIEW.TAB_UPDATE, self, tab);
-        self.trigger(VIEW.PANE_SIZE_UPDATE, self, tab);
-        self.trigger(VIEW.PANE_CONTENT_UPDATE, self, tab);
+        self.trigger(CHANGE.TAB_OPEN, self, tab);
+        self.trigger(CHANGE.TAB_UPDATE, self, tab);
+        self.trigger(CHANGE.PANE_SIZE_UPDATE, self, tab);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self, tab);
     });
 
     // ファイルクローズ
     self.on(ACTION.FILE_CLOSE, function(fileName){
-        self.trigger(VIEW.TAB_CLOSE, fileName);
+        self.trigger(CHANGE.TAB_CLOSE, fileName);
     });
 
     // アクティブなタブの変更
     self.on(ACTION.TAB_ACTIVATE, function(id){
         self.activeTabID = id;
         self.activeTab = self.tabs[self.activeTabID];
-        self.trigger(VIEW.TAB_UPDATE, self);
+        self.trigger(CHANGE.TAB_UPDATE, self);
     });
 
     // ウィンドウのサイズ変更
     self.on(ACTION.SHEET_RESIZE, function(width, height){
         self.sheet.width = width;
         self.sheet.height = height;
-        self.trigger(VIEW.PANE_SIZE_UPDATE, self);
-        self.trigger(VIEW.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.PANE_SIZE_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
     // スプリッタの位置変更
     self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
         self.activeTab.splitterPos = position;
-        self.trigger(VIEW.PANE_SIZE_UPDATE, self);
-        self.trigger(VIEW.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.PANE_SIZE_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
     // アプリケーション終了
@@ -168,7 +168,7 @@ function Store(){
         tab.zoomLevel += zoomOut ? ZOOM_RATIO : -ZOOM_RATIO;
         tab.zoomScale = calcScale(tab.zoomLevel);
         tab.renderer.setScale(tab.zoomScale);
-        self.trigger(VIEW.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
 
