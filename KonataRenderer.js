@@ -1,26 +1,31 @@
 function KonataRenderer(){
 
-    let self = this;
-    self.name = "KonataRenderer";
+    // ~.prototype.init = の書式でクラスを定義すると，VS Code の補完が効く
+    // この関数では self に入れるとメンバを認識してくれないので，
+    // this 経由で設定している．
+
+    this.name = "KonataRenderer";
 
     // ファイル毎の現在位置
-    self.viewPos_ = {
+    this.viewPos_ = {
         left: 0,
         top: 0
     }; 
     
-    self.scale_ = null; // 拡大率
-    self.konata_ = null;
-    self.style_ = null; // 親要素(.tab)の持つスタイル
+    this.scale_ = null; // 拡大率
+    this.konata_ = null;
+    this.style_ = null; // 親要素(.tab)の持つスタイル
 
     // 以下のパラメータはOp.jsと合わせる．(そうしないと表示がズレる)
-    self.opH_ = 25; // スケール1のときの1命令の高さ
-    self.opW_ = 25; // スケール1のときの1サイクルの幅
-    self.skip_ = 1;
+    this.opH_ = 25; // スケール1のときの1命令の高さ
+    this.opW_ = 25; // スケール1のときの1サイクルの幅
+    this.skip_ = 1;
 
     //let m_maxScale = 2; // retinaの場合、倍精度必要なので最大倍率も倍
     //let m_minScale = 0.00006103515625;
+
 }
+
 
 KonataRenderer.prototype.init = function(konata_){
     let self = this;
@@ -34,9 +39,10 @@ KonataRenderer.prototype.init = function(konata_){
 KonataRenderer.prototype.setScale = function(scale){
     let self = this;
     self.scale_ = scale;
+
 };
 
-self.moveTo = function (diff, adjust) {
+KonataRenderer.prototype.moveTo = function (diff, adjust) {
     let self = this;
     let posY = self.viewPos_.top + diff.top;
     if (posY < 0) {
