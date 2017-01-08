@@ -394,20 +394,6 @@
         control.bind = {};
 
 
-        // 新しいタブのためのラベルやスプリッタ，描画の DOM を生成する
-        function MakeTable(obj, path){
-            // pathは空白なしに変換する(HTMLの一般的な属性値に空白文字を利用できないため)
-            let noSpacePath = path; // 面倒臭い．
-            let tab = jquery("<div></div>", {"class":"tab"}).appendTo(obj);
-            tab.attr("id", "Konata_" + noSpacePath);
-            tab.attr("data-path", path);
-            jquery("<span></span>", {"class":"labels-window"}).appendTo(tab);
-            jquery("<span></span>", {"class":"window-sizing"}).appendTo(tab);
-            jquery("<span></span>", {"class":"pipelines-window"}).appendTo(tab);
-            console.log("Make tab");
-            return tab;
-        }
-
         function SetZIndex(path, z, relative){
             let tabs = jquery("#tabs");
             let tab = tabs.find('[data-path="' + path + '"]');
@@ -554,53 +540,6 @@
             });
         }
 
-
-        function WindowResize(draw) {
-            let tab = jquery(".tab");
-            if (tab.length == 0) {
-                return;
-            }
-            let l_window = tab.find(".labels-window");
-            let p_window = tab.find(".pipelines-window");
-            let w_sizing = tab.find(".window-sizing");
-            let offset = w_sizing.offset();
-            let l_width = offset.left - parseInt(l_window.css("left"));
-            let p_left = offset.left + parseInt(w_sizing.css("width"));
-            let p_width = jquery(window).width() - p_left - 5;
-            l_window.css("width", l_width + "px");
-            p_window.css("left", p_left + "px");
-            p_window.css("width", p_width + "px");
-            if (draw) {
-                renderer[index.id].Draw();
-            }
-        }
-
-        function Zoom(dir) {
-            if (control.resizeing) {
-                return;
-            }
-            control.resizeing = true;
-            let scale = 0;
-            if (dir) {
-                scale = 2;
-            } else {
-                scale = 0.5;
-            }
-            renderer[index.id].Zoom(scale);
-            for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
-                let path = control.bind[index.path][i];
-                renderer[index.id].Zoom(scale);
-            }
-            control.resizeing = false;
-        }
-
-        function moveTo (diff, adjust) {
-            renderer[index.id].moveTo(diff, adjust);
-            for (let i = 0, len = control.bind[index.path].length; i < len; i++) {
-                let path = control.bind[index.path][i];
-                renderer[index.id].moveTo(diff, adjust);
-            }
-        }
 
     </script>
 </app>
