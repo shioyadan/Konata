@@ -1,3 +1,6 @@
+/**
+ * @constructor
+ */
 function KonataRenderer(){
 
     // ~.prototype.init = の書式でクラスを定義すると，VS Code の補完が効く
@@ -11,8 +14,15 @@ function KonataRenderer(){
         left: 0,
         top: 0
     }; 
+
+
+    // 表示系
+    this.ZOOM_RATIO_ = 0.8;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
+    this.ZOOM_ANIMATION_SPEED_ = 0.07;    // ZOOM_RATIO のフレーム当たり加算値
+
+    this.zoomLevel_ = 0;       // 拡大率レベル
+    this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
     
-    this.scale_ = null; // 拡大率
     this.konata_ = null;
     this.style_ = null; // 親要素(.tab)の持つスタイル
 
@@ -27,22 +37,34 @@ function KonataRenderer(){
 }
 
 
-KonataRenderer.prototype.init = function(konata_){
+KonataRenderer.prototype.init = function(konata){
     let self = this;
     self.viewPos_ = {left:0, top:0};
-    self.scale_ = 1;
-    self.konata_ = konata_;
+    self.zoomLevel_ = 0;
+    self.zoomScale_ = 1;
+    self.konata_ = konata;
 
     self.style_ = {};
 };
 
-KonataRenderer.prototype.setScale = function(scale){
+/**
+ * マウスホイールによる一単位の移動
+ * どれだけ移動するかはその時の scale に依存
+ * @param {boolean} wheelUp - ホイールの方向
+ */
+KonataRenderer.prototype.moveWheel = function(wheelUp){
     let self = this;
-    self.scale_ = scale;
-
+    let scroll = 3 / self.zoomScale_;
+    self.moveTo(
+        {
+            top: wheelUp ? scroll : -scroll,
+            left: 0
+        },
+        true
+    );
 };
 
-KonataRenderer.prototype.moveTo = function (diff, adjust) {
+KonataRenderer.prototype.moveTo = function(diff, adjust){
     let self = this;
     let posY = self.viewPos_.top + diff.top;
     if (posY < 0) {
@@ -70,10 +92,23 @@ KonataRenderer.prototype.moveTo = function (diff, adjust) {
     }
 };
 
-KonataRenderer.prototype.getScale = function(){
-    let self = this;
-    return self.scale_;
+// 拡大率の計算
+// level は指数で表す
+KonataRenderer.prototype.calcScale_ = function(level){
+    return Math.pow(2, level);
 };
+
+/**
+ * @param {number} zoomOut - 1段階の拡大/縮小
+ * @param {number} posX - ズームの中心点
+ * @param {number} posY - ズームの中心点
+ */
+KonataRenderer.prototype.zoom = function(zoomOut, posX, posY){
+    let self = this;
+    self.zoomLevel_ += zoomOut ? self.ZOOM_RATIO_ : -self.ZOOM_RATIO_;
+    self.zoomScale_ = self.calcScale_(self.zoomLevel_);
+};
+
 
 KonataRenderer.prototype.style = function(style, value){
     let self = this;
@@ -84,12 +119,11 @@ KonataRenderer.prototype.style = function(style, value){
     }
 };
 
-
 // Use renderer process only
 KonataRenderer.prototype.draw = function(canvas){
     let self = this;
     let pos = self.viewPos_;
-    let scale = self.scale_;
+    let scale = self.zoomScale_;
     let top = pos.top;
     let left = pos.left;
 
@@ -101,7 +135,7 @@ KonataRenderer.prototype.draw = function(canvas){
 // private methods
 KonataRenderer.prototype.drawTile_ = function(tile, top, left){
     let self = this;
-    let scale = self.scale_;
+    let scale = self.zoomScale_;
     let height = tile.height / (scale * self.opH_);
     let width = tile.width / (scale * self.opW_);
     for (let id = Math.floor(top); id < top + height; id++) {

@@ -72,10 +72,6 @@ function Store(){
 
     // スプリッタ位置
     self.splitterPos = 150;
-
-    // 表示系
-    let ZOOM_RATIO = 0.8;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
-    let ZOOM_ANIMATION_SPEED = 0.07;    // ZOOM_RATIO のフレーム当たり加算値
     
     // 拡大率の計算
     // level は指数で表す
@@ -115,8 +111,6 @@ function Store(){
             konata: konata,
             renderer: renderer,
             splitterPos: 150,   // スプリッタの位置
-            zoomLevel: 0,       // 拡大率
-            zoomScale: 1,       // zoomLevel に同期
             viewPort: {         // 表示領域
                 top: 0,
                 left: 0,
@@ -172,21 +166,15 @@ function Store(){
     // zoomOut は true の際にズームアウト
     // posX, posY はズームの中心点
     self.on(ACTION.KONATA_ZOOM, function(zoomOut, posX, posY){
-        let tab = self.activeTab;
-        tab.zoomLevel += zoomOut ? ZOOM_RATIO : -ZOOM_RATIO;
-        tab.zoomScale = calcScale(tab.zoomLevel);
-        tab.renderer.setScale(tab.zoomScale);
+        let renderer = self.activeTab.renderer;
+        renderer.zoom(zoomOut, posX, posY);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
     // ホイールによる移動
     self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
-        let tab = self.activeTab;
-        /*
-        tab.viewPort.left += diffX;
-        tab.viewPort.top += diffY;
-        tab.renderer.setScale(tab.zoomScale);
-        */
+        let renderer = self.activeTab.renderer;
+        renderer.moveWheel(wheelUp);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
