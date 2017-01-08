@@ -37,7 +37,6 @@ const CHANGE = {
     DIALOG_MODAL_ERROR: 112,
 };
 
-
 function Store(){
     /* globals riot */
     riot.observable(this);
@@ -45,6 +44,7 @@ function Store(){
     // この書式じゃないと IntelliSense が効かない
     let electron = require("electron");
     let KonataRenderer = require("./KonataRenderer");
+    let Konata = require("./Konata");
     
     /** @type {{
             tabs: {}, 
@@ -58,10 +58,11 @@ function Store(){
     let self = this;
 
     // Tab
-    self.tabs = {}; // id -> tab
+    this.tabs = {}; // id -> tab
     self.nextTabID = 0;
     self.activeTabID = 0;
     self.activeTab = null;
+
 
     // ウィンドウサイズ
     self.sheet = {
@@ -95,13 +96,10 @@ function Store(){
         self.trigger(CHANGE.DIALOG_MODAL_ERROR, msg);
     });
 
-
     // ファイルオープン
     self.on(ACTION.FILE_OPEN, function(fileName){
-
         // Load a file
-        /* global Konata */
-        let konata = new Konata();
+        let konata = new Konata.Konata();
         if (!konata.OpenFile(fileName)) {
             konata.Close(fileName);
             self.trigger(CHANGE.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
@@ -135,6 +133,7 @@ function Store(){
         self.trigger(CHANGE.TAB_UPDATE, self, tab);
         self.trigger(CHANGE.PANE_SIZE_UPDATE, self, tab);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self, tab);
+
     });
 
     // ファイルクローズ

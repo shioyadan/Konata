@@ -16,6 +16,7 @@ function Konata(){
         m_lastFetchedId = null;
     };
 
+
     this.OpenFile = function(path){
         if (m_files != null) {
             // 既に開かれている。
@@ -100,4 +101,4 @@ function Konata(){
     */
 }
 
-module.exports = Konata;
+module.exports.Konata = Konata;
