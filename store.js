@@ -147,12 +147,14 @@ function Store(){
         self.sheet.width = width;
         self.sheet.height = height;
         self.trigger(VIEW.PANE_SIZE_UPDATE, self);
+        self.trigger(VIEW.PANE_CONTENT_UPDATE, self);
     });
 
     // スプリッタの位置変更
     self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
         self.activeTab.splitterPos = position;
         self.trigger(VIEW.PANE_SIZE_UPDATE, self);
+        self.trigger(VIEW.PANE_CONTENT_UPDATE, self);
     });
 
     // アプリケーション終了
