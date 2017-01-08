@@ -124,5 +124,5 @@ KonataRenderer.prototype.drawTile_ = function(tile, top, left){
     }
 };
 
-
-module.exports = KonataRenderer;
+// この書式じゃないと IntelliSense が効かない
+module.exports.KonataRenderer = KonataRenderer;

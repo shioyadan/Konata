@@ -233,7 +233,7 @@
 
         self.remote = require("electron").remote;
 
-        let KonataRenderer = require("./KonataRenderer.js");
+        //let KonataRenderer = require("./KonataRenderer.js");
         let renderer = {}; // id -> konata
 
         // 新規タブのオープン
@@ -245,7 +245,7 @@
                 }
                 console.log(path);
 
-                renderer[tab.id] = new KonataRenderer();
+                //renderer[tab.id] = new KonataRenderer();
 
                 /*
                 let tabs = jquery("#tabs");

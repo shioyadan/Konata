@@ -42,8 +42,10 @@ function Store(){
     /* globals riot */
     riot.observable(this);
     
-    let remote = require("electron").remote;
-
+    // この書式じゃないと IntelliSense が効かない
+    let electron = require("electron");
+    let KonataRenderer = require("./KonataRenderer");
+    
     /** @type {{
             tabs: {}, 
             nextTabID: number, 
@@ -98,14 +100,14 @@ function Store(){
     self.on(ACTION.FILE_OPEN, function(fileName){
 
         // Load a file
-        /* global Konata KonataRenderer */
+        /* global Konata */
         let konata = new Konata();
         if (!konata.OpenFile(fileName)) {
             konata.Close(fileName);
             self.trigger(CHANGE.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
             return;
         }
-        let renderer = new KonataRenderer();
+        let renderer = new KonataRenderer.KonataRenderer();
         renderer.init(konata);
 
         // Create a new tab
@@ -164,7 +166,7 @@ function Store(){
 
     // アプリケーション終了
     self.on(ACTION.APP_QUIT, function(){
-        remote.app.quit();
+        electron.remote.app.quit();
     });
 
     // 1段階の拡大/縮小
