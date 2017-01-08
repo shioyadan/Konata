@@ -138,6 +138,11 @@ KonataRenderer.prototype.drawTile_ = function(tile, top, left){
     let scale = self.zoomScale_;
     let height = tile.height / (scale * self.opH_);
     let width = tile.width / (scale * self.opW_);
+
+    let ctx = tile.getContext("2d");
+    ctx.fillStyle = "rgb(255,255,255)";
+    ctx.fillRect(0, 0, tile.width, tile.height);
+
     for (let id = Math.floor(top); id < top + height; id++) {
         if (scale < 0.005 && id % self.skip_  != 0) {
             continue;
@@ -152,7 +157,7 @@ KonataRenderer.prototype.drawTile_ = function(tile, top, left){
         if (op == null) {
             return;
         }
-        if (!op.Draw(id - top, left, left + width, scale, tile.getContext("2d"), self.style_)) {
+        if (!op.Draw(id - top, left, left + width, scale, ctx, self.style_)) {
             return;
         }
     }
