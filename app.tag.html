@@ -59,20 +59,69 @@
 
             canvas.ondblclick = self.onMouseDoubleClick;
             canvas.onmousewheel = self.onMouseWheel;
-            canvas.onmousemove = self.onMouseMove;
             canvas.onmousedown = self.onMouseDown;
-            canvas.onmouseup = self.onMouseUp;
-            canvas.onmouseleave = self.onMouseUp;
+            canvas.onmousemove = self.onMouseMove;
+
+            // ドラッグの解除はグローバルに見る必要がある
+            window.onmouseup = self.onMouseUp;
         };
 
         // マウス操作
         self.onMouseWheel = function(e){
-            if (e.ctrlKey) {
-                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY > 0, e.offsetX, e.offsetY);
-            } else {
+            if (e.ctrlKey) {    // 拡大縮小
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0, e.offsetX, e.offsetY);
+            } 
+            else {  // スクロール
                 RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);
             }
         };
+
+        // ダブルクリック
+        self.onMouseDoubleClick = function(e){
+            // シフトキー時は縮小
+            RiotControl.trigger(ACTION.KONATA_ZOOM, !e.shiftKey, e.offsetX, e.offsetY);
+        };
+
+        // マウスクリック
+        self.onMouseDown = function(e){
+            // 左クリック
+            if (e.buttons & 1) {
+                self.inDrag = true;
+                self.prevMousePoint = [e.offsetX, e.offsetY];
+            }
+            // 左クリック
+            if (e.buttons & 2) {
+                self.popupMenu([e.offsetX, e.offsetY]);
+            }
+
+            // クリック時に他所にフォーカスが奪われるのを防ぐ
+            e.preventDefault();
+        };        
+
+        self.onMouseUp = function(e){
+            if (!(e.buttons & 1)) { // 離したので 0 になる
+                self.inDrag = false;
+            }
+        };
+
+        // マウス移動
+        self.onMouseMove = function(e){
+            if (!self.inDrag){
+                return;
+            }
+            let diff = [
+                self.prevMousePoint[0] - e.offsetX,
+                self.prevMousePoint[1] - e.offsetY
+            ];
+            self.prevMousePoint = [e.offsetX, e.offsetY];
+            RiotControl.trigger(ACTION.KONATA_MOVE_POS, diff);
+        };
+
+        // ペーンの内容の更新
+        RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, function(store){
+            let canvas = self.refs.canvas;
+            store.activeTab.renderer.draw(canvas);
+        });
 
         // サイズを適用
         self.on("update", function() {
@@ -80,12 +129,6 @@
             let canvas = self.refs.canvas;
             canvas.width = self.width;
             canvas.height = self.height;
-        });
-
-        // ペーンの内容の更新
-        RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, function(store){
-            let canvas = self.refs.canvas;
-            store.activeTab.renderer.draw(canvas);
         });
 
         // エントリポイント

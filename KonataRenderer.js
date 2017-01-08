@@ -55,18 +55,17 @@ KonataRenderer.prototype.init = function(konata){
 KonataRenderer.prototype.moveWheel = function(wheelUp){
     let self = this;
     let scroll = 3 / self.zoomScale_;
-    self.moveTo(
-        {
-            top: wheelUp ? scroll : -scroll,
-            left: 0
-        },
-        true
-    );
+    self.moveTo([0, wheelUp ? scroll : -scroll], true);
+};
+
+KonataRenderer.prototype.movePos = function(diff){
+    let self = this;
+    self.moveTo(diff, false);
 };
 
 KonataRenderer.prototype.moveTo = function(diff, adjust){
     let self = this;
-    let posY = self.viewPos_.top + diff.top;
+    let posY = self.viewPos_.top + diff[1];
     if (posY < 0) {
         posY = 0;
     }
@@ -85,7 +84,7 @@ KonataRenderer.prototype.moveTo = function(diff, adjust){
     if (adjust) {
         self.viewPos_.left = op.fetchedCycle;
     } else {
-        self.viewPos_.left += diff.left;
+        self.viewPos_.left += diff[0];
         if (self.viewPos_.left < 0) {
             self.viewPos_.left = 0;
         }

@@ -21,6 +21,7 @@ const ACTION = {
 
     KONATA_ZOOM: 60,        // 拡大/縮小
     KONATA_MOVE_WHEEL: 61,  // ホイールによるスクロール
+    KONATA_MOVE_POS: 62,    // ドラッグによる位置移動
 };
 
 // CHANGE は store で行われた変更の通知に使う
@@ -72,13 +73,7 @@ function Store(){
 
     // スプリッタ位置
     self.splitterPos = 150;
-    
-    // 拡大率の計算
-    // level は指数で表す
-    function calcScale(level){
-        return Math.pow(2, level);
-    }
-    
+
 
     // ダイアログ
     // 基本的に中継してるだけ
@@ -175,6 +170,13 @@ function Store(){
     self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
         let renderer = self.activeTab.renderer;
         renderer.moveWheel(wheelUp);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+    });
+
+    // ホイールによる移動
+    self.on(ACTION.KONATA_MOVE_POS, function(diff){
+        let renderer = self.activeTab.renderer;
+        renderer.movePos(diff);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
