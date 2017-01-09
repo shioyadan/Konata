@@ -6,9 +6,13 @@ html, body {
 }
 
 .pane_container {
-    display: flex;  /* CSS3 flexbox による配置 */
-    flex-direction: row;    
+    display: flex;  /* CSS3 flexbox による配置を有効に */
+    flex-direction: row;  /* 子要素を横方向に並べる*/  
     flex: auto;
+    /* pane_container 同士を同じ位置において z-index を制御するため，位置を絶対指定に．
+    abosulute を指定すると，親要素の左上を基準とした位置に配置される
+    */
+    position: absolute; 
 }
 
 /* 左側のラベルペーン */

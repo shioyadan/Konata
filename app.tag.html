@@ -174,7 +174,7 @@
             };
 
             // splitter 以外でも捉えられるように window に
-            window.onmousemove = function(e){
+            window.addEventListener("mousemove", function(e){
                 if (!self.inDrag) {
                     return;
                 }
@@ -193,11 +193,11 @@
                 RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
             
                 //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
-            };
+            });
 
-            window.onmouseup = function(){
+            window.addEventListener("mouseup", function(){
                 self.inDrag = false;
-            };
+            });
         });
 
 
@@ -230,6 +230,13 @@
             self.update();
         });
 
+        // タブの内容の更新
+        // シートの zindex を操作して，アクティブなもののみを見せる
+        RiotControl.on(CHANGE.TAB_UPDATE, function(store){
+            let container = self.refs.pane_container;
+            container.style.zIndex = self.id == store.activeTab.id ? "0" : "-1";
+            self.update();
+        });
 
     </script>
 </app_sheet>

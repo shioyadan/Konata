@@ -28,7 +28,7 @@ const ACTION = {
 // store -> view
 const CHANGE = {
     TAB_OPEN: 100,
-    TAB_UPDATE: 101,
+    TAB_UPDATE: 101,    // タブの内容の更新
 
     PANE_SIZE_UPDATE: 102,
     PANE_CONTENT_UPDATE: 103,
@@ -135,6 +135,7 @@ function Store(){
         self.activeTabID = id;
         self.activeTab = self.tabs[self.activeTabID];
         self.trigger(CHANGE.TAB_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
     // ウィンドウのサイズ変更
