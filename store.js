@@ -53,7 +53,6 @@ function Store(){
             activeTabID: number,
             activeTab: {},
             sheet: {width: number, height: number},
-            splitterPos: number,
         }} 
     */
     let self = this;
@@ -70,10 +69,6 @@ function Store(){
         width: 800,
         height: 600
     };
-
-    // スプリッタ位置
-    self.splitterPos = 150;
-
 
     // ダイアログ
     // 基本的に中継してるだけ

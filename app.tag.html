@@ -144,6 +144,7 @@
 <app_sheet>
     <div class="pane_container" ref="pane_container">
         <div class="label_pane" ref="label_pane">
+            tab: {id}
             <canvas ref="label_canvas"></canvas>
         </div>
         <div class="window_splitter" ref="window_splitter">
@@ -171,6 +172,7 @@
             splitter.onmousedown = function(e){
                 self.lastPos = e.clientX;
                 self.inDrag = true;
+                //console.log(`mousedown ${self.id}`);
             };
 
             // splitter 以外でも捉えられるように window に
@@ -193,15 +195,21 @@
                 RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
             
                 //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
+                //console.log(`mousemove ${self.id}`);
             });
 
             window.addEventListener("mouseup", function(){
                 self.inDrag = false;
+                //console.log(`mouseup ${self.id}`);
             });
         });
 
 
         RiotControl.on(CHANGE.PANE_SIZE_UPDATE, function(store){
+            // これは全てのアクティブなタブでのみ実行する必要がある
+            if (self.id != store.activeTabID) {
+                return;
+            }
             let container = self.refs.pane_container;
             let label = self.refs.label_pane;
             let splitter = self.refs.window_splitter;
@@ -233,7 +241,10 @@
         // タブの内容の更新
         // シートの zindex を操作して，アクティブなもののみを見せる
         RiotControl.on(CHANGE.TAB_UPDATE, function(store){
+            // これは全てのタブで実行する必要がある
             let container = self.refs.pane_container;
+
+            // アクティブなタブを最前面に
             container.style.zIndex = self.id == store.activeTab.id ? "0" : "-1";
             self.update();
         });
