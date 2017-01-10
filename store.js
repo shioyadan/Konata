@@ -122,7 +122,7 @@ function Store(){
 
     // ファイルクローズ
     self.on(ACTION.FILE_CLOSE, function(fileName){
-        self.trigger(CHANGE.TAB_CLOSE, fileName);
+        //self.trigger(CHANGE.TAB_CLOSE, fileName);
     });
 
     // アクティブなタブの変更
@@ -131,6 +131,10 @@ function Store(){
         self.activeTab = self.tabs[self.activeTabID];
         self.trigger(CHANGE.TAB_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+    });
+
+    // タブを閉じる
+    self.on(ACTION.TAB_CLOSE, function(id){
     });
 
     // ウィンドウのサイズ変更

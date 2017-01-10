@@ -2,7 +2,17 @@
 <app_tabbar>
     <ul class="nav nav-tabs" ref="app_tabbar">
         <li each="{tab, i in tabs}" class={tab.active}>
-            <a href={"#" + tab.id} onclick={tab.onclick} data-toggle="tab">{tab.tabName}</a>
+            <a href={"#" + tab.id} onclick={tab.onClickProxy} data-toggle="tab">
+                <!-- 
+                    &nbsp はタブ名の横のスペース，
+                    class="close" は bootstrap で定義された閉じるボタン，
+                    &times; は HTML で定義された特殊文字のバツ記号
+                -->
+                {tab.tabName} &nbsp;
+                <button type="button" class="close" onclick={tab.onCloseProxy}>
+                    &times;
+                </button>
+            </a>
         </li>
     </ul>
 
@@ -12,8 +22,12 @@
 
 
         // クリック
-        self.onClick = function(id){
+        self.onClick = function(e, id){
             RiotControl.trigger(ACTION.TAB_ACTIVATE, id);
+        };
+        self.onClose = function(e, id){
+            RiotControl.trigger(ACTION.TAB_CLOSE, id);
+            e.preventDefault(); // <a> にもイベントが行くので，それをブロック
         };
 
         RiotControl.on(CHANGE.TAB_UPDATE, function(store){
@@ -25,8 +39,11 @@
 
             for (let tab of self.tabs) {
                 // クリックのハンドラを ID ごと埋め込む
-                tab.onclick = function(){
-                    self.onClick(tab.id);
+                tab.onClickProxy = function(e){
+                    self.onClick(e, tab.id);
+                };
+                tab.onCloseProxy = function(e){
+                    self.onClose(e, tab.id);
                 };
                 tab.tabName = tab.fileName.match(/[^\/\\]+$/)[0];
                 tab.active = (store.activeTabID == tab.id) ? "active" : "";
@@ -536,28 +553,6 @@
                 Close(path);
             });
         }
-
-        function MoveFront(path) {
-            let tabs = jquery("#tabs-selector").find(".tab-selector");
-            if (!SetZIndex(path, control.tabnum)) {
-                return; // 既に最前面にある。
-            }
-            index.path = path; // 操作するタブを自身に変更。
-            // 自身以外のタブを一つずつ後ろに移動。
-            tabs.each (function(i, box) {
-                let t = jquery(box);
-                let p = t.attr("data-path");
-                if (p == path) {
-                    t.css("background-color", "#ddd");
-                    t.css("min-height", 20);
-                } else {
-                    SetZIndex(p, -1, true);
-                    t.css("background-color", "#fff");
-                    t.css("min-height", 18);
-                }
-            });
-        }
-
 
     </script>
 </app>
