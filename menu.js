@@ -34,14 +34,14 @@ function installMenu(){
                     click: function(){rc.trigger(ACTION.TAB_MOVE, false);}
                 },
                 {
-                    label:"Zoom up",
+                    label:"Zoom out",
                     accelerator:"Command+Shift+=",
-                    click: function(){Zoom(true);}
+                    click: function(){rc.trigger(ACTION.KONATA_ZOOM, false, 0, 0);}
                 },
                 {
-                    label:"Zoom down",
+                    label:"Zoom in",
                     accelerator:"Command+-",
-                    click: function(){Zoom(false);}
+                    click: function(){rc.trigger(ACTION.KONATA_ZOOM, true, 0, 0);}
                 },
             ]
         },
