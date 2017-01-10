@@ -2,14 +2,14 @@
 <app_tabbar>
     <ul class="nav nav-tabs" ref="app_tabbar">
         <li each="{tab, i in tabs}" class={tab.active}>
-            <a href={"#" + tab.id} onclick={tab.onClickProxy} data-toggle="tab">
+            <a href={"#" + tab.id} onmousedown={tab.onClickProxy} data-toggle="tab">
                 <!-- 
                     &nbsp はタブ名の横のスペース，
                     class="close" は bootstrap で定義された閉じるボタン，
                     &times; は HTML で定義された特殊文字のバツ記号
                 -->
                 {tab.tabName} &nbsp;
-                <button type="button" class="close" onclick={tab.onCloseProxy}>
+                <button type="button" class="close" onmousedown={tab.onCloseProxy}>
                     &times;
                 </button>
             </a>
@@ -23,15 +23,22 @@
 
         // クリック
         self.onClick = function(e, tab){
-            if (tab.valid) {
+            if (e.buttons & 1) {
                 RiotControl.trigger(ACTION.TAB_ACTIVATE, tab.id);
             }
+            else if (e.buttons & 2) {
+            }
+            else if (e.buttons & 4) {
+                RiotControl.trigger(ACTION.TAB_CLOSE, tab.id);
+            }
+            e.stopPropagation();
+            e.preventDefault();
         };
         self.onClose = function(e, tab){
             RiotControl.trigger(ACTION.TAB_CLOSE, tab.id);
             // <a> にもイベントが行くので，それをブロック
-            // なぜか preventDefault はきかない
-            tab.valid = false; 
+            e.preventDefault();
+            e.stopPropagation();
         };
 
         RiotControl.on(CHANGE.TAB_UPDATE, function(store){
@@ -49,7 +56,6 @@
                 tab.onCloseProxy = function(e){
                     self.onClose(e, tab);
                 };
-                tab.valid = true;
                 tab.tabName = tab.fileName.match(/[^\/\\]+$/)[0];
                 tab.active = (store.activeTabID == tab.id) ? "active" : "";
             }
