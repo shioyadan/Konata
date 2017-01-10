@@ -22,16 +22,20 @@
 
 
         // クリック
-        self.onClick = function(e, id){
-            RiotControl.trigger(ACTION.TAB_ACTIVATE, id);
+        self.onClick = function(e, tab){
+            if (tab.valid) {
+                RiotControl.trigger(ACTION.TAB_ACTIVATE, tab.id);
+            }
         };
-        self.onClose = function(e, id){
-            RiotControl.trigger(ACTION.TAB_CLOSE, id);
-            e.preventDefault(); // <a> にもイベントが行くので，それをブロック
+        self.onClose = function(e, tab){
+            RiotControl.trigger(ACTION.TAB_CLOSE, tab.id);
+            // <a> にもイベントが行くので，それをブロック
+            // なぜか preventDefault はきかない
+            tab.valid = false; 
         };
 
         RiotControl.on(CHANGE.TAB_UPDATE, function(store){
-            // hash to tab array
+            // Convert hash to array
             self.tabs = [];
             for (let id in store.tabs) {
                 self.tabs.push(store.tabs[id]);
@@ -40,11 +44,12 @@
             for (let tab of self.tabs) {
                 // クリックのハンドラを ID ごと埋め込む
                 tab.onClickProxy = function(e){
-                    self.onClick(e, tab.id);
+                    self.onClick(e, tab);
                 };
                 tab.onCloseProxy = function(e){
-                    self.onClose(e, tab.id);
+                    self.onClose(e, tab);
                 };
+                tab.valid = true;
                 tab.tabName = tab.fileName.match(/[^\/\\]+$/)[0];
                 tab.active = (store.activeTabID == tab.id) ? "active" : "";
             }
@@ -64,6 +69,7 @@
         let self = this;
         self.width = 100;
         self.height = 100;
+        self.valid = false;
 
         // マウスのドラッグ
         self.inDrag = false;  // マウスでドラッグ中か
@@ -81,6 +87,9 @@
 
             canvas.onmouseup = self.onMouseUp;
             canvas.onmousemove = self.onMouseMove;
+
+            self.valid = true;
+            RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
         };
 
         // マウス操作
@@ -135,10 +144,10 @@
         };
 
         // ペーンの内容の更新
-        RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, function(store){
+        self.onPaneContentUpdate = function(store){
             let canvas = self.refs.canvas;
             store.activeTab.renderer.draw(canvas);
-        });
+        };
 
         // サイズを適用
         self.on("update", function() {
@@ -151,6 +160,11 @@
         // エントリポイント
         // マウント時に初期化を行う
         self.on("mount", self.init);
+
+        self.on("unmount", function(){
+            self.valid = false;
+            RiotControl.off(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+        });
 
     </script>
 </app_pipeline_canvas>
@@ -177,52 +191,65 @@
         self.lastPos = 0;
         self.inDrag = false;
         self.id = self.opts.id;
-
+        self.valid = false;
 
         self.on("mount", function(){
-
-
-
+            // ドラッグ始はスプリッタ
             let splitter = self.refs.window_splitter;
-
-            // 開始はスプリッタ
-            splitter.onmousedown = function(e){
-                self.lastPos = e.clientX;
-                self.inDrag = true;
-                //console.log(`mousedown ${self.id}`);
-            };
+            splitter.onmousedown = self.onMouseDown;
 
             // splitter 以外でも捉えられるように window に
-            window.addEventListener("mousemove", function(e){
-                if (!self.inDrag) {
-                    return;
-                }
-
-                // ウィンドウ外にカーソルがでたときのため補正
-                let containerWidth = self.refs.pane_container.offsetWidth;
-                let pos = Math.min(Math.max(e.clientX, 0), containerWidth);
-                
-
-                // 差分を求める
-                let diff = pos - self.lastPos;
-                self.lastPos = pos;
-
-                let label_pane = self.refs.label_pane;
-                let splitterPos = label_pane.offsetWidth + diff;
-                RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
+            window.addEventListener("mousemove", self.onMouseMove);
+            window.addEventListener("mouseup", self.onMouseUp);
+            RiotControl.on(CHANGE.PANE_SIZE_UPDATE, self.onPaneSizeUpdate);
+            RiotControl.on(CHANGE.TAB_UPDATE, self.onTabUpdate);
             
-                //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
-                //console.log(`mousemove ${self.id}`);
-            });
+            self.valid = true;
+        });
 
-            window.addEventListener("mouseup", function(){
-                self.inDrag = false;
-                //console.log(`mouseup ${self.id}`);
-            });
+        self.on("unmount", function(){
+            self.valid = false;
+            window.removeEventListener("mousemove", self.onMouseMove);
+            window.removeEventListener("mouseup", self.onMouseUp);
+            RiotControl.off(CHANGE.PANE_SIZE_UPDATE, self.onPaneSizeUpdate);
+            RiotControl.off(CHANGE.TAB_UPDATE, self.onTabUpdate);
         });
 
 
-        RiotControl.on(CHANGE.PANE_SIZE_UPDATE, function(store){
+        self.onMouseDown = function(e){
+            self.lastPos = e.clientX;
+            self.inDrag = true;
+            //console.log(`mousedown ${self.id}`);
+        };
+
+        self.onMouseUp = function(){
+            self.inDrag = false;
+            //console.log(`mouseup ${self.id}`);
+        };
+
+        self.onMouseMove = function(e){
+            if (!self.inDrag) {
+                return;
+            }
+
+            // ウィンドウ外にカーソルがでたときのため補正
+            let containerWidth = self.refs.pane_container.offsetWidth;
+            let pos = Math.min(Math.max(e.clientX, 0), containerWidth);
+            
+
+            // 差分を求める
+            let diff = pos - self.lastPos;
+            self.lastPos = pos;
+
+            let label_pane = self.refs.label_pane;
+            let splitterPos = label_pane.offsetWidth + diff;
+            RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
+        
+            //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
+            //console.log(`mousemove ${self.id}`);
+        };
+
+        self.onPaneSizeUpdate = function(store){
             // これは全てのアクティブなタブでのみ実行する必要がある
             if (self.id != store.activeTabID) {
                 return;
@@ -253,18 +280,21 @@
             pipeline_canvas.height = pipeline.offsetHeight;
 
             self.update();
-        });
+        };
 
         // タブの内容の更新
         // シートの zindex を操作して，アクティブなもののみを見せる
-        RiotControl.on(CHANGE.TAB_UPDATE, function(store){
+        self.onTabUpdate = function(store){
+            if (!self.valid) {
+                return;
+            }
             // これは全てのタブで実行する必要がある
             let container = self.refs.pane_container;
 
             // アクティブなタブを最前面に
             container.style.zIndex = self.id == store.activeTab.id ? "0" : "-1";
             self.update();
-        });
+        };
 
     </script>
 </app_sheet>

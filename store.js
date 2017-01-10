@@ -10,9 +10,7 @@ const ACTION = {
     DIALOG_MODAL_ERROR: 12,
 
     FILE_OPEN: 20,
-    FILE_CLOSE: 21,
 
-    TAB_OPEN: 30,
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
 
@@ -120,13 +118,13 @@ function Store(){
 
     });
 
-    // ファイルクローズ
-    self.on(ACTION.FILE_CLOSE, function(fileName){
-        //self.trigger(CHANGE.TAB_CLOSE, fileName);
-    });
-
     // アクティブなタブの変更
     self.on(ACTION.TAB_ACTIVATE, function(id){
+        if (!(id in self.tabs)) {
+            console.log(`ACTION.TAB_ACTIVATE: invalid id: ${id}`);
+            return;
+        }
+
         self.activeTabID = id;
         self.activeTab = self.tabs[self.activeTabID];
         self.trigger(CHANGE.TAB_UPDATE, self);
@@ -135,6 +133,23 @@ function Store(){
 
     // タブを閉じる
     self.on(ACTION.TAB_CLOSE, function(id){
+        if (!(id in self.tabs)) {
+            console.log(`ACTION.TAB_CLOSE: invalid id: ${id}`);
+            return;
+        }
+
+        delete self.tabs[id];
+        self.activeTab = null;
+        for(let newID in self.tabs){
+            self.activeTabID = newID;
+            self.activeTab = self.tabs[newID];
+            break;
+        }
+        if (!self.activeTab) {
+            self.activeTabID = -1;
+        }
+        self.trigger(CHANGE.TAB_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
     // ウィンドウのサイズ変更
