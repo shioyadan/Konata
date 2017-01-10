@@ -13,6 +13,7 @@ const ACTION = {
 
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
+    TAB_MOVE: 34,
 
     SHEET_RESIZE: 40,       // シートサイズの変更
     PANE_SPLITTER_MOVE: 50, // スプリッタ位置の変更
@@ -129,6 +130,18 @@ function Store(){
         self.activeTab = self.tabs[self.activeTabID];
         self.trigger(CHANGE.TAB_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+    });
+
+    // タブ移動
+    self.on(ACTION.TAB_MOVE, function(next){
+        let ids = Object.keys(self.tabs).sort();
+        for (let i = 0; i < ids.length; i++) {
+            if (self.activeTab.id == ids[i]) {
+                let to = next ? ids[(i+1)%ids.length] : ids[(i+ids.length-1)%ids.length];
+                self.trigger(ACTION.TAB_ACTIVATE, to);
+                break;
+            }
+        }
     });
 
     // タブを閉じる

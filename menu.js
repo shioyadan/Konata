@@ -26,12 +26,12 @@ function installMenu(){
                 {
                     label:"Next Tab",
                     accelerator:"Command+N",
-                    click: function(){NextTab(true);}
+                    click: function(){rc.trigger(ACTION.TAB_MOVE, true);}
                 },
                 {
                     label:"Previous Tab",
                     accelerator:"Command+P",
-                    click: function(){NextTab(false);}
+                    click: function(){rc.trigger(ACTION.TAB_MOVE, false);}
                 },
                 {
                     label:"Zoom up",
