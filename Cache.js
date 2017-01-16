@@ -50,9 +50,10 @@ function Cache(filePath, parser, that) {
                 }
                 break;
             }
+            /*
             if (op.Draw == null) { // 
                 op = new m_konata.Op(op);
-            }
+            }*/
             m_cache[i] = op;
         }
     };
