@@ -38,7 +38,12 @@ function KonataRenderer(){
 }
 
 
+/**
+ * 初期化
+ * @param {Konata.Konata} konata - Konata オブジェクトへの参照
+ */
 KonataRenderer.prototype.init = function(konata){
+
     let self = this;
     self.viewPos_ = {left:0, top:0};
     self.zoomLevel_ = 0;
@@ -173,7 +178,7 @@ KonataRenderer.prototype.drawTile_ = function(tile, top, left){
         if (op == null) {
             return;
         }
-        if (!op.Draw(id - top, left, left + width, scale, ctx, self.style_)) {
+        if (!op.draw(id - top, left, left + width, scale, ctx, self.style_)) {
             return;
         }
     }

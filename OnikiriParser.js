@@ -139,7 +139,7 @@ function OnikiriParser () {
 
         switch(command) {
             case "I": {
-                op = new Op({id:id});
+                op = new Op.Op({id:id});
                 op.gid = args[1];
                 op.tid = args[2];
                 op.fetchedCycle = cycle;
