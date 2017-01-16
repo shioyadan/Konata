@@ -12,10 +12,11 @@ function Op(args) {
     this.labels = []; // ラベル情報の入っている配列
     this.prods = []; // プロデューサ命令のIDの配列
     this.cons = []; // コンシューマ命令のIDの配列
-    var m_opH = 25; // スケール1のときの1命令の高さ[px]
-    var m_opW = 25; // スケール1のときの1サイクルの幅[px]
-    var m_margin = 5; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
-    for (var key in args) {
+
+    let m_opH = 25; // スケール1のときの1命令の高さ[px]
+    let m_opW = 25; // スケール1のときの1サイクルの幅[px]
+    let m_margin = 5; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
+    for (let key in args) {
         this[key] = args[key];
     }
 
@@ -27,12 +28,14 @@ function Op(args) {
         if (parentStyle && parentStyle["opacity"]) {
             context.globalAlpha = parentStyle.opacity;
         }
+
+        let colorSet = false;
         if (parentStyle && parentStyle["color"]) {
             context.fillStyle = parentStyle.color;
             context.strokeStyle = parentStyle.color;
-            var colorSet = true;
+            colorSet = true;
         }
-        var top = h * m_opH * scale;
+        let top = h * m_opH * scale;
         //context.fillStyle = "#ffffff";
         context.clearRect(0, top, (endCycle - startCycle) * scale, m_opH * scale);
         //context.fillStyle = null;
@@ -44,10 +47,10 @@ function Op(args) {
         if (this.retiredCycle == this.fetchedCycle) {
             return true;
         }
-        var l = startCycle > this.fetchedCycle ? (startCycle - 1) : this.fetchedCycle; l -= startCycle;
-        var r = endCycle >= this.retiredCycle ? this.retiredCycle : (endCycle + 1); r -= startCycle;
-        var left = l * scale * m_opW;
-        var right = r * scale * m_opW;
+        let l = startCycle > this.fetchedCycle ? (startCycle - 1) : this.fetchedCycle; l -= startCycle;
+        let r = endCycle >= this.retiredCycle ? this.retiredCycle : (endCycle + 1); r -= startCycle;
+        let left = l * scale * m_opW;
+        let right = r * scale * m_opW;
         if (colorSet) {
         } else if (scale < 0.2) {
             context.strokeStyle = "#888888";
@@ -59,19 +62,19 @@ function Op(args) {
         }
         context.strokeRect(left, top, right - left, (m_opH - m_margin) * scale);
         if (scale >= 0.1) {
-            var keys = [];
-            for (var key in this.lanes) {
+            let keys = [];
+            for (let key in this.lanes) {
                 keys.push(key);
             }
             keys = keys.sort();
-            for (var i = 0, len = keys.length; i < len; i++) {
-                var key = keys[i];
+            for (let i = 0, len = keys.length; i < len; i++) {
+                let key = keys[i];
                 DrawLane(h, startCycle, endCycle, scale, context, key, this, parentStyle);
             }
         }
         if (this.flush) {
-            var opacity = getStyleRule([".flush"], "opacity", 1, "0.8");
-            var bgc = getStyleRule([".flush"], "background-color", 1, "#888");
+            let opacity = getStyleRule([".flush"], "opacity", 1, "0.8");
+            let bgc = getStyleRule([".flush"], "background-color", 1, "#888");
             context.globalAlpha *= opacity;
             context.fillStyle = bgc;
             context.fillRect(left, top, right - left, (m_opH - m_margin) * scale);
@@ -87,13 +90,14 @@ function Op(args) {
     }
 
     function DrawLane(h, startCycle, endCycle, scale, context, laneName, op, parentStyle) {
+        let colorSet = false;
         if (parentStyle && parentStyle["color"]) {
-            var colorSet = true;
+            colorSet = true;
         }
-        var lane = op.lanes[laneName];
-        var top = h * m_opH * scale;
-        for (var i = 0, len = lane.length; i < len; i++) {
-            var stage = lane[i];
+        let lane = op.lanes[laneName];
+        let top = h * m_opH * scale;
+        for (let i = 0, len = lane.length; i < len; i++) {
+            let stage = lane[i];
             if (stage.endCycle == null) {
                 stage.endCycle = op.retiredCycle;
             }
@@ -105,21 +109,22 @@ function Op(args) {
             if (stage.endCycle == stage.startCycle) {
                 continue;
             }
+            let color;
             if (!colorSet) {
-                var color = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "background-color", 1, "#888");
+                color = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "background-color", 1, "#888");
             } else {
-                var color = parentStyle.color;
+                color = parentStyle.color;
             }
-            var fontSize = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-size", 1, "12px");
+            let fontSize = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-size", 1, "12px");
             fontSize = parseInt(fontSize) * scale;
             fontSize = fontSize + "px";
-            var fontFamily = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-family", 1, "MS Gothc");
-            var fontStyle = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-style", 1, "normal");
-            var l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
-            var r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
-            var left = l * scale * m_opW;
-            var right = r * scale * m_opW;
-            var grad = context.createLinearGradient(0,top,0,top+m_opH * scale);
+            let fontFamily = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-family", 1, "MS Gothc");
+            let fontStyle = getStyleRule([".lane_" + laneName, ".stage_" + stage.name], "font-style", 1, "normal");
+            let l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
+            let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
+            let left = l * scale * m_opW;
+            let right = r * scale * m_opW;
+            let grad = context.createLinearGradient(0,top,0,top+m_opH * scale);
             grad.addColorStop(1, color);
             grad.addColorStop(0, "#eee");
             context.fillStyle = grad;
@@ -130,20 +135,20 @@ function Op(args) {
             left = (stage.startCycle - startCycle) * scale * m_opW;
             if (scale >= 0.5) {
                 context.fillStyle = "#555555";
-                var textTop = top + (m_opH - m_margin) * scale*3/4
-                var textLeft = left + (m_opW * scale/3);
-                for (var j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
-                    context.fillText(j, textLeft + j * scale * m_opW, textTop)
+                let textTop = top + (m_opH - m_margin) * scale*3/4;
+                let textLeft = left + (m_opW * scale/3);
+                for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
+                    context.fillText(j, textLeft + j * scale * m_opW, textTop);
                 }
                 context.fillStyle = "#000000";
                 context.fillText(stage.name, textLeft, textTop);
             }
         }
-    };
+    }
 
     function getStyleRule(selectors, style, sheetIndex, defaultValue) {
-        var s = [];
-        var copyArray = [];
+        let s = [];
+        let copyArray = [];
         while (selectors.length > 1) {
             s.push(selectors.join(" "));
             copyArray.push(selectors.shift());
@@ -151,30 +156,31 @@ function Op(args) {
         copyArray.push(selectors.shift());
         copyArray = copyArray.reverse();
         s = s.concat(copyArray);
-        for (var i = 0, len = s.length; i < len; i++) {
-            var prop = getStyleRuleValue(s[i], style, sheetIndex);
+        for (let i = 0, len = s.length; i < len; i++) {
+            let prop = getStyleRuleValue(s[i], style, sheetIndex);
             if (prop) {
                 return prop;
             }
         }
-        var d = getStyleRuleValue(".default", style, sheetIndex);
+        let d = getStyleRuleValue(".default", style, sheetIndex);
         if (d) {
             return d;
         }
         return defaultValue;
-    };
+    }
     
     function getStyleRuleValue(selector, style, sheetIndex) {
+        let sheet;
         if (sheetIndex != null) {
-            var sheet = document.styleSheets[ sheetIndex ];
+            sheet = document.styleSheets[ sheetIndex ];
         }
-        var sheets = typeof sheet !== 'undefined' ? [sheet] : document.styleSheets;
-        for (var i = 0, l = sheets.length; i < l; i++) {
-            var sheet = sheets[i];
+        let sheets = typeof sheet !== "undefined" ? [sheet] : document.styleSheets;
+        for (let i = 0, l = sheets.length; i < l; i++) {
+            let sheet = sheets[i];
             if( !sheet.cssRules ) { continue; }
-            for (var j = 0, k = sheet.cssRules.length; j < k; j++) {
-                var rule = sheet.cssRules[k-j-1]; // 後ろの結果を優先する．
-                if (rule.selectorText && rule.selectorText.split(',').indexOf(selector) !== -1) {
+            for (let j = 0, k = sheet.cssRules.length; j < k; j++) {
+                let rule = sheet.cssRules[k-j-1]; // 後ろの結果を優先する．
+                if (rule.selectorText && rule.selectorText.split(",").indexOf(selector) !== -1) {
                     if (rule.style[style] == "" || rule.style[style] == null) {
                         continue;
                     }
