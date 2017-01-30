@@ -1,6 +1,7 @@
 /**
  * @constructor
  */
+
 function KonataRenderer(){
 
     // ~.prototype.init = の書式でクラスを定義すると，VS Code の補完が効く
@@ -10,12 +11,11 @@ function KonataRenderer(){
     this.name = "KonataRenderer";
 
     // 現在の論理位置
-    // この位置の単位は，横がサイクル数，縦が命令数となっている
+    // この論理位置の単位は，横がサイクル数，縦が命令数となっている
     this.viewPos_ = {
         left: 0,
         top: 0
     }; 
-
 
     // 表示系
     this.ZOOM_RATIO_ = 0.8;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
@@ -25,13 +25,17 @@ function KonataRenderer(){
     this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
     
     this.konata_ = null;
-    this.style_ = null; // 親要素(.tab)の持つスタイル
+    this.styleCSS_ = null; // 親要素(.tab)の持つスタイル
 
     // 以下のパラメータはOp.jsと合わせる．(そうしないと表示がズレる)
     this.opH_ = 25; // スケール1のときの1命令の高さ
     this.opW_ = 25; // スケール1のときの1サイクルの幅
     this.margin_ = 5; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
     this.skip_ = 1;
+
+    // JSON で定義された JSON
+    this.STYLE_FILE_NAME_ = "./style.json";
+    this.styleObj_ = null;
 
     //let m_maxScale = 2; // retinaの場合、倍精度必要なので最大倍率も倍
     //let m_minScale = 0.00006103515625;
@@ -46,12 +50,39 @@ function KonataRenderer(){
 KonataRenderer.prototype.init = function(konata){
 
     let self = this;
+    self.konata_ = konata;
+
     self.viewPos_ = {left:0, top:0};
     self.zoomLevel_ = 0;
     self.zoomScale_ = 1;
-    self.konata_ = konata;
+    self.styleCSS_ = {};
 
-    self.style_ = {};
+    self.loadStyle_(self.STYLE_FILE_NAME_);
+};
+
+/**
+ * パイプラインのスタイル定義 JSON の読み込み
+ * @param {string} fileName - ファイル名
+ */
+KonataRenderer.prototype.loadStyle_ = function(fileName){
+    let self = this;
+    let fs = require("fs");
+    self.styleObj_ = JSON.parse(fs.readFileSync(fileName, "utf8"));
+};
+
+/**
+ * ステージ関係のスタイル読込
+ */
+KonataRenderer.prototype.getStageColor_ = function(lane, stage)
+{
+    let self = this;
+    let style = self.styleObj_["lane-style"];
+    if (lane in style) {
+        if (stage in style[lane]) {
+            return style[lane][stage];
+        }
+    }
+    return self.styleObj_["default-color"];
 };
 
 /**
@@ -135,9 +166,9 @@ KonataRenderer.prototype.zoom = function(zoomOut, posX, posY){
 KonataRenderer.prototype.style = function(style, value){
     let self = this;
     if (value !== undefined) {
-        self.style_[style] = value;
+        self.styleCSS_[style] = value;
     } else {
-        return self.style_[style];
+        return self.styleCSS_[style];
     }
 };
 
@@ -179,7 +210,7 @@ KonataRenderer.prototype.drawTile_ = function(tile, top, left){
         if (op == null) {
             return;
         }
-        if (!self.drawOp_(op, id - top, left, left + width, scale, ctx, self.style_)) {
+        if (!self.drawOp_(op, id - top, left, left + width, scale, ctx, self.styleCSS_)) {
             return;
         }
     }
@@ -240,8 +271,8 @@ KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, 
         }
     }
     if (op.flush) {
-        let opacity = self.getStyleRule_([".flush"], "opacity", 1, "0.8");
-        let bgc = self.getStyleRule_([".flush"], "background-color", 1, "#888");
+        let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
+        let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
         context.globalAlpha *= opacity;
         context.fillStyle = bgc;
         context.fillRect(left, top, right - left, (self.opH_ - self.margin_) * scale);
@@ -257,8 +288,18 @@ KonataRenderer.prototype.ClearStyle_ = function(context){
     context.strokeStyle = null;
 };
 
+/**
+ * @param {object} parentStyle - 外部から指定されたスタイル
+ */
 KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale, context, laneName, parentStyle){
     let self = this;
+
+    let fontSize = self.styleObj_["font-size"];
+    fontSize = parseInt(fontSize) * scale;
+    fontSize = fontSize + "px";
+    let fontFamily = self.styleObj_["font-family"];
+    let fontStyle = self.styleObj_["font-style"];
+
     let colorSet = false;
     if (parentStyle && parentStyle["color"]) {
         colorSet = true;
@@ -280,15 +321,10 @@ KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale
         }
         let color;
         if (!colorSet) {
-            color = self.getStyleRule_([".lane_" + laneName, ".stage_" + stage.name], "background-color", 1, "#888");
+            color = self.getStageColor_(laneName, stage.name);
         } else {
             color = parentStyle.color;
         }
-        let fontSize = self.getStyleRule_([".lane_" + laneName, ".stage_" + stage.name], "font-size", 1, "12px");
-        fontSize = parseInt(fontSize) * scale;
-        fontSize = fontSize + "px";
-        let fontFamily = self.getStyleRule_([".lane_" + laneName, ".stage_" + stage.name], "font-family", 1, "MS Gothc");
-        let fontStyle = self.getStyleRule_([".lane_" + laneName, ".stage_" + stage.name], "font-style", 1, "normal");
         let l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
         let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
         let left = l * scale * self.opW_;
@@ -314,54 +350,6 @@ KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale
         }
     }
 };
-
-KonataRenderer.prototype.getStyleRule_ = function(selectors, style, sheetIndex, defaultValue){
-    let self = this;
-    let s = [];
-    let copyArray = [];
-    while (selectors.length > 1) {
-        s.push(selectors.join(" "));
-        copyArray.push(selectors.shift());
-    }
-    copyArray.push(selectors.shift());
-    copyArray = copyArray.reverse();
-    s = s.concat(copyArray);
-    for (let i = 0, len = s.length; i < len; i++) {
-        let prop = self.getStyleRuleValue_(s[i], style, sheetIndex);
-        if (prop) {
-            return prop;
-        }
-    }
-    let d = self.getStyleRuleValue_(".default", style, sheetIndex);
-    if (d) {
-        return d;
-    }
-    return defaultValue;
-};
-
-KonataRenderer.prototype.getStyleRuleValue_ = function(selector, style, sheetIndex){
-    //let self = this;
-    let sheet;
-    if (sheetIndex != null) {
-        sheet = document.styleSheets[ sheetIndex ];
-    }
-    let sheets = typeof sheet !== "undefined" ? [sheet] : document.styleSheets;
-    for (let i = 0, l = sheets.length; i < l; i++) {
-        let sheet = sheets[i];
-        if( !sheet.cssRules ) { continue; }
-        for (let j = 0, k = sheet.cssRules.length; j < k; j++) {
-            let rule = sheet.cssRules[k-j-1]; // 後ろの結果を優先する．
-            if (rule.selectorText && rule.selectorText.split(",").indexOf(selector) !== -1) {
-                if (rule.style[style] == "" || rule.style[style] == null) {
-                    continue;
-                }
-                return rule.style[style];
-            }
-        }
-    }
-    return null;
-};
-
 
 // この書式じゃないと IntelliSense が効かない
 module.exports.KonataRenderer = KonataRenderer;
