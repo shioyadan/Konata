@@ -49,19 +49,12 @@ function installMenu(){
             label: "表示",
             submenu: [
                 {
-                    label:"全体を半透明化",
-                    accelerator:"Command+Shift+O",
-                    click: function(){Transparent(true, false);}
-                },
-                {
-                    label:"背景を透明化",
-                    //accelerator:"Command+P",
-                    click: function(){Transparent(true, true);}
-                },
-                {
-                    label:"透明化を解除",
-                    //accelerator:"Command+Shift+=",
-                    click: function(){Transparent(false, false);}
+                    label: "透明化",
+                    type: "checkbox",
+                    checked: false, // 初期値
+                    click: function(e){
+                        rc.trigger(ACTION.TAB_TRANSPARENT, e.checked);
+                    }
                 },
                 {
                     label:"全体を橙色に",

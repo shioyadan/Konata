@@ -301,11 +301,18 @@
             }
             // これは全てのタブで実行する必要がある
             let container = self.refs.pane_container;
+            let pipeline = self.refs.pipeline_pane;
 
-            // アクティブなタブを最前面に
-            container.style.zIndex = self.id == store.activeTab.id ? "0" : "-1";
+            if (self.id == store.activeTab.id) {
+                container.style.zIndex = "0";   // アクティブなタブを最前面に
+                pipeline.style.opacity = store.activeTab.transparent ? "0.5" : "1"; // 透明化
+            }
+            else {
+                container.style.zIndex = "-1";  // アクティブなタブを最前面に
+                pipeline.style.opacity = "1";   // 透明化の有効無効
+            }
 
-            //container.style.opacity = self.id == store.activeTab.id ? "0.5" : "1";
+
             self.update();
         };
 

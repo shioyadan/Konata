@@ -14,6 +14,7 @@ const ACTION = {
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
     TAB_MOVE: 34,
+    TAB_TRANSPARENT: 35,
 
     SHEET_RESIZE: 40,       // シートサイズの変更
     PANE_SPLITTER_MOVE: 50, // スプリッタ位置の変更
@@ -27,10 +28,10 @@ const ACTION = {
 // store -> view
 const CHANGE = {
     TAB_OPEN: 100,
-    TAB_UPDATE: 101,    // タブの内容の更新
+    TAB_UPDATE: 101,    // タブ切り替え時の更新
 
     PANE_SIZE_UPDATE: 102,
-    PANE_CONTENT_UPDATE: 103,
+    PANE_CONTENT_UPDATE: 103,   // ペーンの中身の更新
 
     DIALOG_FILE_OPEN: 110,
     DIALOG_MODAL_MESSAGE: 111,
@@ -100,6 +101,7 @@ function Store(){
             konata: konata,
             renderer: renderer,
             splitterPos: 150,   // スプリッタの位置
+            transparent: false,
             viewPort: {         // 表示領域
                 top: 0,
                 left: 0,
@@ -114,8 +116,8 @@ function Store(){
        
         self.trigger(CHANGE.TAB_OPEN, self, tab);
         self.trigger(CHANGE.TAB_UPDATE, self, tab);
-        self.trigger(CHANGE.PANE_SIZE_UPDATE, self, tab);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self, tab);
+        self.trigger(CHANGE.PANE_SIZE_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
 
     });
 
@@ -161,6 +163,13 @@ function Store(){
         if (!self.activeTab) {
             self.activeTabID = -1;
         }
+        self.trigger(CHANGE.TAB_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+    });
+
+    // タブを透明化
+    self.on(ACTION.TAB_TRANSPARENT, function(enable){
+        self.activeTab.transparent = enable;
         self.trigger(CHANGE.TAB_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
