@@ -22,6 +22,7 @@ const ACTION = {
     KONATA_ZOOM: 60,        // 拡大/縮小
     KONATA_MOVE_WHEEL: 61,  // ホイールによるスクロール
     KONATA_MOVE_POS: 62,    // ドラッグによる位置移動
+    KONATA_CHANGE_COLOR_SCHEME: 63  // カラースキームの変更
 };
 
 // CHANGE は store で行われた変更の通知に使う
@@ -101,7 +102,8 @@ function Store(){
             konata: konata,
             renderer: renderer,
             splitterPos: 150,   // スプリッタの位置
-            transparent: false,
+            transparent: false, // 透明化の有効無効
+            colorScheme: "default",  // カラースキーム
             viewPort: {         // 表示領域
                 top: 0,
                 left: 0,
@@ -217,6 +219,12 @@ function Store(){
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
+    // カラースキームの変更
+    self.on(ACTION.KONATA_CHANGE_COLOR_SCHEME, function(scheme){
+        self.activeTab.colorScheme = scheme;
+        self.activeTab.renderer.changeColorScheme(scheme);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+    });
 
 
 

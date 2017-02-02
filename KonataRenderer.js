@@ -25,6 +25,8 @@ function KonataRenderer(){
     this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
     
     this.konata_ = null;
+    this.colorScheme_ = "default";   // カラースキーム名
+
     this.styleCSS_ = null; // 親要素(.tab)の持つスタイル
 
     // 以下のパラメータはOp.jsと合わせる．(そうしないと表示がズレる)
@@ -73,9 +75,13 @@ KonataRenderer.prototype.loadStyle_ = function(fileName){
 /**
  * ステージ関係のスタイル読込
  */
-KonataRenderer.prototype.getStageColor_ = function(lane, stage)
-{
+KonataRenderer.prototype.getStageColor_ = function(lane, stage){
     let self = this;
+
+    if (self.colorScheme_ != "default") {
+        return self.colorScheme_;
+    }
+
     let style = self.styleObj_["lane-style"];
     if (lane in style) {
         if (stage in style[lane]) {
@@ -84,6 +90,16 @@ KonataRenderer.prototype.getStageColor_ = function(lane, stage)
     }
     return self.styleObj_["default-color"];
 };
+
+/**
+ * カラースキームの変更
+ * @param {string} scheme - カラースキーム名
+ */
+KonataRenderer.prototype.changeColorScheme = function(scheme){
+    let self = this;
+    self.colorScheme_ = scheme;
+};
+
 
 /**
  * マウスホイールによる一単位の移動
@@ -160,16 +176,6 @@ KonataRenderer.prototype.zoom = function(zoomOut, posX, posY){
     let self = this;
     self.zoomLevel_ += zoomOut ? self.ZOOM_RATIO_ : -self.ZOOM_RATIO_;
     self.zoomScale_ = self.calcScale_(self.zoomLevel_);
-};
-
-
-KonataRenderer.prototype.style = function(style, value){
-    let self = this;
-    if (value !== undefined) {
-        self.styleCSS_[style] = value;
-    } else {
-        return self.styleCSS_[style];
-    }
 };
 
 // Use renderer process only

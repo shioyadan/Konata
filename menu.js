@@ -58,18 +58,15 @@ function installMenu(){
                 },
                 {
                     label:"全体を橙色に",
-                    //accelerator:"Command+-",
-                    click: function(){Color("#f80");}
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "orange");}
                 },
                 {
                     label:"全体を青色に",
-                    //accelerator:"Command+-",
-                    click: function(){Color("#08f");}
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "blue");}
                 },
                 {
                     label:"デフォルトの配色",
-                    //accelerator:"Command+-",
-                    click: function(){Color(null);}
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "default");}
                 },
                 {
                     label:"Retina切り替え",
