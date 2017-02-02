@@ -1,4 +1,4 @@
-<!-- tab -->
+<!-- タブバー -->
 <app_tabbar>
     <ul class="nav nav-tabs" ref="app_tabbar">
         <li each="{tab, i in tabs}" class={tab.active}>
@@ -70,12 +70,14 @@
     </script>
 </app_tabbar>
 
+<!-- 可視化されたパイプラインを表示するキャンバス -->
 <app_pipeline_canvas>
     <canvas ref="canvas"></canvas>
     <script>
         let self = this;
         self.width = 100;
         self.height = 100;
+        self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
         self.valid = false;
 
         // マウスのドラッグ
@@ -94,7 +96,6 @@
 
             canvas.onmouseup = self.onMouseUp;
             canvas.onmousemove = self.onMouseMove;
-
             self.valid = true;
             RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
         };
@@ -153,7 +154,7 @@
         // ペーンの内容の更新
         self.onPaneContentUpdate = function(store){
             let canvas = self.refs.canvas;
-            store.activeTab.renderer.draw(canvas);
+            store.tabs[self.id].renderer.draw(canvas);
         };
 
         // サイズを適用
@@ -181,14 +182,17 @@
 <!-- label + splitter + stages -->
 <app_sheet>
     <div class="pane_container" ref="pane_container">
+        
         <div class="label_pane" ref="label_pane">
-            tab: {id}
+            tab: {id} <!-- これはデバッグ用に表示してるだけ -->
             <canvas ref="label_canvas"></canvas>
         </div>
+        
         <div class="window_splitter" ref="window_splitter">
         </div>
+
         <div class="pipeline_pane" ref="pipeline_pane">
-            <app_pipeline_canvas></app_pipeline_canvas>
+            <app_pipeline_canvas id={id}></app_pipeline_canvas>
         </div>
     </div>
 
@@ -197,7 +201,7 @@
         let self = this;
         self.lastPos = 0;
         self.inDrag = false;
-        self.id = self.opts.id;
+        self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
         self.valid = false;
 
         self.on("mount", function(){
@@ -300,6 +304,8 @@
 
             // アクティブなタブを最前面に
             container.style.zIndex = self.id == store.activeTab.id ? "0" : "-1";
+
+            //container.style.opacity = self.id == store.activeTab.id ? "0.5" : "1";
             self.update();
         };
 
