@@ -161,8 +161,25 @@
         self.on("update", function() {
             // self.width, self.height にサイズが書き込まれているので，それを反映する
             let canvas = self.refs.canvas;
-            canvas.width = self.width;
-            canvas.height = self.height;
+
+            // High DPI 対策
+            let context = canvas.getContext("2d");
+            let devicePixelRatio = window.devicePixelRatio || 1;
+            let backingStoreRatio = context.backingStorePixelRatio || 1;
+            
+            if (devicePixelRatio !== backingStoreRatio) {
+                let ratio = devicePixelRatio / backingStoreRatio;
+                canvas.width = self.width * ratio;
+                canvas.height = self.width * ratio;
+                canvas.style.width = self.width + "px";
+                canvas.style.height = self.width + "px";
+                context.scale(ratio, ratio);
+            }
+            else{
+                canvas.width = self.width;
+                canvas.height = self.height;
+            }
+
         });
 
         // エントリポイント
