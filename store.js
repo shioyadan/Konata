@@ -15,7 +15,6 @@ const ACTION = {
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
     TAB_MOVE: 34,
-    TAB_TRANSPARENT: 35,
 
     SHEET_RESIZE: 40,       // シートサイズの変更
     PANE_SPLITTER_MOVE: 50, // スプリッタ位置の変更
@@ -23,7 +22,8 @@ const ACTION = {
     KONATA_ZOOM: 60,        // 拡大/縮小
     KONATA_MOVE_WHEEL: 61,  // ホイールによるスクロール
     KONATA_MOVE_POS: 62,    // ドラッグによる位置移動
-    KONATA_CHANGE_COLOR_SCHEME: 63  // カラースキームの変更
+    KONATA_CHANGE_COLOR_SCHEME: 63,  // カラースキームの変更
+    KONATA_TRANSPARENT: 64, // 透過モードの設定
 };
 
 // CHANGE は store で行われた変更の通知に使う
@@ -108,6 +108,8 @@ function Store(){
             splitterPos: 150,   // スプリッタの位置
             transparent: false, // 透明化の有効無効
             colorScheme: "default",  // カラースキーム
+            syncScroll: false,  // スクロールを同期 
+            syncScrollID: 0,    // 同期対象のタブID
             viewPort: {         // 表示領域
                 top: 0,
                 left: 0,
@@ -173,18 +175,6 @@ function Store(){
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
-    // タブを透明化
-    self.on(ACTION.TAB_TRANSPARENT, function(tabID, enable){
-        if (!(tabID in self.tabs)) {
-            return;
-        }
-        let tab = self.tabs[tabID];
-        tab.transparent = enable;
-        self.trigger(CHANGE.TAB_UPDATE, self);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
-        self.trigger(CHANGE.MENU_UPDATE, self);
-    });
-
     // ウィンドウのサイズ変更
     self.on(ACTION.SHEET_RESIZE, function(width, height){
         self.sheet.width = width;
@@ -248,6 +238,18 @@ function Store(){
         let tab = self.tabs[tabID];
         tab.colorScheme = scheme;
         tab.renderer.changeColorScheme(scheme);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.MENU_UPDATE, self);
+    });
+
+    // パイプラインのペーンを透明化
+    self.on(ACTION.KONATA_TRANSPARENT, function(tabID, enable){
+        if (!(tabID in self.tabs)) {
+            return;
+        }
+        let tab = self.tabs[tabID];
+        tab.transparent = enable;
+        self.trigger(CHANGE.TAB_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
         self.trigger(CHANGE.MENU_UPDATE, self);
     });

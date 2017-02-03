@@ -58,7 +58,7 @@ function installMainMenu(){
                         type: "checkbox",
                         checked: tab ? tab.transparent : false, 
                         click: function(e){
-                            rc.trigger(ACTION.TAB_TRANSPARENT, tabID, e.checked);
+                            rc.trigger(ACTION.KONATA_TRANSPARENT, tabID, e.checked);
                         }
                     },
                     {
@@ -132,7 +132,7 @@ function popupTabMenu(tabID, store){
             type: "checkbox",
             checked: tab.transparent, 
             click: function(e){
-                rc.trigger(ACTION.TAB_TRANSPARENT, tabID, e.checked);
+                rc.trigger(ACTION.KONATA_TRANSPARENT, tabID, e.checked);
             }
         },
         {
