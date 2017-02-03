@@ -1,4 +1,4 @@
-function installMenu(){
+function installMainMenu(){
 
     /* global RiotControl ACTION */
     let rc = RiotControl;
@@ -68,14 +68,6 @@ function installMenu(){
                     label:"デフォルトの配色",
                     click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "default");}
                 },
-                {
-                    label:"Retina切り替え",
-                    //accelerator:"Command+-",
-                    click: function(){
-                        konata.RetinaSwitch();
-                        konata.Draw(index.path);
-                    }
-                },
             ]
         },
         {
@@ -97,8 +89,54 @@ function installMenu(){
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);
     Menu.setApplicationMenu(menu);
-
-
 }
 
-module.exports = installMenu;
+
+function popupTabMenu(tabID, store){
+
+    /* global RiotControl ACTION */
+    let rc = RiotControl;
+    let remote = require("electron").remote;
+    let tab = store.tabs[tabID];
+
+    let menuTemplate = [
+        {
+            label: "Transparent mode",
+            type: "checkbox",
+            checked: tab.transparent, 
+            click: function(e){
+                rc.trigger(ACTION.TAB_TRANSPARENT, e.checked);
+            }
+        },
+        {
+            label: "Color scheme",
+            submenu: [
+                {
+                    label: "Default",
+                    type: "checkbox",
+                    checked: tab.colorScheme == "default", 
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "default");}
+                },
+                {
+                    label: "Orange",
+                    type: "checkbox",
+                    checked: tab.colorScheme == "orange", 
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "orange");}
+                },
+                {
+                    label: "Blue",
+                    checked: tab.colorScheme == "blue", 
+                    type: "checkbox",
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "blue");}
+                },
+            ]
+        }
+    ];
+
+    let Menu = remote.Menu;
+    let menu = Menu.buildFromTemplate(menuTemplate);
+    menu.popup();
+}
+
+module.exports.installMainMenu = installMainMenu;
+module.exports.popupTabMenu = popupTabMenu;

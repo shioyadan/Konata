@@ -26,15 +26,16 @@
 
 
         // クリック
-        self.onClick = function(e, tab){
+        self.onClick = function(e, tabID, store){
             if (e.buttons & 1) {    // 左クリック - タブを移動
-                RiotControl.trigger(ACTION.TAB_ACTIVATE, tab.id);
+                RiotControl.trigger(ACTION.TAB_ACTIVATE, tabID);
             }
-            else if (e.buttons & 2) {
-                // Todo 右クリック
+            else if (e.buttons & 2) {   // 右クリック - ポップアップメニュー表示
+                let menu = require("./menu.js");
+                menu.popupTabMenu(tabID, store);
             }
             else if (e.buttons & 4) {   // 中クリック - 閉じる
-                RiotControl.trigger(ACTION.TAB_CLOSE, tab.id);
+                RiotControl.trigger(ACTION.TAB_CLOSE, tabID);
             }
 
             // <a> にもイベントが行くので，それをブロック
@@ -43,33 +44,38 @@
         };
 
         // タブの閉じるボタンのクリック
-        self.onClose = function(e, tab){
-            RiotControl.trigger(ACTION.TAB_CLOSE, tab.id);
+        self.onClose = function(e, tabID){
+            RiotControl.trigger(ACTION.TAB_CLOSE, tabID);
 
             // <a> にもイベントが行くので，それをブロック
             e.preventDefault();
             e.stopPropagation();
         };
 
+        // タブの追加/削除が行われた時
         RiotControl.on(CHANGE.TAB_UPDATE, function(store){
             // 配列に変換
             self.tabs = [];
             for (let id in store.tabs) {
-                self.tabs.push(store.tabs[id]);
-            }
+                let tab = {
+                    id: id,
+                    fileName: store.tabs[id].fileName,
 
-            for (let tab of self.tabs) {
-                // クリックのハンドラを ID ごと埋め込む
-                tab.onClickProxy = function(e){
-                    self.onClick(e, tab);
-                };
-                tab.onCloseProxy = function(e){
-                    self.onClose(e, tab);
-                };
+                    // ファイル名部分を取り出して表示
+                    tabName: store.tabs[id].fileName.match(/[^\/\\]+$/)[0],
 
-                // ファイル名部分を取り出して表示
-                tab.tabName = tab.fileName.match(/[^\/\\]+$/)[0];
-                tab.active = (store.activeTabID == tab.id) ? "active" : "";
+                    // クリックのハンドラを ID ごと埋め込む
+                    onClickProxy: function(e){
+                        self.onClick(e, id, store);
+                    },
+                    onCloseProxy: function(e){
+                        self.onClose(e, id, store);
+                    },
+
+                    // アクティブタブかどうか
+                    active: (store.activeTabID == id) ? "active" : ""
+                };
+                self.tabs.push(tab);
             }
             self.update();
         });
@@ -446,8 +452,8 @@
         self.init = function(){
 
             // メニューを追加
-            /* global installMenu */
-            installMenu();
+            let menu = require("./menu.js");
+            menu.installMainMenu();
 
             // リサイズハンドラ
             window.addEventListener("resize", self.onResize, false);
