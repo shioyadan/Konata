@@ -342,7 +342,8 @@
                 pipeline.style.opacity = store.activeTab.transparent ? "0.5" : "1"; // 透明化
             }
             else {
-                container.style.zIndex = "-1";  // アクティブなタブを最前面に
+                // 直前に表示されていたタブは優先度をあげておく
+                container.style.zIndex = store.prevTabID == self.id ?  "-1" : "-2";
                 pipeline.style.opacity = "1";   // 透明化の有効無効
             }
 

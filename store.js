@@ -69,10 +69,12 @@ function Store(){
 
     // Tab
     this.tabs = {}; // id -> tab
-    self.nextTabID = 0;
-    self.activeTabID = 0;
-    self.activeTab = null;
+    self.nextOpenedTabID = 0; // 次にオープンされるタブの ID 
 
+    self.activeTabID = 0;   // 現在アクティブなタブの ID 
+    self.activeTab = null;  // 現在アクティブなタブ
+    self.prevTabID = -1;     // 前回アクティブだったタブの ID 
+    self.prevTab = null;       // 前回アクティブだったタブ
 
     // ウィンドウサイズ
     self.sheet = {
@@ -106,7 +108,7 @@ function Store(){
 
         // Create a new tab
         let tab = {
-            id: self.nextTabID, 
+            id: self.nextOpenedTabID, 
             fileName: fileName,
             konata: konata,
             renderer: renderer,
@@ -122,10 +124,10 @@ function Store(){
                 height: 0,
             },  
         };
-        self.tabs[self.nextTabID] = tab;
-        self.activeTabID = self.nextTabID;
+        self.tabs[self.nextOpenedTabID] = tab;
+        self.activeTabID = self.nextOpenedTabID;
         self.activeTab = self.tabs[self.activeTabID];
-        self.nextTabID++;
+        self.nextOpenedTabID++;
        
         self.trigger(CHANGE.TAB_OPEN, self, tab);
         self.trigger(CHANGE.TAB_UPDATE, self, tab);
@@ -141,8 +143,12 @@ function Store(){
             return;
         }
 
+        self.prevTabID = self.activeTabID;
+        self.prevTab = self.activeTab;
+
         self.activeTabID = id;
         self.activeTab = self.tabs[self.activeTabID];
+
         self.trigger(CHANGE.TAB_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
