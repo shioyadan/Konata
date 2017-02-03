@@ -174,11 +174,12 @@ function Store(){
     });
 
     // タブを透明化
-    self.on(ACTION.TAB_TRANSPARENT, function(enable){
-        if (!self.activeTab) {
+    self.on(ACTION.TAB_TRANSPARENT, function(tabID, enable){
+        if (!(tabID in self.tabs)) {
             return;
         }
-        self.activeTab.transparent = enable;
+        let tab = self.tabs[tabID];
+        tab.transparent = enable;
         self.trigger(CHANGE.TAB_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
         self.trigger(CHANGE.MENU_UPDATE, self);
@@ -240,12 +241,13 @@ function Store(){
     });
 
     // カラースキームの変更
-    self.on(ACTION.KONATA_CHANGE_COLOR_SCHEME, function(scheme){
-        if (!self.activeTab) {
+    self.on(ACTION.KONATA_CHANGE_COLOR_SCHEME, function(tabID, scheme){
+        if (!(tabID in self.tabs)) {
             return;
         }
-        self.activeTab.colorScheme = scheme;
-        self.activeTab.renderer.changeColorScheme(scheme);
+        let tab = self.tabs[tabID];
+        tab.colorScheme = scheme;
+        tab.renderer.changeColorScheme(scheme);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
         self.trigger(CHANGE.MENU_UPDATE, self);
     });

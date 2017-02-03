@@ -7,6 +7,7 @@ function installMainMenu(){
     function makeMenuTemplate(store){
 
         let tab = store ? store.activeTab : null;
+        let tabID = store ? store.activeTabID : 0;
 
         return [
             {
@@ -57,7 +58,7 @@ function installMainMenu(){
                         type: "checkbox",
                         checked: tab ? tab.transparent : false, 
                         click: function(e){
-                            rc.trigger(ACTION.TAB_TRANSPARENT, e.checked);
+                            rc.trigger(ACTION.TAB_TRANSPARENT, tabID, e.checked);
                         }
                     },
                     {
@@ -67,19 +68,19 @@ function installMainMenu(){
                                 label: "Default",
                                 type: "checkbox",
                                 checked: tab ? tab.colorScheme == "default" : true, 
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "default");}
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "default");}
                             },
                             {
                                 label: "Orange",
                                 type: "checkbox",
                                 checked: tab ? tab.colorScheme == "orange" : false, 
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "orange");}
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "orange");}
                             },
                             {
                                 label: "Blue",
                                 checked: tab ? tab.colorScheme == "blue" : false, 
                                 type: "checkbox",
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "blue");}
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "blue");}
                             },
                         ]
                     }
@@ -131,7 +132,7 @@ function popupTabMenu(tabID, store){
             type: "checkbox",
             checked: tab.transparent, 
             click: function(e){
-                rc.trigger(ACTION.TAB_TRANSPARENT, e.checked);
+                rc.trigger(ACTION.TAB_TRANSPARENT, tabID, e.checked);
             }
         },
         {
@@ -141,19 +142,19 @@ function popupTabMenu(tabID, store){
                     label: "Default",
                     type: "checkbox",
                     checked: tab.colorScheme == "default", 
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "default");}
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "default");}
                 },
                 {
                     label: "Orange",
                     type: "checkbox",
                     checked: tab.colorScheme == "orange", 
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "orange");}
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "orange");}
                 },
                 {
                     label: "Blue",
                     checked: tab.colorScheme == "blue", 
                     type: "checkbox",
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "blue");}
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "blue");}
                 },
             ]
         }
