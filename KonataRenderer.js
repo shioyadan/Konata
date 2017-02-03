@@ -33,7 +33,9 @@ function KonataRenderer(){
     this.opH_ = 25; // スケール1のときの1命令の高さ
     this.opW_ = 25; // スケール1のときの1サイクルの幅
     this.margin_ = 5; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
-    this.skip_ = 1;
+    
+    // 拡大率が大きい場合，一部描画をはしょる
+    this.drawingInterval_ = 1;
 
     // JSON で定義された JSON
     this.STYLE_FILE_NAME_ = "./style.json";
@@ -176,36 +178,60 @@ KonataRenderer.prototype.zoom = function(zoomOut, posX, posY){
     let self = this;
     self.zoomLevel_ += zoomOut ? self.ZOOM_RATIO_ : -self.ZOOM_RATIO_;
     self.zoomScale_ = self.calcScale_(self.zoomLevel_);
+    self.drawingInterval_ = Math.floor(20/(self.zoomScale_ * Math.log(self.zoomScale_)/0.005));
 };
 
 // canvas にラベルを描画
 KonataRenderer.prototype.drawLabel = function(canvas){
     let self = this;
     let pos = self.viewPos_;
-    let scale = self.zoomScale_;
     let top = pos.top;
     let left = pos.left;
 
-    self.skip_ = Math.floor(20/(scale * Math.log(scale)/0.005));
-    self.drawTile_(canvas, top, left);
+    self.drawLabelTile_(canvas, top, left);
     return true;
+};
+
+// ラベルを実際に描画
+KonataRenderer.prototype.drawLabelTile_ = function(tile, top, left){
+    let self = this;
+    let scale = self.zoomScale_;
+    let height = tile.height / (scale * self.opH_);
+    let width = tile.width / (scale * self.opW_);
+
+    let ctx = tile.getContext("2d");
+    ctx.fillStyle = "rgb(255,255,255)";
+    ctx.fillRect(0, 0, tile.width, tile.height);
+
+    try {
+        for (let id = Math.floor(top); id < top + height; id++) {
+            if (scale < 0.005 && id % self.drawingInterval_ != 0) {
+                continue;
+            }
+            let op = self.konata_.GetOp(id);
+            if (!self.drawOp_(op, id - top, left, left + width, scale, ctx, self.styleCSS_)) {
+                return;
+            }
+        }
+    } catch(e) {
+        console.log(e);
+        return;
+    }
 };
 
 // canvas にパイプラインを描画
 KonataRenderer.prototype.drawPipeline = function(canvas){
     let self = this;
     let pos = self.viewPos_;
-    let scale = self.zoomScale_;
     let top = pos.top;
     let left = pos.left;
 
-    self.skip_ = Math.floor(20/(scale * Math.log(scale)/0.005));
-    self.drawTile_(canvas, top, left);
+    self.drawPipelineTile_(canvas, top, left);
     return true;
 };
 
 // private methods
-KonataRenderer.prototype.drawTile_ = function(tile, top, left){
+KonataRenderer.prototype.drawPipelineTile_ = function(tile, top, left){
     let self = this;
     let scale = self.zoomScale_;
     let height = tile.height / (scale * self.opH_);
@@ -216,7 +242,7 @@ KonataRenderer.prototype.drawTile_ = function(tile, top, left){
     ctx.fillRect(0, 0, tile.width, tile.height);
 
     for (let id = Math.floor(top); id < top + height; id++) {
-        if (scale < 0.005 && id % self.skip_  != 0) {
+        if (scale < 0.005 && id % self.drawingInterval_  != 0) {
             continue;
         }
         let op = null;
