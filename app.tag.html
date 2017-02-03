@@ -2,6 +2,8 @@
 <app_tabbar>
     <ul class="nav nav-tabs" ref="app_tabbar">
         <li each="{tab, i in tabs}" class={tab.active}>
+            
+            <!-- onClickProxy を介することで，どのタブが押されたかを識別する -->
             <a href={"#" + tab.id} onmousedown={tab.onClickProxy} data-toggle="tab">
                 <!-- 
                     &nbsp はタブ名の横のスペース，
@@ -9,6 +11,8 @@
                     &times; は HTML で定義された特殊文字のバツ記号
                 -->
                 {tab.tabName} &nbsp;
+
+                <!-- onCloseProxy を介することで，どのタブが押されたかを識別する -->
                 <button type="button" class="close" onmousedown={tab.onCloseProxy}>
                     &times;
                 </button>
@@ -23,27 +27,32 @@
 
         // クリック
         self.onClick = function(e, tab){
-            if (e.buttons & 1) {
+            if (e.buttons & 1) {    // 左クリック - タブを移動
                 RiotControl.trigger(ACTION.TAB_ACTIVATE, tab.id);
             }
             else if (e.buttons & 2) {
                 // Todo 右クリック
             }
-            else if (e.buttons & 4) {
+            else if (e.buttons & 4) {   // 中クリック - 閉じる
                 RiotControl.trigger(ACTION.TAB_CLOSE, tab.id);
             }
+
+            // <a> にもイベントが行くので，それをブロック
             e.stopPropagation();
             e.preventDefault();
         };
+
+        // タブの閉じるボタンのクリック
         self.onClose = function(e, tab){
             RiotControl.trigger(ACTION.TAB_CLOSE, tab.id);
+
             // <a> にもイベントが行くので，それをブロック
             e.preventDefault();
             e.stopPropagation();
         };
 
         RiotControl.on(CHANGE.TAB_UPDATE, function(store){
-            // Convert hash to array
+            // 配列に変換
             self.tabs = [];
             for (let id in store.tabs) {
                 self.tabs.push(store.tabs[id]);
@@ -57,6 +66,8 @@
                 tab.onCloseProxy = function(e){
                     self.onClose(e, tab);
                 };
+
+                // ファイル名部分を取り出して表示
                 tab.tabName = tab.fileName.match(/[^\/\\]+$/)[0];
                 tab.active = (store.activeTabID == tab.id) ? "active" : "";
             }
@@ -64,7 +75,7 @@
         });
 
         // 高さを取得
-        self.getHeight = function() {
+        self.getHeight = function(){
             return self.refs.app_tabbar.offsetHeight;
         };
     </script>
