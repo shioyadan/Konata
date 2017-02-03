@@ -1,94 +1,120 @@
 function installMainMenu(){
 
-    /* global RiotControl ACTION */
+    /* global RiotControl ACTION CHANGE */
     let rc = RiotControl;
     let remote = require("electron").remote;
 
-    let menuTemplate = [
-        {
-            label: "ファイル",
-            submenu: [
-                {
-                    label: "Open",
-                    accelerator: "Command+O",
-                    click: function(){rc.trigger(ACTION.DIALOG_FILE_OPEN);}
-                },
-                {
-                    label: "Quit",
-                    accelerator: "Command+Q",
-                    click: function(){rc.trigger(ACTION.APP_QUIT);}
-                },
-            ]
-        },
-        {
-            label: "操作",
-            submenu: [
-                {
-                    label:"Next Tab",
-                    accelerator:"Command+N",
-                    click: function(){rc.trigger(ACTION.TAB_MOVE, true);}
-                },
-                {
-                    label:"Previous Tab",
-                    accelerator:"Command+P",
-                    click: function(){rc.trigger(ACTION.TAB_MOVE, false);}
-                },
-                {
-                    label:"Zoom out",
-                    accelerator:"Command+Shift+=",
-                    click: function(){rc.trigger(ACTION.KONATA_ZOOM, false, 0, 0);}
-                },
-                {
-                    label:"Zoom in",
-                    accelerator:"Command+-",
-                    click: function(){rc.trigger(ACTION.KONATA_ZOOM, true, 0, 0);}
-                },
-            ]
-        },
-        {
-            label: "表示",
-            submenu: [
-                {
-                    label: "透明化",
-                    type: "checkbox",
-                    checked: false, // 初期値
-                    click: function(e){
-                        rc.trigger(ACTION.TAB_TRANSPARENT, e.checked);
-                    }
-                },
-                {
-                    label:"全体を橙色に",
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "orange");}
-                },
-                {
-                    label:"全体を青色に",
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "blue");}
-                },
-                {
-                    label:"デフォルトの配色",
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "default");}
-                },
-            ]
-        },
-        {
-            label: "ヘルプ",
-            submenu: [
-                {
-                    label: "バージョン情報",
-                    click: function(){
-                        RiotControl.trigger(
-                            ACTION.DIALOG_MODAL_MESSAGE,
-                            "Konata ver 0.0.2, Kojiro Izuoka and Ryota Shioya."
-                        );
-                    }
-                }
-            ]
-        }
-    ];
+    function makeMenuTemplate(store){
 
-    let Menu = remote.Menu;
-    let menu = Menu.buildFromTemplate(menuTemplate);
-    Menu.setApplicationMenu(menu);
+        let tab = store ? store.activeTab : null;
+
+        return [
+            {
+                label: "File",
+                submenu: [
+                    {
+                        label: "Open",
+                        accelerator: "Command+O",
+                        click: function(){rc.trigger(ACTION.DIALOG_FILE_OPEN);}
+                    },
+                    {
+                        label: "Quit",
+                        accelerator: "Command+Q",
+                        click: function(){rc.trigger(ACTION.APP_QUIT);}
+                    },
+                ]
+            },
+            {
+                label: "Window",
+                submenu: [
+                    {
+                        label:"Next tab",
+                        accelerator:"Command + N",
+                        click: function(){rc.trigger(ACTION.TAB_MOVE, true);}
+                    },
+                    {
+                        label:"Previous tab",
+                        accelerator:"Command + P",
+                        click: function(){rc.trigger(ACTION.TAB_MOVE, false);}
+                    },
+                    {
+                        label:"Zoom out",
+                        accelerator:"Command + Shift + =",
+                        click: function(){rc.trigger(ACTION.KONATA_ZOOM, false, 0, 0);}
+                    },
+                    {
+                        label:"Zoom in",
+                        accelerator:"Command + -",
+                        click: function(){rc.trigger(ACTION.KONATA_ZOOM, true, 0, 0);}
+                    },
+                ]
+            },
+            {
+                label: "View",
+                submenu: [
+                    {
+                        label: "Transparent mode",
+                        type: "checkbox",
+                        checked: tab ? tab.transparent : false, 
+                        click: function(e){
+                            rc.trigger(ACTION.TAB_TRANSPARENT, e.checked);
+                        }
+                    },
+                    {
+                        label: "Color scheme",
+                        submenu: [
+                            {
+                                label: "Default",
+                                type: "checkbox",
+                                checked: tab ? tab.colorScheme == "default" : true, 
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "default");}
+                            },
+                            {
+                                label: "Orange",
+                                type: "checkbox",
+                                checked: tab ? tab.colorScheme == "orange" : false, 
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "orange");}
+                            },
+                            {
+                                label: "Blue",
+                                checked: tab ? tab.colorScheme == "blue" : false, 
+                                type: "checkbox",
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, "blue");}
+                            },
+                        ]
+                    }
+                ]
+            },
+            {
+                label: "Help",
+                submenu: [
+                    {
+                        label: "Version",
+                        click: function(){
+                            rc.trigger(
+                                ACTION.DIALOG_MODAL_MESSAGE,
+                                "Konata ver 0.0.2, Kojiro Izuoka and Ryota Shioya."
+                            );
+                        }
+                    }
+                ]
+            }
+        ];
+    }
+
+    function setMenu(template){
+        let Menu = remote.Menu;
+        let menu = Menu.buildFromTemplate(template);
+        Menu.setApplicationMenu(menu);
+    }
+
+    // 初期状態として store なしで1回メニューを作る
+    setMenu(makeMenuTemplate(null));
+
+    // メニューのチェックボックス状態の更新
+    rc.on(CHANGE.MENU_UPDATE, function(store){
+        setMenu(makeMenuTemplate(store));
+    });
 }
 
 

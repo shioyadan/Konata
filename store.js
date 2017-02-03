@@ -1,6 +1,7 @@
 // アプリケーションの状態を保持する store
 
 // ACTION は store の変更を行う
+// CHANGE の数字とかぶってはいけない
 // view -> store 
 const ACTION = {
     APP_QUIT: 0,
@@ -26,6 +27,7 @@ const ACTION = {
 };
 
 // CHANGE は store で行われた変更の通知に使う
+// ACTION の数字とかぶってはいけない
 // store -> view
 const CHANGE = {
     TAB_OPEN: 100,
@@ -37,6 +39,8 @@ const CHANGE = {
     DIALOG_FILE_OPEN: 110,
     DIALOG_MODAL_MESSAGE: 111,
     DIALOG_MODAL_ERROR: 112,
+
+    MENU_UPDATE: 120,   // メニュー内容の更新
 };
 
 function Store(){
@@ -174,6 +178,7 @@ function Store(){
         self.activeTab.transparent = enable;
         self.trigger(CHANGE.TAB_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.MENU_UPDATE, self);
     });
 
     // ウィンドウのサイズ変更
@@ -224,6 +229,7 @@ function Store(){
         self.activeTab.colorScheme = scheme;
         self.activeTab.renderer.changeColorScheme(scheme);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.MENU_UPDATE, self);
     });
 
 
