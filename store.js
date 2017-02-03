@@ -1,4 +1,7 @@
 // アプリケーションの状態を保持する store
+// store の更新は必ず ACTION による trigger 経由で行う
+// 参照は自由に行って良い
+// store は ACTION による更新が行われると CHANGE による通知を行う
 
 // ACTION は store の変更を行う
 // CHANGE の数字とかぶってはいけない
@@ -24,6 +27,8 @@ const ACTION = {
     KONATA_MOVE_POS: 62,    // ドラッグによる位置移動
     KONATA_CHANGE_COLOR_SCHEME: 63,  // カラースキームの変更
     KONATA_TRANSPARENT: 64, // 透過モードの設定
+    KONATA_SYNC_SCROLL: 65, // 同期スクロール
+
 };
 
 // CHANGE は store で行われた変更の通知に使う
@@ -109,7 +114,7 @@ function Store(){
             transparent: false, // 透明化の有効無効
             colorScheme: "default",  // カラースキーム
             syncScroll: false,  // スクロールを同期 
-            syncScrollID: 0,    // 同期対象のタブID
+            syncScrollTab: 0,    // 同期対象のタブ
             viewPort: {         // 表示領域
                 top: 0,
                 left: 0,
@@ -254,6 +259,28 @@ function Store(){
         self.trigger(CHANGE.MENU_UPDATE, self);
     });
 
+    // スクロールの同期化
+    self.on(ACTION.KONATA_SYNC_SCROLL, function(tabID, syncedTabID, enable){
+
+        if (!(tabID in self.tabs)) {
+            return;
+        }
+        let tab = self.tabs[tabID];
+
+        if (enable) {
+            if (!(syncedTabID in self.tabs)) {
+                return;
+            }
+            tab.syncScroll = true;
+            tab.syncScrollTab = self.tabs[syncedTabID];
+        }
+        else{
+            tab.syncScroll = false;
+            tab.syncScrollTab = null;
+        }
+
+        self.trigger(CHANGE.MENU_UPDATE, self);
+    });
 
 
 }
