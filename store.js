@@ -212,6 +212,11 @@ function Store(){
         }
         let renderer = self.activeTab.renderer;
         renderer.zoom(zoomOut, posX, posY);
+        // 同期
+        if (self.activeTab.syncScroll) {
+            let renderer = self.activeTab.syncScrollTab.renderer;
+            renderer.zoom(zoomOut, posX, posY);
+        }
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
@@ -222,6 +227,11 @@ function Store(){
         }
         let renderer = self.activeTab.renderer;
         renderer.moveWheel(wheelUp);
+        // 同期
+        if (self.activeTab.syncScroll) {
+            let renderer = self.activeTab.syncScrollTab.renderer;
+            renderer.moveWheel(wheelUp);
+        }
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
@@ -232,6 +242,11 @@ function Store(){
         }
         let renderer = self.activeTab.renderer;
         renderer.movePos(diff);
+        // 同期
+        if (self.activeTab.syncScroll) {
+            let renderer = self.activeTab.syncScrollTab.renderer;
+            renderer.movePos(diff);
+        }
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
     });
 
