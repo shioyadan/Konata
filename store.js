@@ -175,6 +175,9 @@ function Store(){
 
     // タブを透明化
     self.on(ACTION.TAB_TRANSPARENT, function(enable){
+        if (!self.activeTab) {
+            return;
+        }
         self.activeTab.transparent = enable;
         self.trigger(CHANGE.TAB_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
@@ -191,6 +194,9 @@ function Store(){
 
     // スプリッタの位置変更
     self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
+        if (!self.activeTab) {
+            return;
+        }
         self.activeTab.splitterPos = position;
         self.trigger(CHANGE.PANE_SIZE_UPDATE, self);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
@@ -205,6 +211,9 @@ function Store(){
     // zoomOut は true の際にズームアウト
     // posX, posY はズームの中心点
     self.on(ACTION.KONATA_ZOOM, function(zoomOut, posX, posY){
+        if (!self.activeTab) {
+            return;
+        }
         let renderer = self.activeTab.renderer;
         renderer.zoom(zoomOut, posX, posY);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
@@ -212,6 +221,9 @@ function Store(){
 
     // ホイールによる移動
     self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
+        if (!self.activeTab) {
+            return;
+        }
         let renderer = self.activeTab.renderer;
         renderer.moveWheel(wheelUp);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
@@ -219,6 +231,9 @@ function Store(){
 
     // ホイールによる移動
     self.on(ACTION.KONATA_MOVE_POS, function(diff){
+        if (!self.activeTab) {
+            return;
+        }
         let renderer = self.activeTab.renderer;
         renderer.movePos(diff);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
@@ -226,6 +241,9 @@ function Store(){
 
     // カラースキームの変更
     self.on(ACTION.KONATA_CHANGE_COLOR_SCHEME, function(scheme){
+        if (!self.activeTab) {
+            return;
+        }
         self.activeTab.colorScheme = scheme;
         self.activeTab.renderer.changeColorScheme(scheme);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
