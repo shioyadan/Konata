@@ -178,8 +178,21 @@ KonataRenderer.prototype.zoom = function(zoomOut, posX, posY){
     self.zoomScale_ = self.calcScale_(self.zoomLevel_);
 };
 
-// Use renderer process only
-KonataRenderer.prototype.draw = function(canvas){
+// canvas にラベルを描画
+KonataRenderer.prototype.drawLabel = function(canvas){
+    let self = this;
+    let pos = self.viewPos_;
+    let scale = self.zoomScale_;
+    let top = pos.top;
+    let left = pos.left;
+
+    self.skip_ = Math.floor(20/(scale * Math.log(scale)/0.005));
+    self.drawTile_(canvas, top, left);
+    return true;
+};
+
+// canvas にパイプラインを描画
+KonataRenderer.prototype.drawPipeline = function(canvas){
     let self = this;
     let pos = self.viewPos_;
     let scale = self.zoomScale_;

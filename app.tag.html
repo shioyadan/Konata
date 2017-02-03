@@ -87,6 +87,7 @@
     </script>
 </app_tabbar>
 
+
 <!-- 可視化されたパイプラインを表示するキャンバス -->
 <app_pipeline_canvas>
     <canvas ref="canvas"></canvas>
@@ -171,7 +172,7 @@
         // ペーンの内容の更新
         self.onPaneContentUpdate = function(store){
             let canvas = self.refs.canvas;
-            store.tabs[self.id].renderer.draw(canvas);
+            store.tabs[self.id].renderer.drawPipeline(canvas);
         };
 
         // サイズを適用
@@ -210,16 +211,98 @@
 
     </script>
 </app_pipeline_canvas>
-    
 
+
+<!-- 逆アセンブル結果を表示するキャンバス -->
+<app_label_canvas>
+    <canvas ref="canvas"></canvas>
+    <script>
+        let self = this;
+        self.width = 100;
+        self.height = 100;
+        self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
+
+        // 初期化
+        // タグのマウント時に呼ばれるようにする
+        self.init = function(){
+            let canvas = self.refs.canvas;
+            canvas.onmousewheel = self.onMouseWheel;
+            canvas.onmousedown = self.onMouseDown;
+            RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+        };
+
+        // マウス操作
+        self.onMouseWheel = function(e){
+            if (e.ctrlKey) {    // 拡大縮小
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0, e.offsetX, e.offsetY);
+            } 
+            else {  // スクロール
+                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);
+            }
+        };
+
+        // マウスクリック
+        self.onMouseDown = function(e){
+            // 左クリック
+            if (e.buttons & 1) {
+            }
+            // 左クリック
+            if (e.buttons & 2) {
+            }
+
+            // クリック時に他所にフォーカスが奪われるのを防ぐ
+            e.preventDefault();
+        };        
+
+
+        // ペーンの内容の更新
+        self.onPaneContentUpdate = function(store){
+            let canvas = self.refs.canvas;
+            store.tabs[self.id].renderer.drawLabel(canvas);
+        };
+
+        // サイズを適用
+        self.on("update", function() {
+            // self.width, self.height にサイズが書き込まれているので，それを反映する
+            let canvas = self.refs.canvas;
+
+            // High DPI 対策
+            let context = canvas.getContext("2d");
+            let devicePixelRatio = window.devicePixelRatio || 1;
+            let backingStoreRatio = context.backingStorePixelRatio || 1;
+            
+            if (devicePixelRatio !== backingStoreRatio) {
+                let ratio = devicePixelRatio / backingStoreRatio;
+                canvas.width = self.width * ratio;
+                canvas.height = self.width * ratio;
+                canvas.style.width = self.width + "px";
+                canvas.style.height = self.width + "px";
+                context.scale(ratio, ratio);
+            }
+            else{
+                canvas.width = self.width;
+                canvas.height = self.height;
+            }
+        });
+
+        // エントリポイント
+        // マウント時に初期化を行う
+        self.on("mount", self.init);
+
+        self.on("unmount", function(){
+            RiotControl.off(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+        });
+
+    </script>
+</app_label_canvas>
 
 <!-- label + splitter + stages -->
 <app_sheet>
     <div class="pane_container" ref="pane_container">
         
         <div class="label_pane" ref="label_pane">
-            tab: {id} <!-- これはデバッグ用に表示してるだけ -->
-            <canvas ref="label_canvas"></canvas>
+             <!-- tab: {id} デバッグ用表示 -->
+            <app_label_canvas id={id}></app_label_canvas>
         </div>
         
         <div class="window_splitter" ref="window_splitter">
@@ -264,6 +347,9 @@
         self.onMouseDown = function(e){
             self.lastPos = e.clientX;
             self.inDrag = true;
+
+            // クリック時に他所にフォーカスが奪われるのを防ぐ
+            e.preventDefault();
             //console.log(`mousedown ${self.id}`);
         };
 
@@ -317,7 +403,7 @@
             pipeline.style.height = "" + store.sheet.height + "px";
 
             // canvas
-            let label_canvas = self.refs.label_canvas;
+            let label_canvas = self.tags.app_label_canvas;
             let pipeline_canvas = self.tags.app_pipeline_canvas;
             label_canvas.width = label.offsetWidth;
             label_canvas.height = label.offsetHeight;
