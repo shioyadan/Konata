@@ -207,7 +207,7 @@ KonataRenderer.prototype.drawLabelTile_ = function(tile, logTop, logLeft){
 
     // 背景をクリア
     let ctx = tile.getContext("2d");
-    ctx.fillStyle = "rgb(255,255,255)";
+    ctx.fillStyle = "rgb(245,245,245)";
     ctx.fillRect(0, 0, tile.width, tile.height);
 
     // フォント

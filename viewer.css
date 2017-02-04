@@ -22,13 +22,12 @@ html, body {
 
 /* ラベルとパイプラインの間のスプリッタ */
 .window_splitter {
-    width: 8px;
-    min-width: 8px;
-    max-width: 8px;
+    width: 10px;
+    min-width: 10px;
+    max-width: 10px;
 
-    /*border-right: 1px solid #ccc;*/
     border-left: 1px solid #ccc;
-    background-color: #eee; /* ラベル部分と一体化させる */
+    background-color: #ffffff; /* ラベル部分と一体化させる */
     cursor: col-resize;
 }
 
