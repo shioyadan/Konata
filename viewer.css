@@ -17,17 +17,17 @@ html, body {
 
 /* 左側のラベルペーン */
 .label_pane {
-    width:150px;    /* 初期幅は150*/
-    background-color: #eee; /* ラベル部分は少し暗く */
+    width: 300px;    /* この幅は実際には Store の中で設定される */
 }
 
 /* ラベルとパイプラインの間のスプリッタ */
 .window_splitter {
-    width: 10px;
-    min-width: 10px;
-    max-width: 10px;
+    width: 8px;
+    min-width: 8px;
+    max-width: 8px;
 
-    border-right: 1px solid grey;
+    /*border-right: 1px solid #ccc;*/
+    border-left: 1px solid #ccc;
     background-color: #eee; /* ラベル部分と一体化させる */
     cursor: col-resize;
 }

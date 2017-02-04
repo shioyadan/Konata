@@ -112,7 +112,7 @@ function Store(){
             fileName: fileName,
             konata: konata,
             renderer: renderer,
-            splitterPos: 150,   // スプリッタの位置
+            splitterPos: 300,   // スプリッタの位置
             transparent: false, // 透明化の有効無効
             colorScheme: "default",  // カラースキーム
             syncScroll: false,  // スクロールを同期 

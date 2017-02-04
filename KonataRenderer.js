@@ -192,26 +192,44 @@ KonataRenderer.prototype.drawLabel = function(canvas){
     return true;
 };
 
-// ラベルを実際に描画
-KonataRenderer.prototype.drawLabelTile_ = function(tile, top, left){
+/** ラベルを実際に描画
+ * @param {Obaject} tile - 描画対象の canvas
+ * @param {float} logTop - 現在論理位置
+ * @param {float} logLeft - 現在論理位置
+ */
+KonataRenderer.prototype.drawLabelTile_ = function(tile, logTop, logLeft){
     let self = this;
     let scale = self.zoomScale_;
-    let height = tile.height / (scale * self.opH_);
-    let width = tile.width / (scale * self.opW_);
 
+    // スケールを勘案した論理サイズに変換
+    let logHeight = tile.height / (scale * self.opH_);
+    //let logWidth = tile.width / (scale * self.opW_);
+
+    // 背景をクリア
     let ctx = tile.getContext("2d");
     ctx.fillStyle = "rgb(255,255,255)";
     ctx.fillRect(0, 0, tile.width, tile.height);
 
+    // フォント
+    let fontFamily = self.styleObj_["font-family"];
+    let fontStyle = self.styleObj_["font-style"];
+    let fontSize = self.styleObj_["font-size"];
+    fontSize = parseInt(fontSize);// * scale;
+    fontSize = fontSize + "px";
+    ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
+
+    if (scale < 1) {
+        return;
+    }
+
     try {
-        for (let id = Math.floor(top); id < top + height; id++) {
-            if (scale < 0.005 && id % self.drawingInterval_ != 0) {
-                continue;
-            }
+        ctx.fillStyle = "rgb(0,0,0)";
+        for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
+            let x = self.margin_;
+            let y = ((id - logTop)*self.opH_ + (self.opH_ - self.margin_)*3/4) * scale;
             let op = self.konata_.GetOp(id);
-            if (!self.drawOp_(op, id - top, left, left + width, scale, ctx, self.styleCSS_)) {
-                return;
-            }
+            let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labels[0].text}`;
+            ctx.fillText(text, x, y);
         }
     } catch(e) {
         console.log(e);
