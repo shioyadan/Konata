@@ -30,7 +30,11 @@ function KonataRenderer(){
     this.opW_ = 32; // スケール1のときの1サイクルの幅
     this.opH_ = 24; // スケール1のときの1命令の高さ
     this.margin_ = 2; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
-    
+
+    // 線の描画がぼけるので，補正する
+    // ref: http://stackoverflow.com/questions/18019453/svg-rectangle-blurred-in-all-browsers
+    this.PIXEL_ADJUST = 0.5;    
+
     // 拡大率が大きい場合，一部描画をはしょる
     this.drawingInterval_ = 1;
 
@@ -285,7 +289,7 @@ KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, 
         console.log("Not context object");
         return false;
     }
-    let top = h * self.opH_ * scale;
+    let top = h * self.opH_ * scale + self.PIXEL_ADJUST;
     //context.fillStyle = "#ffffff";
     context.clearRect(0, top, (endCycle - startCycle) * scale, self.opH_ * scale);
     //context.fillStyle = null;
@@ -299,16 +303,14 @@ KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, 
     }
     let l = startCycle > op.fetchedCycle ? (startCycle - 1) : op.fetchedCycle; l -= startCycle;
     let r = endCycle >= op.retiredCycle ? op.retiredCycle : (endCycle + 1); r -= startCycle;
-    let left = l * scale * self.opW_;
-    let right = r * scale * self.opW_;
+    let left = l * scale * self.opW_ + self.PIXEL_ADJUST;
+    let right = r * scale * self.opW_ + self.PIXEL_ADJUST;
     
     if (scale < 0.2) {
         context.strokeStyle = "#888888";
     } else {
         context.strokeStyle = "#333333";
     }
-    context.fillStyle = "#888888";
-    context.strokeRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
     if (scale >= 0.1) {
         let keys = [];
         for (let key in op.lanes) {
@@ -327,6 +329,10 @@ KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, 
         context.fillStyle = bgc;
         context.fillRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
     }
+    
+    context.lineWidth = 1;
+    context.fillStyle = "#888888";
+    context.strokeRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
     self.ClearStyle_(context);
     return true;
 };
@@ -348,7 +354,7 @@ KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale
     let fontStyle = self.style_["font-style"];
 
     let lane = op.lanes[laneName];
-    let top = h * self.opH_ * scale;
+    let top = h * self.opH_ * scale + self.PIXEL_ADJUST;
     for (let i = 0, len = lane.length; i < len; i++) {
         let stage = lane[i];
         if (stage.endCycle == null) {
@@ -365,11 +371,12 @@ KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale
         let color = self.getStageColor_(laneName, stage.name);
         let l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
         let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
-        let left = l * scale * self.opW_;
-        let right = r * scale * self.opW_;
+        let left = l * scale * self.opW_ + self.PIXEL_ADJUST;
+        let right = r * scale * self.opW_ + self.PIXEL_ADJUST;
         let grad = context.createLinearGradient(0,top,0,top+self.opH_ * scale);
         grad.addColorStop(1, color);
         grad.addColorStop(0, "#eee");
+        context.lineWidth = 1;
         context.fillStyle = grad;
         context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
         context.clearRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
