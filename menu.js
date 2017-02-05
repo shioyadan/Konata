@@ -1,10 +1,10 @@
 function installMainMenu(){
 
-    /* global RiotControl ACTION CHANGE */
+    /* global RiotControl ACTION CHANGE store */
     let rc = RiotControl;
     let remote = require("electron").remote;
 
-    function makeMenuTemplate(store){
+    function makeMenuTemplate(){
 
         let tab = store ? store.activeTab : null;
         let tabID = store ? store.activeTabID : 0;
@@ -110,11 +110,11 @@ function installMainMenu(){
     }
 
     // 初期状態として store なしで1回メニューを作る
-    setMenu(makeMenuTemplate(null));
+    setMenu(makeMenuTemplate());
 
     // メニューのチェックボックス状態の更新
-    rc.on(CHANGE.MENU_UPDATE, function(store){
-        setMenu(makeMenuTemplate(store));
+    rc.on(CHANGE.MENU_UPDATE, function(){
+        setMenu(makeMenuTemplate());
     });
 }
 

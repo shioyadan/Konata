@@ -129,10 +129,10 @@ function Store(){
         self.activeTab = self.tabs[self.activeTabID];
         self.nextOpenedTabID++;
        
-        self.trigger(CHANGE.TAB_OPEN, self, tab);
-        self.trigger(CHANGE.TAB_UPDATE, self, tab);
-        self.trigger(CHANGE.PANE_SIZE_UPDATE, self);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.TAB_OPEN, tab);
+        self.trigger(CHANGE.TAB_UPDATE, tab);
+        self.trigger(CHANGE.PANE_SIZE_UPDATE);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
 
     });
 
@@ -149,8 +149,8 @@ function Store(){
         self.activeTabID = id;
         self.activeTab = self.tabs[self.activeTabID];
 
-        self.trigger(CHANGE.TAB_UPDATE, self);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.TAB_UPDATE);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
     // タブ移動
@@ -182,16 +182,16 @@ function Store(){
         if (!self.activeTab) {
             self.activeTabID = -1;
         }
-        self.trigger(CHANGE.TAB_UPDATE, self);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.TAB_UPDATE);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
     // ウィンドウのサイズ変更
     self.on(ACTION.SHEET_RESIZE, function(width, height){
         self.sheet.width = width;
         self.sheet.height = height;
-        self.trigger(CHANGE.PANE_SIZE_UPDATE, self);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.PANE_SIZE_UPDATE);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
     // スプリッタの位置変更
@@ -200,8 +200,8 @@ function Store(){
             return;
         }
         self.activeTab.splitterPos = position;
-        self.trigger(CHANGE.PANE_SIZE_UPDATE, self);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.PANE_SIZE_UPDATE);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
     // アプリケーション終了
@@ -223,7 +223,7 @@ function Store(){
             let renderer = self.activeTab.syncScrollTab.renderer;
             renderer.zoom(zoomOut, posX, posY);
         }
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
     // ホイールによる移動
@@ -238,7 +238,7 @@ function Store(){
             let renderer = self.activeTab.syncScrollTab.renderer;
             renderer.moveWheel(wheelUp);
         }
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
     // ホイールによる移動
@@ -253,7 +253,7 @@ function Store(){
             let renderer = self.activeTab.syncScrollTab.renderer;
             renderer.movePos(diff);
         }
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
     // カラースキームの変更
@@ -264,8 +264,8 @@ function Store(){
         let tab = self.tabs[tabID];
         tab.colorScheme = scheme;
         tab.renderer.changeColorScheme(scheme);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
-        self.trigger(CHANGE.MENU_UPDATE, self);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        self.trigger(CHANGE.MENU_UPDATE);
     });
 
     // パイプラインのペーンを透明化
@@ -275,9 +275,9 @@ function Store(){
         }
         let tab = self.tabs[tabID];
         tab.transparent = enable;
-        self.trigger(CHANGE.TAB_UPDATE, self);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE, self);
-        self.trigger(CHANGE.MENU_UPDATE, self);
+        self.trigger(CHANGE.TAB_UPDATE);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        self.trigger(CHANGE.MENU_UPDATE);
     });
 
     // スクロールの同期化
@@ -300,7 +300,7 @@ function Store(){
             tab.syncScrollTab = null;
         }
 
-        self.trigger(CHANGE.MENU_UPDATE, self);
+        self.trigger(CHANGE.MENU_UPDATE);
     });
 
 

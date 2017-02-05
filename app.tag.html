@@ -26,13 +26,13 @@
 
 
         // クリック
-        self.onClick = function(e, tabID, store){
+        self.onClick = function(e, tabID){
             if (e.buttons & 1) {    // 左クリック - タブを移動
                 RiotControl.trigger(ACTION.TAB_ACTIVATE, tabID);
             }
             else if (e.buttons & 2) {   // 右クリック - ポップアップメニュー表示
                 let menu = require("./menu.js");
-                menu.popupTabMenu(tabID, store);
+                menu.popupTabMenu(tabID);
             }
             else if (e.buttons & 4) {   // 中クリック - 閉じる
                 RiotControl.trigger(ACTION.TAB_CLOSE, tabID);
@@ -53,7 +53,7 @@
         };
 
         // タブの追加/削除が行われた時
-        RiotControl.on(CHANGE.TAB_UPDATE, function(store){
+        RiotControl.on(CHANGE.TAB_UPDATE, function(){
             // 配列に変換
             self.tabs = [];
             for (let id in store.tabs) {
@@ -66,10 +66,10 @@
 
                     // クリックのハンドラを ID ごと埋め込む
                     onClickProxy: function(e){
-                        self.onClick(e, id, store);
+                        self.onClick(e, id);
                     },
                     onCloseProxy: function(e){
-                        self.onClose(e, id, store);
+                        self.onClose(e, id);
                     },
 
                     // アクティブタブかどうか
@@ -170,7 +170,7 @@
         };
 
         // ペーンの内容の更新
-        self.onPaneContentUpdate = function(store){
+        self.onPaneContentUpdate = function(){
             let canvas = self.refs.canvas;
             store.tabs[self.id].renderer.drawPipeline(canvas);
         };
@@ -299,7 +299,7 @@
 
 
         // ペーンの内容の更新
-        self.onPaneContentUpdate = function(store){
+        self.onPaneContentUpdate = function(){
             let canvas = self.refs.canvas;
             store.tabs[self.id].renderer.drawLabel(canvas);
         };
@@ -434,7 +434,7 @@
             //console.log(`mousemove ${self.id}`);
         };
 
-        self.onPaneSizeUpdate = function(store){
+        self.onPaneSizeUpdate = function(){
             // これは全てのアクティブなタブでのみ実行する必要がある
             if (self.id != store.activeTabID) {
                 return;
@@ -469,7 +469,7 @@
 
         // タブの内容の更新
         // シートの zindex を操作して，アクティブなもののみを見せる
-        self.onTabUpdate = function(store){
+        self.onTabUpdate = function(){
             if (!self.valid) {
                 return;
             }
@@ -503,7 +503,7 @@
         self.width = 0;
         self.height = 0;
         
-        RiotControl.on(CHANGE.TAB_UPDATE, function(store){
+        RiotControl.on(CHANGE.TAB_UPDATE, function(){
             self.sheets = [];
             for (let id in store.tabs) {
                 self.sheets.push(store.tabs[id]);
@@ -538,7 +538,7 @@
 
         // 新規タブのオープン
         RiotControl.on(CHANGE.TAB_OPEN,
-            function(store, tab){
+            function(tab){
                 let path = tab.fileName;
                 if (!path) {
                     return;
