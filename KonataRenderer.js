@@ -27,9 +27,6 @@ function KonataRenderer(){
     this.konata_ = null;
     this.colorScheme_ = "default";   // カラースキーム名
 
-    this.styleCSS_ = null; // 親要素(.tab)の持つスタイル
-
-    // 以下のパラメータはOp.jsと合わせる．(そうしないと表示がズレる)
     this.opH_ = 25; // スケール1のときの1命令の高さ
     this.opW_ = 25; // スケール1のときの1サイクルの幅
     this.margin_ = 5; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
@@ -39,7 +36,7 @@ function KonataRenderer(){
 
     // JSON で定義された JSON
     this.STYLE_FILE_NAME_ = "./style.json";
-    this.styleObj_ = null;
+    this.style_ = null;
 
     //let m_maxScale = 2; // retinaの場合、倍精度必要なので最大倍率も倍
     //let m_minScale = 0.00006103515625;
@@ -59,7 +56,6 @@ KonataRenderer.prototype.init = function(konata){
     self.viewPos_ = {left:0, top:0};
     self.zoomLevel_ = 0;
     self.zoomScale_ = 1;
-    self.styleCSS_ = {};
 
     self.loadStyle_(self.STYLE_FILE_NAME_);
 };
@@ -71,7 +67,7 @@ KonataRenderer.prototype.init = function(konata){
 KonataRenderer.prototype.loadStyle_ = function(fileName){
     let self = this;
     let fs = require("fs");
-    self.styleObj_ = JSON.parse(fs.readFileSync(fileName, "utf8"));
+    self.style_ = JSON.parse(fs.readFileSync(fileName, "utf8"));
 };
 
 /**
@@ -84,13 +80,13 @@ KonataRenderer.prototype.getStageColor_ = function(lane, stage){
         return self.colorScheme_;
     }
 
-    let style = self.styleObj_["lane-style"];
+    let style = self.style_["lane-style"];
     if (lane in style) {
         if (stage in style[lane]) {
             return style[lane][stage];
         }
     }
-    return self.styleObj_["default-color"];
+    return self.style_["default-color"];
 };
 
 /**
@@ -211,9 +207,9 @@ KonataRenderer.prototype.drawLabelTile_ = function(tile, logTop, logLeft){
     ctx.fillRect(0, 0, tile.width, tile.height);
 
     // フォント
-    let fontFamily = self.styleObj_["font-family"];
-    let fontStyle = self.styleObj_["font-style"];
-    let fontSize = self.styleObj_["font-size"];
+    let fontFamily = self.style_["font-family"];
+    let fontStyle = self.style_["font-style"];
+    let fontSize = self.style_["font-size"];
     fontSize = parseInt(fontSize);// * scale;
     fontSize = fontSize + "px";
     ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
@@ -273,28 +269,18 @@ KonataRenderer.prototype.drawPipelineTile_ = function(tile, top, left){
         if (op == null) {
             return;
         }
-        if (!self.drawOp_(op, id - top, left, left + width, scale, ctx, self.styleCSS_)) {
+        if (!self.drawOp_(op, id - top, left, left + width, scale, ctx)) {
             return;
         }
     }
 };
 
 
-KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, context, parentStyle){
+KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, context){
     let self = this;
     if (!context.fillRect) {
         console.log("Not context object");
         return false;
-    }
-    if (parentStyle && parentStyle["opacity"]) {
-        context.globalAlpha = parentStyle.opacity;
-    }
-
-    let colorSet = false;
-    if (parentStyle && parentStyle["color"]) {
-        context.fillStyle = parentStyle.color;
-        context.strokeStyle = parentStyle.color;
-        colorSet = true;
     }
     let top = h * self.opH_ * scale;
     //context.fillStyle = "#ffffff";
@@ -312,15 +298,13 @@ KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, 
     let r = endCycle >= op.retiredCycle ? op.retiredCycle : (endCycle + 1); r -= startCycle;
     let left = l * scale * self.opW_;
     let right = r * scale * self.opW_;
-    if (colorSet) {
-    } else if (scale < 0.2) {
+    
+    if (scale < 0.2) {
         context.strokeStyle = "#888888";
     } else {
         context.strokeStyle = "#333333";
     }
-    if (!colorSet) {
-        context.fillStyle = "#888888";
-    }
+    context.fillStyle = "#888888";
     context.strokeRect(left, top, right - left, (self.opH_ - self.margin_) * scale);
     if (scale >= 0.1) {
         let keys = [];
@@ -330,7 +314,7 @@ KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, 
         keys = keys.sort();
         for (let i = 0, len = keys.length; i < len; i++) {
             let key = keys[i];
-            self.drawLane_(op, h, startCycle, endCycle, scale, context, key, parentStyle);
+            self.drawLane_(op, h, startCycle, endCycle, scale, context, key);
         }
     }
     if (op.flush) {
@@ -351,22 +335,15 @@ KonataRenderer.prototype.ClearStyle_ = function(context){
     context.strokeStyle = null;
 };
 
-/**
- * @param {object} parentStyle - 外部から指定されたスタイル
- */
-KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale, context, laneName, parentStyle){
+KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale, context, laneName){
     let self = this;
 
-    let fontSize = self.styleObj_["font-size"];
+    let fontSize = self.style_["font-size"];
     fontSize = parseInt(fontSize) * scale;
     fontSize = fontSize + "px";
-    let fontFamily = self.styleObj_["font-family"];
-    let fontStyle = self.styleObj_["font-style"];
+    let fontFamily = self.style_["font-family"];
+    let fontStyle = self.style_["font-style"];
 
-    let colorSet = false;
-    if (parentStyle && parentStyle["color"]) {
-        colorSet = true;
-    }
     let lane = op.lanes[laneName];
     let top = h * self.opH_ * scale;
     for (let i = 0, len = lane.length; i < len; i++) {
@@ -382,12 +359,7 @@ KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale
         if (stage.endCycle == stage.startCycle) {
             continue;
         }
-        let color;
-        if (!colorSet) {
-            color = self.getStageColor_(laneName, stage.name);
-        } else {
-            color = parentStyle.color;
-        }
+        let color = self.getStageColor_(laneName, stage.name);
         let l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
         let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
         let left = l * scale * self.opW_;
