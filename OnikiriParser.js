@@ -138,69 +138,69 @@ function OnikiriParser () {
         }
 
         switch(command) {
-            case "I": {
-                op = new Op.Op({id:id});
-                op.gid = args[1];
-                op.tid = args[2];
-                op.fetchedCycle = cycle;
-                m_opCache[id] = [op, lineIdx];
-                break;
-            }
+        case "I": {
+            op = new Op.Op({id:id});
+            op.gid = args[1];
+            op.tid = args[2];
+            op.fetchedCycle = cycle;
+            m_opCache[id] = [op, lineIdx];
+            break;
+        }
 
-            case "L": {
-                let visible = Number(args[1]) == 0? true:false;
-                let label = new Label({text:args[2], visible:visible});
-                op.labels.push(label);
-                break;
-            }
+        case "L": {
+            let visible = Number(args[1]) == 0? true:false;
+            let label = new Label({text:args[2], visible:visible});
+            op.labels.push(label);
+            break;
+        }
 
-            case "S": {
-                let laneName = args[1];
-                let stageName = args[2];
-                let stage = new Stage({name:stageName, startCycle:cycle});
-                if (op.lanes[laneName] == null) {
-                    op.lanes[laneName] = [];
-                }
-                //var lane = op.lanes[laneName];
-                op.lanes[laneName].push(stage);
-                break;
+        case "S": {
+            let laneName = args[1];
+            let stageName = args[2];
+            let stage = new Stage({name:stageName, startCycle:cycle});
+            if (op.lanes[laneName] == null) {
+                op.lanes[laneName] = [];
             }
+            //var lane = op.lanes[laneName];
+            op.lanes[laneName].push(stage);
+            break;
+        }
 
-            case "E": {
-                let laneName = args[1];
-                let stageName = args[2];
-                let stage = null;
-                let lane = op.lanes[laneName];
-                for (let i = lane.length - 1; i >= 0; i--) {
-                    if (lane[i].name == stageName) {
-                        stage = lane[i];
-                        break;
-                    }
-                }
-                if (stage == null) {
+        case "E": {
+            let laneName = args[1];
+            let stageName = args[2];
+            let stage = null;
+            let lane = op.lanes[laneName];
+            for (let i = lane.length - 1; i >= 0; i--) {
+                if (lane[i].name == stageName) {
+                    stage = lane[i];
                     break;
                 }
-                stage.endCycle = cycle;
+            }
+            if (stage == null) {
                 break;
             }
+            stage.endCycle = cycle;
+            break;
+        }
 
-            case "R": {
-                op.retired = true;
-                op.rid = args[1];
-                op.retiredCycle = cycle;
-                if (Number(args[2] == 1)) {
-                    op.flush = true;
-                }
-                break;
+        case "R": {
+            op.retired = true;
+            op.rid = args[1];
+            op.retiredCycle = cycle;
+            if (Number(args[2] == 1)) {
+                op.flush = true;
             }
+            break;
+        }
 
-            case "W": {
-                let prodId = Number(args[1]);
-                let type = Number(args[2]);
-                op.prods.push([prodId, type, cycle]);
-                m_opCache[prodId][0].cons.push([id, type, cycle]);
-                break;
-            }
+        case "W": {
+            let prodId = Number(args[1]);
+            let type = Number(args[2]);
+            op.prods.push([prodId, type, cycle]);
+            m_opCache[prodId][0].cons.push([id, type, cycle]);
+            break;
+        }
         }  // switch end
     }
 }
