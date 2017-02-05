@@ -16,6 +16,8 @@ class Op{
         this.fetchedCycle = -1;
         this.retiredCycle = -1;
 
+        this.line = 0;
+        
         this.labelName = "";
         this.labelDetail = "";
         this.labelStage = {};

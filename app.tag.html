@@ -230,7 +230,6 @@
         .tool_tip{ 
             position: absolute;
             z-index: 100;
-            visibility: "hideen";
         }
     </style>
 
@@ -254,6 +253,9 @@
             canvas.onmouseleave = self.onMouseLeave;
             
             RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "hidden";
         };
 
         // マウス操作

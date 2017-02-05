@@ -171,6 +171,7 @@ class OnikiriParser{
             op.gid = args[2];
             op.tid = args[3];
             op.fetchedCycle = this.curCycle;
+            op.line = lineIdx;
             this.opCache_[id] = [op, lineIdx];
             break;
 
