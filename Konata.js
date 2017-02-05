@@ -8,7 +8,7 @@ function Konata(){
     let m_lastFetchedId = 0;
 
     let File = require("./File");
-    let OnikiriParser_ = require("./OnikiriParser");
+    let OnikiriParser_ = require("./onikiri_parser").OnikiriParser;
     let m_Cache = require("./Cache");
 
     this.Close = function(){
