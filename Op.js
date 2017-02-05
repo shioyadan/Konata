@@ -15,7 +15,13 @@ class Op{
         this.lanes = {}; // レーン情報の連想配列
         this.fetchedCycle = -1;
         this.retiredCycle = -1;
+
+        this.labelName = "";
+        this.labelDetail = "";
+        this.labelStage = {};
         
+        this.lastParsedStage = "";
+
         this.labels = []; // ラベル情報の入っている配列
         this.prods = []; // プロデューサ命令のIDの配列
         this.cons = []; // コンシューマ命令のIDの配列

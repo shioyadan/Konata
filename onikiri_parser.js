@@ -133,6 +133,8 @@ class OnikiriParser{
 
 
         let id = parseInt(args[1]);
+
+        /** @type {Op}  */
         let op = null;
         if (id in this.opCache_) {
             op = this.opCache_[id][0];
@@ -144,11 +146,27 @@ class OnikiriParser{
         }
 
         switch(cmd) {
+
         case "C": 
+            // 前回ログ出力時からの経過サイクル数を指定
+            // フォーマット
+            //      C	<CYCLE>
+            // <CYCLE>: 経過サイクル数
             this.curCycle += parseInt(args[1]);
             break;
         
         case "I": 
+            // 特定の命令に関するコマンド出力の開始
+            // 使用例：
+            //      I	0	0	0
+            // * 命令に関するコマンドを出力する前にこれが必要
+            //      ファイル内に新しい命令が初めて現れた際に出力
+            // * 2列目はファイル内の一意のID
+            //      ファイル内で現れるたびに振られるシーケンシャルなID
+            //      基本的に他のコマンドは全てこのIDを使って命令を指定する
+            // * 3列目は命令のID
+            //      シミュレータ内で命令に振られているID．任意のIDが使える
+            // * 4列目はTID（スレッド識別子）
             op = new this.Op();
             op.id = id;
             op.gid = args[2];
@@ -158,9 +176,29 @@ class OnikiriParser{
             break;
 
         case "L": {
-            let visible = Number(args[2]) == 0? true:false;
-            let label = new this.Label({text:args[3], visible:visible});
-            op.labels.push(label);
+            // * 命令に任意のラベルをつける
+            //      * 命令が生きている期間は任意のラベルをつけることができる
+            //      * Lが複数回実行された場合，前回までに設定したラベルに追記される
+            // フォーマット:
+            //    L 	<ID>	<Type>	<Label Data>
+            //
+            // <ID>: ファイル内の一意のID
+            // <Type>: ラベルのタイプ
+            //      0: ビジュアライザ左に直接表示されるラベル．通常はPCと命令，レジスタ番号など
+            //      1: マウスオーバー時に表示される詳細．実行時のレジスタの値や使用した演算器など
+            //      2: 現在のステージにつけられるラベル
+            // <Label Data>: 任意のテキスト
+            let type = parseInt(args[2]);
+            if (type == 0) {
+                op.labelName += args[3];
+            }
+            else if (type == 1) {
+                op.labelDetail += args[3];
+            }
+            else if (type == 2) {
+                op.labelStage[op.lastParsedStage] += args[3];
+            }
+            
             break;
         }
 
@@ -173,6 +211,7 @@ class OnikiriParser{
             }
             //var lane = op.lanes[laneName];
             op.lanes[laneName].push(stage);
+            op.lastParsedStage = stageName;
             break;
         }
 
@@ -198,7 +237,7 @@ class OnikiriParser{
             op.retired = true;
             op.rid = args[2];
             op.retiredCycle = this.curCycle;
-            if (parseInt(args[3] == 1)) {
+            if (parseInt(args[3]) == 1) {
                 op.flush = true;
             }
             break;

@@ -231,7 +231,7 @@ KonataRenderer.prototype.drawLabelTile_ = function(tile, logTop, logLeft){
             let x = marginLeft;
             let y = (id - logTop) * self.opH_ * scale + marginTop;
             let op = self.konata_.GetOp(id);
-            let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labels[0].text}`;
+            let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
             ctx.fillText(text, x, y);
         }
     } catch(e) {
