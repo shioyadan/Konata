@@ -27,11 +27,11 @@ class OnikiriParser{
     }
     
     // Public methods
-    GetName(){
+    getName(){
         return "OnikiriParser:(" + this.file_.GetPath() + ")";
     }
 
-    SetFile(file){
+    setFile(file){
         this.file_ = file;
         let text = "";
         if (this.file_.IsText()) {
@@ -40,21 +40,21 @@ class OnikiriParser{
         } else if (this.file_.GetExtension() == ".gz") {
             // 圧縮データなら展開する
             console.log("Extract");
-            this.file_.Extract().then(this.ParseAllLines, null);
+            this.file_.Extract().then(this.parseAllLines, null);
             throw "Wait";
         } else {
             return false;
         }
-        if (!this.Check(text)) {
+        if (!this.check(text)) {
             return false;   // 知らない文法ならなにもしない。
         }
-        return this.ParseAllLines();
+        return this.parseAllLines();
     }
 
-    GetOps(start, end){
+    getOps(start, end){
         let ops = [];
         for (let i = start; i < end; i++) {
-            let op = this.GetOp(i);
+            let op = this.getOp(i);
             ops.push(op);
             if (op == null) {
                 // opがnullなら、それ以上の命令はない
@@ -64,7 +64,7 @@ class OnikiriParser{
         return ops;
     }
 
-    GetOp(id){
+    getOp(id){
         let op;
         if (this.opCache_[id] != null) {
             op = this.opCache_[id][0];
@@ -80,11 +80,11 @@ class OnikiriParser{
 
     // Private methods
     // this.textの文法を確認し、Onikiriのものでなさそうならfalse
-    Check(text){
+    check(text){
         return true;
     }
 
-    ParseAllLines(text){
+    parseAllLines(text){
         if (text) {
             this.text = text;
             this.lines = text.split("\n");
@@ -106,7 +106,7 @@ class OnikiriParser{
                 cycle += Number(command[1]);
                 continue;
             }
-            this.ParseCommand(c, cycle, command.slice(1), i);
+            this.parseCommand(c, cycle, command.slice(1), i);
         }
         let i = this.opCache_.length - 1;
         while (i >= 0) {
@@ -126,7 +126,7 @@ class OnikiriParser{
         return true;
     }
 
-    ParseCommand(command, cycle ,args, lineIdx){
+    parseCommand(command, cycle ,args, lineIdx){
         let id = Number(args[0]);
         let op;
         

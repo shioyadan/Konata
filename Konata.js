@@ -28,14 +28,14 @@ function Konata(){
         console.log("Open :", path);
 
         try {
-            if (parser.SetFile(file)) {
-                console.log("Selected parser:" , parser.GetName());
+            if (parser.setFile(file)) {
+                console.log("Selected parser:" , parser.getName());
                 m_files = new m_Cache(path, parser);
                 return true;
             }
         } catch (e) {
             if (e == "Wait") {
-                console.log("Selected parser:" , parser.GetName());
+                console.log("Selected parser:" , parser.getName());
                 m_files = new m_Cache(path, parser);
                 throw e;
             }

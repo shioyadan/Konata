@@ -5,7 +5,7 @@ function Cache(filePath, parser, that) {
     var m_cache = [];
     var m_range = 10;
     var m_lastIndex; // 最終要素以降を無駄に要求しないように覚えておく
-    if (m_parser.GetOp == null && m_parser.GetOps == null) {
+    if (m_parser.getOp == null && m_parser.getOps == null) {
         // Error処理
     }
 
@@ -33,7 +33,7 @@ function Cache(filePath, parser, that) {
         }
         var ops = null;
         if (m_parser.GetOps) {
-            ops = m_parser.GetOps(start,end);
+            ops = m_parser.getOps(start,end);
         }
         for (var i = start; i < end; i++) {
             if (m_cache[i] != null) {
@@ -42,7 +42,7 @@ function Cache(filePath, parser, that) {
             if (ops) {
                 var op = ops[i - start];
             } else {
-                var op = m_parser.GetOp(i);
+                var op = m_parser.getOp(i);
             }
             if (op == null) {
                 if (m_lastIndex == null || m_lastIndex > i - 1) {
