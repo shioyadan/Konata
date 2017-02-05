@@ -188,14 +188,16 @@
             if (devicePixelRatio !== backingStoreRatio) {
                 let ratio = devicePixelRatio / backingStoreRatio;
                 canvas.width = self.width * ratio;
-                canvas.height = self.width * ratio;
+                canvas.height = self.height * ratio;
                 canvas.style.width = self.width + "px";
-                canvas.style.height = self.width + "px";
+                canvas.style.height = self.height + "px";
                 context.scale(ratio, ratio);
             }
             else{
                 canvas.width = self.width;
                 canvas.height = self.height;
+                canvas.style.width = self.width + "px";
+                canvas.style.height = self.height + "px";
             }
 
         });
@@ -274,14 +276,17 @@
             if (devicePixelRatio !== backingStoreRatio) {
                 let ratio = devicePixelRatio / backingStoreRatio;
                 canvas.width = self.width * ratio;
-                canvas.height = self.width * ratio;
+                canvas.height = self.height * ratio;
                 canvas.style.width = self.width + "px";
-                canvas.style.height = self.width + "px";
+                canvas.style.height = self.height + "px";
                 context.scale(ratio, ratio);
             }
             else{
                 canvas.width = self.width;
                 canvas.height = self.height;
+                canvas.style.width = self.width + "px";
+                canvas.style.height = self.height + "px";
+                context.scale(1, 1);
             }
         });
 
