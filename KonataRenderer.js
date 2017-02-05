@@ -27,9 +27,9 @@ function KonataRenderer(){
     this.konata_ = null;
     this.colorScheme_ = "default";   // カラースキーム名
 
-    this.opH_ = 25; // スケール1のときの1命令の高さ
-    this.opW_ = 25; // スケール1のときの1サイクルの幅
-    this.margin_ = 5; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
+    this.opW_ = 32; // スケール1のときの1サイクルの幅
+    this.opH_ = 24; // スケール1のときの1命令の高さ
+    this.margin_ = 2; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
     
     // 拡大率が大きい場合，一部描画をはしょる
     this.drawingInterval_ = 1;
@@ -209,10 +209,13 @@ KonataRenderer.prototype.drawLabelTile_ = function(tile, logTop, logLeft){
     // フォント
     let fontFamily = self.style_["font-family"];
     let fontStyle = self.style_["font-style"];
-    let fontSize = self.style_["font-size"];
-    fontSize = parseInt(fontSize);// * scale;
-    fontSize = fontSize + "px";
+    let fontSizeRaw = self.style_["font-size"];
+    fontSizeRaw = parseInt(fontSizeRaw);// * scale;
+    let fontSize = fontSizeRaw + "px";
     ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
+    
+    let marginLeft = self.style_["label-style"]["margin-left"];
+    let marginTop = ((self.opH_ - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
 
     if (scale < 1) {
         return;
@@ -221,8 +224,8 @@ KonataRenderer.prototype.drawLabelTile_ = function(tile, logTop, logLeft){
     try {
         ctx.fillStyle = "rgb(0,0,0)";
         for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
-            let x = self.margin_;
-            let y = ((id - logTop)*self.opH_ + (self.opH_ - self.margin_)*3/4) * scale;
+            let x = marginLeft;
+            let y = (id - logTop) * self.opH_ * scale + marginTop;
             let op = self.konata_.GetOp(id);
             let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labels[0].text}`;
             ctx.fillText(text, x, y);
@@ -305,7 +308,7 @@ KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, 
         context.strokeStyle = "#333333";
     }
     context.fillStyle = "#888888";
-    context.strokeRect(left, top, right - left, (self.opH_ - self.margin_) * scale);
+    context.strokeRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
     if (scale >= 0.1) {
         let keys = [];
         for (let key in op.lanes) {
@@ -322,7 +325,7 @@ KonataRenderer.prototype.drawOp_ = function(op, h, startCycle, endCycle, scale, 
         let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
         context.globalAlpha *= opacity;
         context.fillStyle = bgc;
-        context.fillRect(left, top, right - left, (self.opH_ - self.margin_) * scale);
+        context.fillRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
     }
     self.ClearStyle_(context);
     return true;
@@ -338,9 +341,9 @@ KonataRenderer.prototype.ClearStyle_ = function(context){
 KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale, context, laneName){
     let self = this;
 
-    let fontSize = self.style_["font-size"];
-    fontSize = parseInt(fontSize) * scale;
-    fontSize = fontSize + "px";
+    let fontSizeRaw = self.style_["font-size"];
+    fontSizeRaw = parseInt(fontSizeRaw);
+    let fontSize = fontSizeRaw * scale + "px";
     let fontFamily = self.style_["font-family"];
     let fontStyle = self.style_["font-style"];
 
@@ -369,13 +372,13 @@ KonataRenderer.prototype.drawLane_ = function(op, h, startCycle, endCycle, scale
         grad.addColorStop(0, "#eee");
         context.fillStyle = grad;
         context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
-        context.clearRect(left, top, right - left, (self.opH_ - self.margin_) * scale);
-        context.fillRect(left, top, right - left, (self.opH_ - self.margin_) * scale);
-        context.strokeRect(left, top, right - left, (self.opH_ - self.margin_) * scale);
+        context.clearRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
+        context.fillRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
+        context.strokeRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
         left = (stage.startCycle - startCycle) * scale * self.opW_;
         if (scale >= 0.5) {
             context.fillStyle = "#555555";
-            let textTop = top + (self.opH_ - self.margin_) * scale*3/4;
+            let textTop = top + ((self.opH_ - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
             let textLeft = left + (self.opW_ * scale/3);
             for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
                 context.fillText(j, textLeft + j * scale * self.opW_, textTop);

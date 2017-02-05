@@ -42,5 +42,9 @@
     "default-color": "#aaffaa",
     "font-size": "12px",
     "font-family": "Helvetica",
-    "font-style": "normal"
+    "font-style": "normal",
+
+    "label-style": {
+        "margin-left": "5"
+    }
 }
