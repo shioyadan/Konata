@@ -1,54 +1,57 @@
-function OnikiriParser () {
+class OnikiriParser{
 
-    let Op = require("./Op");
-    let Stage = require("./Stage");
-    let Label = require("./Label");
+    constructor(){
+        this.Op = require("./Op").Op;
+        this.Stage = require("./Stage");
+        this.Label = require("./Label");
 
-    let m_file = null; 
-    
-    this.text = null;
-    this.lines = null;
-    
-    // op情報のキャッシュ（配列）
-    // op情報とはOp.jsで定義される連想配列とフェッチされた行数情報（メタデータ）
-    // [op, lineIndex];
-    let m_opCache = [];
-    
-    // Line情報のキャッシュ（配列）
-    // Line情報とは、Nライン目においてフェッチされているOP番号やサイクル数の情報
-    this.lineCache = [];
-    this.lastIndex = null;
-    this.name = "OnikiriParser";
-    this.timeout = 600 * 1000; // パースを諦めるまでの時間[ms](0なら諦めない)
-    
-    let m_complete = false;
+        this.file_ = null; 
+        
+        this.text = null;
+        this.lines = null;
+        
+        // op情報のキャッシュ（配列）
+        // op情報とはOp.jsで定義される連想配列とフェッチされた行数情報（メタデータ）
+        // [op, lineIndex];
+        this.opCache_ = [];
+        
+        // Line情報のキャッシュ（配列）
+        // Line情報とは、Nライン目においてフェッチされているOP番号やサイクル数の情報
+        this.lineCache = [];
+        this.lastIndex = null;
+        this.name = "OnikiriParser";
+        this.timeout = 600 * 1000; // パースを諦めるまでの時間[ms](0なら諦めない)
+        
+        this.complete_ = false;
+
+    }
     
     // Public methods
-    this.GetName = function () {
-        return "OnikiriParser:(" + m_file.GetPath() + ")";
-    };
+    GetName(){
+        return "OnikiriParser:(" + this.file_.GetPath() + ")";
+    }
 
-    this.SetFile = function (file) {
-        m_file = file;
+    SetFile(file){
+        this.file_ = file;
         let text = "";
-        if (m_file.IsText()) {
-            text = m_file.GetText();
+        if (this.file_.IsText()) {
+            text = this.file_.GetText();
             this.lines = text.split("\n");
-        } else if (m_file.GetExtension() == ".gz") {
+        } else if (this.file_.GetExtension() == ".gz") {
             // 圧縮データなら展開する
             console.log("Extract");
-            m_file.Extract().then(this.ParseAllLines, null);
+            this.file_.Extract().then(this.ParseAllLines, null);
             throw "Wait";
         } else {
             return false;
         }
-        if (!Check(text)) {
+        if (!this.Check(text)) {
             return false;   // 知らない文法ならなにもしない。
         }
         return this.ParseAllLines();
-    };
+    }
 
-    this.GetOps = function (start, end) {
+    GetOps(start, end){
         let ops = [];
         for (let i = start; i < end; i++) {
             let op = this.GetOp(i);
@@ -59,34 +62,34 @@ function OnikiriParser () {
             }
         }
         return ops;
-    };
+    }
 
-    this.GetOp = function(id) {
+    GetOp(id){
         let op;
-        if (m_opCache[id] != null) {
-            op = m_opCache[id][0];
+        if (this.opCache_[id] != null) {
+            op = this.opCache_[id][0];
         } else {
             op = null;//this.Search(id);
-            //m_opCache[id][0] = op;
+            //this.opCache_[id][0] = op;
         }
-        if (op == null && !m_complete) {
+        if (op == null && !this.complete_) {
             throw("Parsing...");
         }
         return op;
-    };
+    }
 
     // Private methods
     // this.textの文法を確認し、Onikiriのものでなさそうならfalse
-    function Check(text){
+    Check(text){
         return true;
     }
 
-    this.ParseAllLines = function (text) {
+    ParseAllLines(text){
         if (text) {
             this.text = text;
             this.lines = text.split("\n");
         }
-        m_complete = false;
+        this.complete_ = false;
         let lines = this.lines;
         let cycle = 0;
         let startTime = new Date();
@@ -103,11 +106,11 @@ function OnikiriParser () {
                 cycle += Number(command[1]);
                 continue;
             }
-            ParseCommand(c, cycle, command.slice(1), i);
+            this.ParseCommand(c, cycle, command.slice(1), i);
         }
-        let i = m_opCache.length - 1;
+        let i = this.opCache_.length - 1;
         while (i >= 0) {
-            let op = m_opCache[i][0];
+            let op = this.opCache_[i][0];
             if (op.retired && !op.flush) {
                 break; // コミットされた命令がきたら終了
             }
@@ -118,17 +121,17 @@ function OnikiriParser () {
             op.retiredCycle = cycle;
             op.eof = true;
         }
-        m_complete = true;
+        this.complete_ = true;
         console.log("parse complete");
         return true;
-    };
+    }
 
-    function ParseCommand(command, cycle ,args, lineIdx){
+    ParseCommand(command, cycle ,args, lineIdx){
         let id = Number(args[0]);
         let op;
         
-        if (m_opCache[id]) {
-            op = m_opCache[id][0];
+        if (this.opCache_[id]) {
+            op = this.opCache_[id][0];
         } else {
             op = null;
         }
@@ -139,18 +142,18 @@ function OnikiriParser () {
 
         switch(command) {
         case "I": {
-            op = new Op.Op();
+            op = new this.Op();
             op.id = id;
             op.gid = args[1];
             op.tid = args[2];
             op.fetchedCycle = cycle;
-            m_opCache[id] = [op, lineIdx];
+            this.opCache_[id] = [op, lineIdx];
             break;
         }
 
         case "L": {
             let visible = Number(args[1]) == 0? true:false;
-            let label = new Label({text:args[2], visible:visible});
+            let label = new this.Label({text:args[2], visible:visible});
             op.labels.push(label);
             break;
         }
@@ -158,7 +161,7 @@ function OnikiriParser () {
         case "S": {
             let laneName = args[1];
             let stageName = args[2];
-            let stage = new Stage({name:stageName, startCycle:cycle});
+            let stage = new this.Stage({name:stageName, startCycle:cycle});
             if (op.lanes[laneName] == null) {
                 op.lanes[laneName] = [];
             }
@@ -199,7 +202,7 @@ function OnikiriParser () {
             let prodId = Number(args[1]);
             let type = Number(args[2]);
             op.prods.push([prodId, type, cycle]);
-            m_opCache[prodId][0].cons.push([id, type, cycle]);
+            this.opCache_[prodId][0].cons.push([id, type, cycle]);
             break;
         }
         }  // switch end
