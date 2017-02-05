@@ -36,4 +36,13 @@ html, body {
     background-color: #fff;
 }
 
+/* ツールチップ */
+.tool_tip {
+    color: #fff;
+    background: rgba(51, 51, 51, 0.8);
+    padding: 10px;
+    border-radius: 4px;
+    font-size: "12px";
+}
+
 

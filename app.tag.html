@@ -218,10 +218,30 @@
 <!-- 逆アセンブル結果を表示するキャンバス -->
 <app_label_canvas>
     <canvas ref="canvas"></canvas>
+    <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
+    
+    <!--position を absolute にすることで，同じ位置に重ねることができる 
+        見た目に関しては，CSS の方で定義
+    -->
+    <style>
+        canvas{
+            position: absolute;
+        }
+        .tool_tip{ 
+            position: absolute;
+            z-index: 100;
+            visibility: "hideen";
+        }
+    </style>
+
     <script>
+        /* globals RiotControl store */
+
         let self = this;
         self.width = 100;
         self.height = 100;
+        self.oldWidth = -1;
+        self.oldHeight = -1;
         self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
 
         // 初期化
@@ -230,6 +250,9 @@
             let canvas = self.refs.canvas;
             canvas.onmousewheel = self.onMouseWheel;
             canvas.onmousedown = self.onMouseDown;
+            canvas.onmousemove = self.onMouseMove;
+            canvas.onmouseleave = self.onMouseLeave;
+            
             RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
         };
 
@@ -245,16 +268,34 @@
 
         // マウスクリック
         self.onMouseDown = function(e){
+            /*
             // 左クリック
             if (e.buttons & 1) {
             }
             // 左クリック
             if (e.buttons & 2) {
             }
+            */
 
             // クリック時に他所にフォーカスが奪われるのを防ぐ
             e.preventDefault();
         };        
+
+        //
+        self.onMouseMove = function(e){
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "visible";
+            tip.left = e.offsetX + "px";
+            tip.top = e.offsetY + 20 + "px";
+
+            let text = store.tabs[self.id].renderer.getLabelToolTipText(e.offsetY);
+            self.toolTipText = text;//.split("\n");
+            self.update();
+        };
+        self.onMouseLeave = function(){
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "hidden";
+        };
 
 
         // ペーンの内容の更新
@@ -268,25 +309,33 @@
             // self.width, self.height にサイズが書き込まれているので，それを反映する
             let canvas = self.refs.canvas;
 
-            // High DPI 対策
-            let context = canvas.getContext("2d");
-            let devicePixelRatio = window.devicePixelRatio || 1;
-            let backingStoreRatio = context.backingStorePixelRatio || 1;
-            
-            if (devicePixelRatio !== backingStoreRatio) {
-                let ratio = devicePixelRatio / backingStoreRatio;
-                canvas.width = self.width * ratio;
-                canvas.height = self.height * ratio;
-                canvas.style.width = self.width + "px";
-                canvas.style.height = self.height + "px";
-                context.scale(ratio, ratio);
-            }
-            else{
-                canvas.width = self.width;
-                canvas.height = self.height;
-                canvas.style.width = self.width + "px";
-                canvas.style.height = self.height + "px";
-                context.scale(1, 1);
+            if (self.oldWidth != self.width || self.oldHeight != self.height){
+                // サイズを変更すると canvas の中身が破棄されるので，
+                // 本当に変わったときだけ反映する
+                self.oldWidth = self.width;
+                self.oldHeight = self.height;
+
+                // High DPI 対策
+                let context = canvas.getContext("2d");
+                let devicePixelRatio = window.devicePixelRatio || 1;
+                let backingStoreRatio = context.backingStorePixelRatio || 1;
+                
+                if (devicePixelRatio !== backingStoreRatio) {
+                    let ratio = devicePixelRatio / backingStoreRatio;
+                    canvas.width = self.width * ratio;
+                    canvas.height = self.height * ratio;
+                    canvas.style.width = self.width + "px";
+                    canvas.style.height = self.height + "px";
+                    context.scale(ratio, ratio);
+                }
+                else{
+                    canvas.width = self.width;
+                    canvas.height = self.height;
+                    canvas.style.width = self.width + "px";
+                    canvas.style.height = self.height + "px";
+                    context.scale(1, 1);
+                }
+
             }
         });
 

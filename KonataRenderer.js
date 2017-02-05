@@ -154,6 +154,32 @@ class KonataRenderer{
         }
     }
 
+    // ピクセル座標から対応する op を返す
+    getOpFromPixelPos(y){
+        let self = this;
+        let id = Math.floor(self.viewPos_.top + y / self.opH_ / self.zoomScale_);
+        return self.konata_.GetOp(id);   
+    }
+
+    // ピクセル座標に対応するツールチップのテキストを作る
+    getLabelToolTipText(y){
+        let self = this;
+        let op = self.getOpFromPixelPos(y);
+        if (!op) {
+            return "";
+        }
+        let text = 
+            `${op.labelDetail}\n` + 
+            `Line: \t\t${op.line}\n` +
+            `Global Serial ID:\t${op.gid}\n` +
+            `Thread ID:\t\t${op.tid}\n` +
+            `Retire ID:\t\t${op.rid}`;
+        if( op.flush ) {
+            text += "\n# This op is flushed.";
+        }
+        return text;
+    }
+
     // 拡大率の計算
     // level は指数で表す
     calcScale_(level){
