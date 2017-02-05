@@ -99,19 +99,14 @@ class OnikiriParser{
 
         let startTime = new Date();
         for (let i = 0, len = lines.length; i < len; i++) {
-            if (this.timeout != 0 && i % 10000 == 0) { // N行に一度くらい経過時間を確認する
+            if (this.timeout != 0 && i % (1024*16) == 0) { // N行に一度くらい経過時間を確認する
                 let endTime = new Date();
                 if (endTime - startTime > this.timeout) {
                     return false; // パースに時間がかかり過ぎているなら諦める。
                 }
             }
-            let command = lines[i].trim().split("\t");
-            let c = command[0];
-            if (c == "C") {
-                this.curCycle += Number(command[1]);
-                continue;
-            }
-            this.parseCommand(c, command.slice(1), i);
+            let args = lines[i].trim().split("\t");
+            this.parseCommand(args, i);
         }
 
         // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
@@ -134,41 +129,44 @@ class OnikiriParser{
         return true;
     }
 
-    parseCommand(command, args, lineIdx){
-        let id = Number(args[0]);
-        let op;
-        
-        if (this.opCache_[id]) {
+    parseCommand(args, lineIdx){
+
+
+        let id = parseInt(args[1]);
+        let op = null;
+        if (id in this.opCache_) {
             op = this.opCache_[id][0];
-        } else {
-            op = null;
         }
         
-        if (command.match(/^(L|S|E|R|W)$/) && op == null) {
+        let cmd = args[0];
+        if (cmd.match(/^(L|S|E|R|W)$/) && op == null) {
             // error
         }
 
-        switch(command) {
-        case "I": {
+        switch(cmd) {
+        case "C": 
+            this.curCycle += parseInt(args[1]);
+            break;
+        
+        case "I": 
             op = new this.Op();
             op.id = id;
-            op.gid = args[1];
-            op.tid = args[2];
+            op.gid = args[2];
+            op.tid = args[3];
             op.fetchedCycle = this.curCycle;
             this.opCache_[id] = [op, lineIdx];
             break;
-        }
 
         case "L": {
-            let visible = Number(args[1]) == 0? true:false;
-            let label = new this.Label({text:args[2], visible:visible});
+            let visible = Number(args[2]) == 0? true:false;
+            let label = new this.Label({text:args[3], visible:visible});
             op.labels.push(label);
             break;
         }
 
         case "S": {
-            let laneName = args[1];
-            let stageName = args[2];
+            let laneName = args[2];
+            let stageName = args[3];
             let stage = new this.Stage({name:stageName, startCycle:this.curCycle});
             if (op.lanes[laneName] == null) {
                 op.lanes[laneName] = [];
@@ -179,8 +177,8 @@ class OnikiriParser{
         }
 
         case "E": {
-            let laneName = args[1];
-            let stageName = args[2];
+            let laneName = args[2];
+            let stageName = args[3];
             let stage = null;
             let lane = op.lanes[laneName];
             for (let i = lane.length - 1; i >= 0; i--) {
@@ -198,17 +196,17 @@ class OnikiriParser{
 
         case "R": {
             op.retired = true;
-            op.rid = args[1];
+            op.rid = args[2];
             op.retiredCycle = this.curCycle;
-            if (Number(args[2] == 1)) {
+            if (parseInt(args[3] == 1)) {
                 op.flush = true;
             }
             break;
         }
 
         case "W": {
-            let prodId = Number(args[1]);
-            let type = Number(args[2]);
+            let prodId = Number(args[2]);
+            let type = Number(args[3]);
             op.prods.push([prodId, type, this.curCycle]);
             this.opCache_[prodId][0].cons.push([id, type, this.curCycle]);
             break;
