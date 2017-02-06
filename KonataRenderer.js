@@ -288,8 +288,10 @@ class KonataRenderer{
                 let x = marginLeft;
                 let y = (id - logTop) * self.opH_ * scale + marginTop;
                 let op = self.konata_.GetOp(id);
-                let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
-                ctx.fillText(text, x, y);
+                if (op) {
+                    let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
+                    ctx.fillText(text, x, y);
+                }
             }
         } catch(e) {
             console.log(e);
