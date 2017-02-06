@@ -166,7 +166,7 @@
                 self.prevMousePoint[1] - e.offsetY
             ];
             self.prevMousePoint = [e.offsetX, e.offsetY];
-            RiotControl.trigger(ACTION.KONATA_MOVE_POS, diff);
+            RiotControl.trigger(ACTION.KONATA_MOVE_DIFF, diff);
         };
 
         // ペーンの内容の更新

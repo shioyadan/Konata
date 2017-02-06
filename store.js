@@ -24,7 +24,7 @@ const ACTION = {
 
     KONATA_ZOOM: 60,        // 拡大/縮小
     KONATA_MOVE_WHEEL: 61,  // ホイールによるスクロール
-    KONATA_MOVE_POS: 62,    // ドラッグによる位置移動
+    KONATA_MOVE_DIFF: 62,   // ドラッグによる位置移動，引数はピクセルの相対値
     KONATA_CHANGE_COLOR_SCHEME: 63,  // カラースキームの変更
     KONATA_TRANSPARENT: 64, // 透過モードの設定
     KONATA_SYNC_SCROLL: 65, // 同期スクロール
@@ -242,7 +242,7 @@ function Store(){
     });
 
     // ホイールによる移動
-    self.on(ACTION.KONATA_MOVE_POS, function(diff){
+    self.on(ACTION.KONATA_MOVE_DIFF, function(diff){
         if (!self.activeTab) {
             return;
         }
