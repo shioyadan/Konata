@@ -169,6 +169,7 @@ class KonataRenderer{
             return "";
         }
         let text = 
+            `${op.labelName}\n` + 
             `${op.labelDetail}\n` + 
             `Line: \t\t${op.line}\n` +
             `Global Serial ID:\t${op.gid}\n` +
