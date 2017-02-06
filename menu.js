@@ -176,5 +176,42 @@ function popupTabMenu(tabID){
     menu.popup();
 }
 
+function popupPipelineMenu(){
+
+    /* global RiotControl ACTION */
+    let rc = RiotControl;
+    let remote = require("electron").remote;
+
+    let menuTemplate = [
+        {
+            label:"Zoom out",
+            click: function(){rc.trigger(ACTION.KONATA_ZOOM, false, 0, 0);}
+        },
+        {
+            label:"Zoom in",
+            click: function(){rc.trigger(ACTION.KONATA_ZOOM, true, 0, 0);}
+        },
+        {
+            label: "Adjust position",
+            click: function(){
+                // その時のパイプラインの左上がくるように移動
+                let render = store.activeTab.renderer;
+                let op = render.getOpFromPixelPos(0);
+                rc.trigger(
+                    ACTION.KONATA_MOVE_LOGICAL_POS, 
+                    [op.fetchedCycle, op.id]
+                );
+            }
+        },
+    ];
+
+    let Menu = remote.Menu;
+    let menu = Menu.buildFromTemplate(menuTemplate);
+    menu.popup();
+}
+
+
+
 module.exports.installMainMenu = installMainMenu;
 module.exports.popupTabMenu = popupTabMenu;
+module.exports.popupPipelineMenu = popupPipelineMenu;
