@@ -184,7 +184,7 @@ class KonataRenderer{
     // 拡大率の計算
     // level は指数で表す
     calcScale_(level){
-        return Math.pow(2, level);
+        return Math.pow(2, -level);
     }
 
     /**
@@ -194,7 +194,13 @@ class KonataRenderer{
      */
     zoom(zoomOut, posX, posY){
         let self = this;
-        self.zoomLevel_ += zoomOut ? self.ZOOM_RATIO_ : -self.ZOOM_RATIO_;
+        self.zoomLevel_ += zoomOut ? -self.ZOOM_RATIO_ : self.ZOOM_RATIO_;
+
+        // 最大ズーム率
+        if (self.zoomLevel_ < 0) {
+            self.zoomLevel_ = 0;
+        }
+
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
         self.drawingInterval_ = Math.floor(20/(self.zoomScale_ * Math.log(self.zoomScale_)/0.005));
     }
