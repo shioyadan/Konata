@@ -176,7 +176,7 @@ function popupTabMenu(tabID){
     menu.popup();
 }
 
-function popupPipelineMenu(){
+function popupPipelineMenu(pos){
 
     /* global RiotControl ACTION */
     let rc = RiotControl;
@@ -185,11 +185,11 @@ function popupPipelineMenu(){
     let menuTemplate = [
         {
             label:"Zoom out",
-            click: function(){rc.trigger(ACTION.KONATA_ZOOM, false, 0, 0);}
+            click: function(){rc.trigger(ACTION.KONATA_ZOOM, false, pos[0], pos[1]);}
         },
         {
             label:"Zoom in",
-            click: function(){rc.trigger(ACTION.KONATA_ZOOM, true, 0, 0);}
+            click: function(){rc.trigger(ACTION.KONATA_ZOOM, true, pos[0], pos[1]);}
         },
         {
             label: "Adjust position",

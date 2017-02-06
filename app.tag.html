@@ -125,16 +125,17 @@
                 self.inDrag = true;
                 self.prevMousePoint = [e.clientX, e.clientY];
             }
-            // 左クリック
+            // 右クリック
             if (e.buttons & 2) {
                 let menu = require("./menu.js");
-                menu.popupPipelineMenu();
+                menu.popupPipelineMenu([e.offsetX, e.offsetY]);
             }
 
             // クリック時に他所にフォーカスが奪われるのを防ぐ
             e.preventDefault();
         };        
 
+        // マウスのボタンを離した時
         self.onMouseUp = function(e){
             if (!(e.buttons & 1)) { // 離したので 0 になる
                 self.inDrag = false;

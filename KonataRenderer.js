@@ -225,8 +225,17 @@ class KonataRenderer{
             self.zoomLevel_ = 0;
         }
 
+        let oldScale = self.zoomScale_;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
         self.drawingInterval_ = Math.floor(20/(self.zoomScale_ * Math.log(self.zoomScale_)/0.005));
+
+        // 位置の補正
+        let ratio = oldScale * self.zoomScale_;
+        self.moveLogicalPos([
+            self.viewPos_.left - (posX - posX / ratio) / self.opW_ / self.zoomScale_,
+            self.viewPos_.top - (posY - posY / ratio) / self.opH_ / self.zoomScale_
+        ]);
+        //;
     }
 
     // canvas にラベルを描画
