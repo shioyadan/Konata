@@ -244,17 +244,32 @@ function Store(){
         self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
-    // ホイールによる移動
+    // 位置移動，引数はピクセル相対値
     self.on(ACTION.KONATA_MOVE_PIXEL_DIFF, function(diff){
         if (!self.activeTab) {
             return;
         }
         let renderer = self.activeTab.renderer;
-        renderer.movePos(diff);
+        renderer.movePixelDiff(diff);
         // 同期
         if (self.activeTab.syncScroll) {
             let renderer = self.activeTab.syncScrollTab.renderer;
-            renderer.movePos(diff);
+            renderer.movePixelDiff(diff);
+        }
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+    });
+
+    // 位置移動，引数は論理座標（サイクル数，命令ID）
+    self.on(ACTION.KONATA_MOVE_LOGICAL_POS, function(pos){
+        if (!self.activeTab) {
+            return;
+        }
+        let renderer = self.activeTab.renderer;
+        renderer.moveLogicalPos(pos);
+        // 同期
+        if (self.activeTab.syncScroll) {
+            let renderer = self.activeTab.syncScrollTab.renderer;
+            renderer.moveLogicalPos(pos);
         }
         self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });

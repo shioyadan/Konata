@@ -270,11 +270,18 @@
 
         // マウスクリック
         self.onMouseDown = function(e){
-            /*
             // 左クリック
             if (e.buttons & 1) {
+                // クリック点に対応した命令を取得し，そこへ移動
+                let render = store.tabs[self.id].renderer;
+                let op = render.getOpFromPixelPos(e.offsetY);
+                RiotControl.trigger(
+                    ACTION.KONATA_MOVE_LOGICAL_POS, 
+                    [op.fetchedCycle, render.viewPos[1]]
+                );
             }
             // 左クリック
+            /*
             if (e.buttons & 2) {
             }
             */

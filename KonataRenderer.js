@@ -37,7 +37,12 @@ class KonataRenderer{
         this.style_ = null;
     }
 
-
+    /**
+     * viewPos_ の getter
+     */
+    get viewPos(){
+        return [this.viewPos_.left, this.viewPos_.top];
+    }
 
     /**
      * 初期化
@@ -102,28 +107,28 @@ class KonataRenderer{
     moveWheel(wheelUp){
         let self = this;
         let scroll = 3 / self.zoomScale_;
-        self.moveToLogical([0, wheelUp ? scroll : -scroll], true);
+        self.moveLogicalDiff([0, wheelUp ? scroll : -scroll], true);
     }
 
     /**
      * ピクセル数により表示位置を移動する
      * @param {Array} diff - 移動量
      */
-    movePos(diff){
+    movePixelDiff(diff){
         let self = this;
-        // 論理座標に変換してから渡す
-        self.moveToLogical([
+        // 論理座標での相対値に変換してから渡す
+        self.moveLogicalDiff([
             diff[0] / self.opW_ / self.zoomScale_,
             diff[1] / self.opH_ / self.zoomScale_,
         ], false);
     }
 
     /**
-     * 論理座標により表示位置を移動する
+     * 論理座標の相対値により表示位置を移動する
      * @param {Array} diff - 移動量
      * @param {boolean} adjust - 命令が画面上左上にくるよう調整するかどうか
      */
-    moveToLogical(diff, adjust){
+    moveLogicalDiff(diff, adjust){
         let self = this;
         let posY = self.viewPos_.top + diff[1];
         if (posY < 0) {
@@ -152,6 +157,16 @@ class KonataRenderer{
                 self.viewPos_.left = 0;
             }
         }
+    }
+
+    /**
+     * 論理座標の絶対値により表示位置を移動する
+     * @param {Array} pos - 位置
+     */
+    moveLogicalPos(pos){
+        let self = this;
+        self.viewPos_.left = Math.max(0, pos[0]);
+        self.viewPos_.top = Math.max(0, pos[1]);
     }
 
     // ピクセル座標から対応する op を返す
