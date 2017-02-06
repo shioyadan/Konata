@@ -119,7 +119,7 @@ function installMainMenu(){
 }
 
 
-function popupTabMenu(tabID, store){
+function popupTabMenu(tabID){
 
     /* global RiotControl ACTION */
     let rc = RiotControl;
