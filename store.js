@@ -22,12 +22,15 @@ const ACTION = {
     SHEET_RESIZE: 40,       // シートサイズの変更
     PANE_SPLITTER_MOVE: 50, // スプリッタ位置の変更
 
-    KONATA_ZOOM: 60,        // 拡大/縮小
-    KONATA_MOVE_WHEEL: 61,  // ホイールによるスクロール
-    KONATA_MOVE_DIFF: 62,   // ドラッグによる位置移動，引数はピクセルの相対値
-    KONATA_CHANGE_COLOR_SCHEME: 63,  // カラースキームの変更
-    KONATA_TRANSPARENT: 64, // 透過モードの設定
-    KONATA_SYNC_SCROLL: 65, // 同期スクロール
+    KONATA_CHANGE_COLOR_SCHEME: 60,  // カラースキームの変更
+    KONATA_TRANSPARENT: 61, // 透過モードの設定
+    KONATA_SYNC_SCROLL: 62, // 同期スクロール
+
+    KONATA_ZOOM: 63,        // 拡大/縮小
+    KONATA_MOVE_WHEEL: 64,  // ホイールによるスクロール
+    KONATA_MOVE_PIXEL_DIFF: 65,   // 位置移動，引数はピクセル相対値
+    KONATA_MOVE_LOGICAL_POS: 66,  // 位置移動，引数は論理座標（サイクル数，命令ID）
+
 
 };
 
@@ -242,7 +245,7 @@ function Store(){
     });
 
     // ホイールによる移動
-    self.on(ACTION.KONATA_MOVE_DIFF, function(diff){
+    self.on(ACTION.KONATA_MOVE_PIXEL_DIFF, function(diff){
         if (!self.activeTab) {
             return;
         }
