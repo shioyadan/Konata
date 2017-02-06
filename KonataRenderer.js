@@ -147,9 +147,18 @@ class KonataRenderer{
             return; //self.position[path];
         }
 
+        let oldTop = self.viewPos_.top;
         self.viewPos_.top = posY;
         if (adjust) {
-            self.viewPos_.left = op.fetchedCycle;
+            // 水平方向の補正を行う
+            let oldOp = self.konata_.GetOp(Math.floor(oldTop));
+            if (!oldOp) {
+                self.viewPos_.left = op.fetchedCycle;
+            }
+            else{
+                // スクロール前と後の，左上の命令の水平方向の差を加算
+                self.viewPos_.left += op.fetchedCycle - oldOp.fetchedCycle;
+            }
         } 
         else {
             self.viewPos_.left += diff[0];
