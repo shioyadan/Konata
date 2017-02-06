@@ -179,7 +179,7 @@ class KonataRenderer{
     }
 
     // ピクセル座標から対応する op を返す
-    getOpFromPixelPos(y){
+    getOpFromPixelPosY(y){
         let self = this;
         let id = Math.floor(self.viewPos_.top + y / self.opH_ / self.zoomScale_);
         return self.konata_.GetOp(id);   
@@ -188,7 +188,7 @@ class KonataRenderer{
     // ピクセル座標に対応するツールチップのテキストを作る
     getLabelToolTipText(y){
         let self = this;
-        let op = self.getOpFromPixelPos(y);
+        let op = self.getOpFromPixelPosY(y);
         if (!op) {
             return "";
         }

@@ -102,22 +102,6 @@
         self.inDrag = false;  // マウスでドラッグ中か
         self.prevMousePoint = [0, 0]; // 前回のマウスポインタの位置
 
-        // 初期化
-        // タグのマウント時に呼ばれるようにする
-        self.init = function(){
-            let canvas = self.refs.canvas;
-
-            canvas.ondblclick = self.onMouseDoubleClick;
-            canvas.onmousewheel = self.onMouseWheel;
-            canvas.onmousedown = self.onMouseDown;
-            canvas.onmouseleave = self.onMouseUp;
-
-            canvas.onmouseup = self.onMouseUp;
-            canvas.onmousemove = self.onMouseMove;
-            self.valid = true;
-            RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
-        };
-
         // マウス操作
         self.onMouseWheel = function(e){
             if (e.ctrlKey) {    // 拡大縮小
@@ -139,7 +123,7 @@
             // 左クリック
             if (e.buttons & 1) {
                 self.inDrag = true;
-                self.prevMousePoint = [e.offsetX, e.offsetY];
+                self.prevMousePoint = [e.clientX, e.clientY];
             }
             // 左クリック
             if (e.buttons & 2) {
@@ -162,11 +146,12 @@
             if (!self.inDrag){
                 return;
             }
+
             let diff = [
-                self.prevMousePoint[0] - e.offsetX,
-                self.prevMousePoint[1] - e.offsetY
+                self.prevMousePoint[0] - e.clientX,
+                self.prevMousePoint[1] - e.clientY
             ];
-            self.prevMousePoint = [e.offsetX, e.offsetY];
+            self.prevMousePoint = [e.clientX, e.clientY];
             RiotControl.trigger(ACTION.KONATA_MOVE_PIXEL_DIFF, diff);
         };
 
@@ -205,9 +190,25 @@
 
         // エントリポイント
         // マウント時に初期化を行う
-        self.on("mount", self.init);
+        self.on("mount", function(){
+
+            let canvas = self.refs.canvas;
+
+            canvas.ondblclick = self.onMouseDoubleClick;
+            canvas.onmousewheel = self.onMouseWheel;
+            canvas.onmousedown = self.onMouseDown;
+
+            // 外でも捉えられるように window に
+            window.addEventListener("mousemove", self.onMouseMove);
+            window.addEventListener("mouseup", self.onMouseUp);
+            self.valid = true;
+            RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+            
+        });
 
         self.on("unmount", function(){
+            window.removeEventListener("mousemove", self.onMouseMove);
+            window.removeEventListener("mouseup", self.onMouseUp);
             self.valid = false;
             RiotControl.off(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
         });
@@ -275,7 +276,7 @@
             if (e.buttons & 1) {
                 // クリック点に対応した命令を取得し，そこへ移動
                 let render = store.tabs[self.id].renderer;
-                let op = render.getOpFromPixelPos(e.offsetY);
+                let op = render.getOpFromPixelPosY(e.offsetY);
                 RiotControl.trigger(
                     ACTION.KONATA_MOVE_LOGICAL_POS, 
                     [op.fetchedCycle, render.viewPos[1]]
