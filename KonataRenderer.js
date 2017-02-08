@@ -21,8 +21,12 @@ class KonataRenderer{
         this.konata_ = null;
         this.colorScheme_ = "default";   // カラースキーム名
 
-        this.opW_ = 32; // スケール1のときの1サイクルの幅
-        this.opH_ = 24; // スケール1のときの1命令の高さ
+        this.OP_W = 32; // スケール1のときの1サイクルの幅
+        this.OP_H = 24; // スケール1のときの1命令の高さ
+
+        this.opW_ = this.OP_W * this.zoomScale_; // スケール1のときの1サイクルの幅（スケールを適用後）
+        this.opH_ = this.OP_H * this.zoomScale_; // スケール1のときの1命令の高さ
+
         this.margin_ = 2; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
 
         // 線の描画がぼけるので，補正する
@@ -55,7 +59,10 @@ class KonataRenderer{
 
         self.viewPos_ = {left:0, top:0};
         self.zoomLevel_ = 0;
+
         self.zoomScale_ = 1;
+        self.opH_ = self.OP_H * self.zoomScale_;
+        self.opW_ = self.OP_W * self.zoomScale_;
 
         self.loadStyle_(self.STYLE_FILE_NAME_);
     }
@@ -118,8 +125,8 @@ class KonataRenderer{
         let self = this;
         // 論理座標での相対値に変換してから渡す
         self.moveLogicalDiff([
-            diff[0] / self.opW_ / self.zoomScale_,
-            diff[1] / self.opH_ / self.zoomScale_,
+            diff[0] / self.opW_,
+            diff[1] / self.opH_,
         ], false);
     }
 
@@ -172,7 +179,7 @@ class KonataRenderer{
     // ピクセル座標から対応する op を返す
     getOpFromPixelPosY(y){
         let self = this;
-        let id = Math.floor(self.viewPos_.top + y / self.opH_ / self.zoomScale_);
+        let id = Math.floor(self.viewPos_.top + y / self.opH_);
         return self.konata_.getOp(id);   
     }
 
@@ -213,10 +220,13 @@ class KonataRenderer{
         self.zoomLevel_ += zoomOut ? -1 : 1;
 
         // 最大最小ズーム率
-        self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, 16), 0);
+        self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, 16), -1);
 
         let oldScale = self.zoomScale_;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
+        self.opH_ = self.OP_H * self.zoomScale_;
+        self.opW_ = self.OP_W * self.zoomScale_;
+
         self.drawingInterval_ = Math.floor(20/(self.zoomScale_ * Math.log(self.zoomScale_)/0.005));
 
         // 位置の補正
@@ -224,8 +234,8 @@ class KonataRenderer{
         let oldTop = self.viewPos_.top;
         let ratio = oldScale / self.zoomScale_;
         self.moveLogicalPos([
-            self.viewPos_.left - (posX - posX / ratio) / self.opW_ / self.zoomScale_,
-            self.viewPos_.top - (posY - posY / ratio) / self.opH_ / self.zoomScale_
+            self.viewPos_.left - (posX - posX / ratio) / self.opW_,
+            self.viewPos_.top - (posY - posY / ratio) / self.opH_
         ]);
         console.log(`zoom ratio:${ratio}  [${oldLeft}, ${oldTop}] to [${self.viewPos_.left}, ${self.viewPos_.top}]`);
         //;
@@ -252,7 +262,7 @@ class KonataRenderer{
         let scale = self.zoomScale_;
 
         // スケールを勘案した論理サイズに変換
-        let logHeight = tile.height / (scale * self.opH_);
+        let logHeight = tile.height / self.opH_;
         //let logWidth = tile.width / (scale * self.opW_);
 
         // 背景をクリア
@@ -269,7 +279,7 @@ class KonataRenderer{
         ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
         
         let marginLeft = self.style_["label-style"]["margin-left"];
-        let marginTop = ((self.opH_ - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
+        let marginTop = ((self.opH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
 
         if (scale < 1) {
             return;
@@ -279,7 +289,7 @@ class KonataRenderer{
             ctx.fillStyle = "rgb(0,0,0)";
             for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
                 let x = marginLeft;
-                let y = (id - logTop) * self.opH_ * scale + marginTop;
+                let y = (id - logTop) * self.opH_ + marginTop;
                 let op = self.konata_.getOp(id);
                 if (op) {
                     let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
@@ -307,16 +317,17 @@ class KonataRenderer{
     drawPipelineTile_(tile, top, left){
         let self = this;
         let scale = self.zoomScale_;
-        let height = tile.height / (scale * self.opH_);
-        let width = tile.width / (scale * self.opW_);
+        let height = tile.height / self.opH_;
+        let width = tile.width / self.opW_;
 
         let ctx = tile.getContext("2d");
         ctx.fillStyle = "rgb(255,255,255)";
         ctx.fillRect(0, 0, tile.width, tile.height);
 
+        // 上側にはみ出ていた場合，暗く描画
         let offsetY = 0;
         if (top < 0) {
-            let bottom = -top * scale * self.opH_ + self.PIXEL_ADJUST;
+            let bottom = -top * self.opH_ + self.PIXEL_ADJUST;
             bottom = Math.min(tile.height, bottom);
             ctx.fillStyle = "rgb(128,128,128)";
             ctx.fillRect(0, 0, tile.width, bottom);
@@ -346,8 +357,9 @@ class KonataRenderer{
             }
         }
 
+        // 下側にはみ出ていた場合，暗く描画
         if (top - offsetY + height > self.konata_.lastID) {
-            let begin = tile.height - (top - offsetY + height - self.konata_.lastID) * scale * self.opH_ + self.PIXEL_ADJUST;
+            let begin = tile.height - (top - offsetY + height - self.konata_.lastID) * self.opH_ + self.PIXEL_ADJUST;
             begin = Math.max(0, begin);
             ctx.fillStyle = "rgb(128,128,128)";
             ctx.fillRect(0, begin, tile.width, tile.height);
@@ -357,9 +369,9 @@ class KonataRenderer{
 
     drawOp_(op, h, startCycle, endCycle, scale, context){
         let self = this;
-        let top = h * self.opH_ * scale + self.PIXEL_ADJUST;
+        let top = h * self.opH_ + self.PIXEL_ADJUST;
         //context.fillStyle = "#ffffff";
-        context.clearRect(0, top, (endCycle - startCycle) * scale, self.opH_ * scale);
+        context.clearRect(0, top, (endCycle - startCycle) * scale, self.opH_);
         //context.fillStyle = null;
         if (op.retiredCycle < startCycle) {
             return true;
@@ -371,8 +383,8 @@ class KonataRenderer{
         }
         let l = startCycle > op.fetchedCycle ? (startCycle - 1) : op.fetchedCycle; l -= startCycle;
         let r = endCycle >= op.retiredCycle ? op.retiredCycle : (endCycle + 1); r -= startCycle;
-        let left = l * scale * self.opW_ + self.PIXEL_ADJUST;
-        let right = r * scale * self.opW_ + self.PIXEL_ADJUST;
+        let left = l * self.opW_ + self.PIXEL_ADJUST;
+        let right = r * self.opW_ + self.PIXEL_ADJUST;
         
         if (scale < 0.2) {
             context.strokeStyle = "#888888";
@@ -395,12 +407,12 @@ class KonataRenderer{
             let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
             context.globalAlpha *= opacity;
             context.fillStyle = bgc;
-            context.fillRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
+            context.fillRect(left, top + self.margin_*scale, right - left, self.opH_ - self.margin_ * 2 * scale);
         }
         
         context.lineWidth = 1;
         context.fillStyle = "#888888";
-        context.strokeRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
+        context.strokeRect(left, top + self.margin_*scale, right - left, self.opH_ - self.margin_ * 2 * scale);
         self.ClearStyle_(context);
         return true;
     }
@@ -422,7 +434,7 @@ class KonataRenderer{
         let fontStyle = self.style_["font-style"];
 
         let lane = op.lanes[laneName];
-        let top = h * self.opH_ * scale + self.PIXEL_ADJUST;
+        let top = h * self.opH_ + self.PIXEL_ADJUST;
         for (let i = 0, len = lane.length; i < len; i++) {
             let stage = lane[i];
             if (stage.endCycle == null) {
@@ -439,24 +451,24 @@ class KonataRenderer{
             let color = self.getStageColor_(laneName, stage.name);
             let l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
             let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
-            let left = l * scale * self.opW_ + self.PIXEL_ADJUST;
-            let right = r * scale * self.opW_ + self.PIXEL_ADJUST;
-            let grad = context.createLinearGradient(0,top,0,top+self.opH_ * scale);
+            let left = l * self.opW_ + self.PIXEL_ADJUST;
+            let right = r * self.opW_ + self.PIXEL_ADJUST;
+            let grad = context.createLinearGradient(0, top, 0, top+self.opH_);
             grad.addColorStop(1, color);
             grad.addColorStop(0, "#eee");
             context.lineWidth = 1;
             context.fillStyle = grad;
             context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
-            context.clearRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
-            context.fillRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
-            context.strokeRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_*2) * scale);
-            left = (stage.startCycle - startCycle) * scale * self.opW_;
+            context.clearRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_ * 2 * scale));
+            context.fillRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_ * 2 * scale));
+            context.strokeRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_ * 2 * scale));
+            left = (stage.startCycle - startCycle) * self.opW_;
             if (scale >= 0.5) {
                 context.fillStyle = "#555555";
-                let textTop = top + ((self.opH_ - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
-                let textLeft = left + (self.opW_ * scale/3);
+                let textTop = top + ((self.opH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
+                let textLeft = left + (self.opW_/3);
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
-                    context.fillText(j, textLeft + j * scale * self.opW_, textTop);
+                    context.fillText(j, textLeft + j * self.opW_, textTop);
                 }
                 context.fillStyle = "#000000";
                 context.fillText(stage.name, textLeft, textTop);
