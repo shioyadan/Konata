@@ -138,7 +138,7 @@ class KonataRenderer{
         let id = Math.floor(posY);
         let op = null;
         try {
-            op = self.konata_.GetOp(id);
+            op = self.konata_.getOp(id);
         } catch (e) {
             console.log(e);
             return;
@@ -151,7 +151,7 @@ class KonataRenderer{
         self.viewPos_.top = posY;
         if (adjust) {
             // 水平方向の補正を行う
-            let oldOp = self.konata_.GetOp(Math.floor(oldTop));
+            let oldOp = self.konata_.getOp(Math.floor(oldTop));
             if (!oldOp) {
                 self.viewPos_.left = op.fetchedCycle;
             }
@@ -182,7 +182,7 @@ class KonataRenderer{
     getOpFromPixelPosY(y){
         let self = this;
         let id = Math.floor(self.viewPos_.top + y / self.opH_ / self.zoomScale_);
-        return self.konata_.GetOp(id);   
+        return self.konata_.getOp(id);   
     }
 
     // ピクセル座標に対応するツールチップのテキストを作る
@@ -289,7 +289,7 @@ class KonataRenderer{
             for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
                 let x = marginLeft;
                 let y = (id - logTop) * self.opH_ * scale + marginTop;
-                let op = self.konata_.GetOp(id);
+                let op = self.konata_.getOp(id);
                 if (op) {
                     let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
                     ctx.fillText(text, x, y);
@@ -329,7 +329,7 @@ class KonataRenderer{
             }
             let op = null;
             try {
-                op = self.konata_.GetOp(id);
+                op = self.konata_.getOp(id);
             } catch(e) {
                 console.log(e);
                 return;

@@ -42,7 +42,7 @@ ipc.on('Konata', function(event, args) {
     var request = args.request;
     if (request == "Please parser") { // args.pathのパーサーとして働くように頼まれた
         var path = args.path;
-        if (konata.OpenFile(path)) { // pathをOpenできたので解析できそう。
+        if (konata.openFile(path)) { // pathをOpenできたので解析できそう。
             event.returnValue = "Success";
         } else { // pathは開けなかった、または非対応の形式だった。
             event.returnValue = "Can not parse";
@@ -50,7 +50,7 @@ ipc.on('Konata', function(event, args) {
     } else if (request == "GetOp") { // Op情報を要求された
         var id = args.id;
         var path = args.path;
-        event.returnValue = konata.GetOp(path, id); // メインプロセス側のkonataにデータを要求して返却
+        event.returnValue = konata.getOp(path, id); // メインプロセス側のkonataにデータを要求して返却
     }
 });
 

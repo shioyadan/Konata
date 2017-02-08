@@ -101,8 +101,8 @@ function Store(){
     self.on(ACTION.FILE_OPEN, function(fileName){
         // Load a file
         let konata = new Konata.Konata();
-        if (!konata.OpenFile(fileName)) {
-            konata.Close(fileName);
+        if (!konata.openFile(fileName)) {
+            konata.close();
             self.trigger(CHANGE.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
             return;
         }
