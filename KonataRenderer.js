@@ -339,21 +339,24 @@ class KonataRenderer{
                 return;
             }
             if (op == null) {
-                return;
+                break;
             }
             if (!self.drawOp_(op, id - top + offsetY, left, left + width, scale, ctx)) {
-                return;
+                break;
             }
+        }
+
+        if (top - offsetY + height > self.konata_.lastID) {
+            let begin = tile.height - (top - offsetY + height - self.konata_.lastID) * scale * self.opH_ + self.PIXEL_ADJUST;
+            begin = Math.max(0, begin);
+            ctx.fillStyle = "rgb(128,128,128)";
+            ctx.fillRect(0, begin, tile.width, tile.height);
         }
     }
 
 
     drawOp_(op, h, startCycle, endCycle, scale, context){
         let self = this;
-        if (!context.fillRect) {
-            console.log("Not context object");
-            return false;
-        }
         let top = h * self.opH_ * scale + self.PIXEL_ADJUST;
         //context.fillStyle = "#ffffff";
         context.clearRect(0, top, (endCycle - startCycle) * scale, self.opH_ * scale);

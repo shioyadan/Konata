@@ -11,6 +11,9 @@ class OnikiriParser{
 
         // 現在読み出し中のサイクル
         this.curCycle = 0;
+
+        // 最後に読み出された命令の ID
+        this.lastID_ = -1;
         
         // op情報のキャッシュ（配列）
         // op情報とはOp.jsで定義される連想配列とフェッチされた行数情報（メタデータ）
@@ -78,6 +81,10 @@ class OnikiriParser{
             throw("Parsing...");
         }
         return op;
+    }
+
+    get lastID(){
+        return this.lastID_;
     }
 
     // Private methods
@@ -173,6 +180,9 @@ class OnikiriParser{
             op.fetchedCycle = this.curCycle;
             op.line = lineIdx;
             this.opCache_[id] = [op, lineIdx];
+            if (this.lastID_ < id) {
+                this.lastID_ = id;
+            }
             break;
 
         case "L": {

@@ -6,6 +6,7 @@ class Konata{
         // ローカル変数と区別するため this. を付ける．
         this.files = null; // 見たいファイル名とパース結果を関連付ける連想配列
         this.lastFetchedId = 0;
+        this.parser_ = null;
 
         this.File_ = require("./File");
         this.OnikiriParser_ = require("./onikiri_parser").OnikiriParser;
@@ -26,6 +27,7 @@ class Konata{
 
         let file = new this.File_(path);
         let parser = new this.OnikiriParser_();
+        this.parser_ = parser;
         console.log("Open :", path);
 
         try {
@@ -54,6 +56,10 @@ class Konata{
             this.lastFetchedId = id;
         }
         return op;
+    }
+
+    get lastID(){
+        return this.parser_.lastID;
     }
 
 
