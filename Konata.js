@@ -16,13 +16,13 @@ class Konata{
     close(){
         this.files = null;
         this.lastFetchedId = null;
+        this.parser_ = null;
     }
 
 
     openFile(path){
         if (this.files != null) {
-            // 既に開かれている。
-            return;
+            this.close();
         }
 
         let file = new this.File_(path);

@@ -14,6 +14,7 @@ const ACTION = {
     DIALOG_MODAL_ERROR: 12,
 
     FILE_OPEN: 20,
+    FILE_RELOAD: 21,
 
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
@@ -136,7 +137,13 @@ function Store(){
         self.trigger(CHANGE.TAB_UPDATE, tab);
         self.trigger(CHANGE.PANE_SIZE_UPDATE);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+    });
 
+    // ファイルリロード
+    self.on(ACTION.FILE_RELOAD, function(){
+        let konata = self.activeTab.konata;
+        konata.openFile(self.activeTab.fileName);
+        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
 
     // アクティブなタブの変更

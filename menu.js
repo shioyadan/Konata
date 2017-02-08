@@ -19,6 +19,11 @@ function installMainMenu(){
                         click: function(){rc.trigger(ACTION.DIALOG_FILE_OPEN);}
                     },
                     {
+                        label: "Reload",
+                        accelerator: "Command+R",
+                        click: function(){rc.trigger(ACTION.FILE_RELOAD);}
+                    },
+                    {
                         label: "Quit",
                         accelerator: "Command+Q",
                         click: function(){rc.trigger(ACTION.APP_QUIT);}
