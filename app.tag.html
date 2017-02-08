@@ -90,11 +90,33 @@
 
 <!-- 可視化されたパイプラインを表示するキャンバス -->
 <app_pipeline_canvas>
-    <canvas ref="canvas"></canvas>
+    <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
+        <canvas ref="canvas"></canvas>
+        <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
+    </div>
+    
+    <!--position を absolute にすることで，同じ位置に重ねることができる 
+        見た目に関しては，CSS の方で定義
+    -->
+    <style>
+        div{
+            position: absolute;
+        }
+        canvas{
+            position: absolute;
+        }
+        .tool_tip{ 
+            position: absolute;
+            z-index: 100;
+        }
+    </style>
+
     <script>
         let self = this;
         self.width = 100;
         self.height = 100;
+        self.oldWidth = -1;
+        self.oldHeight = -1;
         self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
         self.valid = false;
 
@@ -156,6 +178,25 @@
             RiotControl.trigger(ACTION.KONATA_MOVE_PIXEL_DIFF, diff);
         };
 
+        // ツールチップ用の canvas ローカルなマウス移動
+        self.onLocalMouseMove = function(e){
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "visible";
+            tip.left = e.offsetX + "px";
+            tip.top = e.offsetY + 20 + "px";
+
+            let text = store.tabs[self.id].renderer.getPipelineToolTipText(e.offsetX, e.offsetY);
+            if (!text) {
+                tip.visibility = "hidden";
+            }
+            self.toolTipText = text;//.split("\n");
+            self.update();
+        };
+        self.onLocalMouseLeave = function(){
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "hidden";
+        };
+
         // ペーンの内容の更新
         self.onPaneContentUpdate = function(){
             let canvas = self.refs.canvas;
@@ -168,23 +209,33 @@
             let canvas = self.refs.canvas;
 
             // High DPI 対策
-            let context = canvas.getContext("2d");
-            let devicePixelRatio = window.devicePixelRatio || 1;
-            let backingStoreRatio = context.backingStorePixelRatio || 1;
-            
-            if (devicePixelRatio !== backingStoreRatio) {
-                let ratio = devicePixelRatio / backingStoreRatio;
-                canvas.width = self.width * ratio;
-                canvas.height = self.height * ratio;
-                canvas.style.width = self.width + "px";
-                canvas.style.height = self.height + "px";
-                context.scale(ratio, ratio);
-            }
-            else{
-                canvas.width = self.width;
-                canvas.height = self.height;
-                canvas.style.width = self.width + "px";
-                canvas.style.height = self.height + "px";
+            if (self.oldWidth != self.width || self.oldHeight != self.height){
+                // サイズを変更すると canvas の中身が破棄されるので，
+                // 本当に変わったときだけ反映する
+                self.oldWidth = self.width;
+                self.oldHeight = self.height;
+
+                // High DPI 対策
+                let context = canvas.getContext("2d");
+                let devicePixelRatio = window.devicePixelRatio || 1;
+                let backingStoreRatio = context.backingStorePixelRatio || 1;
+                
+                if (devicePixelRatio !== backingStoreRatio) {
+                    let ratio = devicePixelRatio / backingStoreRatio;
+                    canvas.width = self.width * ratio;
+                    canvas.height = self.height * ratio;
+                    canvas.style.width = self.width + "px";
+                    canvas.style.height = self.height + "px";
+                    context.scale(ratio, ratio);
+                }
+                else{
+                    canvas.width = self.width;
+                    canvas.height = self.height;
+                    canvas.style.width = self.width + "px";
+                    canvas.style.height = self.height + "px";
+                    context.scale(1, 1);
+                }
+
             }
 
         });
@@ -198,6 +249,8 @@
             canvas.ondblclick = self.onMouseDoubleClick;
             canvas.onmousewheel = self.onMouseWheel;
             canvas.onmousedown = self.onMouseDown;
+            canvas.onmousemove = self.onLocalMouseMove;
+            canvas.onmouseleave = self.onLocalMouseLeave;
 
             // 外でも捉えられるように window に
             window.addEventListener("mousemove", self.onMouseMove);
@@ -205,6 +258,8 @@
             self.valid = true;
             RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
             
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "hidden";
         });
 
         self.on("unmount", function(){
@@ -220,13 +275,18 @@
 
 <!-- 逆アセンブル結果を表示するキャンバス -->
 <app_label_canvas>
-    <canvas ref="canvas"></canvas>
-    <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
+    <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
+        <canvas ref="canvas"></canvas>
+        <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
+    </div>
     
     <!--position を absolute にすることで，同じ位置に重ねることができる 
         見た目に関しては，CSS の方で定義
     -->
     <style>
+        div{
+            position: absolute;
+        }
         canvas{
             position: absolute;
         }
@@ -303,6 +363,9 @@
             tip.top = e.offsetY + 20 + "px";
 
             let text = store.tabs[self.id].renderer.getLabelToolTipText(e.offsetY);
+            if (!text) {
+                tip.visibility = "hidden";
+            }
             self.toolTipText = text;//.split("\n");
             self.update();
         };

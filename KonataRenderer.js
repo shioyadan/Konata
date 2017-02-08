@@ -12,7 +12,7 @@ class KonataRenderer{
         }; 
 
         // 表示系
-        this.ZOOM_RATIO_ = 0.8;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
+        this.ZOOM_RATIO_ = 0.5;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
         this.ZOOM_ANIMATION_SPEED_ = 0.07;    // ZOOM_RATIO のフレーム当たり加算値
 
         this.zoomLevel_ = 0;       // 拡大率レベル
@@ -183,12 +183,17 @@ class KonataRenderer{
         return self.konata_.getOp(id);   
     }
 
+    getCycleFromPixelPosX(x){
+        let self = this;
+        return Math.floor(self.viewPos_.left + x / self.opW_);
+    }
+
     // ピクセル座標に対応するツールチップのテキストを作る
     getLabelToolTipText(y){
         let self = this;
         let op = self.getOpFromPixelPosY(y);
         if (!op) {
-            return "Out of range";
+            return null;
         }
         let text = 
             `${op.labelName}\n` + 
@@ -199,6 +204,36 @@ class KonataRenderer{
             `Retire ID:\t\t${op.rid}`;
         if( op.flush ) {
             text += "\n# This op is flushed.";
+        }
+        return text;
+    }
+
+    // ピクセル座標に対応するツールチップのテキストを作る
+    getPipelineToolTipText(x, y){
+        let self = this;
+        let op = self.getOpFromPixelPosY(y);
+        if (!op) {
+            return null;
+        }
+
+        let cycle = self.getCycleFromPixelPosX(x);
+        let text = `[${cycle}, ${op.id}] `;
+        if (cycle < op.fetchedCycle || cycle > op.retiredCycle) {
+            return text;
+        }
+
+        let first = true;
+        for (let laneName in op.lanes) {
+            for (let stage of op.lanes[laneName]) {
+                if (stage.startCycle <= cycle && cycle < stage.endCycle) {
+                    if (!first) {
+                        text += ", ";
+                    }
+                    text += `${stage.name}[${stage.endCycle - stage.startCycle}]`;
+                    first = false;
+                }
+            }
+            
         }
         return text;
     }
