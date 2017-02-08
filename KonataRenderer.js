@@ -190,7 +190,7 @@ class KonataRenderer{
         let self = this;
         let op = self.getOpFromPixelPosY(y);
         if (!op) {
-            return "";
+            return "Out of range";
         }
         let text = 
             `${op.labelName}\n` + 
@@ -208,6 +208,7 @@ class KonataRenderer{
     // 拡大率の計算
     // level は指数で表す
     calcScale_(level){
+        let self = this;
         return Math.pow(2, -level * self.ZOOM_RATIO_);
     }
 
@@ -228,11 +229,14 @@ class KonataRenderer{
         self.drawingInterval_ = Math.floor(20/(self.zoomScale_ * Math.log(self.zoomScale_)/0.005));
 
         // 位置の補正
-        let ratio = oldScale * self.zoomScale_;
+        let oldLeft = self.viewPos_.left;
+        let oldTop = self.viewPos_.top;
+        let ratio = oldScale / self.zoomScale_;
         self.moveLogicalPos([
             self.viewPos_.left - (posX - posX / ratio) / self.opW_ / self.zoomScale_,
             self.viewPos_.top - (posY - posY / ratio) / self.opH_ / self.zoomScale_
         ]);
+        console.log(`zoom ratio:${ratio}  [${oldLeft}, ${oldTop}] to [${self.viewPos_.left}, ${self.viewPos_.top}]`);
         //;
     }
 
