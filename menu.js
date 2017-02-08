@@ -197,10 +197,12 @@ function popupPipelineMenu(pos){
                 // その時のパイプラインの左上がくるように移動
                 let render = store.activeTab.renderer;
                 let op = render.getOpFromPixelPosY(0);
-                rc.trigger(
-                    ACTION.KONATA_MOVE_LOGICAL_POS, 
-                    [op.fetchedCycle, op.id]
-                );
+                if (op) {
+                    rc.trigger(
+                        ACTION.KONATA_MOVE_LOGICAL_POS, 
+                        [op.fetchedCycle, op.id]
+                    );
+                }
             }
         },
     ];
