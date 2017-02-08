@@ -131,25 +131,15 @@ class KonataRenderer{
     moveLogicalDiff(diff, adjust){
         let self = this;
         let posY = self.viewPos_.top + diff[1];
-        if (posY < 0) {
-            posY = 0;
-        }
 
         let id = Math.floor(posY);
         let op = null;
-        try {
-            op = self.konata_.getOp(id);
-        } catch (e) {
-            console.log(e);
-            return;
-        }
-        if (op == null) {
-            return; //self.position[path];
-        }
+        op = self.konata_.getOp(id);
 
         let oldTop = self.viewPos_.top;
         self.viewPos_.top = posY;
-        if (adjust) {
+
+        if (adjust && op) {
             // 水平方向の補正を行う
             let oldOp = self.konata_.getOp(Math.floor(oldTop));
             if (!oldOp) {
@@ -175,7 +165,8 @@ class KonataRenderer{
     moveLogicalPos(pos){
         let self = this;
         self.viewPos_.left = Math.max(0, pos[0]);
-        self.viewPos_.top = Math.max(0, pos[1]);
+        //self.viewPos_.top = Math.max(0, pos[1]);
+        self.viewPos_.top = pos[1];
     }
 
     // ピクセル座標から対応する op を返す
@@ -323,6 +314,19 @@ class KonataRenderer{
         ctx.fillStyle = "rgb(255,255,255)";
         ctx.fillRect(0, 0, tile.width, tile.height);
 
+        let offsetY = 0;
+        if (top < 0) {
+            let bottom = -top * scale * self.opH_ + self.PIXEL_ADJUST;
+            bottom = Math.min(tile.height, bottom);
+            ctx.fillStyle = "rgb(128,128,128)";
+            ctx.fillRect(0, 0, tile.width, bottom);
+            if (bottom >= tile.height) {
+                return;
+            }
+            offsetY = -top;
+            top = 0;
+        }
+
         for (let id = Math.floor(top); id < top + height; id++) {
             if (scale < 0.005 && id % self.drawingInterval_  != 0) {
                 continue;
@@ -337,7 +341,7 @@ class KonataRenderer{
             if (op == null) {
                 return;
             }
-            if (!self.drawOp_(op, id - top, left, left + width, scale, ctx)) {
+            if (!self.drawOp_(op, id - top + offsetY, left, left + width, scale, ctx)) {
                 return;
             }
         }
