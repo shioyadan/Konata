@@ -224,6 +224,11 @@ class OnikiriParser{
             //var lane = op.lanes[laneName];
             op.lanes[laneName].push(stage);
             op.lastParsedStage = stageName;
+
+            // X を名前に含むステージは実行ステージと見なす
+            if (stageName.match(/X/)){
+                op.consCycle = this.curCycle;
+            }
             break;
         }
 
@@ -242,6 +247,11 @@ class OnikiriParser{
                 break;
             }
             stage.endCycle = this.curCycle;
+
+            // X を名前に含むステージは実行ステージと見なす
+            if (stageName.match(/X/)){
+                op.prodCycle = this.curCycle - 1;
+            }
             break;
         }
 

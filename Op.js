@@ -25,8 +25,13 @@ class Op{
         this.lastParsedStage = "";
 
         this.labels = []; // ラベル情報の入っている配列
+        
         this.prods = []; // プロデューサ命令のIDの配列
         this.cons = []; // コンシューマ命令のIDの配列
+
+        // 依存関係の描画に使用
+        this.prodCycle = -1;    // 実行ステージの開始
+        this.consCycle = -1;    // 実行ステージの修了
     }
 }
 

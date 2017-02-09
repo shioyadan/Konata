@@ -418,38 +418,28 @@ class KonataRenderer{
         let arrowEndOffsetX = self.opW_ * 1 / 4 + self.PIXEL_ADJUST;
         let arrowOffsetY = self.opH_ / 2 + self.PIXEL_ADJUST;
 
-        for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgb(170,30,30)";
+        ctx.fillStyle = "rgb(170,30,30)";
+
+        for (let id = Math.floor(logTop - logHeight); id < logTop + logHeight; id++) {
             let op = self.konata_.getOp(id);
             if (!op) {
                 continue;
             }
 
-            let prodCycle = -1;
-            for (let laneName in op.lanes) {
-                for (let stage of op.lanes[laneName]) {
-                    if (stage.name.match(/X/)) {
-                        prodCycle = stage.endCycle - 1;
-                    }
-                }
-            }
+            let prodCycle = op.prodCycle;
             if (prodCycle == -1) {
                 continue;
             }
 
             for (let dep of op.cons) {
 
-                let consCycle = -1;
                 let cons = self.konata_.getOp(dep.id);
                 if (!cons) {
                     continue;
                 }
-                for (let laneName in cons.lanes) {
-                    for (let stage of cons.lanes[laneName]) {
-                        if (stage.name.match(/X/)) {
-                            consCycle = stage.startCycle;
-                        }
-                    }
-                }
+                let consCycle = cons.consCycle;
                 if (consCycle == -1) {
                     continue;
                 }
@@ -460,12 +450,40 @@ class KonataRenderer{
                 let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
                 let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
 
-                ctx.beginPath();
-                ctx.moveTo(xBegin, yBegin);
-                ctx.lineTo(xEnd, yEnd);
-                ctx.stroke();
+                self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin], 0.8);
             }
         }
+    }
+
+    
+    /** 矢印を描画する
+    * @param {Object} ctx - 2D context
+    * @param {array} start - やじりの先端
+    * @param {array} end - やじりの終端
+    * @param {array} v - 向きと高さを指定するベクトル
+    * @param {array} shape - 底辺と高さの比
+    */
+    drawArrow_(ctx, start, end, v, shape){
+
+        let pts = [];
+        let norm = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
+        let f = 5 / norm;   // 5: サイズ
+        v[0] *= f;
+        v[1] *= f;
+
+        pts[0] = end;
+        pts[1] = [end[0] - v[0] - v[1] * 0.5 * shape, end[1] - v[1] + v[0] * 0.5 * shape];
+        pts[2] = [end[0] - v[0] + v[1] * 0.5 * shape, end[1] - v[1] - v[0] * 0.5 * shape];
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        ctx.lineTo(pts[1][0], pts[1][1]);
+        ctx.lineTo(pts[2][0], pts[2][1]);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(start[0], start[1]);
+        ctx.lineTo(end[0], end[1]);
+        ctx.stroke();
     }
 
     drawOp_(op, h, startCycle, endCycle, scale, context){
