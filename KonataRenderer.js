@@ -373,6 +373,7 @@ class KonataRenderer{
             top = 0;
         }
 
+        // タイルの描画
         for (let id = Math.floor(top); id < top + height; id++) {
             if (scale < 0.005 && id % self.drawingInterval_  != 0) {
                 continue;
@@ -392,6 +393,10 @@ class KonataRenderer{
             }
         }
 
+        // 依存関係
+        self.drawDependency(offsetY, top, left, width, height, ctx);
+
+
         // 下側にはみ出ていた場合，暗く描画
         if (top - offsetY + height > self.konata_.lastID) {
             let begin = tile.height - (top - offsetY + height - self.konata_.lastID) * self.opH_ + self.PIXEL_ADJUST;
@@ -401,6 +406,67 @@ class KonataRenderer{
         }
     }
 
+    drawDependency(logOffsetY, logTop, logLeft, logWidth, logHeight, ctx){
+        // 依存関係の描画
+        let self = this;
+        let scale = self.zoomScale_;
+
+        if (scale < 0.005) {
+            return;
+        }
+        let arrowBeginOffsetX = self.opW_ * 3 / 4 + self.PIXEL_ADJUST;
+        let arrowEndOffsetX = self.opW_ * 1 / 4 + self.PIXEL_ADJUST;
+        let arrowOffsetY = self.opH_ / 2 + self.PIXEL_ADJUST;
+
+        for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
+            let op = self.konata_.getOp(id);
+            if (!op) {
+                continue;
+            }
+
+            let prodCycle = -1;
+            for (let laneName in op.lanes) {
+                for (let stage of op.lanes[laneName]) {
+                    if (stage.name.match(/X/)) {
+                        prodCycle = stage.endCycle - 1;
+                    }
+                }
+            }
+            if (prodCycle == -1) {
+                continue;
+            }
+
+            for (let dep of op.cons) {
+
+                let consCycle = -1;
+                let cons = self.konata_.getOp(dep.id);
+                if (!cons) {
+                    continue;
+                }
+                for (let laneName in cons.lanes) {
+                    for (let stage of cons.lanes[laneName]) {
+                        if (stage.name.match(/X/)) {
+                            consCycle = stage.startCycle;
+                        }
+                    }
+                }
+                if (consCycle == -1) {
+                    continue;
+                }
+
+                let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
+                let yBegin = (id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                
+                let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
+                let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+
+                ctx.beginPath();
+                ctx.moveTo(xBegin, yBegin);
+                ctx.lineTo(xEnd, yEnd);
+                ctx.stroke();
+            }
+        }
+    }
 
     drawOp_(op, h, startCycle, endCycle, scale, context){
         let self = this;
