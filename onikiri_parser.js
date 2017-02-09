@@ -2,7 +2,7 @@ class OnikiriParser{
 
     constructor(){
         this.Op = require("./Op").Op;
-        this.Stage = require("./Stage");
+        this.Stage = require("./Stage").Stage;
 
         this.file_ = null; 
         
@@ -215,8 +215,10 @@ class OnikiriParser{
         case "S": {
             let laneName = args[2];
             let stageName = args[3];
-            let stage = new this.Stage({name:stageName, startCycle:this.curCycle});
-            if (op.lanes[laneName] == null) {
+            let stage = new this.Stage();
+            stage.name = stageName;
+            stage.startCycle = this.curCycle;
+            if (!(laneName in op.lanes)) {
                 op.lanes[laneName] = [];
             }
             //var lane = op.lanes[laneName];
