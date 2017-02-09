@@ -54,303 +54,298 @@ const CHANGE = {
     MENU_UPDATE: 120,   // メニュー内容の更新
 };
 
-function Store(){
-    /* globals riot */
-    riot.observable(this);
-    
-    // この書式じゃないと IntelliSense が効かない
-    let electron = require("electron");
-    let KonataRenderer = require("./KonataRenderer");
-    let Konata = require("./Konata");
-    let fs = require("fs");
-    
-    /** @type {{
-            tabs: {}, 
-            nextTabID: number, 
-            activeTabID: number,
-            activeTab: {},
-            sheet: {width: number, height: number},
-        }} 
-    */
-    let self = this;
+class Store{
+    constructor(){
+        /* globals riot */
+        riot.observable(this);
+        
+        // この書式じゃないと IntelliSense が効かない
+        let electron = require("electron");
+        let KonataRenderer = require("./KonataRenderer");
+        let Konata = require("./Konata");
+        let fs = require("fs");
 
-    // Tab
-    this.tabs = {}; // id -> tab
-    self.nextOpenedTabID = 0; // 次にオープンされるタブの ID 
 
-    self.activeTabID = 0;   // 現在アクティブなタブの ID 
-    self.activeTab = null;  // 現在アクティブなタブ
-    self.prevTabID = -1;     // 前回アクティブだったタブの ID 
-    self.prevTab = null;       // 前回アクティブだったタブ
+        // Tab
+        this.tabs = {}; // id -> tab
+        this.nextOpenedTabID = 0; // 次にオープンされるタブの ID 
 
-    // ウィンドウサイズ
-    self.sheet = {
-        width: 800,
-        height: 600
-    };
+        this.activeTabID = 0;   // 現在アクティブなタブの ID 
+        this.activeTab = null;  // 現在アクティブなタブ
+        this.prevTabID = -1;     // 前回アクティブだったタブの ID 
+        this.prevTab = null;       // 前回アクティブだったタブ
 
-    // ダイアログ
-    // 基本的に中継してるだけ
-    self.on(ACTION.DIALOG_FILE_OPEN, function(){
-        self.trigger(CHANGE.DIALOG_FILE_OPEN);
-    });
-    self.on(ACTION.DIALOG_MODAL_MESSAGE, function(msg){
-        self.trigger(CHANGE.DIALOG_MODAL_MESSAGE, msg);
-    });
-    self.on(ACTION.DIALOG_MODAL_ERROR, function(msg){
-        self.trigger(CHANGE.DIALOG_MODAL_ERROR, msg);
-    });
-
-    // ファイルオープン
-    self.on(ACTION.FILE_OPEN, function(fileName){
-        // Load a file
-        let konata = new Konata.Konata();
-        if (!konata.openFile(fileName)) {
-            konata.close();
-            self.trigger(CHANGE.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
-            return;
-        }
-        let renderer = new KonataRenderer.KonataRenderer();
-        renderer.init(konata);
-
-        // ファイル更新時間
-        let mtime = fs.statSync(fileName).mtime;
-
-        // Create a new tab
-        let tab = {
-            id: self.nextOpenedTabID, 
-            fileName: fileName,
-            lastFileCheckedTime: mtime,
-            konata: konata,
-            renderer: renderer,
-            splitterPos: 300,   // スプリッタの位置
-            transparent: false, // 透明化の有効無効
-            colorScheme: "default",  // カラースキーム
-            syncScroll: false,  // スクロールを同期 
-            syncScrollTab: 0,    // 同期対象のタブ
-            viewPort: {         // 表示領域
-                top: 0,
-                left: 0,
-                width: 0,
-                height: 0,
-            },  
+        // ウィンドウサイズ
+        this.sheet = {
+            width: 800,
+            height: 600
         };
-        self.tabs[self.nextOpenedTabID] = tab;
-        self.activeTabID = self.nextOpenedTabID;
-        self.activeTab = self.tabs[self.activeTabID];
-        self.nextOpenedTabID++;
-       
-        self.trigger(CHANGE.TAB_OPEN, tab);
-        self.trigger(CHANGE.TAB_UPDATE, tab);
-        self.trigger(CHANGE.PANE_SIZE_UPDATE);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
 
-    // ファイルリロード
-    self.on(ACTION.FILE_RELOAD, function(){
-        let konata = self.activeTab.konata;
-        konata.openFile(self.activeTab.fileName);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
+        let self = this;
+        
 
-    // リロードのチェック要求
-    self.on(ACTION.FILE_CHECK_RELOAD, function(){
-        if (!self.activeTab) {
-            return;
-        }
-        // ファイル更新時間
-        let fileName = self.activeTab.fileName;
-        let mtime = fs.statSync(fileName).mtime;
-        if (self.activeTab.lastFileCheckedTime < mtime){
-            // リロードチェックのダイアログを起動
-            self.trigger(CHANGE.DIALOG_CHECK_RELOAD, fileName);
-        }
-        self.activeTab.lastFileCheckedTime = mtime;
-    });
+        // ダイアログ
+        // 基本的に中継してるだけ
+        self.on(ACTION.DIALOG_FILE_OPEN, function(){
+            self.trigger(CHANGE.DIALOG_FILE_OPEN);
+        });
+        self.on(ACTION.DIALOG_MODAL_MESSAGE, function(msg){
+            self.trigger(CHANGE.DIALOG_MODAL_MESSAGE, msg);
+        });
+        self.on(ACTION.DIALOG_MODAL_ERROR, function(msg){
+            self.trigger(CHANGE.DIALOG_MODAL_ERROR, msg);
+        });
 
-
-    // アクティブなタブの変更
-    self.on(ACTION.TAB_ACTIVATE, function(id){
-        if (!(id in self.tabs)) {
-            console.log(`ACTION.TAB_ACTIVATE: invalid id: ${id}`);
-            return;
-        }
-
-        self.prevTabID = self.activeTabID;
-        self.prevTab = self.activeTab;
-
-        self.activeTabID = id;
-        self.activeTab = self.tabs[self.activeTabID];
-
-        self.trigger(CHANGE.TAB_UPDATE);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
-
-    // タブ移動
-    self.on(ACTION.TAB_MOVE, function(next){
-        let ids = Object.keys(self.tabs).sort();
-        for (let i = 0; i < ids.length; i++) {
-            if (self.activeTab.id == ids[i]) {
-                let to = next ? ids[(i+1)%ids.length] : ids[(i+ids.length-1)%ids.length];
-                self.trigger(ACTION.TAB_ACTIVATE, to);
-                break;
-            }
-        }
-    });
-
-    // タブを閉じる
-    self.on(ACTION.TAB_CLOSE, function(id){
-        if (!(id in self.tabs)) {
-            console.log(`ACTION.TAB_CLOSE: invalid id: ${id}`);
-            return;
-        }
-
-        delete self.tabs[id];
-        self.activeTab = null;
-        for(let newID in self.tabs){
-            self.activeTabID = newID;
-            self.activeTab = self.tabs[newID];
-            break;
-        }
-        if (!self.activeTab) {
-            self.activeTabID = -1;
-        }
-        self.trigger(CHANGE.TAB_UPDATE);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
-
-    // ウィンドウのサイズ変更
-    self.on(ACTION.SHEET_RESIZE, function(width, height){
-        self.sheet.width = width;
-        self.sheet.height = height;
-        self.trigger(CHANGE.PANE_SIZE_UPDATE);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
-
-    // スプリッタの位置変更
-    self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
-        if (!self.activeTab) {
-            return;
-        }
-        self.activeTab.splitterPos = position;
-        self.trigger(CHANGE.PANE_SIZE_UPDATE);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
-
-    // アプリケーション終了
-    self.on(ACTION.APP_QUIT, function(){
-        electron.remote.app.quit();
-    });
-
-    // 1段階の拡大/縮小
-    // zoomOut は true の際にズームアウト
-    // posX, posY はズームの中心点
-    self.on(ACTION.KONATA_ZOOM, function(zoomOut, posX, posY){
-        if (!self.activeTab) {
-            return;
-        }
-        let renderer = self.activeTab.renderer;
-        renderer.zoom(zoomOut, posX, posY);
-        // 同期
-        if (self.activeTab.syncScroll) {
-            let renderer = self.activeTab.syncScrollTab.renderer;
-            renderer.zoom(zoomOut, posX, posY);
-        }
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
-
-    // ホイールによる移動
-    self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
-        if (!self.activeTab) {
-            return;
-        }
-        let renderer = self.activeTab.renderer;
-        renderer.moveWheel(wheelUp);
-        // 同期
-        if (self.activeTab.syncScroll) {
-            let renderer = self.activeTab.syncScrollTab.renderer;
-            renderer.moveWheel(wheelUp);
-        }
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
-
-    // 位置移動，引数はピクセル相対値
-    self.on(ACTION.KONATA_MOVE_PIXEL_DIFF, function(diff){
-        if (!self.activeTab) {
-            return;
-        }
-        let renderer = self.activeTab.renderer;
-        renderer.movePixelDiff(diff);
-        // 同期
-        if (self.activeTab.syncScroll) {
-            let renderer = self.activeTab.syncScrollTab.renderer;
-            renderer.movePixelDiff(diff);
-        }
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
-
-    // 位置移動，引数は論理座標（サイクル数，命令ID）
-    self.on(ACTION.KONATA_MOVE_LOGICAL_POS, function(pos){
-        if (!self.activeTab) {
-            return;
-        }
-        let renderer = self.activeTab.renderer;
-        renderer.moveLogicalPos(pos);
-        // 同期
-        if (self.activeTab.syncScroll) {
-            let renderer = self.activeTab.syncScrollTab.renderer;
-            renderer.moveLogicalPos(pos);
-        }
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-    });
-
-    // カラースキームの変更
-    self.on(ACTION.KONATA_CHANGE_COLOR_SCHEME, function(tabID, scheme){
-        if (!(tabID in self.tabs)) {
-            return;
-        }
-        let tab = self.tabs[tabID];
-        tab.colorScheme = scheme;
-        tab.renderer.changeColorScheme(scheme);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-        self.trigger(CHANGE.MENU_UPDATE);
-    });
-
-    // パイプラインのペーンを透明化
-    self.on(ACTION.KONATA_TRANSPARENT, function(tabID, enable){
-        if (!(tabID in self.tabs)) {
-            return;
-        }
-        let tab = self.tabs[tabID];
-        tab.transparent = enable;
-        self.trigger(CHANGE.TAB_UPDATE);
-        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-        self.trigger(CHANGE.MENU_UPDATE);
-    });
-
-    // スクロールの同期化
-    self.on(ACTION.KONATA_SYNC_SCROLL, function(tabID, syncedTabID, enable){
-
-        if (!(tabID in self.tabs)) {
-            return;
-        }
-        let tab = self.tabs[tabID];
-
-        if (enable) {
-            if (!(syncedTabID in self.tabs)) {
+        // ファイルオープン
+        self.on(ACTION.FILE_OPEN, function(fileName){
+            // Load a file
+            let konata = new Konata.Konata();
+            if (!konata.openFile(fileName)) {
+                konata.close();
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
                 return;
             }
-            tab.syncScroll = true;
-            tab.syncScrollTab = self.tabs[syncedTabID];
-        }
-        else{
-            tab.syncScroll = false;
-            tab.syncScrollTab = null;
-        }
+            let renderer = new KonataRenderer.KonataRenderer();
+            renderer.init(konata);
 
-        self.trigger(CHANGE.MENU_UPDATE);
-    });
+            // ファイル更新時間
+            let mtime = fs.statSync(fileName).mtime;
 
+            // Create a new tab
+            let tab = {
+                id: self.nextOpenedTabID, 
+                fileName: fileName,
+                lastFileCheckedTime: mtime,
+                konata: konata,
+                renderer: renderer,
+                splitterPos: 300,   // スプリッタの位置
+                transparent: false, // 透明化の有効無効
+                colorScheme: "default",  // カラースキーム
+                syncScroll: false,  // スクロールを同期 
+                syncScrollTab: 0,    // 同期対象のタブ
+                viewPort: {         // 表示領域
+                    top: 0,
+                    left: 0,
+                    width: 0,
+                    height: 0,
+                },  
+            };
+            self.tabs[self.nextOpenedTabID] = tab;
+            self.activeTabID = self.nextOpenedTabID;
+            self.activeTab = self.tabs[self.activeTabID];
+            self.nextOpenedTabID++;
+        
+            self.trigger(CHANGE.TAB_OPEN, tab);
+            self.trigger(CHANGE.TAB_UPDATE, tab);
+            self.trigger(CHANGE.PANE_SIZE_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // ファイルリロード
+        self.on(ACTION.FILE_RELOAD, function(){
+            let konata = self.activeTab.konata;
+            konata.openFile(self.activeTab.fileName);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // リロードのチェック要求
+        self.on(ACTION.FILE_CHECK_RELOAD, function(){
+            if (!self.activeTab) {
+                return;
+            }
+            // ファイル更新時間
+            let fileName = self.activeTab.fileName;
+            let mtime = fs.statSync(fileName).mtime;
+            if (self.activeTab.lastFileCheckedTime < mtime){
+                // リロードチェックのダイアログを起動
+                self.trigger(CHANGE.DIALOG_CHECK_RELOAD, fileName);
+            }
+            self.activeTab.lastFileCheckedTime = mtime;
+        });
+
+
+        // アクティブなタブの変更
+        self.on(ACTION.TAB_ACTIVATE, function(id){
+            if (!(id in self.tabs)) {
+                console.log(`ACTION.TAB_ACTIVATE: invalid id: ${id}`);
+                return;
+            }
+
+            self.prevTabID = self.activeTabID;
+            self.prevTab = self.activeTab;
+
+            self.activeTabID = id;
+            self.activeTab = self.tabs[self.activeTabID];
+
+            self.trigger(CHANGE.TAB_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // タブ移動
+        self.on(ACTION.TAB_MOVE, function(next){
+            let ids = Object.keys(self.tabs).sort();
+            for (let i = 0; i < ids.length; i++) {
+                if (self.activeTab.id == ids[i]) {
+                    let to = next ? ids[(i+1)%ids.length] : ids[(i+ids.length-1)%ids.length];
+                    self.trigger(ACTION.TAB_ACTIVATE, to);
+                    break;
+                }
+            }
+        });
+
+        // タブを閉じる
+        self.on(ACTION.TAB_CLOSE, function(id){
+            if (!(id in self.tabs)) {
+                console.log(`ACTION.TAB_CLOSE: invalid id: ${id}`);
+                return;
+            }
+
+            delete self.tabs[id];
+            self.activeTab = null;
+            for(let newID in self.tabs){
+                self.activeTabID = newID;
+                self.activeTab = self.tabs[newID];
+                break;
+            }
+            if (!self.activeTab) {
+                self.activeTabID = -1;
+            }
+            self.trigger(CHANGE.TAB_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // ウィンドウのサイズ変更
+        self.on(ACTION.SHEET_RESIZE, function(width, height){
+            self.sheet.width = width;
+            self.sheet.height = height;
+            self.trigger(CHANGE.PANE_SIZE_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // スプリッタの位置変更
+        self.on(ACTION.PANE_SPLITTER_MOVE, function(position){
+            if (!self.activeTab) {
+                return;
+            }
+            self.activeTab.splitterPos = position;
+            self.trigger(CHANGE.PANE_SIZE_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // アプリケーション終了
+        self.on(ACTION.APP_QUIT, function(){
+            electron.remote.app.quit();
+        });
+
+        // 1段階の拡大/縮小
+        // zoomOut は true の際にズームアウト
+        // posX, posY はズームの中心点
+        self.on(ACTION.KONATA_ZOOM, function(zoomOut, posX, posY){
+            if (!self.activeTab) {
+                return;
+            }
+            let renderer = self.activeTab.renderer;
+            renderer.zoom(zoomOut, posX, posY);
+            // 同期
+            if (self.activeTab.syncScroll) {
+                let renderer = self.activeTab.syncScrollTab.renderer;
+                renderer.zoom(zoomOut, posX, posY);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // ホイールによる移動
+        self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
+            if (!self.activeTab) {
+                return;
+            }
+            let renderer = self.activeTab.renderer;
+            renderer.moveWheel(wheelUp);
+            // 同期
+            if (self.activeTab.syncScroll) {
+                let renderer = self.activeTab.syncScrollTab.renderer;
+                renderer.moveWheel(wheelUp);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // 位置移動，引数はピクセル相対値
+        self.on(ACTION.KONATA_MOVE_PIXEL_DIFF, function(diff){
+            if (!self.activeTab) {
+                return;
+            }
+            let renderer = self.activeTab.renderer;
+            renderer.movePixelDiff(diff);
+            // 同期
+            if (self.activeTab.syncScroll) {
+                let renderer = self.activeTab.syncScrollTab.renderer;
+                renderer.movePixelDiff(diff);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // 位置移動，引数は論理座標（サイクル数，命令ID）
+        self.on(ACTION.KONATA_MOVE_LOGICAL_POS, function(pos){
+            if (!self.activeTab) {
+                return;
+            }
+            let renderer = self.activeTab.renderer;
+            renderer.moveLogicalPos(pos);
+            // 同期
+            if (self.activeTab.syncScroll) {
+                let renderer = self.activeTab.syncScrollTab.renderer;
+                renderer.moveLogicalPos(pos);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // カラースキームの変更
+        self.on(ACTION.KONATA_CHANGE_COLOR_SCHEME, function(tabID, scheme){
+            if (!(tabID in self.tabs)) {
+                return;
+            }
+            let tab = self.tabs[tabID];
+            tab.colorScheme = scheme;
+            tab.renderer.changeColorScheme(scheme);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // パイプラインのペーンを透明化
+        self.on(ACTION.KONATA_TRANSPARENT, function(tabID, enable){
+            if (!(tabID in self.tabs)) {
+                return;
+            }
+            let tab = self.tabs[tabID];
+            tab.transparent = enable;
+            self.trigger(CHANGE.TAB_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // スクロールの同期化
+        self.on(ACTION.KONATA_SYNC_SCROLL, function(tabID, syncedTabID, enable){
+
+            if (!(tabID in self.tabs)) {
+                return;
+            }
+            let tab = self.tabs[tabID];
+
+            if (enable) {
+                if (!(syncedTabID in self.tabs)) {
+                    return;
+                }
+                tab.syncScroll = true;
+                tab.syncScrollTab = self.tabs[syncedTabID];
+            }
+            else{
+                tab.syncScroll = false;
+                tab.syncScrollTab = null;
+            }
+
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+    }
 
 }
 
