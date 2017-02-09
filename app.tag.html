@@ -631,6 +631,11 @@
             rc.trigger(ACTION.SHEET_RESIZE, width, height);
         };
 
+        // フォーカスハンドラ
+        self.onFocus = function(){
+            rc.trigger(ACTION.FILE_CHECK_RELOAD);
+        };
+
         // 初期化
         // マウント時に呼ばれる
         self.init = function(){
@@ -638,6 +643,9 @@
             // メニューを追加
             let menu = require("./menu.js");
             menu.installMainMenu();
+
+            // フォーカス
+            window.onfocus = self.onFocus;
 
             // リサイズハンドラ
             window.addEventListener("resize", self.onResize, false);

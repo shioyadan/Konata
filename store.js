@@ -15,6 +15,7 @@ const ACTION = {
 
     FILE_OPEN: 20,
     FILE_RELOAD: 21,
+    FILE_CHECK_RELOAD: 22,
 
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
@@ -48,6 +49,7 @@ const CHANGE = {
     DIALOG_FILE_OPEN: 110,
     DIALOG_MODAL_MESSAGE: 111,
     DIALOG_MODAL_ERROR: 112,
+    DIALOG_CHECK_RELOAD: 113,
 
     MENU_UPDATE: 120,   // メニュー内容の更新
 };
@@ -60,6 +62,7 @@ function Store(){
     let electron = require("electron");
     let KonataRenderer = require("./KonataRenderer");
     let Konata = require("./Konata");
+    let fs = require("fs");
     
     /** @type {{
             tabs: {}, 
@@ -110,10 +113,14 @@ function Store(){
         let renderer = new KonataRenderer.KonataRenderer();
         renderer.init(konata);
 
+        // ファイル更新時間
+        let mtime = fs.statSync(fileName).mtime;
+
         // Create a new tab
         let tab = {
             id: self.nextOpenedTabID, 
             fileName: fileName,
+            lastFileCheckedTime: mtime,
             konata: konata,
             renderer: renderer,
             splitterPos: 300,   // スプリッタの位置
@@ -145,6 +152,22 @@ function Store(){
         konata.openFile(self.activeTab.fileName);
         self.trigger(CHANGE.PANE_CONTENT_UPDATE);
     });
+
+    // リロードのチェック要求
+    self.on(ACTION.FILE_CHECK_RELOAD, function(){
+        if (!self.activeTab) {
+            return;
+        }
+        // ファイル更新時間
+        let fileName = self.activeTab.fileName;
+        let mtime = fs.statSync(fileName).mtime;
+        if (self.activeTab.lastFileCheckedTime < mtime){
+            // リロードチェックのダイアログを起動
+            self.trigger(CHANGE.DIALOG_CHECK_RELOAD, fileName);
+        }
+        self.activeTab.lastFileCheckedTime = mtime;
+    });
+
 
     // アクティブなタブの変更
     self.on(ACTION.TAB_ACTIVATE, function(id){
