@@ -254,10 +254,26 @@ class OnikiriParser{
         }
 
         case "W": {
+            // 任意の依存関係 - 典型的にはウェイクアップ
+            // タイプ番号の指定により，違う色で表示される
+            //
+            // フォーマット:
+            //      W	<Consumer ID>	<Producer ID>	<Type>
+            //
+            // <Consumer ID>: 2列目はコンシューマーのID
+            // <Producer ID>: 3列目はプロデューサーのID
+            // <Type>: 4列目は依存関係のタイプ
+            //      0ならウェイクアップ, 1以降は今のところ予約
+            //      コンシューマーが生きている期間のみ使用可能
+
             let prodId = Number(args[2]);
             let type = Number(args[3]);
-            op.prods.push([prodId, type, this.curCycle]);
-            this.opCache_[prodId][0].cons.push([id, type, this.curCycle]);
+            op.prods.push(
+                {id: prodId, type: type, cycle: this.curCycle}
+            );
+            this.opCache_[prodId][0].cons.push(
+                {id: id, type: type, cycle: this.curCycle}
+            );
             break;
         }
         }  // switch end
