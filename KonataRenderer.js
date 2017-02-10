@@ -444,13 +444,22 @@ class KonataRenderer{
                     continue;
                 }
 
-                let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
-                let yBegin = (id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
-                
-                let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
-                let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                if (0) {
+                    let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
+                    let yBegin = (id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
+                    let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
 
-                self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin], 0.8);
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin]);
+                }
+                else {
+                    let xBegin = (op.fetchedCycle - logLeft) * self.opW_;
+                    let yBegin = (id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let xEnd = (cons.fetchedCycle - logLeft) * self.opW_;
+                    let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0]);
+                }
             }
         }
     }
@@ -463,8 +472,30 @@ class KonataRenderer{
     * @param {array} v - 向きと高さを指定するベクトル
     * @param {array} shape - 底辺と高さの比
     */
-    drawArrow_(ctx, start, end, v, shape){
+    drawArrow_(ctx, start, end, v){
+        let self = this;
+        if (0) {
+            // パイプライン中の X ステージ
+            ctx.beginPath();
+            ctx.moveTo(start[0], start[1]);
+            ctx.lineTo(end[0], end[1]);
+            ctx.stroke();
+        }
+        else {
+            // 左側の曲線
+            let offsetX = start[0] - self.opW_ * Math.sqrt((end[1] - start[1]) / self.opH_);
+            ctx.beginPath();
+            ctx.moveTo(start[0], start[1]);
+            ctx.bezierCurveTo(
+                offsetX, start[1], 
+                offsetX, end[1], 
+                end[0], end[1]
+            );
+            ctx.stroke();
+        }
 
+        // 矢印の頭
+        let shape = 0.8;
         let pts = [];
         let norm = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
         let f = 5 / norm;   // 5: サイズ
@@ -479,11 +510,6 @@ class KonataRenderer{
         ctx.lineTo(pts[1][0], pts[1][1]);
         ctx.lineTo(pts[2][0], pts[2][1]);
         ctx.fill();
-
-        ctx.beginPath();
-        ctx.moveTo(start[0], start[1]);
-        ctx.lineTo(end[0], end[1]);
-        ctx.stroke();
     }
 
     drawOp_(op, h, startCycle, endCycle, scale, context){
