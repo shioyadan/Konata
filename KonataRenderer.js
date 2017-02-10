@@ -115,12 +115,10 @@ class KonataRenderer{
      * 依存関係の矢印のタイプを変更
     */
     get depArrowType(){
-        let self;
-        return self.depArrowType_;
+        return this.depArrowType_;
     }
     set depArrowType(type){
-        let self;
-        self.depArrowType_ = type;
+        this.depArrowType_ = type;
     }
 
     /**

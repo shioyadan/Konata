@@ -33,6 +33,7 @@ const ACTION = {
     KONATA_MOVE_PIXEL_DIFF: 65,   // 位置移動，引数はピクセル相対値
     KONATA_MOVE_LOGICAL_POS: 66,  // 位置移動，引数は論理座標（サイクル数，命令ID）
 
+    KONATA_SET_DEP_ARROW_TYPE: 67,  // 依存関係の矢印のタイプの設定
 
 };
 
@@ -139,6 +140,7 @@ class Store{
             self.trigger(CHANGE.TAB_UPDATE, tab);
             self.trigger(CHANGE.PANE_SIZE_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
         });
 
         // ファイルリロード
@@ -179,6 +181,7 @@ class Store{
 
             self.trigger(CHANGE.TAB_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
         });
 
         // タブ移動
@@ -212,6 +215,7 @@ class Store{
             }
             self.trigger(CHANGE.TAB_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
         });
 
         // ウィンドウのサイズ変更
@@ -301,6 +305,18 @@ class Store{
 
         // カラースキームの変更
         self.on(ACTION.KONATA_CHANGE_COLOR_SCHEME, function(tabID, scheme){
+            if (!(tabID in self.tabs)) {
+                return;
+            }
+            let tab = self.tabs[tabID];
+            tab.colorScheme = scheme;
+            tab.renderer.changeColorScheme(scheme);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // 依存関係の矢印のタイプを変更
+        self.on(ACTION.KONATA_SET_DEP_ARROW_TYPE, function(tabID, type){
             if (!(tabID in self.tabs)) {
                 return;
             }

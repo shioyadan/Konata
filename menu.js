@@ -8,7 +8,8 @@ function installMainMenu(){
 
         let tab = store ? store.activeTab : null;
         let tabID = store ? store.activeTabID : 0;
-
+        
+        // https://github.com/electron/electron/blob/master/docs/api/menu-item.md
         return [
             {
                 label: "File",
@@ -20,6 +21,7 @@ function installMainMenu(){
                     },
                     {
                         label: "Reload",
+                        enabled: tab ? true : false,
                         accelerator: "Command+R",
                         click: function(){rc.trigger(ACTION.FILE_RELOAD);}
                     },
@@ -57,6 +59,7 @@ function installMainMenu(){
             },
             {
                 label: "View",
+                enabled: tab ? true : false,
                 submenu: [
                     {
                         label: "Transparent mode",
@@ -88,7 +91,36 @@ function installMainMenu(){
                                 click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "blue");}
                             },
                         ]
-                    }
+                    },
+                    {
+                        label: "Dependency arrow",
+                        submenu: [
+                            {
+                                label: "Inside-line",
+                                type: "checkbox",
+                                checked: tab ? tab.renderer.depArrowType == tab.renderer.DEP_ARROW_INSIDE_LINE : false, 
+                                click: function(){
+                                    rc.trigger(
+                                        ACTION.KONATA_SET_DEP_ARROW_TYPE,
+                                        tabID, 
+                                        tab.renderer.DEP_ARROW_INSIDE_LINE
+                                    );
+                                }
+                            },
+                            {
+                                label: "Leftside-curve",
+                                type: "checkbox",
+                                checked: tab ? tab.renderer.depArrowType == tab.renderer.DEP_ARROW_LEFT_SIDE : false, 
+                                click: function(){
+                                    rc.trigger(
+                                        ACTION.KONATA_SET_DEP_ARROW_TYPE,
+                                        tabID, 
+                                        tab.renderer.DEP_ARROW_LEFT_SIDE
+                                    );
+                                }
+                            }
+                        ]
+                    },
                 ]
             },
             {
