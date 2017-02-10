@@ -10,12 +10,17 @@ class KonataRenderer{
             left: 0,
             top: 0
         }; 
+        // 拡大率レベル
+        this.zoomLevel_ = 0;       
+        // 依存関係の矢印のタイプ
+        this.DEP_ARROW_INSIDE_LINE = 0;
+        this.DEP_ARROW_LEFT_SIDE = 1;
+        this.depArrowType_ = this.DEP_ARROW_INSIDE_LINE;
+
 
         // 表示系
         this.ZOOM_RATIO_ = 0.5;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
         this.ZOOM_ANIMATION_SPEED_ = 0.07;    // ZOOM_RATIO のフレーム当たり加算値
-
-        this.zoomLevel_ = 0;       // 拡大率レベル
         this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
         
         this.konata_ = null;
@@ -35,6 +40,7 @@ class KonataRenderer{
 
         // 拡大率が大きい場合，一部描画をはしょる
         this.drawingInterval_ = 1;
+
 
         // JSON で定義された JSON
         this.STYLE_FILE_NAME_ = "./style.json";
@@ -105,6 +111,17 @@ class KonataRenderer{
         self.colorScheme_ = scheme;
     }
 
+    /**
+     * 依存関係の矢印のタイプを変更
+    */
+    get depArrowType(){
+        let self;
+        return self.depArrowType_;
+    }
+    set depArrowType(type){
+        let self;
+        self.depArrowType_ = type;
+    }
 
     /**
      * マウスホイールによる一単位の移動
@@ -444,7 +461,7 @@ class KonataRenderer{
                     continue;
                 }
 
-                if (0) {
+                if (self.depArrowType_ == self.DEP_ARROW_INSIDE_LINE) {
                     let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
                     let yBegin = (id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
                     let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
@@ -474,7 +491,7 @@ class KonataRenderer{
     */
     drawArrow_(ctx, start, end, v){
         let self = this;
-        if (0) {
+        if (self.depArrowType_ == self.DEP_ARROW_INSIDE_LINE) {
             // パイプライン中の X ステージ
             ctx.beginPath();
             ctx.moveTo(start[0], start[1]);
