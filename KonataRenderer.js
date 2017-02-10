@@ -1,3 +1,7 @@
+let DEP_ARROW_TYPE = {
+    INSIDE_LINE: 0,
+    LEFT_SIDE_CURVE: 1
+};
 
 class KonataRenderer{
 
@@ -13,9 +17,7 @@ class KonataRenderer{
         // 拡大率レベル
         this.zoomLevel_ = 0;       
         // 依存関係の矢印のタイプ
-        this.DEP_ARROW_INSIDE_LINE = 0;
-        this.DEP_ARROW_LEFT_SIDE = 1;
-        this.depArrowType_ = this.DEP_ARROW_INSIDE_LINE;
+        this.depArrowType_ = DEP_ARROW_TYPE.INSIDE_LINE;
 
 
         // 表示系
@@ -459,7 +461,7 @@ class KonataRenderer{
                     continue;
                 }
 
-                if (self.depArrowType_ == self.DEP_ARROW_INSIDE_LINE) {
+                if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
                     let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
                     let yBegin = (id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
                     let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
@@ -489,7 +491,7 @@ class KonataRenderer{
     */
     drawArrow_(ctx, start, end, v){
         let self = this;
-        if (self.depArrowType_ == self.DEP_ARROW_INSIDE_LINE) {
+        if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
             // パイプライン中の X ステージ
             ctx.beginPath();
             ctx.moveTo(start[0], start[1]);
@@ -639,3 +641,4 @@ class KonataRenderer{
 
 // この書式じゃないと IntelliSense が効かない
 module.exports.KonataRenderer = KonataRenderer;
+module.exports.DEP_ARROW_TYPE = DEP_ARROW_TYPE;

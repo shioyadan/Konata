@@ -3,6 +3,7 @@ function installMainMenu(){
     /* global RiotControl ACTION CHANGE store */
     let rc = RiotControl;
     let remote = require("electron").remote;
+    let DEP_ARROW_TYPE = require("./KonataRenderer").DEP_ARROW_TYPE;
 
     function makeMenuTemplate(){
 
@@ -98,24 +99,22 @@ function installMainMenu(){
                             {
                                 label: "Inside-line",
                                 type: "checkbox",
-                                checked: tab ? tab.renderer.depArrowType == tab.renderer.DEP_ARROW_INSIDE_LINE : false, 
+                                checked: store.depArrowType == DEP_ARROW_TYPE.INSIDE_LINE, 
                                 click: function(){
                                     rc.trigger(
                                         ACTION.KONATA_SET_DEP_ARROW_TYPE,
-                                        tabID, 
-                                        tab.renderer.DEP_ARROW_INSIDE_LINE
+                                        DEP_ARROW_TYPE.INSIDE_LINE
                                     );
                                 }
                             },
                             {
                                 label: "Leftside-curve",
                                 type: "checkbox",
-                                checked: tab ? tab.renderer.depArrowType == tab.renderer.DEP_ARROW_LEFT_SIDE : false, 
+                                checked: store.depArrowType == DEP_ARROW_TYPE.LEFT_SIDE_CURVE, 
                                 click: function(){
                                     rc.trigger(
                                         ACTION.KONATA_SET_DEP_ARROW_TYPE,
-                                        tabID, 
-                                        tab.renderer.DEP_ARROW_LEFT_SIDE
+                                        DEP_ARROW_TYPE.LEFT_SIDE_CURVE
                                     );
                                 }
                             }

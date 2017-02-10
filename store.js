@@ -82,6 +82,9 @@ class Store{
             height: 600
         };
 
+        // 依存関係の矢印のタイプ
+        this.depArrowType = KonataRenderer.DEP_ARROW_INSIDE_LINE;
+
         let self = this;
         
 
@@ -316,13 +319,11 @@ class Store{
         });
 
         // 依存関係の矢印のタイプを変更
-        self.on(ACTION.KONATA_SET_DEP_ARROW_TYPE, function(tabID, type){
-            if (!(tabID in self.tabs)) {
-                return;
+        self.on(ACTION.KONATA_SET_DEP_ARROW_TYPE, function(type){
+            self.depArrowType = type;
+            for (let tabID in self.tabs) {
+                self.tabs[tabID].renderer.depArrowType = type;
             }
-            let tab = self.tabs[tabID];
-            tab.colorScheme = scheme;
-            tab.renderer.changeColorScheme(scheme);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             self.trigger(CHANGE.MENU_UPDATE);
         });
