@@ -40,6 +40,10 @@ class KonataRenderer{
 
         this.margin_ = 2; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
 
+        // レーンごとの表示オプション
+        this.splitLanes_ = true;    // レーンを分割して表示するかどうか
+        this.fixOpHeight_ = true;   // レーンを分割して表示する際に高さを一定にするかどうか
+
         // 線の描画がぼけるので，補正する
         // ref: http://stackoverflow.com/questions/18019453/svg-rectangle-blurred-in-all-browsers
         this.PIXEL_ADJUST = 0.5;    
@@ -73,7 +77,7 @@ class KonataRenderer{
         self.zoomLevel_ = 0;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
 
-        self.laneNum_ = 1;//Object.keys(self.konata_.laneMap).length;
+        self.laneNum_ = Object.keys(self.konata_.laneMap).length;
         self.updateScaleParameter(self.zoomScale_, self.laneNum_);
     }
 
@@ -268,12 +272,38 @@ class KonataRenderer{
     updateScaleParameter(zoomScale, laneNum){
         let self = this;
 
-        self.laneH_ = self.OP_H * zoomScale;
         self.laneW_ = self.OP_W * zoomScale;
-        self.opH_ = self.laneH_ * laneNum;
-        self.opW_ = self.laneW_ * laneNum;
+        self.opW_ = self.laneW_;
+
+        if (!self.splitLanes_) {
+            laneNum = 1;
+        }
+        if (self.fixOpHeight_){
+            self.laneH_ = self.OP_H * zoomScale / laneNum;
+            self.opH_ = self.laneH_ * laneNum;
+        }
+        else{
+            self.laneH_ = self.OP_H * zoomScale;
+            self.opH_ = self.laneH_ * laneNum;
+        }
 
         self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+    }
+
+    // レーンを分割して表示するかどうか
+    get splitLanes(){
+        return this.splitLanes_;
+    }
+    set splitLanes(s){
+        this.splitLanes_ = s;
+    }
+
+    // レーンを分割して表示する際に高さを一定にするかどうか
+    get fixOpHeight(){
+        return this.fixOpHeight_;
+    }   
+    set fixOpHeight(f){
+        this.fixOpHeight_ = f;
     }
 
     /**
@@ -341,7 +371,7 @@ class KonataRenderer{
         ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
         
         let marginLeft = self.style_["label-style"]["margin-left"];
-        let marginTop = ((self.opH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
+        let marginTop = ((self.laneH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
 
         if (scale < 1) {
             return;
@@ -443,7 +473,7 @@ class KonataRenderer{
         }
         let arrowBeginOffsetX = self.opW_ * 3 / 4 + self.PIXEL_ADJUST;
         let arrowEndOffsetX = self.opW_ * 1 / 4 + self.PIXEL_ADJUST;
-        let arrowOffsetY = self.opH_ / 2 + self.PIXEL_ADJUST;
+        let arrowOffsetY = self.laneH_ / 2 + self.PIXEL_ADJUST;
 
         ctx.lineWidth = 1;
         ctx.strokeStyle = "rgb(170,30,30)";
@@ -571,21 +601,25 @@ class KonataRenderer{
             keys = keys.sort();
             for (let i = 0, len = keys.length; i < len; i++) {
                 let key = keys[i];
-                self.drawLane_(op, h, startCycle, endCycle, scale, context, key);
+                let laneTop = h + i / len;  // logical pos
+                self.drawLane_(op, laneTop, startCycle, endCycle, scale, context, key);
             }
         }
-        if (op.flush) {
-            let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
-            let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
-            context.globalAlpha *= opacity;
-            context.fillStyle = bgc;
-            context.fillRect(left, top + self.margin_*scale, right - left, self.opH_ - self.margin_ * 2 * scale);
+        else{
+            context.lineWidth = 1;
+            context.fillStyle = "#888888";
+            context.strokeRect(left, top + self.margin_*scale, right - left, self.laneH_ - self.margin_ * 2 * scale);
+
+            if (op.flush) {
+                let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
+                let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
+                context.globalAlpha = opacity;
+                context.fillStyle = bgc;
+                context.fillRect(left, top + self.margin_*scale, right - left, self.laneH_ - self.margin_ * 2 * scale);
+                context.globalAlpha = 1;
+            }
+
         }
-        
-        context.lineWidth = 1;
-        context.fillStyle = "#888888";
-        context.strokeRect(left, top + self.margin_*scale, right - left, self.opH_ - self.margin_ * 2 * scale);
-        self.ClearStyle_(context);
         return true;
     }
 
@@ -625,26 +659,40 @@ class KonataRenderer{
             let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
             let left = l * self.opW_ + self.PIXEL_ADJUST;
             let right = r * self.opW_ + self.PIXEL_ADJUST;
-            let grad = context.createLinearGradient(0, top, 0, top+self.opH_);
+            let rect = [left, top + self.margin_*scale, right - left, (self.laneH_ - self.margin_ * 2 * scale)]
+
+            let grad = context.createLinearGradient(0, top, 0, top+self.laneH_);
             grad.addColorStop(1, color);
             grad.addColorStop(0, "#eee");
+
             context.lineWidth = 1;
             context.fillStyle = grad;
-            context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
-            context.clearRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_ * 2 * scale));
-            context.fillRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_ * 2 * scale));
-            context.strokeRect(left, top + self.margin_*scale, right - left, (self.opH_ - self.margin_ * 2 * scale));
-            left = (stage.startCycle - startCycle) * self.opW_;
+            context.fillRect(rect[0], rect[1], rect[2], rect[3]);
+
+            if (op.flush) {
+                let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
+                let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
+                context.globalAlpha = opacity;
+                context.fillStyle = bgc;
+                context.fillRect(rect[0], rect[1], rect[2], rect[3]);
+                context.globalAlpha = 1;
+            }
+            
+            context.strokeRect(rect[0], rect[1], rect[2], rect[3]);
+
+
             if (scale >= 0.5) {
+                context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
                 context.fillStyle = "#555555";
-                let textTop = top + ((self.opH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
-                let textLeft = left + (self.opW_/3);
+                let textTop = top + ((self.laneH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
+                let textLeft = (stage.startCycle - startCycle) * self.opW_ + (self.opW_/3);
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
                     context.fillText(j, textLeft + j * self.opW_, textTop);
                 }
                 context.fillStyle = "#000000";
                 context.fillText(stage.name, textLeft, textTop);
             }
+
         }
     }
 }
