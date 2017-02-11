@@ -128,7 +128,7 @@ class Store{
                 renderer: renderer,
                 splitterPos: 300,   // スプリッタの位置
                 transparent: false, // 透明化の有効無効
-                colorScheme: "auto",  // カラースキーム
+                colorScheme: "Auto",  // カラースキーム
                 syncScroll: false,  // スクロールを同期 
                 syncScrollTab: 0,    // 同期対象のタブ
                 viewPort: {         // 表示領域

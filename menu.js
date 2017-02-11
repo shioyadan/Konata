@@ -72,32 +72,14 @@ function installMainMenu(){
                     },
                     {
                         label: "Color scheme",
-                        submenu: [
-                            {
-                                label: "Auto",
+                        submenu: ["Auto", "Orange", "RoyalBlue", "Onikiri"].map(function(color){
+                            return {
+                                label: color,
                                 type: "checkbox",
-                                checked: tab ? tab.colorScheme == "auto" : true, 
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "auto");}
-                            },
-                            {
-                                label: "Orange",
-                                type: "checkbox",
-                                checked: tab ? tab.colorScheme == "orange" : false, 
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "orange");}
-                            },
-                            {
-                                label: "Blue",
-                                checked: tab ? tab.colorScheme == "blue" : false, 
-                                type: "checkbox",
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "blue");}
-                            },
-                            {
-                                label: "Onikiri",
-                                type: "checkbox",
-                                checked: tab ? tab.colorScheme == "onikiri" : true, 
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "onikiri");}
-                            },
-                        ]
+                                checked: tab ? tab.colorScheme == color : true, 
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
+                            };
+                        }),
                     },
                     {
                         label: "Lane",
