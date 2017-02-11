@@ -31,6 +31,9 @@ class OnikiriParser{
 
         // 出現したレーンのマップ
         this.laneMap_ = {};
+
+        // ステージの出現順序を記録するマップ
+        this.stageLevelMap_ = {};
     }
     
     // Public methods
@@ -91,6 +94,10 @@ class OnikiriParser{
 
     get laneMap(){
         return this.laneMap_;
+    }
+
+    get stageLevelMap(){
+        return this.stageLevelMap_;
     }
 
     // Private methods
@@ -227,7 +234,8 @@ class OnikiriParser{
             if (!(laneName in op.lanes)) {
                 op.lanes[laneName] = [];
             }
-            //var lane = op.lanes[laneName];
+            let lastParsedStage = op.lastParsedStage;
+
             op.lanes[laneName].push(stage);
             op.lastParsedStage = stageName;
 
@@ -240,6 +248,19 @@ class OnikiriParser{
             if (!(laneName in this.laneMap_)) {
                 this.laneMap_[laneName] = 1;
             }
+
+            // ステージのマップに登録
+            let map = this.stageLevelMap_;
+            let level = op.lanes[laneName].length - 1;
+            if (stageName in map) {
+                if (map[stageName] > level) {
+                    map[stageName] = level;
+                }
+            }
+            else{
+                map[stageName] = level;
+            }
+
             break;
         }
 

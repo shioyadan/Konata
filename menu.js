@@ -74,10 +74,10 @@ function installMainMenu(){
                         label: "Color scheme",
                         submenu: [
                             {
-                                label: "Default",
+                                label: "Auto",
                                 type: "checkbox",
-                                checked: tab ? tab.colorScheme == "default" : true, 
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "default");}
+                                checked: tab ? tab.colorScheme == "auto" : true, 
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "auto");}
                             },
                             {
                                 label: "Orange",
@@ -90,6 +90,12 @@ function installMainMenu(){
                                 checked: tab ? tab.colorScheme == "blue" : false, 
                                 type: "checkbox",
                                 click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "blue");}
+                            },
+                            {
+                                label: "Onikiri",
+                                type: "checkbox",
+                                checked: tab ? tab.colorScheme == "onikiri" : true, 
+                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "onikiri");}
                             },
                         ]
                     },

@@ -24,7 +24,7 @@ class KonataRenderer{
         this.ZOOM_ANIMATION_SPEED_ = 0.07;    // ZOOM_RATIO のフレーム当たり加算値
         
         this.konata_ = null;
-        this.colorScheme_ = "default";   // カラースキーム名
+        this.colorScheme_ = "auto";   // カラースキーム名
 
         this.OP_W = 32; // スケール1のときの1サイクルの幅
         this.OP_H = 24; // スケール1のときの1命令の高さ
@@ -98,17 +98,25 @@ class KonataRenderer{
     getStageColor_(lane, stage){
         let self = this;
 
-        if (self.colorScheme_ != "default") {
-            return self.colorScheme_;
+        if (self.colorScheme_ == "auto") {
+            if (stage == "f" || stage == "stl") {
+                return "#aaaaaa";
+            }
+            let level = self.konata_.stageLevelMap[stage];
+            return `hsl(${((250-level*45)%360)},75%,80%)`;
         }
 
-        let style = self.style_["lane-style"];
-        if (lane in style) {
-            if (stage in style[lane]) {
-                return style[lane][stage];
+        if (self.colorScheme_ == "onikiri") {
+            let style = self.style_["lane-style"];
+            if (lane in style) {
+                if (stage in style[lane]) {
+                    return style[lane][stage];
+                }
             }
+            return self.style_["default-color"];
         }
-        return self.style_["default-color"];
+
+        return self.colorScheme_;
     }
 
     /**

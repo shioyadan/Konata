@@ -66,6 +66,10 @@ class Konata{
         return this.parser_.laneMap;
     }
 
+    get stageLevelMap(){
+        return this.parser_.stageLevelMap;
+    }
+
     /*
     // プリフェッチも一旦無効に
 

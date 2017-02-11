@@ -20,7 +20,7 @@ class Op{
         
         this.labelName = "";
         this.labelDetail = "";
-        this.labelStage = {};
+        this.labelStage = {};   // ステージごとのラベル
         
         this.lastParsedStage = "";
 
