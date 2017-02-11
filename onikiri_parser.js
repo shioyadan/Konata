@@ -1,8 +1,8 @@
 class OnikiriParser{
 
     constructor(){
-        this.Op = require("./Op").Op;
-        this.Stage = require("./Stage").Stage;
+        this.Op = require("./op").Op;
+        this.Stage = require("./stage").Stage;
 
         this.file_ = null; 
         
