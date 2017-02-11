@@ -39,7 +39,7 @@ class KonataRenderer{
         this.opH_ = this.laneW_ * this.laneNum_; 
 
         this.LANE_HEIGHT_MARGIN = 2;
-        this.margin_ = this.LANE_HEIGHT_MARGIN; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
+        this.lane_height_margin_ = this.LANE_HEIGHT_MARGIN; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
 
         // レーンごとの表示オプション
         this.splitLanes_ = false;    // レーンを分割して表示するかどうか
@@ -290,7 +290,7 @@ class KonataRenderer{
 
         self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
 
-        self.margin_ = self.canDrawFrame ? self.LANE_HEIGHT_MARGIN : 0;
+        self.lane_height_margin_ = self.canDrawFrame ? self.LANE_HEIGHT_MARGIN * zoomScale : 0;
     }
 
     // レーンを分割して表示するかどうか
@@ -314,15 +314,15 @@ class KonataRenderer{
     // パイプラインの中まで詳細に表示するかどうか
     // 拡大率によって決定
     get canDrawDetailedly(){
-        let laneHeight = this.laneH_ - this.margin_ * 2 * this.zoomScale_;
+        let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
         return laneHeight - 2 > 0;  // 枠1ピクセルを除いて内部があるかどうか
     }
     get canDrawFrame(){
-        let laneHeight = this.laneH_ - this.margin_ * 2 * this.zoomScale_;
+        let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
         return laneHeight - 2 > 2;  // 枠1ピクセルを除いて内部があるかどうか
     }
     get canDrawtext(){
-        let laneHeight = this.laneH_ - this.margin_ * 2 * this.zoomScale_;
+        let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
         return laneHeight - 2 > 8;  // 枠1ピクセルを除いて内部があるかどうか
     }
     
@@ -392,7 +392,7 @@ class KonataRenderer{
         ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
         
         let marginLeft = self.style_["label-style"]["margin-left"];
-        let marginTop = ((self.laneH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
+        let marginTop = ((self.laneH_/scale - self.lane_height_margin_*2/scale - fontSizeRaw) / 2 + fontSizeRaw) * scale;
 
         if (!self.canDrawtext) {
             return;
@@ -631,14 +631,14 @@ class KonataRenderer{
             else{
                 context.fillStyle = "#888888";
             }
-            context.fillRect(left, top + self.margin_*scale, right - left, self.laneH_ - self.margin_ * 2 * scale);
+            context.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
 
             if (op.flush) {
                 let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
                 let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
                 context.globalAlpha = opacity;
                 context.fillStyle = bgc;
-                context.fillRect(left, top + self.margin_*scale, right - left, self.laneH_ - self.margin_ * 2 * scale);
+                context.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
                 context.globalAlpha = 1;
             }
 
@@ -682,7 +682,7 @@ class KonataRenderer{
             let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
             let left = l * self.opW_ + self.PIXEL_ADJUST;
             let right = r * self.opW_ + self.PIXEL_ADJUST;
-            let rect = [left, top + self.margin_*scale, right - left, (self.laneH_ - self.margin_ * 2 * scale)]
+            let rect = [left, top + self.lane_height_margin_, right - left, (self.laneH_ - self.lane_height_margin_ * 2)]
 
             let grad = context.createLinearGradient(0, top, 0, top+self.laneH_);
             grad.addColorStop(1, color);
@@ -709,7 +709,7 @@ class KonataRenderer{
             if (self.canDrawtext) {
                 context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
                 context.fillStyle = "#555555";
-                let textTop = top + ((self.laneH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
+                let textTop = top + ((self.laneH_/scale - self.lane_height_margin_/scale*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
                 let textLeft = (stage.startCycle - startCycle) * self.opW_ + (self.opW_/3);
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
                     context.fillText(j, textLeft + j * self.opW_, textTop);
