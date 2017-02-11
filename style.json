@@ -1,16 +1,16 @@
 {
 
-    "default-color": "#aaffaa",
-    "font-size": "12px",
-    "font-family": "Helvetica",
-    "font-style": "normal",
+    "fontSize": "12px",
+    "fontFamily": "Helvetica",
+    "fontStyle": "normal",
 
-    "label-style": {
-        "margin-left": "5"
+    "labelStyle": {
+        "marginLeft": "5"
     },
 
     "colorScheme": {
         "Onikiri": {
+            "defaultColor": "#aaffaa",
             "0": {
                 "F":    "#b9a5e8",
                 "Rn":   "#a0c0ff",

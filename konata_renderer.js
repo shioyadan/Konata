@@ -113,7 +113,7 @@ class KonataRenderer{
                     return style[lane][stage];
                 }
             }
-            return self.style_["default-color"];
+            return style["defaultColor"];
         }
 
         return self.colorScheme_;
@@ -390,14 +390,14 @@ class KonataRenderer{
         ctx.fillRect(0, 0, tile.width, tile.height);
 
         // フォント
-        let fontFamily = self.style_["font-family"];
-        let fontStyle = self.style_["font-style"];
-        let fontSizeRaw = self.style_["font-size"];
+        let fontFamily = self.style_["fontFamily"];
+        let fontStyle = self.style_["fontStyle"];
+        let fontSizeRaw = self.style_["fontSize"];
         fontSizeRaw = parseInt(fontSizeRaw);// * scale;
         let fontSize = fontSizeRaw + "px";
         ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
         
-        let marginLeft = self.style_["label-style"]["margin-left"];
+        let marginLeft = self.style_["labelStyle"]["marginLeft"];
         let marginTop = (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
 
         if (!self.canDrawtext) {
@@ -655,11 +655,11 @@ class KonataRenderer{
     drawLane_(op, h, startCycle, endCycle, scale, ctx, laneName){
         let self = this;
 
-        let fontSizeRaw = self.style_["font-size"];
+        let fontSizeRaw = self.style_["fontSize"];
         fontSizeRaw = parseInt(fontSizeRaw) * scale;
         let fontSize = fontSizeRaw + "px";
-        let fontFamily = self.style_["font-family"];
-        let fontStyle = self.style_["font-style"];
+        let fontFamily = self.style_["fontFamily"];
+        let fontStyle = self.style_["fontStyle"];
         ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
 
         let lane = op.lanes[laneName];
