@@ -77,9 +77,9 @@ class KonataRenderer{
         self.viewPos_ = {left:0, top:0};
         self.zoomLevel_ = 0;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
-
         self.laneNum_ = Object.keys(self.konata_.laneMap).length;
-        self.updateScaleParameter(self.zoomScale_, self.laneNum_);
+
+        self.updateScaleParameter();
     }
 
     /**
@@ -278,8 +278,10 @@ class KonataRenderer{
     }
 
     // 拡大率が変更された際の，関連パラメータの更新
-    updateScaleParameter(zoomScale, laneNum){
+    updateScaleParameter(){
         let self = this;
+        let zoomScale = self.zoomScale_;
+        let laneNum = self.laneNum_;
 
         self.laneW_ = self.OP_W * zoomScale;
         self.opW_ = self.laneW_;
@@ -307,7 +309,7 @@ class KonataRenderer{
     }
     set splitLanes(s){
         this.splitLanes_ = s;
-        this.updateScaleParameter(this.zoomScale_, this.laneNum_);
+        this.updateScaleParameter();
     }
 
     // レーンを分割して表示する際に高さを一定にするかどうか
@@ -316,7 +318,7 @@ class KonataRenderer{
     }   
     set fixOpHeight(f){
         this.fixOpHeight_ = f;
-        this.updateScaleParameter(this.zoomScale_, this.laneNum_);
+        this.updateScaleParameter();
     }
 
     // パイプラインの中まで詳細に表示するかどうか
@@ -349,7 +351,7 @@ class KonataRenderer{
 
         let oldScale = self.zoomScale_;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
-        self.updateScaleParameter(self.zoomScale_, self.laneNum_);
+        self.updateScaleParameter();
 
         // 位置の補正
         //let oldLeft = self.viewPos_.left;
