@@ -34,7 +34,7 @@ let ipc = electron.ipcMain;
 let dialog = electron.dialog;//remote.require('dialog');
 
 // メインプロセス側のKonata
-let Konata = require("./Konata");
+let Konata = require("./konata");
 let konata = new Konata();
 
 // レンダラプロセスのkonataからの通信
