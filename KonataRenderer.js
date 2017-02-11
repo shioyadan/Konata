@@ -38,7 +38,8 @@ class KonataRenderer{
         this.opW_ = this.laneW_ * this.laneNum_; 
         this.opH_ = this.laneW_ * this.laneNum_; 
 
-        this.margin_ = 2; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
+        this.LANE_HEIGHT_MARGIN = 2;
+        this.margin_ = this.LANE_HEIGHT_MARGIN; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
 
         // レーンごとの表示オプション
         this.splitLanes_ = false;    // レーンを分割して表示するかどうか
@@ -288,6 +289,8 @@ class KonataRenderer{
         }
 
         self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+
+        self.margin_ = self.canDrawFrame ? self.LANE_HEIGHT_MARGIN : 0;
     }
 
     // レーンを分割して表示するかどうか
@@ -307,6 +310,22 @@ class KonataRenderer{
         this.fixOpHeight_ = f;
         this.updateScaleParameter(this.zoomScale_, this.laneNum_);
     }
+
+    // パイプラインの中まで詳細に表示するかどうか
+    // 拡大率によって決定
+    get canDrawDetailedly(){
+        let laneHeight = this.laneH_ - this.margin_ * 2 * this.zoomScale_;
+        return laneHeight - 2 > 0;  // 枠1ピクセルを除いて内部があるかどうか
+    }
+    get canDrawFrame(){
+        let laneHeight = this.laneH_ - this.margin_ * 2 * this.zoomScale_;
+        return laneHeight - 2 > 2;  // 枠1ピクセルを除いて内部があるかどうか
+    }
+    get canDrawtext(){
+        let laneHeight = this.laneH_ - this.margin_ * 2 * this.zoomScale_;
+        return laneHeight - 2 > 8;  // 枠1ピクセルを除いて内部があるかどうか
+    }
+    
 
     /**
      * @param {number} zoomOut - 1段階の拡大/縮小
@@ -375,7 +394,7 @@ class KonataRenderer{
         let marginLeft = self.style_["label-style"]["margin-left"];
         let marginTop = ((self.laneH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
 
-        if (scale < 1) {
+        if (!self.canDrawtext) {
             return;
         }
 
@@ -468,9 +487,8 @@ class KonataRenderer{
     drawDependency(logOffsetY, logTop, logLeft, logWidth, logHeight, ctx){
         // 依存関係の描画
         let self = this;
-        let scale = self.zoomScale_;
 
-        if (scale < 0.005) {
+        if (!self.canDrawDetailedly) {
             return;
         }
         let arrowBeginOffsetX = self.opW_ * 3 / 4 + self.PIXEL_ADJUST;
@@ -589,13 +607,10 @@ class KonataRenderer{
         let r = endCycle >= op.retiredCycle ? op.retiredCycle : (endCycle + 1); r -= startCycle;
         let left = l * self.opW_ + self.PIXEL_ADJUST;
         let right = r * self.opW_ + self.PIXEL_ADJUST;
-        
-        if (scale < 0.2) {
-            context.strokeStyle = "#888888";
-        } else {
+
+        if (self.canDrawDetailedly) {
+            // 枠内に表示の余地がある場合
             context.strokeStyle = "#333333";
-        }
-        if (scale >= 0.1) {
             let keys = [];
             for (let key in op.lanes) {
                 keys.push(key);
@@ -608,9 +623,15 @@ class KonataRenderer{
             }
         }
         else{
+            // 十分小さい場合は簡略化モード
             context.lineWidth = 1;
-            context.fillStyle = "#888888";
-            context.strokeRect(left, top + self.margin_*scale, right - left, self.laneH_ - self.margin_ * 2 * scale);
+            if (self.colorScheme_ != "default") {
+                context.fillStyle = self.colorScheme_;
+            }
+            else{
+                context.fillStyle = "#888888";
+            }
+            context.fillRect(left, top + self.margin_*scale, right - left, self.laneH_ - self.margin_ * 2 * scale);
 
             if (op.flush) {
                 let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
@@ -680,10 +701,12 @@ class KonataRenderer{
                 context.globalAlpha = 1;
             }
             
-            context.strokeRect(rect[0], rect[1], rect[2], rect[3]);
+            if (self.canDrawFrame){
+                context.strokeRect(rect[0], rect[1], rect[2], rect[3]);
+            }
 
 
-            if (scale >= 0.5) {
+            if (self.canDrawtext) {
                 context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
                 context.fillStyle = "#555555";
                 let textTop = top + ((self.laneH_/scale - self.margin_*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
