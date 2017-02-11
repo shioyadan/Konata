@@ -64,8 +64,8 @@ class Store{
         
         // この書式じゃないと IntelliSense が効かない
         let electron = require("electron");
-        let KonataRenderer = require("./KonataRenderer");
-        let Konata = require("./Konata");
+        let KonataRenderer = require("./konata_renderer");
+        let Konata = require("./konata");
         let fs = require("fs");
 
 

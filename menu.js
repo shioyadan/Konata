@@ -3,7 +3,7 @@ function installMainMenu(){
     /* global RiotControl ACTION CHANGE store */
     let rc = RiotControl;
     let remote = require("electron").remote;
-    let DEP_ARROW_TYPE = require("./KonataRenderer").DEP_ARROW_TYPE;
+    let DEP_ARROW_TYPE = require("./konata_renderer").DEP_ARROW_TYPE;
 
     function makeMenuTemplate(){
 
