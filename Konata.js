@@ -62,6 +62,9 @@ class Konata{
         return this.parser_.lastID;
     }
 
+    get laneMap(){
+        return this.parser_.laneMap;
+    }
 
     /*
     // プリフェッチも一旦無効に

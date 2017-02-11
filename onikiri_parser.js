@@ -29,6 +29,8 @@ class OnikiriParser{
         
         this.complete_ = false;
 
+        // 出現したレーンのマップ
+        this.laneMap_ = {};
     }
     
     // Public methods
@@ -85,6 +87,10 @@ class OnikiriParser{
 
     get lastID(){
         return this.lastID_;
+    }
+
+    get laneMap(){
+        return this.laneMap_;
     }
 
     // Private methods
@@ -228,6 +234,11 @@ class OnikiriParser{
             // X を名前に含むステージは実行ステージと見なす
             if (stageName.match(/X/)){
                 op.consCycle = this.curCycle;
+            }
+
+            // レーンのマップに登録
+            if (!(laneName in this.laneMap_)) {
+                this.laneMap_[laneName] = 1;
             }
             break;
         }
