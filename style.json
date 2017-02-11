@@ -1,0 +1,50 @@
+{
+    "lane-style": {
+        "0": {
+            "F":    "#b9a5e8",
+            "Rn":   "#a0c0ff",
+            "D":    "#8cdddf",
+
+            "Sr":   "#9bed88",
+            "Sw":   "#83d2ab",
+
+            "rs":   "#73d29b",
+
+            "Wku":  "#abed88",
+            "Slc":  "#e6d990",
+
+            "rsc":  "#83e2ab",
+
+            "Ip":   "#eebb77",
+
+            "I":    "#eeaa88",
+            "X":    "#ee7777",
+
+            "Xam":  "#ee7777",
+            "Xbm":  "#ee7777",
+            "Xlu":  "#ee7777",
+            "Xlm":  "#ee7777",
+
+            "Wb":   "#dd8899",
+            "Cm":   "#cca5c8",
+
+            "f":    "#aaaaaa",
+
+            "iXlR0": "#ee7777",
+            "iXlR1": "#ee7777",
+            "iXlR2": "#ee7777"
+        },
+        "1":  {
+            "stl":  "#aaaaaa"
+        }
+    },
+
+    "default-color": "#aaffaa",
+    "font-size": "12px",
+    "font-family": "Helvetica",
+    "font-style": "normal",
+
+    "label-style": {
+        "margin-left": "5"
+    }
+}

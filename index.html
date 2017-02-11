@@ -1,18 +1,57 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="UTF-8">
-    <script src="./jquery.js" type="text/javascript"></script>
-    <script src="./index.js" type="text/javascript"></script>
-    <script src="./jquery-ui.js" type="text/javascript"></script><!--For drag event-->
-    <script src="./jquery.mousewheel.js" type="text/javascript"></script><!--For mousewheel event-->
-    <script src="./control.js" type="text/javascript"></script>
-    <link rel="stylesheet" type="text/css" href="./viewer.css"></link>
-    <link rel="stylesheet" type="text/css" href="./colors.css"></link>
-    <title>Konata</title>
-  </head>
-  <body>
-    <div id="tabs-selector"></div>
-    <div id="tabs"></div>
-  </body>
+
+    <head>
+        <meta charset="UTF-8">
+        <title>Konata</title>
+        
+        <!-- 
+            スタイルシートは最初に読み込んでおく必要がある．
+            Op 内でタイルの色を決定するためにスタイルシートを参照している部分がある．
+            そこではスタイルシートの順番をハードコーディングして参照している．
+            各ライブラリは内部でスタイルシートを挿入することがあり，その場合参照がずれる．
+        -->
+        <link rel="stylesheet" type="text/css" href="./viewer.css"></link>
+        <link rel="stylesheet" type="text/css" href="./lib/css/bootstrap.min.css">
+
+        <!-- jquery/bootstrap -->
+        <script type="text/javascript">
+            // Electron の仕様で jquery が正しくロードされないので，その対策
+            // https://github.com/electron/electron/issues/254
+            window.jQuery = window.$ = require("./lib/js/jquery.js");
+        </script>
+        <script src="./lib/js/jquery-ui.js" type="text/javascript"></script>
+        <script src="./lib/js/jquery.mousewheel.js" type="text/javascript"></script>
+        <script src="./lib/js/bootstrap.js" type="text/javascript"></script>    
+
+        <!-- riot -->
+        <script src="./lib/js/riot+compiler.js" type="text/javascript"></script>
+        <script src="./lib/js/route.js" type="text/javascript"></script>
+        <script src="./lib/js/riotcontrol.js" type="text/javascript"></script>
+
+    </head>
+
+    <body>
+        <!-- 実装 -->
+        <script src="store.js" type="text/javascript"></script>
+        <script>
+            /* globals riot RiotControl Store */
+            let store = new Store();    // Create a store instance.
+            RiotControl.addStore(store); // Register the store in central dispatch.
+        </script>
+
+        <script type="riot/tag" src="dialogs.tag.html" charset="UTF-8"></script>
+        <script type="riot/tag" src="app.tag.html" charset="UTF-8"></script>
+
+        <!-- app.tag.html 内で定義されたカスタムタグが <app> の下に動的にマウントされる -->
+        <app></app>
+
+        <!-- マウントの実行 -->
+        <script>
+            /* globals riot RiotControl Store */
+            riot.mount("app");
+        </script>
+
+    </body>
+
 </html>

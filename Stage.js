@@ -1,10 +1,9 @@
-function Stage (args) {
-    this.name = null;
-    this.startCycle = null;
-    this.endCycle = null;
-    for (var key in args) {
-        this[key] = args[key];
+class Stage{
+    constructor(){
+        this.name = null;
+        this.startCycle = null;
+        this.endCycle = null;
     }
 }
 
-module.exports = Stage;
+module.exports.Stage = Stage;

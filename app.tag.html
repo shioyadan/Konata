@@ -1,0 +1,675 @@
+<!-- タブバー -->
+<app_tabbar>
+    <ul class="nav nav-tabs" ref="app_tabbar">
+        <li each="{tab, i in tabs}" class={tab.active}>
+            
+            <!-- onClickProxy を介することで，どのタブが押されたかを識別する -->
+            <a href={"#" + tab.id} onmousedown={tab.onClickProxy} data-toggle="tab">
+                <!-- 
+                    &nbsp はタブ名の横のスペース，
+                    class="close" は bootstrap で定義された閉じるボタン，
+                    &times; は HTML で定義された特殊文字のバツ記号
+                -->
+                {tab.tabName} &nbsp;
+
+                <!-- onCloseProxy を介することで，どのタブが押されたかを識別する -->
+                <button type="button" class="close" onmousedown={tab.onCloseProxy}>
+                    &times;
+                </button>
+            </a>
+        </li>
+    </ul>
+
+    <script>
+        let self = this;
+        self.tabs = [];
+
+
+        // クリック
+        self.onClick = function(e, tabID){
+            if (e.buttons & 1) {    // 左クリック - タブを移動
+                RiotControl.trigger(ACTION.TAB_ACTIVATE, tabID);
+            }
+            else if (e.buttons & 2) {   // 右クリック - ポップアップメニュー表示
+                let menu = require("./menu.js");
+                menu.popupTabMenu(tabID);
+            }
+            else if (e.buttons & 4) {   // 中クリック - 閉じる
+                RiotControl.trigger(ACTION.TAB_CLOSE, tabID);
+            }
+
+            // <a> にもイベントが行くので，それをブロック
+            e.stopPropagation();
+            e.preventDefault();
+        };
+
+        // タブの閉じるボタンのクリック
+        self.onClose = function(e, tabID){
+            RiotControl.trigger(ACTION.TAB_CLOSE, tabID);
+
+            // <a> にもイベントが行くので，それをブロック
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        // タブの追加/削除が行われた時
+        RiotControl.on(CHANGE.TAB_UPDATE, function(){
+            // 配列に変換
+            self.tabs = [];
+            for (let id in store.tabs) {
+                let tab = {
+                    id: id,
+                    fileName: store.tabs[id].fileName,
+
+                    // ファイル名部分を取り出して表示
+                    tabName: store.tabs[id].fileName.match(/[^\/\\]+$/)[0],
+
+                    // クリックのハンドラを ID ごと埋め込む
+                    onClickProxy: function(e){
+                        self.onClick(e, id);
+                    },
+                    onCloseProxy: function(e){
+                        self.onClose(e, id);
+                    },
+
+                    // アクティブタブかどうか
+                    active: (store.activeTabID == id) ? "active" : ""
+                };
+                self.tabs.push(tab);
+            }
+            self.update();
+        });
+
+        // 高さを取得
+        self.getHeight = function(){
+            return self.refs.app_tabbar.offsetHeight;
+        };
+    </script>
+</app_tabbar>
+
+
+<!-- 可視化されたパイプラインを表示するキャンバス -->
+<app_pipeline_canvas>
+    <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
+        <canvas ref="canvas"></canvas>
+        <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
+    </div>
+    
+    <!--position を absolute にすることで，同じ位置に重ねることができる 
+        見た目に関しては，CSS の方で定義
+    -->
+    <style>
+        div{
+            position: absolute;
+        }
+        canvas{
+            position: absolute;
+        }
+        .tool_tip{ 
+            position: absolute;
+            z-index: 100;
+        }
+    </style>
+
+    <script>
+        let self = this;
+        self.width = 100;
+        self.height = 100;
+        self.oldWidth = -1;
+        self.oldHeight = -1;
+        self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
+        self.valid = false;
+
+        // マウスのドラッグ
+        self.inDrag = false;  // マウスでドラッグ中か
+        self.prevMousePoint = [0, 0]; // 前回のマウスポインタの位置
+
+        // マウス操作
+        self.onMouseWheel = function(e){
+            if (e.ctrlKey) {    // 拡大縮小
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0, e.offsetX, e.offsetY);
+            } 
+            else {  // スクロール
+                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);
+            }
+        };
+
+        // ダブルクリック
+        self.onMouseDoubleClick = function(e){
+            // シフトキー時は縮小
+            RiotControl.trigger(ACTION.KONATA_ZOOM, !e.shiftKey, e.offsetX, e.offsetY);
+        };
+
+        // マウスクリック
+        self.onMouseDown = function(e){
+            // 左クリック
+            if (e.buttons & 1) {
+                self.inDrag = true;
+                self.prevMousePoint = [e.clientX, e.clientY];
+            }
+            // 右クリック
+            if (e.buttons & 2) {
+                let menu = require("./menu.js");
+                menu.popupPipelineMenu([e.offsetX, e.offsetY]);
+            }
+
+            // クリック時に他所にフォーカスが奪われるのを防ぐ
+            e.preventDefault();
+        };        
+
+        // マウスのボタンを離した時
+        self.onMouseUp = function(e){
+            if (!(e.buttons & 1)) { // 離したので 0 になる
+                self.inDrag = false;
+            }
+        };
+
+        // マウス移動
+        self.onMouseMove = function(e){
+            if (!self.inDrag){
+                return;
+            }
+
+            let diff = [
+                self.prevMousePoint[0] - e.clientX,
+                self.prevMousePoint[1] - e.clientY
+            ];
+            self.prevMousePoint = [e.clientX, e.clientY];
+            RiotControl.trigger(ACTION.KONATA_MOVE_PIXEL_DIFF, diff);
+        };
+
+        // ツールチップ用の canvas ローカルなマウス移動
+        self.onLocalMouseMove = function(e){
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "visible";
+            tip.left = e.offsetX + "px";
+            tip.top = e.offsetY + 20 + "px";
+
+            let text = store.tabs[self.id].renderer.getPipelineToolTipText(e.offsetX, e.offsetY);
+            if (!text) {
+                tip.visibility = "hidden";
+            }
+            self.toolTipText = text;//.split("\n");
+            self.update();
+        };
+        self.onLocalMouseLeave = function(){
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "hidden";
+        };
+
+        // ペーンの内容の更新
+        self.onPaneContentUpdate = function(){
+            let canvas = self.refs.canvas;
+            store.tabs[self.id].renderer.drawPipeline(canvas);
+        };
+
+        // サイズを適用
+        self.on("update", function() {
+            // self.width, self.height にサイズが書き込まれているので，それを反映する
+            let canvas = self.refs.canvas;
+
+            // High DPI 対策
+            if (self.oldWidth != self.width || self.oldHeight != self.height){
+                // サイズを変更すると canvas の中身が破棄されるので，
+                // 本当に変わったときだけ反映する
+                self.oldWidth = self.width;
+                self.oldHeight = self.height;
+
+                // High DPI 対策
+                let context = canvas.getContext("2d");
+                let devicePixelRatio = window.devicePixelRatio || 1;
+                let backingStoreRatio = context.backingStorePixelRatio || 1;
+                
+                if (devicePixelRatio !== backingStoreRatio) {
+                    let ratio = devicePixelRatio / backingStoreRatio;
+                    canvas.width = self.width * ratio;
+                    canvas.height = self.height * ratio;
+                    canvas.style.width = self.width + "px";
+                    canvas.style.height = self.height + "px";
+                    context.scale(ratio, ratio);
+                }
+                else{
+                    canvas.width = self.width;
+                    canvas.height = self.height;
+                    canvas.style.width = self.width + "px";
+                    canvas.style.height = self.height + "px";
+                    context.scale(1, 1);
+                }
+
+            }
+
+        });
+
+        // エントリポイント
+        // マウント時に初期化を行う
+        self.on("mount", function(){
+
+            let canvas = self.refs.canvas;
+
+            canvas.ondblclick = self.onMouseDoubleClick;
+            canvas.onmousewheel = self.onMouseWheel;
+            canvas.onmousedown = self.onMouseDown;
+            canvas.onmousemove = self.onLocalMouseMove;
+            canvas.onmouseleave = self.onLocalMouseLeave;
+
+            // 外でも捉えられるように window に
+            window.addEventListener("mousemove", self.onMouseMove);
+            window.addEventListener("mouseup", self.onMouseUp);
+            self.valid = true;
+            RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+            
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "hidden";
+        });
+
+        self.on("unmount", function(){
+            window.removeEventListener("mousemove", self.onMouseMove);
+            window.removeEventListener("mouseup", self.onMouseUp);
+            self.valid = false;
+            RiotControl.off(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+        });
+
+    </script>
+</app_pipeline_canvas>
+
+
+<!-- 逆アセンブル結果を表示するキャンバス -->
+<app_label_canvas>
+    <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
+        <canvas ref="canvas"></canvas>
+        <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
+    </div>
+    
+    <!--position を absolute にすることで，同じ位置に重ねることができる 
+        見た目に関しては，CSS の方で定義
+    -->
+    <style>
+        div{
+            position: absolute;
+        }
+        canvas{
+            position: absolute;
+        }
+        .tool_tip{ 
+            position: absolute;
+            z-index: 100;
+        }
+    </style>
+
+    <script>
+        /* globals RiotControl store */
+
+        let self = this;
+        self.width = 100;
+        self.height = 100;
+        self.oldWidth = -1;
+        self.oldHeight = -1;
+        self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
+
+        // 初期化
+        // タグのマウント時に呼ばれるようにする
+        self.init = function(){
+            let canvas = self.refs.canvas;
+            canvas.onmousewheel = self.onMouseWheel;
+            canvas.onmousedown = self.onMouseDown;
+            canvas.onmousemove = self.onMouseMove;
+            canvas.onmouseleave = self.onMouseLeave;
+            
+            RiotControl.on(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "hidden";
+        };
+
+        // マウス操作
+        self.onMouseWheel = function(e){
+            if (e.ctrlKey) {    // 拡大縮小
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0, e.offsetX, e.offsetY);
+            } 
+            else {  // スクロール
+                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);
+            }
+        };
+
+        // マウスクリック
+        self.onMouseDown = function(e){
+            // 左クリック
+            if (e.buttons & 1) {
+                // クリック点に対応した命令を取得し，そこへ移動
+                let render = store.tabs[self.id].renderer;
+                let op = render.getOpFromPixelPosY(e.offsetY);
+                if (op) {
+                    RiotControl.trigger(
+                        ACTION.KONATA_MOVE_LOGICAL_POS, 
+                        [op.fetchedCycle, render.viewPos[1]]
+                    );
+                }
+            }
+            // 左クリック
+            /*
+            if (e.buttons & 2) {
+            }
+            */
+
+            // クリック時に他所にフォーカスが奪われるのを防ぐ
+            e.preventDefault();
+        };        
+
+        //
+        self.onMouseMove = function(e){
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "visible";
+            tip.left = e.offsetX + "px";
+            tip.top = e.offsetY + 20 + "px";
+
+            let text = store.tabs[self.id].renderer.getLabelToolTipText(e.offsetY);
+            if (!text) {
+                tip.visibility = "hidden";
+            }
+            self.toolTipText = text;//.split("\n");
+            self.update();
+        };
+        self.onMouseLeave = function(){
+            let tip = self.refs.tool_tip.style;
+            tip.visibility = "hidden";
+        };
+
+
+        // ペーンの内容の更新
+        self.onPaneContentUpdate = function(){
+            let canvas = self.refs.canvas;
+            store.tabs[self.id].renderer.drawLabel(canvas);
+        };
+
+        // サイズを適用
+        self.on("update", function() {
+            // self.width, self.height にサイズが書き込まれているので，それを反映する
+            let canvas = self.refs.canvas;
+
+            if (self.oldWidth != self.width || self.oldHeight != self.height){
+                // サイズを変更すると canvas の中身が破棄されるので，
+                // 本当に変わったときだけ反映する
+                self.oldWidth = self.width;
+                self.oldHeight = self.height;
+
+                // High DPI 対策
+                let context = canvas.getContext("2d");
+                let devicePixelRatio = window.devicePixelRatio || 1;
+                let backingStoreRatio = context.backingStorePixelRatio || 1;
+                
+                if (devicePixelRatio !== backingStoreRatio) {
+                    let ratio = devicePixelRatio / backingStoreRatio;
+                    canvas.width = self.width * ratio;
+                    canvas.height = self.height * ratio;
+                    canvas.style.width = self.width + "px";
+                    canvas.style.height = self.height + "px";
+                    context.scale(ratio, ratio);
+                }
+                else{
+                    canvas.width = self.width;
+                    canvas.height = self.height;
+                    canvas.style.width = self.width + "px";
+                    canvas.style.height = self.height + "px";
+                    context.scale(1, 1);
+                }
+
+            }
+        });
+
+        // エントリポイント
+        // マウント時に初期化を行う
+        self.on("mount", self.init);
+
+        self.on("unmount", function(){
+            RiotControl.off(CHANGE.PANE_CONTENT_UPDATE, self.onPaneContentUpdate);
+        });
+
+    </script>
+</app_label_canvas>
+
+<!-- label + splitter + stages -->
+<app_sheet>
+    <div class="pane_container" ref="pane_container">
+        
+        <div class="label_pane" ref="label_pane">
+             <!-- tab: {id} デバッグ用表示 -->
+            <app_label_canvas id={id}></app_label_canvas>
+        </div>
+        
+        <div class="window_splitter" ref="window_splitter">
+        </div>
+
+        <div class="pipeline_pane" ref="pipeline_pane">
+            <app_pipeline_canvas id={id}></app_pipeline_canvas>
+        </div>
+    </div>
+
+    <script>
+
+        let self = this;
+        self.lastPos = 0;
+        self.inDrag = false;
+        self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
+        self.valid = false;
+
+        self.on("mount", function(){
+            // ドラッグ始はスプリッタ
+            let splitter = self.refs.window_splitter;
+            splitter.onmousedown = self.onMouseDown;
+
+            // splitter 以外でも捉えられるように window に
+            window.addEventListener("mousemove", self.onMouseMove);
+            window.addEventListener("mouseup", self.onMouseUp);
+            RiotControl.on(CHANGE.PANE_SIZE_UPDATE, self.onPaneSizeUpdate);
+            RiotControl.on(CHANGE.TAB_UPDATE, self.onTabUpdate);
+            
+            self.valid = true;
+        });
+
+        self.on("unmount", function(){
+            self.valid = false;
+            window.removeEventListener("mousemove", self.onMouseMove);
+            window.removeEventListener("mouseup", self.onMouseUp);
+            RiotControl.off(CHANGE.PANE_SIZE_UPDATE, self.onPaneSizeUpdate);
+            RiotControl.off(CHANGE.TAB_UPDATE, self.onTabUpdate);
+        });
+
+
+        self.onMouseDown = function(e){
+            self.lastPos = e.clientX;
+            self.inDrag = true;
+
+            // クリック時に他所にフォーカスが奪われるのを防ぐ
+            e.preventDefault();
+            //console.log(`mousedown ${self.id}`);
+        };
+
+        self.onMouseUp = function(){
+            self.inDrag = false;
+            //console.log(`mouseup ${self.id}`);
+        };
+
+        self.onMouseMove = function(e){
+            if (!self.inDrag) {
+                return;
+            }
+
+            // ウィンドウ外にカーソルがでたときのため補正
+            let containerWidth = self.refs.pane_container.offsetWidth;
+            let pos = Math.min(Math.max(e.clientX, 0), containerWidth);
+            
+
+            // 差分を求める
+            let diff = pos - self.lastPos;
+            self.lastPos = pos;
+
+            let label_pane = self.refs.label_pane;
+            let splitterPos = label_pane.offsetWidth + diff;
+            RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
+        
+            //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
+            //console.log(`mousemove ${self.id}`);
+        };
+
+        self.onPaneSizeUpdate = function(){
+            // これは全てのアクティブなタブでのみ実行する必要がある
+            if (self.id != store.activeTabID) {
+                return;
+            }
+            let container = self.refs.pane_container;
+            let label = self.refs.label_pane;
+            let splitter = self.refs.window_splitter;
+            let pipeline = self.refs.pipeline_pane;
+
+            // 幅
+            container.style.width = "" + store.sheet.width + "px";
+            label.style.width = "" + store.activeTab.splitterPos + "px";
+            pipeline.style.width = 
+                "" + store.sheet.width - store.activeTab.splitterPos - splitter.offsetWidth + "px";
+            //console.log(`update ${store.window.width} ${store.activeTab.splitterPos} ${pipeline.offsetWidth}`);
+
+            // 高さ
+            label.style.height = "" + store.sheet.height + "px";
+            splitter.style.height = "" + store.sheet.height + "px";
+            pipeline.style.height = "" + store.sheet.height + "px";
+
+            // canvas
+            let label_canvas = self.tags.app_label_canvas;
+            let pipeline_canvas = self.tags.app_pipeline_canvas;
+            label_canvas.width = label.offsetWidth;
+            label_canvas.height = label.offsetHeight;
+            pipeline_canvas.width = pipeline.offsetWidth;
+            pipeline_canvas.height = pipeline.offsetHeight;
+
+            self.update();
+        };
+
+        // タブの内容の更新
+        // シートの zindex を操作して，アクティブなもののみを見せる
+        self.onTabUpdate = function(){
+            if (!self.valid) {
+                return;
+            }
+            // これは全てのタブで実行する必要がある
+            let container = self.refs.pane_container;
+            let pipeline = self.refs.pipeline_pane;
+
+            if (self.id == store.activeTab.id) {
+                container.style.zIndex = "0";   // アクティブなタブを最前面に
+                pipeline.style.opacity = store.activeTab.transparent ? "0.5" : "1"; // 透明化
+            }
+            else {
+                // 直前に表示されていたタブは優先度をあげておく
+                container.style.zIndex = store.prevTabID == self.id ?  "-1" : "-2";
+                pipeline.style.opacity = "1";   // 透明化の有効無効
+            }
+
+
+            self.update();
+        };
+
+    </script>
+</app_sheet>
+
+<!-- List of sheets -->
+<app_sheet_list>
+    <app_sheet each="{sheet, i in sheets}" id={sheet.id}>
+    </app_sheet>
+    <script>
+        let self = this;
+        self.width = 0;
+        self.height = 0;
+        
+        RiotControl.on(CHANGE.TAB_UPDATE, function(){
+            self.sheets = [];
+            for (let id in store.tabs) {
+                self.sheets.push(store.tabs[id]);
+            }
+            self.update();
+        });
+    </script>
+</app_sheet_list>
+
+
+<!-- Application -->
+<app>
+    <!-- tab bar -->
+    <app_tabbar></app_tabbar>
+    
+    <!-- client -->
+    <app_sheet_list></app_sheet_list>
+
+    <!-- 色々なダイアログ -->
+    <app_dialogs></app_dialogs>
+
+    <script>
+        let self = this;
+
+        /* global RiotControl ACTION CHANGE */
+        let rc = RiotControl;
+
+        self.remote = require("electron").remote;
+
+        // 新規タブのオープン
+        RiotControl.on(CHANGE.TAB_OPEN,
+            function(tab){
+                let path = tab.fileName;
+                if (!path) {
+                    return;
+                }
+                console.log(path);
+            }
+        );
+
+        // リサイズハンドラ
+        self.onResize = function(){
+            // シートのサイズを計算
+            let width = document.body.offsetWidth;
+            let height = 
+                document.body.offsetHeight - 
+                self.tags.app_tabbar.getHeight();
+            rc.trigger(ACTION.SHEET_RESIZE, width, height);
+        };
+
+        // フォーカスハンドラ
+        self.onFocus = function(){
+            rc.trigger(ACTION.FILE_CHECK_RELOAD);
+        };
+
+        // 初期化
+        // マウント時に呼ばれる
+        self.init = function(){
+
+            // メニューを追加
+            let menu = require("./menu.js");
+            menu.installMainMenu();
+
+            // フォーカス
+            window.onfocus = self.onFocus;
+
+            // リサイズハンドラ
+            window.addEventListener("resize", self.onResize, false);
+            self.onResize();    // サイズを適用しておくために1回呼んでおく
+
+            // ドラッグアンドドロップ
+            document.ondragover = function(e) {
+                e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
+                return false;
+            };
+
+            document.ondrop = function (e) {
+                e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
+                let file = e.dataTransfer.files[0];
+                rc.trigger(ACTION.FILE_OPEN, file.path);
+            };
+
+
+        };
+
+        // エントリポイント
+        self.on("mount", self.init);
+
+    </script>
+</app>
+
+

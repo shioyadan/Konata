@@ -1,0 +1,137 @@
+<!-- Notification dialog -->
+<app_modal_dialog>
+    <div ref="top_div" class="modal fade">
+        <div class="modal-dialog modal-content">
+
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-hidden="true">
+                    <i class="glyphicon glyphicon-remove"></i>
+                </button>
+                <h4 class="modal-title">
+                    {opts.title}
+                </h4>
+            </div>
+            
+            <div class="modal-body">
+                {opts.msg}
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-default" data-dismiss="modal">
+                    {opts.buttonOK}
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+        /* global RiotControl ACTION */
+        let rc = RiotControl;
+
+        let self = this;
+        self.modal = function(title, msg, buttonOK) {
+            self.opts.title = title;
+            self.opts.msg = msg;
+            self.opts.buttonOK = buttonOK;
+            self.update();
+            $(self.refs["top_div"]).modal();
+        };
+        self.modal_message = function(msg) {
+            self.modal("Notice", msg, "OK");
+        };
+
+        rc.on(CHANGE.DIALOG_MODAL_ERROR, function(msg){
+            self.modal("Error", msg, "OK");
+        });
+
+        rc.on(CHANGE.DIALOG_MODAL_MESSAGE, function(msg){
+            self.modal("Notice", msg, "OK");
+        });
+    </script>
+</app_modal_dialog>
+
+<!-- リロードの確認 -->
+<app_reload_dialog>
+    <div ref="top_div" class="modal fade">
+        <div class="modal-dialog modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-hidden="true">
+                    <i class="glyphicon glyphicon-remove"></i>
+                </button>
+                <h4 class="modal-title">
+                    {opts.title}
+                </h4>
+            </div>
+            <div class="modal-body">
+                {opts.msg}
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-default" data-dismiss="modal" onclick={onClickReload}>
+                    {opts.buttonOK}
+                </button>
+                <button class="btn btn-default" data-dismiss="modal" onclick={onClickNo}>
+                    {opts.buttonCancel}
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+        /* global RiotControl ACTION */
+        let rc = RiotControl;
+
+        let self = this;
+        rc.on(CHANGE.DIALOG_CHECK_RELOAD, function(fileName){
+            self.opts.title = "Notice";
+            self.opts.msg = `"${fileName}" has been updated. Do you want to reload it?`;
+            self.opts.buttonOK = "Reload";
+            self.opts.buttonCancel = "No";
+            self.update();
+            $(self.refs["top_div"]).modal();
+        });
+
+        // リロードを実行
+        self.onClickReload = function(){
+            rc.trigger(ACTION.FILE_RELOAD);
+        };
+    </script>
+</app_reload_dialog>
+
+<!-- ファイルオープン -->
+<app_file_open_dialog>
+    <script>
+        /* global RiotControl ACTION CHANGE*/
+        let rc = RiotControl;
+        let remote = require("electron").remote;
+
+        // 読み込みダイアログ
+        rc.on(CHANGE.DIALOG_FILE_OPEN, function(){
+            const dialog = remote.dialog;
+            dialog.showOpenDialog(
+                null, {
+                    properties: ["openFile"],
+                    filters: [
+                        {
+                            name: "Konata log",
+                            extensions: ["txt", "text", "log", "gz"]
+                        }
+                    ],
+                    defaultPath: "."
+                },
+                function(fileNames){
+                    if (!fileNames) {
+                        return;
+                    }
+
+                    // Store にファイルを開いて貰う
+                    rc.trigger(ACTION.FILE_OPEN, fileNames[0]);
+                }
+            );
+        });
+    </script>
+</app_file_open_dialog>
+
+<app_dialogs>
+    <app_modal_dialog></app_modal_dialog>
+    <app_file_open_dialog></app_file_open_dialog>
+    <app_reload_dialog></app_reload_dialog>
+</app_dialogs>
+    

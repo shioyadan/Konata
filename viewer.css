@@ -1,88 +1,49 @@
-.tab {
-    display: table;
-    background-color: transparent;
-    /*opacity:0.5;*/
+html, body {
+  width: 100%;      /* ウィンドウ全体に*/
+  height: 100%;
+  margin: 0;        /* すきまなく */
+  overflow: hidden; /* はみ出た部分は表示されない */
 }
 
-/* span要素同士は横に並べたいので table-cell */
-.labels-window, .window-sizing, .pipelines-window {
-    display: table-cell;
-    table-layout: fixed;
+.pane_container {
+    display: flex;  /* CSS3 flexbox による配置を有効に */
+    flex-direction: row;  /* 子要素を横方向に並べる*/  
+    flex: auto;
+    /* pane_container 同士を同じ位置において z-index を制御するため，位置を絶対指定に．
+    abosulute を指定すると，親要素の左上を基準とした位置に配置される
+    */
+    position: absolute; 
 }
 
-.tileY {
-    margin: 0;
-    padding: 0;
-    max-height: 300px;
+/* 左側のラベルペーン */
+.label_pane {
+    width: 300px;    /* この幅は実際には Store の中で設定される */
 }
 
-#tabs-selector {
-    overflow: scroll;
-    margin: 0;
-    padding: 0;
-    max-height:16px;
-}
+/* ラベルとパイプラインの間のスプリッタ */
+.window_splitter {
+    width: 10px;
+    min-width: 10px;
+    max-width: 10px;
 
-#tabs-selector::-webkit-scrollbar { /* スクロールバーを非表示 */
-  display: none;
-}
-
-.tab-selector {
-    max-width: 120px;
-    width:20%;
-    transition: min-width 0.5s;
-    transition: min-height 0.1s;
-    min-width:30px;
-    min-height:18px;
-    max-height:18px;
-    margin: 0;
-    padding: 0;
-    background-color: #fff;
-    overflow: hidden;
-    display: inline-block;
-    border: 1px solid #666666;
-    box-sizing:border-box;
-    border-top-left-radius: 3px;
-    border-top-right-radius: 3px;
-    position: relative;
-}
-.close {
-    position:absolute;
-    right:5px;
-    background-color: #f00;
-    top:0;
-}
-
-.tab-selector:hover {
-    transition: min-width 0.5s;
-    min-width: 120px;
-}
-
-.labels-window, .pipelines-window, .window-sizing {
-    border: 1px solid #666666;
-    box-sizing:border-box;
-    color: #000000;
-    /* テーブル内で横スクロールを可能にするための設定．さわらない */
-    position:absolute;
-    overflow: hidden;
-    table-layout: fixed;
-    white-space: nowrap;
-
-    height:95%;
-}
-.labels-window {
-    width:150px;
-    left:5px;
-}
-.window-sizing {
-    width:2px;
-    min-width: 2px;
-    max-width: 2px;
-    left:155px;
-    background-color: #000;
+    border-right: 1px solid #ccc;
+    background-color: #eeeeee; /* ラベル部分と一体化させる */
     cursor: col-resize;
 }
-.pipelines-window {
-    left:157px; /* labels-window の width + left 以上に設定 */
+
+/* パイプライン表示のペーン */
+.pipeline_pane {
     background-color: #fff;
 }
+
+/* ラベルのツールチップ */
+.tool_tip {
+    color: #fff;
+    background: rgba(51, 51, 51, 0.8);
+    padding: 10px;
+    border-radius: 4px;
+    font-size: "12px";
+    font-family: "Helvetica";
+}
+
+
