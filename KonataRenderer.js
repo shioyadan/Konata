@@ -64,15 +64,12 @@ class KonataRenderer{
 
         let self = this;
         self.konata_ = konata;
+        self.loadStyle_(self.STYLE_FILE_NAME_);
 
         self.viewPos_ = {left:0, top:0};
         self.zoomLevel_ = 0;
-
-        self.zoomScale_ = 1;
-        self.opH_ = self.OP_H * self.zoomScale_;
-        self.opW_ = self.OP_W * self.zoomScale_;
-
-        self.loadStyle_(self.STYLE_FILE_NAME_);
+        self.zoomScale_ = self.calcScale_(self.zoomLevel_);
+        self.updateScaleParameter(self.zoomScale_);
     }
 
     /**
@@ -262,6 +259,14 @@ class KonataRenderer{
         return Math.pow(2, -level * self.ZOOM_RATIO_);
     }
 
+    // 拡大率が変更された際の，関連パラメータの更新
+    updateScaleParameter(zoomScale){
+        let self = this;
+        self.opH_ = self.OP_H * zoomScale;
+        self.opW_ = self.OP_W * zoomScale;
+        self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+    }
+
     /**
      * @param {number} zoomOut - 1段階の拡大/縮小
      * @param {number} posX - ズームの中心点
@@ -271,26 +276,22 @@ class KonataRenderer{
         let self = this;
         self.zoomLevel_ += zoomOut ? -1 : 1;
 
-        // 最大最小ズーム率
+        // 最大最小ズーム率に補正
         self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, 16), -1);
 
         let oldScale = self.zoomScale_;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
-        self.opH_ = self.OP_H * self.zoomScale_;
-        self.opW_ = self.OP_W * self.zoomScale_;
-
-        self.drawingInterval_ = Math.floor(20/(self.zoomScale_ * Math.log(self.zoomScale_)/0.005));
+        self.updateScaleParameter(self.zoomScale_);
 
         // 位置の補正
-        let oldLeft = self.viewPos_.left;
-        let oldTop = self.viewPos_.top;
+        //let oldLeft = self.viewPos_.left;
+        //let oldTop = self.viewPos_.top;
         let ratio = oldScale / self.zoomScale_;
         self.moveLogicalPos([
             self.viewPos_.left - (posX - posX / ratio) / self.opW_,
             self.viewPos_.top - (posY - posY / ratio) / self.opH_
         ]);
-        console.log(`zoom ratio:${ratio}  [${oldLeft}, ${oldTop}] to [${self.viewPos_.left}, ${self.viewPos_.top}]`);
-        //;
+        //console.log(`zoom ratio:${ratio}  [${oldLeft}, ${oldTop}] to [${self.viewPos_.left}, ${self.viewPos_.top}]`);
     }
 
     // canvas にラベルを描画
