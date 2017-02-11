@@ -10,7 +10,7 @@ class Konata{
 
         this.File_ = require("./File");
         this.OnikiriParser_ = require("./onikiri_parser").OnikiriParser;
-        this.Cache_ = require("./Cache");
+        this.Cache_ = require("./Cache").OpCache;
     }
 
     close(){
@@ -51,7 +51,7 @@ class Konata{
         if (file == null) {
             throw "Not opened";
         }
-        let op = file.GetOp(id);
+        let op = file.getOp(id);
         if (op != null) {
             this.lastFetchedId = id;
         }
