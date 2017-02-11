@@ -10,7 +10,7 @@ class Konata{
 
         this.File_ = require("./File");
         this.OnikiriParser_ = require("./onikiri_parser").OnikiriParser;
-        this.Cache_ = require("./Cache").OpCache;
+        this.Cache_ = require("./op_cache").OpCache;
     }
 
     close(){
