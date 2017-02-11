@@ -106,8 +106,8 @@ class KonataRenderer{
             return `hsl(${((250-level*45)%360)},70%,80%)`;
         }
 
-        if (self.colorScheme_ == "Onikiri") {
-            let style = self.style_["lane-style"];
+        if (self.colorScheme_ in self.style_.colorScheme) {
+            let style = self.style_.colorScheme[self.colorScheme_];
             if (lane in style) {
                 if (stage in style[lane]) {
                     return style[lane][stage];
