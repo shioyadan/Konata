@@ -158,7 +158,7 @@ function installMainMenu(){
                         click: function(){
                             rc.trigger(
                                 ACTION.DIALOG_MODAL_MESSAGE,
-                                "Konata ver 0.0.2, Kojiro Izuoka and Ryota Shioya."
+                                "Konata ver 0.1, Kojiro Izuoka and Ryota Shioya."
                             );
                         }
                     }
