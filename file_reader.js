@@ -1,4 +1,4 @@
-class File{
+class FileReader{
     constructor(path){
         // この辺はnodejsの標準ライブラリらすぃ
         this.fs = require("fs");
@@ -78,4 +78,4 @@ class File{
     }
 }
 
-module.exports = File;
+module.exports.FileReader = FileReader;

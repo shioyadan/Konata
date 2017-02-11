@@ -8,9 +8,9 @@ class Konata{
         this.lastFetchedId = 0;
         this.parser_ = null;
 
-        this.File_ = require("./File");
+        this.FileReader_ = require("./file_reader").FileReader;
         this.OnikiriParser_ = require("./onikiri_parser").OnikiriParser;
-        this.Cache_ = require("./op_cache").OpCache;
+        this.OpCache_ = require("./op_cache").OpCache;
     }
 
     close(){
@@ -25,7 +25,7 @@ class Konata{
             this.close();
         }
 
-        let file = new this.File_(path);
+        let file = new this.FileReader_(path);
         let parser = new this.OnikiriParser_();
         this.parser_ = parser;
         console.log("Open :", path);
@@ -33,13 +33,13 @@ class Konata{
         try {
             if (parser.setFile(file)) {
                 console.log("Selected parser:" , parser.getName());
-                this.files = new this.Cache_(path, parser);
+                this.files = new this.OpCache_(path, parser);
                 return true;
             }
         } catch (e) {
             if (e == "Wait") {
                 console.log("Selected parser:" , parser.getName());
-                this.files = new this.Cache_(path, parser);
+                this.files = new this.OpCache_(path, parser);
                 throw e;
             }
         }
