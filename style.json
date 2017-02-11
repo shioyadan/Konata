@@ -3,6 +3,7 @@
     "fontSize": "12px",
     "fontFamily": "Helvetica",
     "fontStyle": "normal",
+    "fontColor": "#222222",
 
     "labelStyle": {
         "marginLeft": "5"

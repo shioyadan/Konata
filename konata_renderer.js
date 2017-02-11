@@ -396,6 +396,7 @@ class KonataRenderer{
         fontSizeRaw = parseInt(fontSizeRaw);// * scale;
         let fontSize = fontSizeRaw + "px";
         ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
+        ctx.fillStyle = self.style_.fontColor;
         
         let marginLeft = self.style_["labelStyle"]["marginLeft"];
         let marginTop = (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
@@ -405,7 +406,6 @@ class KonataRenderer{
         }
 
         try {
-            ctx.fillStyle = "rgb(0,0,0)";
             for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
                 let x = marginLeft;
                 let y = (id - logTop) * self.opH_ + marginTop;
@@ -598,9 +598,7 @@ class KonataRenderer{
     drawOp_(op, h, startCycle, endCycle, scale, ctx){
         let self = this;
         let top = h * self.opH_ + self.PIXEL_ADJUST;
-        //context.fillStyle = "#ffffff";
-        ctx.clearRect(0, top, (endCycle - startCycle) * scale, self.opH_);
-        //context.fillStyle = null;
+        
         if (op.retiredCycle < startCycle) {
             return true;
         } else if (endCycle < op.fetchedCycle) {
@@ -713,7 +711,7 @@ class KonataRenderer{
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
                     ctx.fillText(j, textLeft + j * self.opW_, textTop);
                 }
-                ctx.fillStyle = "#000000";
+                ctx.fillStyle = self.style_.fontColor;
                 ctx.fillText(stage.name, textLeft, textTop);
             }
 
