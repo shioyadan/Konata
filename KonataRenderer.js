@@ -359,7 +359,6 @@ class KonataRenderer{
         let self = this;
         let pos = self.viewPos_;
         let top = pos.top;
-        let left = pos.left;
 
         self.drawLabelTile_(canvas, top);
         return true;
@@ -588,11 +587,11 @@ class KonataRenderer{
         ctx.fill();
     }
 
-    drawOp_(op, h, startCycle, endCycle, scale, context){
+    drawOp_(op, h, startCycle, endCycle, scale, ctx){
         let self = this;
         let top = h * self.opH_ + self.PIXEL_ADJUST;
         //context.fillStyle = "#ffffff";
-        context.clearRect(0, top, (endCycle - startCycle) * scale, self.opH_);
+        ctx.clearRect(0, top, (endCycle - startCycle) * scale, self.opH_);
         //context.fillStyle = null;
         if (op.retiredCycle < startCycle) {
             return true;
@@ -609,7 +608,7 @@ class KonataRenderer{
 
         if (self.canDrawDetailedly) {
             // 枠内に表示の余地がある場合
-            context.strokeStyle = "#333333";
+            ctx.strokeStyle = "#333333";
             let keys = [];
             for (let key in op.lanes) {
                 keys.push(key);
@@ -618,41 +617,34 @@ class KonataRenderer{
             for (let i = 0, len = keys.length; i < len; i++) {
                 let key = keys[i];
                 let laneTop = self.splitLanes_ ? (h + i / len) : h;  // logical pos
-                self.drawLane_(op, laneTop, startCycle, endCycle, scale, context, key);
+                self.drawLane_(op, laneTop, startCycle, endCycle, scale, ctx, key);
             }
         }
         else{
             // 十分小さい場合は簡略化モード
-            context.lineWidth = 1;
+            ctx.lineWidth = 1;
             if (self.colorScheme_ != "default") {
-                context.fillStyle = self.colorScheme_;
+                ctx.fillStyle = self.colorScheme_;
             }
             else{
-                context.fillStyle = "#888888";
+                ctx.fillStyle = "#888888";
             }
-            context.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
+            ctx.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
 
             if (op.flush) {
                 let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
                 let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
-                context.globalAlpha = opacity;
-                context.fillStyle = bgc;
-                context.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
-                context.globalAlpha = 1;
+                ctx.globalAlpha = opacity;
+                ctx.fillStyle = bgc;
+                ctx.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
+                ctx.globalAlpha = 1;
             }
 
         }
         return true;
     }
 
-    ClearStyle_(context){
-        //let self = op;
-        context.globalAlpha = 1;
-        context.fillStyle = null;
-        context.strokeStyle = null;
-    }
-
-    drawLane_(op, h, startCycle, endCycle, scale, context, laneName){
+    drawLane_(op, h, startCycle, endCycle, scale, ctx, laneName){
         let self = this;
 
         let fontSizeRaw = self.style_["font-size"];
@@ -660,7 +652,7 @@ class KonataRenderer{
         let fontSize = fontSizeRaw + "px";
         let fontFamily = self.style_["font-family"];
         let fontStyle = self.style_["font-style"];
-        context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
+        ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
 
         let lane = op.lanes[laneName];
         let top = h * self.opH_ + self.PIXEL_ADJUST;
@@ -684,37 +676,37 @@ class KonataRenderer{
             let right = r * self.opW_ + self.PIXEL_ADJUST;
             let rect = [left, top + self.lane_height_margin_, right - left, (self.laneH_ - self.lane_height_margin_ * 2)];
 
-            let grad = context.createLinearGradient(0, top, 0, top+self.laneH_);
+            let grad = ctx.createLinearGradient(0, top, 0, top+self.laneH_);
             grad.addColorStop(1, color);
             grad.addColorStop(0, "#eee");
 
-            context.lineWidth = 1;
-            context.fillStyle = grad;
-            context.fillRect(rect[0], rect[1], rect[2], rect[3]);
+            ctx.lineWidth = 1;
+            ctx.fillStyle = grad;
+            ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
 
             if (op.flush) {
                 let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
                 let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
-                context.globalAlpha = opacity;
-                context.fillStyle = bgc;
-                context.fillRect(rect[0], rect[1], rect[2], rect[3]);
-                context.globalAlpha = 1;
+                ctx.globalAlpha = opacity;
+                ctx.fillStyle = bgc;
+                ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
+                ctx.globalAlpha = 1;
             }
             
             if (self.canDrawFrame){
-                context.strokeRect(rect[0], rect[1], rect[2], rect[3]);
+                ctx.strokeRect(rect[0], rect[1], rect[2], rect[3]);
             }
 
 
             if (self.canDrawtext) {
-                context.fillStyle = "#555555";
+                ctx.fillStyle = "#555555";
                 let textTop = top + (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
                 let textLeft = (stage.startCycle - startCycle) * self.opW_ + (self.opW_/3);
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
-                    context.fillText(j, textLeft + j * self.opW_, textTop);
+                    ctx.fillText(j, textLeft + j * self.opW_, textTop);
                 }
-                context.fillStyle = "#000000";
-                context.fillText(stage.name, textLeft, textTop);
+                ctx.fillStyle = "#000000";
+                ctx.fillText(stage.name, textLeft, textTop);
             }
 
         }
