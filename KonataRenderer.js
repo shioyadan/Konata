@@ -14,16 +14,14 @@ class KonataRenderer{
             left: 0,
             top: 0
         }; 
-        // 拡大率レベル
-        this.zoomLevel_ = 0;       
+
+
         // 依存関係の矢印のタイプ
         this.depArrowType_ = DEP_ARROW_TYPE.INSIDE_LINE;
-
 
         // 表示系
         this.ZOOM_RATIO_ = 0.5;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
         this.ZOOM_ANIMATION_SPEED_ = 0.07;    // ZOOM_RATIO のフレーム当たり加算値
-        this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
         
         this.konata_ = null;
         this.colorScheme_ = "default";   // カラースキーム名
@@ -31,8 +29,14 @@ class KonataRenderer{
         this.OP_W = 32; // スケール1のときの1サイクルの幅
         this.OP_H = 24; // スケール1のときの1命令の高さ
 
-        this.opW_ = this.OP_W * this.zoomScale_; // スケール1のときの1サイクルの幅（スケールを適用後）
-        this.opH_ = this.OP_H * this.zoomScale_; // スケール1のときの1命令の高さ
+        // 拡大率レベル
+        this.zoomLevel_ = 0;       
+        this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
+        this.laneNum_ = 1;
+        this.laneW_ = this.OP_W * this.zoomScale_;
+        this.laneH_ = this.OP_H * this.zoomScale_;
+        this.opW_ = this.laneW_ * this.laneNum_; 
+        this.opH_ = this.laneW_ * this.laneNum_; 
 
         this.margin_ = 2; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
 
@@ -42,7 +46,6 @@ class KonataRenderer{
 
         // 拡大率が大きい場合，一部描画をはしょる
         this.drawingInterval_ = 1;
-
 
         // JSON で定義された JSON
         this.STYLE_FILE_NAME_ = "./style.json";
@@ -69,7 +72,9 @@ class KonataRenderer{
         self.viewPos_ = {left:0, top:0};
         self.zoomLevel_ = 0;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
-        self.updateScaleParameter(self.zoomScale_);
+
+        self.laneNum_ = 1;//Object.keys(self.konata_.laneMap).length;
+        self.updateScaleParameter(self.zoomScale_, self.laneNum_);
     }
 
     /**
@@ -260,10 +265,14 @@ class KonataRenderer{
     }
 
     // 拡大率が変更された際の，関連パラメータの更新
-    updateScaleParameter(zoomScale){
+    updateScaleParameter(zoomScale, laneNum){
         let self = this;
-        self.opH_ = self.OP_H * zoomScale;
-        self.opW_ = self.OP_W * zoomScale;
+
+        self.laneH_ = self.OP_H * zoomScale;
+        self.laneW_ = self.OP_W * zoomScale;
+        self.opH_ = self.laneH_ * laneNum;
+        self.opW_ = self.laneW_ * laneNum;
+
         self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
     }
 
@@ -281,7 +290,7 @@ class KonataRenderer{
 
         let oldScale = self.zoomScale_;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
-        self.updateScaleParameter(self.zoomScale_);
+        self.updateScaleParameter(self.zoomScale_, self.laneNum_);
 
         // 位置の補正
         //let oldLeft = self.viewPos_.left;
