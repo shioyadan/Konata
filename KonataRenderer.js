@@ -361,7 +361,7 @@ class KonataRenderer{
         let top = pos.top;
         let left = pos.left;
 
-        self.drawLabelTile_(canvas, top, left);
+        self.drawLabelTile_(canvas, top);
         return true;
     }
 
@@ -370,9 +370,8 @@ class KonataRenderer{
      * @param {float} logTop - 現在論理位置
      * @param {float} logLeft - 現在論理位置
      */
-    drawLabelTile_(tile, logTop, logLeft){
+    drawLabelTile_(tile, logTop){
         let self = this;
-        let scale = self.zoomScale_;
 
         // スケールを勘案した論理サイズに変換
         let logHeight = tile.height / self.opH_;
@@ -392,7 +391,7 @@ class KonataRenderer{
         ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
         
         let marginLeft = self.style_["label-style"]["margin-left"];
-        let marginTop = ((self.laneH_/scale - self.lane_height_margin_*2/scale - fontSizeRaw) / 2 + fontSizeRaw) * scale;
+        let marginTop = (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
 
         if (!self.canDrawtext) {
             return;
@@ -657,10 +656,11 @@ class KonataRenderer{
         let self = this;
 
         let fontSizeRaw = self.style_["font-size"];
-        fontSizeRaw = parseInt(fontSizeRaw);
-        let fontSize = fontSizeRaw * scale + "px";
+        fontSizeRaw = parseInt(fontSizeRaw) * scale;
+        let fontSize = fontSizeRaw + "px";
         let fontFamily = self.style_["font-family"];
         let fontStyle = self.style_["font-style"];
+        context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
 
         let lane = op.lanes[laneName];
         let top = h * self.opH_ + self.PIXEL_ADJUST;
@@ -682,7 +682,7 @@ class KonataRenderer{
             let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
             let left = l * self.opW_ + self.PIXEL_ADJUST;
             let right = r * self.opW_ + self.PIXEL_ADJUST;
-            let rect = [left, top + self.lane_height_margin_, right - left, (self.laneH_ - self.lane_height_margin_ * 2)]
+            let rect = [left, top + self.lane_height_margin_, right - left, (self.laneH_ - self.lane_height_margin_ * 2)];
 
             let grad = context.createLinearGradient(0, top, 0, top+self.laneH_);
             grad.addColorStop(1, color);
@@ -707,9 +707,8 @@ class KonataRenderer{
 
 
             if (self.canDrawtext) {
-                context.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
                 context.fillStyle = "#555555";
-                let textTop = top + ((self.laneH_/scale - self.lane_height_margin_/scale*2 - fontSizeRaw) / 2 + fontSizeRaw) * scale;
+                let textTop = top + (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
                 let textLeft = (stage.startCycle - startCycle) * self.opW_ + (self.opW_/3);
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
                     context.fillText(j, textLeft + j * self.opW_, textTop);
