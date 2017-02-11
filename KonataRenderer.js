@@ -41,8 +41,8 @@ class KonataRenderer{
         this.margin_ = 2; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
 
         // レーンごとの表示オプション
-        this.splitLanes_ = true;    // レーンを分割して表示するかどうか
-        this.fixOpHeight_ = true;   // レーンを分割して表示する際に高さを一定にするかどうか
+        this.splitLanes_ = false;    // レーンを分割して表示するかどうか
+        this.fixOpHeight_ = false;   // レーンを分割して表示する際に高さを一定にするかどうか
 
         // 線の描画がぼけるので，補正する
         // ref: http://stackoverflow.com/questions/18019453/svg-rectangle-blurred-in-all-browsers
@@ -296,6 +296,7 @@ class KonataRenderer{
     }
     set splitLanes(s){
         this.splitLanes_ = s;
+        this.updateScaleParameter(this.zoomScale_, this.laneNum_);
     }
 
     // レーンを分割して表示する際に高さを一定にするかどうか
@@ -304,6 +305,7 @@ class KonataRenderer{
     }   
     set fixOpHeight(f){
         this.fixOpHeight_ = f;
+        this.updateScaleParameter(this.zoomScale_, this.laneNum_);
     }
 
     /**
@@ -601,7 +603,7 @@ class KonataRenderer{
             keys = keys.sort();
             for (let i = 0, len = keys.length; i < len; i++) {
                 let key = keys[i];
-                let laneTop = h + i / len;  // logical pos
+                let laneTop = self.splitLanes_ ? (h + i / len) : h;  // logical pos
                 self.drawLane_(op, laneTop, startCycle, endCycle, scale, context, key);
             }
         }

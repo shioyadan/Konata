@@ -94,6 +94,34 @@ function installMainMenu(){
                         ]
                     },
                     {
+                        label: "Lane",
+                        submenu: [
+                            {
+                                label: "Split lanes",
+                                type: "checkbox",
+                                checked: store.splitLanes, 
+                                click: function(e){
+                                    rc.trigger(
+                                        ACTION.KONATA_SPLIT_LANES,
+                                        e.checked
+                                    );
+                                }
+                            },
+                            {
+                                label: "Fix op height",
+                                type: "checkbox",
+                                checked: store.fixOpHeight, 
+                                enabled: store.splitLanes,
+                                click: function(e){
+                                    rc.trigger(
+                                        ACTION.KONATA_FIX_OP_HEIGHT,
+                                        e.checked
+                                    );
+                                }
+                            },
+                        ]
+                    },
+                    {
                         label: "Dependency arrow",
                         submenu: [
                             {

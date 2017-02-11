@@ -34,6 +34,8 @@ const ACTION = {
     KONATA_MOVE_LOGICAL_POS: 66,  // 位置移動，引数は論理座標（サイクル数，命令ID）
 
     KONATA_SET_DEP_ARROW_TYPE: 67,  // 依存関係の矢印のタイプの設定
+    KONATA_SPLIT_LANES: 68, // レーンを分割して表示するか
+    KONATA_FIX_OP_HEIGHT: 69,   // レーン分割時に高さを一定にするかどうか
 
 };
 
@@ -84,6 +86,8 @@ class Store{
 
         // 依存関係の矢印のタイプ
         this.depArrowType = KonataRenderer.DEP_ARROW_INSIDE_LINE;
+        this.splitLanes = false;
+        this.fixOpHeight = false;
 
         let self = this;
         
@@ -323,6 +327,26 @@ class Store{
             self.depArrowType = type;
             for (let tabID in self.tabs) {
                 self.tabs[tabID].renderer.depArrowType = type;
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // レーンを分割して表示するか
+        self.on(ACTION.KONATA_SPLIT_LANES, function(enabled){
+            self.splitLanes = enabled;
+            for (let tabID in self.tabs) {
+                self.tabs[tabID].renderer.splitLanes = enabled;
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // レーン分割時に高さを一定にするかどうか
+        self.on(ACTION.KONATA_FIX_OP_HEIGHT, function(enabled){
+            self.fixOpHeight = enabled;
+            for (let tabID in self.tabs) {
+                self.tabs[tabID].renderer.fixOpHeight = enabled;
             }
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             self.trigger(CHANGE.MENU_UPDATE);
