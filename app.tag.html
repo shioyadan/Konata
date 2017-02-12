@@ -120,6 +120,13 @@
         self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
         self.valid = false;
 
+        // ズームのアニメーション
+        self.inZoomAnimation = false;
+        self.zoomEndLevel = 0;
+        self.zoomBasePoint = [0, 0];
+        self.zoomAnimationID = 0;
+        self.zoomAnimationDirection = false;
+
         // マウスのドラッグ
         self.inDrag = false;  // マウスでドラッグ中か
         self.prevMousePoint = [0, 0]; // 前回のマウスポインタの位置
@@ -127,7 +134,7 @@
         // マウス操作
         self.onMouseWheel = function(e){
             if (e.ctrlKey) {    // 拡大縮小
-                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0, e.offsetX, e.offsetY);
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0 ? -1 : 1, e.offsetX, e.offsetY);
             } 
             else {  // スクロール
                 RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);
@@ -137,7 +144,7 @@
         // ダブルクリック
         self.onMouseDoubleClick = function(e){
             // シフトキー時は縮小
-            RiotControl.trigger(ACTION.KONATA_ZOOM, !e.shiftKey, e.offsetX, e.offsetY);
+            RiotControl.trigger(ACTION.KONATA_ZOOM, e.shiftKey ? 1 : -1, e.offsetX, e.offsetY);
         };
 
         // マウスクリック
@@ -324,7 +331,7 @@
         // マウス操作
         self.onMouseWheel = function(e){
             if (e.ctrlKey) {    // 拡大縮小
-                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0, e.offsetX, e.offsetY);
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0 ? -1 : 1, e.offsetX, e.offsetY);
             } 
             else {  // スクロール
                 RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);

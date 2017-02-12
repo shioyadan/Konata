@@ -49,12 +49,12 @@ function installMainMenu(){
                     {
                         label:"Zoom out",
                         accelerator:"Command + Shift + =",
-                        click: function(){rc.trigger(ACTION.KONATA_ZOOM, false, 0, 0);}
+                        click: function(){rc.trigger(ACTION.KONATA_ZOOM, 1, 0, 0);}
                     },
                     {
                         label:"Zoom in",
                         accelerator:"Command + -",
-                        click: function(){rc.trigger(ACTION.KONATA_ZOOM, true, 0, 0);}
+                        click: function(){rc.trigger(ACTION.KONATA_ZOOM, -1, 0, 0);}
                     },
                 ]
             },
@@ -225,11 +225,11 @@ function popupPipelineMenu(pos){
     let menuTemplate = [
         {
             label:"Zoom out",
-            click: function(){rc.trigger(ACTION.KONATA_ZOOM, false, pos[0], pos[1]);}
+            click: function(){rc.trigger(ACTION.KONATA_ZOOM, 1, pos[0], pos[1]);}
         },
         {
             label:"Zoom in",
-            click: function(){rc.trigger(ACTION.KONATA_ZOOM, true, pos[0], pos[1]);}
+            click: function(){rc.trigger(ACTION.KONATA_ZOOM, -1, pos[0], pos[1]);}
         },
         {
             label: "Adjust position",

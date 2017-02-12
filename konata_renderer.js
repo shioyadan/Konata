@@ -369,9 +369,9 @@ class KonataRenderer{
      * @param {number} posX - ズームの中心点
      * @param {number} posY - ズームの中心点
      */
-    zoom(zoomOut, posX, posY){
+    zoom(zoomLevelDiff, posX, posY){
         let self = this;
-        self.zoomLevel_ += zoomOut ? -1 : 1;
+        self.zoomLevel_ += zoomLevelDiff;
 
         // 最大最小ズーム率に補正
         self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, 16), -1);

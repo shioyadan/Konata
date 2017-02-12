@@ -251,16 +251,16 @@ class Store{
         // 1段階の拡大/縮小
         // zoomOut は true の際にズームアウト
         // posX, posY はズームの中心点
-        self.on(ACTION.KONATA_ZOOM, function(zoomOut, posX, posY){
+        self.on(ACTION.KONATA_ZOOM, function(zoomLevelDiff, posX, posY){
             if (!self.activeTab) {
                 return;
             }
             let renderer = self.activeTab.renderer;
-            renderer.zoom(zoomOut, posX, posY);
+            renderer.zoom(zoomLevelDiff, posX, posY);
             // 同期
             if (self.activeTab.syncScroll) {
                 let renderer = self.activeTab.syncScrollTab.renderer;
-                renderer.zoom(zoomOut, posX, posY);
+                renderer.zoom(zoomLevelDiff, posX, posY);
             }
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
