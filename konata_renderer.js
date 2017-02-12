@@ -20,8 +20,7 @@ class KonataRenderer{
         this.depArrowType_ = DEP_ARROW_TYPE.INSIDE_LINE;
 
         // 表示系
-        this.ZOOM_RATIO_ = 0.5;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
-        this.ZOOM_ANIMATION_SPEED_ = 0.07;    // ZOOM_RATIO のフレーム当たり加算値
+        this.ZOOM_RATIO_ = 1;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
         
         this.konata_ = null;
         this.colorScheme_ = "Auto";   // カラースキーム名
@@ -362,16 +361,19 @@ class KonataRenderer{
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
         return laneHeight - 2 > 8;  // 枠1ピクセルを除いて内部があるかどうか
     }
-    
+
+    get zoomLevel(){
+        return this.zoomLevel_;
+    }    
 
     /**
-     * @param {number} zoomOut - 1段階の拡大/縮小
+     * @param {number} zoomLevelDiff - zoom level の差分
      * @param {number} posX - ズームの中心点
      * @param {number} posY - ズームの中心点
      */
-    zoom(zoomLevelDiff, posX, posY){
+    zoomAbs(zoomLevel, posX, posY){
         let self = this;
-        self.zoomLevel_ += zoomLevelDiff;
+        self.zoomLevel_ = zoomLevel;
 
         // 最大最小ズーム率に補正
         self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, 16), -1);
@@ -389,6 +391,16 @@ class KonataRenderer{
             self.viewPos_.top - (posY - posY / ratio) / self.opH_
         ]);
         //console.log(`zoom ratio:${ratio}  [${oldLeft}, ${oldTop}] to [${self.viewPos_.left}, ${self.viewPos_.top}]`);
+    }
+
+    /**
+     * @param {number} zoomLevelDiff - zoom level の差分
+     * @param {number} posX - ズームの中心点
+     * @param {number} posY - ズームの中心点
+     */
+    zoom(zoomLevelDiff, posX, posY){
+        let self = this;
+        self.zoomAbs(self.zoomLevel + zoomLevelDiff, posX, posY);
     }
 
     // canvas にラベルを描画

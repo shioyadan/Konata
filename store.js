@@ -29,13 +29,14 @@ const ACTION = {
     KONATA_SYNC_SCROLL: 62, // 同期スクロール
 
     KONATA_ZOOM: 63,        // 拡大/縮小
-    KONATA_MOVE_WHEEL: 64,  // ホイールによるスクロール
-    KONATA_MOVE_PIXEL_DIFF: 65,   // 位置移動，引数はピクセル相対値
-    KONATA_MOVE_LOGICAL_POS: 66,  // 位置移動，引数は論理座標（サイクル数，命令ID）
+    KONATA_ZOOM_ABS: 64,    // 拡大/縮小（絶対レベル指定）
+    KONATA_MOVE_WHEEL: 65,  // ホイールによるスクロール
+    KONATA_MOVE_PIXEL_DIFF: 66,   // 位置移動，引数はピクセル相対値
+    KONATA_MOVE_LOGICAL_POS: 67,  // 位置移動，引数は論理座標（サイクル数，命令ID）
 
-    KONATA_SET_DEP_ARROW_TYPE: 67,  // 依存関係の矢印のタイプの設定
-    KONATA_SPLIT_LANES: 68, // レーンを分割して表示するか
-    KONATA_FIX_OP_HEIGHT: 69,   // レーン分割時に高さを一定にするかどうか
+    KONATA_SET_DEP_ARROW_TYPE: 68,  // 依存関係の矢印のタイプの設定
+    KONATA_SPLIT_LANES: 69, // レーンを分割して表示するか
+    KONATA_FIX_OP_HEIGHT: 70,   // レーン分割時に高さを一定にするかどうか
 
 };
 
@@ -248,8 +249,8 @@ class Store{
             electron.remote.app.quit();
         });
 
-        // 1段階の拡大/縮小
-        // zoomOut は true の際にズームアウト
+        // 拡大/縮小
+        // zoomLevelDiff は zoom level の差分
         // posX, posY はズームの中心点
         self.on(ACTION.KONATA_ZOOM, function(zoomLevelDiff, posX, posY){
             if (!self.activeTab) {
@@ -261,6 +262,23 @@ class Store{
             if (self.activeTab.syncScroll) {
                 let renderer = self.activeTab.syncScrollTab.renderer;
                 renderer.zoom(zoomLevelDiff, posX, posY);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // 拡大/縮小
+        // zoomLevel は zoom level の値
+        // posX, posY はズームの中心点
+        self.on(ACTION.KONATA_ZOOM_ABS, function(zoomLevel, posX, posY){
+            if (!self.activeTab) {
+                return;
+            }
+            let renderer = self.activeTab.renderer;
+            renderer.zoomAbs(zoomLevel, posX, posY);
+            // 同期
+            if (self.activeTab.syncScroll) {
+                let renderer = self.activeTab.syncScrollTab.renderer;
+                renderer.zoomAbs(zoomLevel, posX, posY);
             }
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
