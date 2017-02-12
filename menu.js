@@ -180,17 +180,6 @@ function popupTabMenu(tabID){
 
     let menuTemplate = [
         {
-            label: "Syncronize scroll",
-            type: "checkbox",
-            enabled: 
-                store.activeTabID != tabID,    // 自分自身の時は無効化
-            checked: 
-                store.activeTab.syncScroll && store.activeTab.syncScrollTab.id == tabID, 
-            click: function(e){
-                rc.trigger(ACTION.KONATA_SYNC_SCROLL, store.activeTabID, tabID, e.checked);
-            }
-        },
-        {
             label: "Transparent mode",
             type: "checkbox",
             checked: tab.transparent, 
@@ -209,6 +198,17 @@ function popupTabMenu(tabID){
                 };
             }),
         },
+        {
+            label: "Syncronize scroll",
+            type: "checkbox",
+            enabled: 
+                store.activeTabID != tabID,    // 自分自身の時は無効化
+            checked: 
+                store.activeTab.syncScroll && store.activeTab.syncScrollTab.id == tabID, 
+            click: function(e){
+                rc.trigger(ACTION.KONATA_SYNC_SCROLL, store.activeTabID, tabID, e.checked);
+            }
+        },
     ];
 
     let Menu = remote.Menu;
@@ -224,14 +224,6 @@ function popupPipelineMenu(pos){
 
     let menuTemplate = [
         {
-            label:"Zoom out",
-            click: function(){rc.trigger(ACTION.KONATA_ZOOM, 1, pos[0], pos[1]);}
-        },
-        {
-            label:"Zoom in",
-            click: function(){rc.trigger(ACTION.KONATA_ZOOM, -1, pos[0], pos[1]);}
-        },
-        {
             label: "Adjust position",
             click: function(){
                 // その時のパイプラインの左上がくるように移動
@@ -244,6 +236,14 @@ function popupPipelineMenu(pos){
                     );
                 }
             }
+        },
+        {
+            label:"Zoom out",
+            click: function(){rc.trigger(ACTION.KONATA_ZOOM, 1, pos[0], pos[1]);}
+        },
+        {
+            label:"Zoom in",
+            click: function(){rc.trigger(ACTION.KONATA_ZOOM, -1, pos[0], pos[1]);}
         },
     ];
 
