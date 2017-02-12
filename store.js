@@ -107,7 +107,7 @@ class Store{
         this.syncCurScrollPos = [0, 0];
         this.scrollAnimationDiff = [0, 0];
         this.scrollAnimationDirection = [false, false];
-        let SCROLL_ANIMATION_PERIOD = 70;  // ミリ秒
+        let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
         let self = this;
         
