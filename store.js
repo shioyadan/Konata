@@ -103,6 +103,8 @@ class Store{
         // スクロールのアニメーション
         this.scrollEndPos = [0, 0];
         this.curScrollPos = [0, 0];
+        this.syncScrollEndPos = [0, 0];
+        this.syncCurScrollPos = [0, 0];
         this.scrollAnimationDiff = [0, 0];
         this.scrollAnimationDirection = [false, false];
         let SCROLL_ANIMATION_PERIOD = 70;  // ミリ秒
@@ -348,6 +350,17 @@ class Store{
                 self.curScrollPos[0] + scrollDiff[0],
                 self.curScrollPos[1] + scrollDiff[1]
             ];
+
+            // 同期
+            if (self.activeTab.syncScroll) {
+                let renderer = self.activeTab.syncScrollTab.renderer;
+                self.syncCurScrollPos = renderer.viewPos;
+                self.syncScrollEndPos = [
+                    self.syncCurScrollPos[0] + scrollDiff[0],
+                    self.syncCurScrollPos[1] + scrollDiff[1]
+                ];
+            }
+
             self.inAnimation = true;
             self.animationID = setInterval(self.animateScroll, 16);
         };
@@ -363,8 +376,15 @@ class Store{
             let frames = SCROLL_ANIMATION_PERIOD / 16;
             self.curScrollPos[0] += diff[0] / frames;
             self.curScrollPos[1] += diff[1] / frames;
+            self.syncCurScrollPos[0] += diff[0] / frames;
+            self.syncCurScrollPos[1] += diff[1] / frames;
             
-            self.trigger(ACTION.KONATA_MOVE_LOGICAL_POS, self.curScrollPos);
+            self.activeTab.renderer.moveLogicalPos(self.curScrollPos);
+            // 同期
+            if (self.activeTab.syncScroll) {
+                let renderer = self.activeTab.syncScrollTab.renderer;
+                renderer.moveLogicalPos(self.syncCurScrollPos);
+            }
 
             if (((dir[0] && self.curScrollPos[0] >= self.scrollEndPos[0]) ||
                 (!dir[0] && self.curScrollPos[0] <= self.scrollEndPos[0])) &&
@@ -373,15 +393,29 @@ class Store{
             ){
                 self.inAnimation = false;
                 clearInterval(self.animationID);
-                self.trigger(ACTION.KONATA_MOVE_LOGICAL_POS, self.scrollEndPos);
+                self.activeTab.renderer.moveLogicalPos(self.scrollEndPos);
+
+                // 同期
+                if (self.activeTab.syncScroll) {
+                    let renderer = self.activeTab.syncScrollTab.renderer;
+                    renderer.moveLogicalPos(self.syncScrollEndPos);
+                }
             }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         };
 
         // スクロールの強制終了
         self.finishScroll = function(){
             self.inAnimation = false;
             clearInterval(self.animationID);
-            self.trigger(ACTION.KONATA_MOVE_LOGICAL_POS, self.scrollEndPos);
+            
+            self.activeTab.renderer.moveLogicalPos(self.scrollEndPos);
+            // 同期
+            if (self.activeTab.syncScroll) {
+                let renderer = self.activeTab.syncScrollTab.renderer;
+                renderer.moveLogicalPos(self.syncScrollEndPos);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         };
 
         // ホイールによる移動
