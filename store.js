@@ -89,14 +89,23 @@ class Store{
         this.splitLanes = false;
         this.fixOpHeight = false;
 
+        // アニメーション
+        this.inAnimation = false;
+        this.animationID = 0;
+
         // ズームのアニメーション
-        this.inZoomAnimation = false;
         this.zoomEndLevel = 0;
         this.curZoomLevel = 0;
         this.zoomBasePoint = [0, 0];
-        this.zoomAnimationID = 0;
         this.zoomAnimationDirection = false;
         let ZOOM_ANIMATION_SPEED = 0.2;
+
+        // スクロールのアニメーション
+        this.scrollEndPos = [0, 0];
+        this.curScrollPos = [0, 0];
+        this.scrollAnimationDiff = [0, 0];
+        this.scrollAnimationDirection = [false, false];
+        let SCROLL_ANIMATION_PERIOD = 70;  // ミリ秒
 
         let self = this;
         
@@ -260,21 +269,21 @@ class Store{
 
         // ズームのスタート
         self.startZoom = function(zoomLevelDiff, offsetX, offsetY){
-            if (!self.inZoomAnimation) {
+            if (!self.inAnimation) {
                 // 拡大 or 縮小
                 self.zoomAnimationDirection = zoomLevelDiff > 0;
                 self.curZoomLevel = self.activeTab.renderer.zoomLevel;
                 self.zoomEndLevel = 
                     self.curZoomLevel + zoomLevelDiff;
                 self.zoomBasePoint = [offsetX, offsetY];
-                self.inZoomAnimation = true;
-                self.zoomAnimationID = setInterval(self.animateZoom, 16);
+                self.inAnimation = true;
+                self.animationID = setInterval(self.animateZoom, 16);
             }
         };
 
         // ズームアニメーション中は，一定時間毎に呼び出される
         self.animateZoom = function(){
-            if (!self.inZoomAnimation) {
+            if (!self.inAnimation) {
                 return;
             }
 
@@ -289,8 +298,8 @@ class Store{
 
             if ((self.zoomAnimationDirection && self.curZoomLevel >= self.zoomEndLevel) ||
                 (!self.zoomAnimationDirection && self.curZoomLevel <= self.zoomEndLevel)){
-                self.inZoomAnimation = false;
-                clearInterval(self.zoomAnimationID);
+                self.inAnimation = false;
+                clearInterval(self.animationID);
                 self.zoomAbs(
                     self.zoomEndLevel, 
                     self.zoomBasePoint[0], 
@@ -320,11 +329,60 @@ class Store{
         // zoomLevelDiff は zoom level の差分
         // posX, posY はズームの中心点
         self.on(ACTION.KONATA_ZOOM, function(zoomLevelDiff, posX, posY){
-            if (!self.activeTab || self.inZoomAnimation) {
+            if (!self.activeTab || self.inAnimation) {
                 return;
             }
             self.startZoom(zoomLevelDiff, posX, posY);
         });
+
+
+        // スクロールのアニメーションのスタート
+        self.startScroll = function(scrollDiff){
+            if (self.inAnimation) {
+                self.finishScroll();
+            }
+            self.scrollAnimationDiff = scrollDiff;
+            self.scrollAnimationDirection = [scrollDiff[0] > 0, scrollDiff[1] > 0];
+            self.curScrollPos = self.activeTab.renderer.viewPos;
+            self.scrollEndPos = [
+                self.curScrollPos[0] + scrollDiff[0],
+                self.curScrollPos[1] + scrollDiff[1]
+            ];
+            self.inAnimation = true;
+            self.animationID = setInterval(self.animateScroll, 16);
+        };
+
+        // アニメーション中は，一定時間毎に呼び出される
+        self.animateScroll = function(){
+            if (!self.inAnimation) {
+                return;
+            }
+
+            let diff = self.scrollAnimationDiff;
+            let dir = self.scrollAnimationDirection;
+            let frames = SCROLL_ANIMATION_PERIOD / 16;
+            self.curScrollPos[0] += diff[0] / frames;
+            self.curScrollPos[1] += diff[1] / frames;
+            
+            self.trigger(ACTION.KONATA_MOVE_LOGICAL_POS, self.curScrollPos);
+
+            if (((dir[0] && self.curScrollPos[0] >= self.scrollEndPos[0]) ||
+                (!dir[0] && self.curScrollPos[0] <= self.scrollEndPos[0])) &&
+                ((dir[1] && self.curScrollPos[1] >= self.scrollEndPos[1]) ||
+                (!dir[1] && self.curScrollPos[1] <= self.scrollEndPos[1]))
+            ){
+                self.inAnimation = false;
+                clearInterval(self.animationID);
+                self.trigger(ACTION.KONATA_MOVE_LOGICAL_POS, self.scrollEndPos);
+            }
+        };
+
+        // スクロールの強制終了
+        self.finishScroll = function(){
+            self.inAnimation = false;
+            clearInterval(self.animationID);
+            self.trigger(ACTION.KONATA_MOVE_LOGICAL_POS, self.scrollEndPos);
+        };
 
         // ホイールによる移動
         self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
@@ -332,13 +390,10 @@ class Store{
                 return;
             }
             let renderer = self.activeTab.renderer;
-            renderer.moveWheel(wheelUp);
-            // 同期
-            if (self.activeTab.syncScroll) {
-                let renderer = self.activeTab.syncScrollTab.renderer;
-                renderer.moveWheel(wheelUp);
-            }
-            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            let scale = renderer.zoomScale;
+            let diffY = (wheelUp ? 3 : -3) / scale;
+            let diffX = renderer.adjustScrpllDiifX(diffY);
+            self.startScroll([diffX, diffY]);
         });
 
         // 位置移動，引数はピクセル相対値

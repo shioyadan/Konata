@@ -168,6 +168,36 @@ class KonataRenderer{
     }
 
     /**
+     * 縦スクロール時の横方向の補正値を計算
+     * @param {Array} diffY - 移動量
+     */
+    adjustScrpllDiifX(diffY){
+        let self = this;
+        let posY = self.viewPos_.top + diffY;
+
+        let id = Math.floor(posY);
+        if (id < 0 || id > self.konata_.lastID){
+            return 0;
+        }
+        
+        let op = null;
+        op = self.konata_.getOp(id);
+
+        let oldTop = self.viewPos_.top;
+
+        // 水平方向の補正を行う
+        let oldOp = self.konata_.getOp(Math.floor(oldTop));
+        let left = self.viewPos_.left;
+        if (!oldOp) {
+            return op.fetchedCycle - left;
+        }
+        else{
+            // スクロール前と後の，左上の命令の水平方向の差を加算
+            return op.fetchedCycle - oldOp.fetchedCycle;
+        }
+    }
+
+    /**
      * 論理座標の相対値により表示位置を移動する
      * @param {Array} diff - 移動量
      * @param {boolean} adjust - 命令が画面上左上にくるよう調整するかどうか
@@ -364,6 +394,10 @@ class KonataRenderer{
 
     get zoomLevel(){
         return this.zoomLevel_;
+    }    
+
+    get zoomScale(){
+        return this.zoomScale_;
     }    
 
     /**
