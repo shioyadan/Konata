@@ -243,11 +243,14 @@ class KonataRenderer{
     // ピクセル座標に対応するツールチップのテキストを作る
     getPipelineToolTipText(x, y){
         let self = this;
+
+        // Y 座標に対応した op を取得
         let op = self.getOpFromPixelPosY(y);
         if (!op) {
             return null;
         }
 
+        // X 座標に対応したサイクル数を取得
         let cycle = self.getCycleFromPixelPosX(x);
         let text = `[${cycle}, ${op.id}] `;
         if (cycle < op.fetchedCycle || cycle > op.retiredCycle) {
@@ -257,7 +260,14 @@ class KonataRenderer{
         let first = true;
         for (let laneName in op.lanes) {
             for (let stage of op.lanes[laneName]) {
-                if (stage.startCycle <= cycle && cycle < stage.endCycle) {
+                let start = stage.startCycle;
+                let end = stage.endCycle;
+                let length = end - start;
+                if (length == 0) {
+                    end += 1;   // 長さ0の場合，表示対象に
+                }
+
+                if (start <= cycle && cycle < end){
                     if (!first) {
                         text += ", ";
                     }
