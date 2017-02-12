@@ -52,6 +52,12 @@ class KonataRenderer{
         // 拡大率が大きい場合，一部描画をはしょる
         this.drawingInterval_ = 1;
 
+        // フォント
+        this.labelFont_ = "";
+        this.stageFont_ = "";
+        this.labelFontSize_ = 12;
+        this.stageFontSize_ = 12;
+
         // JSON で定義された JSON
         this.STYLE_FILE_NAME_ = "./style.json";
         this.style_ = null;
@@ -290,16 +296,20 @@ class KonataRenderer{
     // 拡大率が変更された際の，関連パラメータの更新
     updateScaleParameter(){
         let self = this;
+        
         let zoomScale = self.zoomScale_;
         let laneNum = self.laneNum_;
+        let splitLanes = self.splitLanes_;
+        let fixOpHeight = self.fixOpHeight_;
 
+        // レーン/op ごとの大きさ
         self.laneW_ = self.OP_W * zoomScale;
         self.opW_ = self.laneW_;
 
-        if (!self.splitLanes_) {
+        if (!splitLanes) {
             laneNum = 1;
         }
-        if (self.fixOpHeight_){
+        if (fixOpHeight){
             self.laneH_ = self.OP_H * zoomScale / laneNum;
             self.opH_ = self.laneH_ * laneNum;
         }
@@ -307,10 +317,17 @@ class KonataRenderer{
             self.laneH_ = self.OP_H * zoomScale;
             self.opH_ = self.laneH_ * laneNum;
         }
-
+        self.lane_height_margin_ = self.canDrawFrame ? self.LANE_HEIGHT_MARGIN * zoomScale : 0;
         self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
 
-        self.lane_height_margin_ = self.canDrawFrame ? self.LANE_HEIGHT_MARGIN * zoomScale : 0;
+        // フォント
+        let fontFamily = self.style_["fontFamily"];
+        let fontStyle = self.style_["fontStyle"];
+        let fontSize = parseInt(self.style_["fontSize"]);
+        self.labelFont_ = `${fontStyle} ${fontSize}px '${fontFamily}`;
+        self.stageFont_ = `${fontStyle} ${fontSize*zoomScale}px '${fontFamily}`;
+        self.labelFontSize_ = fontSize;
+        self.stageFontSize_ = fontSize * zoomScale;
     }
 
     // レーンを分割して表示するかどうか
@@ -392,30 +409,27 @@ class KonataRenderer{
     drawLabelTile_(tile, logTop){
         let self = this;
 
-        // スケールを勘案した論理サイズに変換
-        let logHeight = tile.height / self.opH_;
-        //let logWidth = tile.width / (scale * self.opW_);
-
         // 背景をクリア
         let ctx = tile.getContext("2d");
         ctx.fillStyle = "rgb(245,245,245)";
         ctx.fillRect(0, 0, tile.width, tile.height);
 
-        // フォント
-        let fontFamily = self.style_["fontFamily"];
-        let fontStyle = self.style_["fontStyle"];
-        let fontSizeRaw = self.style_["fontSize"];
-        fontSizeRaw = parseInt(fontSizeRaw);// * scale;
-        let fontSize = fontSizeRaw + "px";
-        ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
-        ctx.fillStyle = self.style_.fontColor;
-        
-        let marginLeft = self.style_["labelStyle"]["marginLeft"];
-        let marginTop = (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
-
+        // 小さくなりすぎたらスキップ
         if (!self.canDrawtext) {
             return;
         }
+
+        // フォントを設定
+        let fontSizeRaw = self.labelFontSize_;
+        ctx.font = self.labelFont_;
+        ctx.fillStyle = self.style_.fontColor;
+
+        // スケールを勘案した論理サイズに変換
+        let logHeight = tile.height / self.opH_;
+        //let logWidth = tile.width / (scale * self.opW_);
+        
+        let marginLeft = self.style_.labelStyle.marginLeft;
+        let marginTop = (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
 
         try {
             for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
@@ -665,12 +679,8 @@ class KonataRenderer{
     drawLane_(op, h, startCycle, endCycle, scale, ctx, laneName){
         let self = this;
 
-        let fontSizeRaw = self.style_["fontSize"];
-        fontSizeRaw = parseInt(fontSizeRaw) * scale;
-        let fontSize = fontSizeRaw + "px";
-        let fontFamily = self.style_["fontFamily"];
-        let fontStyle = self.style_["fontStyle"];
-        ctx.font = fontStyle + " " + fontSize + " '" + fontFamily + "'";
+        let fontSizeRaw = self.stageFontSize_;
+        ctx.font = self.stageFont_;
 
         let lane = op.lanes[laneName];
         let top = h * self.opH_ + self.PIXEL_ADJUST;
