@@ -108,7 +108,7 @@ class KonataRenderer{
                 return "#aaaaaa";
             }
             let level = self.konata_.stageLevelMap[stage];
-            return `hsl(${((250-level*45)%360)},70%,80%)`;
+            return `hsl(${((250-level*50)%360)},70%,80%)`;
         }
 
         if (self.colorScheme_ in self.style_.colorScheme) {

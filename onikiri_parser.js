@@ -234,7 +234,6 @@ class OnikiriParser{
             if (!(laneName in op.lanes)) {
                 op.lanes[laneName] = [];
             }
-            let lastParsedStage = op.lastParsedStage;
 
             op.lanes[laneName].push(stage);
             op.lastParsedStage = stageName;
@@ -251,7 +250,13 @@ class OnikiriParser{
 
             // ステージのマップに登録
             let map = this.stageLevelMap_;
-            let level = op.lanes[laneName].length - 1;
+            let lane = op.lanes[laneName];
+            let level = -1;
+            for (let s of lane) {
+                if (s.startCycle != s.endCycle) {
+                    level++;
+                }
+            }
             if (stageName in map) {
                 if (map[stageName] > level) {
                     map[stageName] = level;
