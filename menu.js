@@ -200,27 +200,15 @@ function popupTabMenu(tabID){
         },
         {
             label: "Color scheme",
-            submenu: [
-                {
-                    label: "Default",
+            submenu: ["Auto", "Orange", "RoyalBlue", "Onikiri"].map(function(color){
+                return {
+                    label: color,
                     type: "checkbox",
-                    checked: tab.colorScheme == "default", 
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "default");}
-                },
-                {
-                    label: "Orange",
-                    type: "checkbox",
-                    checked: tab.colorScheme == "orange", 
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "orange");}
-                },
-                {
-                    label: "Blue",
-                    checked: tab.colorScheme == "blue", 
-                    type: "checkbox",
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, "blue");}
-                },
-            ]
-        }
+                    checked: tab ? tab.colorScheme == color : true, 
+                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
+                };
+            }),
+        },
     ];
 
     let Menu = remote.Menu;
