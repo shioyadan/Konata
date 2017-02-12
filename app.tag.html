@@ -120,59 +120,6 @@
         self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
         self.valid = false;
 
-        // ズームのアニメーション
-        self.inZoomAnimation = false;
-        self.zoomEndLevel = 0;
-        self.curZoomLevel = 0;
-        self.zoomBasePoint = [0, 0];
-        self.zoomAnimationID = 0;
-        self.zoomAnimationDirection = false;
-        let ZOOM_ANIMATION_SPEED = 0.2;
-
-        // ズームのスタート
-        self.startZoom = function(direction, offsetX, offsetY){
-            if (!self.inZoomAnimation) {
-                // 拡大 or 縮小
-                self.zoomAnimationDirection = direction;
-                self.curZoomLevel = store.tabs[self.id].renderer.zoomLevel;
-                self.zoomEndLevel = 
-                    self.curZoomLevel + 
-                    (self.zoomAnimationDirection ? 1 : -1);
-                self.zoomBasePoint = [offsetX, offsetY];
-                self.inZoomAnimation = true;
-                self.zoomAnimationID = setInterval(self.animateZoom, 16);
-            }
-        };
-        // ズームアニメーション中は，一定時間毎に呼び出される
-        self.animateZoom = function(){
-            if (!self.inZoomAnimation) {
-                return;
-            }
-
-            self.curZoomLevel += 
-                self.zoomAnimationDirection ? ZOOM_ANIMATION_SPEED : -ZOOM_ANIMATION_SPEED;
-            
-            RiotControl.trigger(
-                ACTION.KONATA_ZOOM_ABS, 
-                self.curZoomLevel, 
-                self.zoomBasePoint[0], 
-                self.zoomBasePoint[1]
-            );
-
-            if ((self.zoomAnimationDirection && self.curZoomLevel >= self.zoomEndLevel) ||
-                (!self.zoomAnimationDirection && self.curZoomLevel <= self.zoomEndLevel)){
-                self.inZoomAnimation = false;
-                clearInterval(self.zoomAnimationID);
-                RiotControl.trigger(
-                    ACTION.KONATA_ZOOM_ABS, 
-                    self.zoomEndLevel, 
-                    self.zoomBasePoint[0], 
-                    self.zoomBasePoint[1]
-                );
-            }
-        };
-
-
         // マウスのドラッグ
         self.inDrag = false;  // マウスでドラッグ中か
         self.prevMousePoint = [0, 0]; // 前回のマウスポインタの位置
@@ -180,11 +127,10 @@
         // マウス操作
         self.onMouseWheel = function(e){
             if (e.ctrlKey) {    // 拡大縮小
-                self.startZoom(e.deltaY > 0, e.offsetX, e.offsetY);
-                //RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0 ? -1 : 1, e.offsetX, e.offsetY);
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY > 0 ? 1 : -1, e.offsetX, e.offsetY);
             } 
             else {  // スクロール
-                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);
+                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0 ? 1 : -1);
             }
         };
 
@@ -378,10 +324,10 @@
         // マウス操作
         self.onMouseWheel = function(e){
             if (e.ctrlKey) {    // 拡大縮小
-                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY < 0 ? -1 : 1, e.offsetX, e.offsetY);
+                RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY > 0 ? 1 : -1, e.offsetX, e.offsetY);
             } 
             else {  // スクロール
-                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0);
+                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, e.deltaY > 0 ? 1 : -1);
             }
         };
 

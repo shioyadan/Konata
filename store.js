@@ -29,7 +29,6 @@ const ACTION = {
     KONATA_SYNC_SCROLL: 62, // 同期スクロール
 
     KONATA_ZOOM: 63,        // 拡大/縮小
-    KONATA_ZOOM_ABS: 64,    // 拡大/縮小（絶対レベル指定）
     KONATA_MOVE_WHEEL: 65,  // ホイールによるスクロール
     KONATA_MOVE_PIXEL_DIFF: 66,   // 位置移動，引数はピクセル相対値
     KONATA_MOVE_LOGICAL_POS: 67,  // 位置移動，引数は論理座標（サイクル数，命令ID）
@@ -89,6 +88,15 @@ class Store{
         this.depArrowType = KonataRenderer.DEP_ARROW_INSIDE_LINE;
         this.splitLanes = false;
         this.fixOpHeight = false;
+
+        // ズームのアニメーション
+        this.inZoomAnimation = false;
+        this.zoomEndLevel = 0;
+        this.curZoomLevel = 0;
+        this.zoomBasePoint = [0, 0];
+        this.zoomAnimationID = 0;
+        this.zoomAnimationDirection = false;
+        let ZOOM_ANIMATION_SPEED = 0.2;
 
         let self = this;
         
@@ -249,27 +257,52 @@ class Store{
             electron.remote.app.quit();
         });
 
-        // 拡大/縮小
-        // zoomLevelDiff は zoom level の差分
-        // posX, posY はズームの中心点
-        self.on(ACTION.KONATA_ZOOM, function(zoomLevelDiff, posX, posY){
-            if (!self.activeTab) {
+
+        // ズームのスタート
+        self.startZoom = function(zoomLevelDiff, offsetX, offsetY){
+            if (!self.inZoomAnimation) {
+                // 拡大 or 縮小
+                self.zoomAnimationDirection = zoomLevelDiff > 0;
+                self.curZoomLevel = self.activeTab.renderer.zoomLevel;
+                self.zoomEndLevel = 
+                    self.curZoomLevel + zoomLevelDiff;
+                self.zoomBasePoint = [offsetX, offsetY];
+                self.inZoomAnimation = true;
+                self.zoomAnimationID = setInterval(self.animateZoom, 16);
+            }
+        };
+
+        // ズームアニメーション中は，一定時間毎に呼び出される
+        self.animateZoom = function(){
+            if (!self.inZoomAnimation) {
                 return;
             }
-            let renderer = self.activeTab.renderer;
-            renderer.zoom(zoomLevelDiff, posX, posY);
-            // 同期
-            if (self.activeTab.syncScroll) {
-                let renderer = self.activeTab.syncScrollTab.renderer;
-                renderer.zoom(zoomLevelDiff, posX, posY);
+
+            self.curZoomLevel += 
+                self.zoomAnimationDirection ? ZOOM_ANIMATION_SPEED : -ZOOM_ANIMATION_SPEED;
+            
+            self.zoomAbs(
+                self.curZoomLevel, 
+                self.zoomBasePoint[0], 
+                self.zoomBasePoint[1]
+            );
+
+            if ((self.zoomAnimationDirection && self.curZoomLevel >= self.zoomEndLevel) ||
+                (!self.zoomAnimationDirection && self.curZoomLevel <= self.zoomEndLevel)){
+                self.inZoomAnimation = false;
+                clearInterval(self.zoomAnimationID);
+                self.zoomAbs(
+                    self.zoomEndLevel, 
+                    self.zoomBasePoint[0], 
+                    self.zoomBasePoint[1]
+                );
             }
-            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-        });
+        };
 
         // 拡大/縮小
         // zoomLevel は zoom level の値
         // posX, posY はズームの中心点
-        self.on(ACTION.KONATA_ZOOM_ABS, function(zoomLevel, posX, posY){
+        self.zoomAbs = function(zoomLevel, posX, posY){
             if (!self.activeTab) {
                 return;
             }
@@ -281,6 +314,16 @@ class Store{
                 renderer.zoomAbs(zoomLevel, posX, posY);
             }
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        };
+
+        // 拡大/縮小
+        // zoomLevelDiff は zoom level の差分
+        // posX, posY はズームの中心点
+        self.on(ACTION.KONATA_ZOOM, function(zoomLevelDiff, posX, posY){
+            if (!self.activeTab || self.inZoomAnimation) {
+                return;
+            }
+            self.startZoom(zoomLevelDiff, posX, posY);
         });
 
         // ホイールによる移動
