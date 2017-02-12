@@ -654,8 +654,7 @@ class KonataRenderer{
         }
         else{
             // 十分小さい場合は簡略化モード
-            ctx.lineWidth = 1;
-            if (self.colorScheme_ != "default") {
+            if (self.colorScheme_ != "Auto" && self.colorScheme_ != "Onikiri") {
                 ctx.fillStyle = self.colorScheme_;
             }
             else{
@@ -664,12 +663,9 @@ class KonataRenderer{
             ctx.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
 
             if (op.flush) {
-                let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
-                let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
-                ctx.globalAlpha = opacity;
+                let bgc = "rgba(0,0,0,0.4)";
                 ctx.fillStyle = bgc;
                 ctx.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
-                ctx.globalAlpha = 1;
             }
 
         }
@@ -691,24 +687,31 @@ class KonataRenderer{
             }
             if (stage.endCycle < startCycle) {
                 continue;
-            } else if (endCycle < stage.startCycle) {
+            } 
+            else if (endCycle < stage.startCycle) {
                 break; // stage.startCycle が endCycleを超えているなら，以降のステージはこのcanvasに描画されない．
             }
             if (stage.endCycle == stage.startCycle) {
                 continue;
             }
-            let color = self.getStageColor_(laneName, stage.name);
-            let l = startCycle > stage.startCycle ? (startCycle - 1) : stage.startCycle; l -= startCycle;
-            let r = endCycle >= stage.endCycle ? stage.endCycle : (endCycle + 1); r -= startCycle;
-            let left = l * self.opW_ + self.PIXEL_ADJUST;
-            let right = r * self.opW_ + self.PIXEL_ADJUST;
-            let rect = [left, top + self.lane_height_margin_, right - left, (self.laneH_ - self.lane_height_margin_ * 2)];
+            
+            let logLeft = Math.max(startCycle - 1, stage.startCycle) - startCycle;
+            let logRight = Math.min(endCycle + 1, stage.endCycle) - startCycle; 
 
-            let grad = ctx.createLinearGradient(0, top, 0, top+self.laneH_);
+            let left = logLeft * self.opW_ + self.PIXEL_ADJUST;
+            let right = logRight * self.opW_ + self.PIXEL_ADJUST;
+            let rect = [
+                left, 
+                top + self.lane_height_margin_, 
+                right - left, 
+                (self.laneH_ - self.lane_height_margin_ * 2)
+            ];
+
+            let grad = ctx.createLinearGradient(0, top, 0, top + self.laneH_);
+            let color = self.getStageColor_(laneName, stage.name);
             grad.addColorStop(1, color);
             grad.addColorStop(0, "#eee");
 
-            ctx.lineWidth = 1;
             ctx.fillStyle = grad;
             ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
 
@@ -722,9 +725,9 @@ class KonataRenderer{
             }
             
             if (self.canDrawFrame){
+                ctx.lineWidth = 1;
                 ctx.strokeRect(rect[0], rect[1], rect[2], rect[3]);
             }
-
 
             if (self.canDrawtext) {
                 ctx.fillStyle = "#555555";
