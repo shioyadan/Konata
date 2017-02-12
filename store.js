@@ -90,7 +90,7 @@ class Store{
         this.fixOpHeight = false;
 
         // アニメーション
-        this.inAnimation = false;
+        this.inZoomAnimation = false;
         this.animationID = 0;
 
         // ズームのアニメーション
@@ -101,6 +101,7 @@ class Store{
         let ZOOM_ANIMATION_SPEED = 0.2;
 
         // スクロールのアニメーション
+        this.inScrollAnimation = false;
         this.scrollEndPos = [0, 0];
         this.curScrollPos = [0, 0];
         this.syncScrollEndPos = [0, 0];
@@ -271,21 +272,21 @@ class Store{
 
         // ズームのスタート
         self.startZoom = function(zoomLevelDiff, offsetX, offsetY){
-            if (!self.inAnimation) {
+            if (!self.inZoomAnimation) {
                 // 拡大 or 縮小
                 self.zoomAnimationDirection = zoomLevelDiff > 0;
                 self.curZoomLevel = self.activeTab.renderer.zoomLevel;
                 self.zoomEndLevel = 
                     self.curZoomLevel + zoomLevelDiff;
                 self.zoomBasePoint = [offsetX, offsetY];
-                self.inAnimation = true;
+                self.inZoomAnimation = true;
                 self.animationID = setInterval(self.animateZoom, 16);
             }
         };
 
         // ズームアニメーション中は，一定時間毎に呼び出される
         self.animateZoom = function(){
-            if (!self.inAnimation) {
+            if (!self.inZoomAnimation) {
                 return;
             }
 
@@ -300,7 +301,7 @@ class Store{
 
             if ((self.zoomAnimationDirection && self.curZoomLevel >= self.zoomEndLevel) ||
                 (!self.zoomAnimationDirection && self.curZoomLevel <= self.zoomEndLevel)){
-                self.inAnimation = false;
+                self.inZoomAnimation = false;
                 clearInterval(self.animationID);
                 self.zoomAbs(
                     self.zoomEndLevel, 
@@ -331,7 +332,7 @@ class Store{
         // zoomLevelDiff は zoom level の差分
         // posX, posY はズームの中心点
         self.on(ACTION.KONATA_ZOOM, function(zoomLevelDiff, posX, posY){
-            if (!self.activeTab || self.inAnimation) {
+            if (!self.activeTab || self.inZoomAnimation) {
                 return;
             }
             self.startZoom(zoomLevelDiff, posX, posY);
@@ -340,9 +341,6 @@ class Store{
 
         // スクロールのアニメーションのスタート
         self.startScroll = function(scrollDiff){
-            if (self.inAnimation) {
-                self.finishScroll();
-            }
             self.scrollAnimationDiff = scrollDiff;
             self.scrollAnimationDirection = [scrollDiff[0] > 0, scrollDiff[1] > 0];
             self.curScrollPos = self.activeTab.renderer.viewPos;
@@ -361,13 +359,13 @@ class Store{
                 ];
             }
 
-            self.inAnimation = true;
+            self.inScrollAnimation = true;
             self.animationID = setInterval(self.animateScroll, 16);
         };
 
         // アニメーション中は，一定時間毎に呼び出される
         self.animateScroll = function(){
-            if (!self.inAnimation) {
+            if (!self.inScrollAnimation) {
                 return;
             }
 
@@ -391,7 +389,7 @@ class Store{
                 ((dir[1] && self.curScrollPos[1] >= self.scrollEndPos[1]) ||
                 (!dir[1] && self.curScrollPos[1] <= self.scrollEndPos[1]))
             ){
-                self.inAnimation = false;
+                self.inScrollAnimation = false;
                 clearInterval(self.animationID);
                 self.activeTab.renderer.moveLogicalPos(self.scrollEndPos);
 
@@ -406,7 +404,7 @@ class Store{
 
         // スクロールの強制終了
         self.finishScroll = function(){
-            self.inAnimation = false;
+            self.inScrollAnimation = false;
             clearInterval(self.animationID);
             
             self.activeTab.renderer.moveLogicalPos(self.scrollEndPos);
@@ -422,6 +420,9 @@ class Store{
         self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
             if (!self.activeTab) {
                 return;
+            }
+            if (self.inScrollAnimation) {
+                self.finishScroll();
             }
             let renderer = self.activeTab.renderer;
             let scale = renderer.zoomScale;

@@ -173,27 +173,33 @@ class KonataRenderer{
      */
     adjustScrpllDiifX(diffY){
         let self = this;
-        let posY = self.viewPos_.top + diffY;
-
+        let posY = self.viewPos_.top;
         let id = Math.floor(posY);
         if (id < 0 || id > self.konata_.lastID){
             return 0;
         }
-        
-        let op = null;
-        op = self.konata_.getOp(id);
 
-        let oldTop = self.viewPos_.top;
+        // 画面に表示されているものの中で最も上にあるものを基準に
+        let oldOp = null;
+        oldOp = self.konata_.getOp(id);
+        while (!oldOp || oldOp.retiredCycle < self.viewPos_.left) {
+            id++;
+            oldOp = self.konata_.getOp(id);
+        }
 
         // 水平方向の補正を行う
-        let oldOp = self.konata_.getOp(Math.floor(oldTop));
+        let newTop = id + diffY;
+        let newOp = self.konata_.getOp(Math.floor(newTop));
         let left = self.viewPos_.left;
-        if (!oldOp) {
-            return op.fetchedCycle - left;
+        if (!newOp) {
+            return 0;
+        }
+        else if (!oldOp) {
+            return newOp.fetchedCycle - left;
         }
         else{
             // スクロール前と後の，左上の命令の水平方向の差を加算
-            return op.fetchedCycle - oldOp.fetchedCycle;
+            return newOp.fetchedCycle - oldOp.fetchedCycle;
         }
     }
 
