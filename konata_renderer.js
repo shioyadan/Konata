@@ -93,8 +93,9 @@ class KonataRenderer{
      */
     loadStyle_(fileName){
         let self = this;
-        let fs = require("fs");
-        self.style_ = JSON.parse(fs.readFileSync(fileName, "utf8"));
+        // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
+        // 変わった場合に読み込めなくなるので，require で読む
+        self.style_ = require(fileName);
     }
 
     /**
