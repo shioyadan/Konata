@@ -636,6 +636,17 @@
             rc.trigger(ACTION.FILE_CHECK_RELOAD);
         };
 
+        // 開発者ツールの表示切り替え
+        RiotControl.on(CHANGE.SHEET_UPDATE_DEV_TOOL, function(show){
+            let win = self.remote.getCurrentWindow();
+            if (show) {
+                win.openDevTools();
+            }
+            else {
+                win.closeDevTools();
+            }
+        });
+
         // 初期化
         // マウント時に呼ばれる
         self.init = function(){

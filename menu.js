@@ -142,6 +142,12 @@ function installMainMenu(){
                 label: "Help",
                 submenu: [
                     {
+                        label: "Toggle Dev Tool",
+                        click: function(){
+                            rc.trigger(ACTION.SHEET_SHOW_DEV_TOOL, !store.showDevTool);
+                        }
+                    },
+                    {
                         label: "Version",
                         click: function(){
                             rc.trigger(

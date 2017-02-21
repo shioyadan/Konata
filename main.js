@@ -19,7 +19,7 @@ app.on("window-all-closed", function(){
 app.on("ready", function() {
     m_window = new BrowserWindow({width: 800, height: 600});
     m_window.loadURL(currentURL);
-    m_window.toggleDevTools();
+    //m_window.toggleDevTools();
     // ウィンドウが閉じられたらアプリも終了
     m_window.on("closed", function() {
         m_window = null;

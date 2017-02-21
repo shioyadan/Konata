@@ -22,6 +22,7 @@ const ACTION = {
     TAB_MOVE: 34,
 
     SHEET_RESIZE: 40,       // シートサイズの変更
+    SHEET_SHOW_DEV_TOOL: 41,   // 開発者ツールの表示切り替え
     PANE_SPLITTER_MOVE: 50, // スプリッタ位置の変更
 
     KONATA_CHANGE_COLOR_SCHEME: 60,  // カラースキームの変更
@@ -36,6 +37,7 @@ const ACTION = {
     KONATA_SET_DEP_ARROW_TYPE: 68,  // 依存関係の矢印のタイプの設定
     KONATA_SPLIT_LANES: 69, // レーンを分割して表示するか
     KONATA_FIX_OP_HEIGHT: 70,   // レーン分割時に高さを一定にするかどうか
+
 
 };
 
@@ -55,6 +57,8 @@ const CHANGE = {
     DIALOG_CHECK_RELOAD: 113,
 
     MENU_UPDATE: 120,   // メニュー内容の更新
+
+    SHEET_UPDATE_DEV_TOOL: 190,    // 開発者ツールの表示
 };
 
 class Store{
@@ -83,6 +87,9 @@ class Store{
             width: 800,
             height: 600
         };
+
+        // 開発者ツールの表示切り替え
+        this.showDevTool = false;
 
         // 依存関係の矢印のタイプ
         this.depArrowType = KonataRenderer.DEP_ARROW_INSIDE_LINE;
@@ -123,6 +130,12 @@ class Store{
         });
         self.on(ACTION.DIALOG_MODAL_ERROR, function(msg){
             self.trigger(CHANGE.DIALOG_MODAL_ERROR, msg);
+        });
+
+        // 開発者ツールの表示切り替え
+        self.on(ACTION.SHEET_SHOW_DEV_TOOL, function(show){
+            self.showDevTool = show;
+            self.trigger(CHANGE.SHEET_UPDATE_DEV_TOOL, show);
         });
 
         // ファイルオープン
