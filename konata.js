@@ -30,20 +30,9 @@ class Konata{
         this.parser_ = parser;
         console.log("Open :", path);
 
-        try {
-            if (parser.setFile(file)) {
-                console.log("Selected parser:" , parser.getName());
-                this.files = new this.OpCache_(path, parser);
-                return true;
-            }
-        } catch (e) {
-            if (e == "Wait") {
-                console.log("Selected parser:" , parser.getName());
-                this.files = new this.OpCache_(path, parser);
-                throw e;
-            }
-        }
-        return false;
+        parser.setFile(file);
+        console.log("Selected parser:" , parser.getName());
+        this.files = new this.OpCache_(path, parser);
     }
 
     getOp(id){

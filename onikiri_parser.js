@@ -51,14 +51,15 @@ class OnikiriParser{
             // 圧縮データなら展開する
             console.log("Extract");
             this.file_.Extract().then(this.parseAllLines, null);
-            throw "Wait";
         } else {
-            return false;
+            throw "Unknown file type.";
         }
+
         if (!this.check(text)) {
-            return false;   // 知らない文法ならなにもしない。
+            // 知らない文法ならなにもしない。
+            throw "Unknown file type.";
         }
-        return this.parseAllLines();
+        this.parseAllLines();
     }
 
     getOps(start, end){
@@ -145,7 +146,6 @@ class OnikiriParser{
         this.complete_ = true;
 
         console.log("parse complete");
-        return true;
     }
 
     parseCommand(args, lineIdx){

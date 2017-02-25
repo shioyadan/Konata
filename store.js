@@ -142,11 +142,17 @@ class Store{
         self.on(ACTION.FILE_OPEN, function(fileName){
             // Load a file
             let konata = new Konata.Konata();
-            if (!konata.openFile(fileName)) {
+
+            try {
+                konata.openFile(fileName);
+            }
+            catch (e) {
                 konata.close();
-                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `${fileName} の読み込みに失敗しました．`);
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to load '${fileName}': ${e}`);
                 return;
             }
+
+
             let renderer = new KonataRenderer.KonataRenderer();
             renderer.init(konata);
 
