@@ -299,6 +299,8 @@ class KonataRenderer{
             return text;
         }
 
+        // ステージ名と，ステージに関連づけられたラベルを追加
+        let stageText = "";
         let first = true;
         for (let laneName in op.lanes) {
             for (let stage of op.lanes[laneName]) {
@@ -306,19 +308,35 @@ class KonataRenderer{
                 let end = stage.endCycle;
                 let length = end - start;
                 if (length == 0) {
-                    end += 1;   // 長さ0の場合，表示対象に
+                    end += 1;   // 長さ0の場合，領域を広げて表示対象に
                 }
 
                 if (start <= cycle && cycle < end){
                     if (!first) {
                         text += ", ";
                     }
+
+                    // ステージ名と範囲
+                    // end は長さ0の時に +1 されてるので，元の値を使う
                     text += `${stage.name}[${stage.endCycle - stage.startCycle}]`;
+
+                    // ステージに関連づけられたラベル
+                    if (stage.name in op.labelStage) {
+                        let t = op.labelStage[stage.name];
+                        // エスケープされている \n を戻す
+                        t = t.replace(/\\n/g, "\n");
+                        stageText += t;
+                    }
                     first = false;
                 }
             }
-            
         }
+
+        if (stageText != ""){
+            text += "\n" + stageText;
+        }
+
+        
         return text;
     }
 
