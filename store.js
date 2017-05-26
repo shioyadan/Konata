@@ -166,7 +166,7 @@ class Store{
                 lastFileCheckedTime: mtime,
                 konata: konata,
                 renderer: renderer,
-                splitterPos: 400,   // スプリッタの位置
+                splitterPos: 450,   // スプリッタの位置
                 transparent: false, // 透明化の有効無効
                 colorScheme: "Auto",  // カラースキーム
                 syncScroll: false,  // スクロールを同期 
