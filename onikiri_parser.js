@@ -219,7 +219,12 @@ class OnikiriParser{
                 op.labelDetail += args[3];
             }
             else if (type == 2) {
-                op.labelStage[op.lastParsedStage] += args[3];
+                if (op.lastParsedStage in op.labelStage){
+                    op.labelStage[op.lastParsedStage] += args[3];
+                }
+                else{
+                    op.labelStage[op.lastParsedStage] = args[3];
+                }
             }
             
             break;
