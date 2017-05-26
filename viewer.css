@@ -17,7 +17,7 @@ html, body {
 
 /* 左側のラベルペーン */
 .label_pane {
-    width: 300px;    /* この幅は実際には Store の中で設定される */
+    width: 400px;    /* この幅は実際には Store の中で設定され，ここの値はダミー */
 }
 
 /* ラベルとパイプラインの間のスプリッタ */
@@ -43,7 +43,7 @@ html, body {
     padding: 10px;
     border-radius: 4px;
     font-size: "12px";
-    font-family: "Helvetica";
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
     border: 0px;
     /*
     box-shadow: 0px 0px 6px 3px rgb(51, 51, 51);
