@@ -322,10 +322,7 @@ class KonataRenderer{
 
                     // ステージに関連づけられたラベル
                     if (stage.name in op.labelStage) {
-                        let t = op.labelStage[stage.name];
-                        // エスケープされている \n を戻す
-                        t = t.replace(/\\n/g, "\n");
-                        stageText += t;
+                        stageText += op.labelStage[stage.name];
                     }
                     first = false;
                 }

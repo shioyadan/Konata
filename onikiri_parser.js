@@ -212,18 +212,23 @@ class OnikiriParser{
             //      2: 現在のステージにつけられるラベル
             // <Label Data>: 任意のテキスト
             let type = parseInt(args[2]);
+
+            // エスケープされている \n を戻す
+            let str = args[3];
+            str = str.replace(/\\n/g, "\n");
+
             if (type == 0) {
-                op.labelName += args[3];
+                op.labelName += str;
             }
             else if (type == 1) {
-                op.labelDetail += args[3];
+                op.labelDetail += str;
             }
             else if (type == 2) {
                 if (op.lastParsedStage in op.labelStage){
-                    op.labelStage[op.lastParsedStage] += args[3];
+                    op.labelStage[op.lastParsedStage] += str;
                 }
                 else{
-                    op.labelStage[op.lastParsedStage] = args[3];
+                    op.labelStage[op.lastParsedStage] = str;
                 }
             }
             
