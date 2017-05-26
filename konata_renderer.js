@@ -378,8 +378,8 @@ class KonataRenderer{
         let fontFamily = self.style_["fontFamily"];
         let fontStyle = self.style_["fontStyle"];
         let fontSize = parseInt(self.style_["fontSize"]);
-        self.labelFont_ = `${fontStyle} ${fontSize}px '${fontFamily}`;
-        self.stageFont_ = `${fontStyle} ${fontSize*zoomScale}px '${fontFamily}`;
+        self.labelFont_ = `${fontStyle} ${fontSize}px ${fontFamily}`;
+        self.stageFont_ = `${fontStyle} ${fontSize*zoomScale}px ${fontFamily}`;
         self.labelFontSize_ = fontSize;
         self.stageFontSize_ = fontSize * zoomScale;
     }
