@@ -728,12 +728,16 @@ class KonataRenderer{
             else{
                 ctx.fillStyle = "#888888";
             }
-            ctx.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
+
+            // 表示位置の計算
+            let laneHeight = self.laneH_ - self.lane_height_margin_ * 2;
+            let laneTop = top + self.lane_height_margin_;
+            ctx.fillRect(left, laneTop, right - left, laneHeight);
 
             if (op.flush) {
-                let bgc = "rgba(0,0,0,0.4)";
+                let bgc = "rgba(0,0,0,0.4)";    // 黒の半透明をかぶせる
                 ctx.fillStyle = bgc;
-                ctx.fillRect(left, top + self.lane_height_margin_, right - left, self.laneH_ - self.lane_height_margin_ * 2);
+                ctx.fillRect(left, laneTop, right - left, laneHeight);
             }
 
         }
