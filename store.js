@@ -538,7 +538,10 @@ class Store{
         self.on(ACTION.KONATA_SYNC_SCROLL, function(tabID, syncedTabID, enable){
 
             if (!(tabID in self.tabs)) {
-                return;
+                self.trigger(
+                    ACTION.DIALOG_MODAL_MESSAGE,
+                    `An invalid tab id ${tabID} is specified in ACTION.KONATA_SYNC_SCROLL.`
+                );
             }
             let tab = self.tabs[tabID];
 
