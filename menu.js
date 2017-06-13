@@ -177,12 +177,10 @@ function installMainMenu(){
     });
 }
 
-
-function popupTabMenu(tabID){
-
+// タブ用のポップアップメニューアイテムを作る
+function makePopupTabMenuTemaplte(tabID){
     /* global RiotControl ACTION */
     let rc = RiotControl;
-    let remote = require("electron").remote;
     let tab = store.tabs[tabID];
 
     let menuTemplate = [
@@ -215,7 +213,14 @@ function popupTabMenu(tabID){
             }
         },
     ];
+    return menuTemplate;    
+}
 
+function popupTabMenu(tabID){
+
+    let menuTemplate = makePopupTabMenuTemaplte(tabID);
+
+    let remote = require("electron").remote;
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);
     menu.popup();
@@ -250,7 +255,12 @@ function popupPipelineMenu(pos){
             label:"Zoom in",
             click: function(){rc.trigger(ACTION.KONATA_ZOOM, -1, pos[0], pos[1]);}
         },
+        {
+            type: "separator"
+        },
     ];
+
+    menuTemplate = menuTemplate.concat(makePopupTabMenuTemaplte(store.activeTab.id));
 
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);
