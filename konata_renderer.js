@@ -732,6 +732,16 @@ class KonataRenderer{
             // 表示位置の計算
             let laneHeight = self.laneH_ - self.lane_height_margin_ * 2;
             let laneTop = top + self.lane_height_margin_;
+
+            // 縮小率が高すぎると表示が小さくなりすぎて何も見えなくなるので，
+            // 最低1ピクセルは表示するように補正
+            if (right - left < 0.5) {
+                right = left + 0.5;
+            }
+            if (laneHeight < 0.5) {
+                laneHeight = 0.5;
+            }
+
             ctx.fillRect(left, laneTop, right - left, laneHeight);
 
             if (op.flush) {
