@@ -515,9 +515,16 @@
 
         self.onPaneSizeUpdate = function(){
             // これは全てのアクティブなタブでのみ実行する必要がある
-            if (self.id != store.activeTabID) {
+            //if (self.id != store.activeTabID) {
+            //    return;
+            //}
+
+            if (!(self.id in store.tabs)) {
+                console("An unknown tab id is used in onPaneSizeUpdate.");
                 return;
             }
+            let tab = store.tabs[self.id];
+
             let container = self.refs.pane_container;
             let label = self.refs.label_pane;
             let splitter = self.refs.window_splitter;
@@ -525,9 +532,9 @@
 
             // 幅
             container.style.width = "" + store.sheet.width + "px";
-            label.style.width = "" + store.activeTab.splitterPos + "px";
+            label.style.width = "" + tab.splitterPos + "px";
             pipeline.style.width = 
-                "" + store.sheet.width - store.activeTab.splitterPos - splitter.offsetWidth + "px";
+                "" + store.sheet.width - tab.splitterPos - splitter.offsetWidth + "px";
             //console.log(`update ${store.window.width} ${store.activeTab.splitterPos} ${pipeline.offsetWidth}`);
 
             // 高さ
