@@ -208,10 +208,8 @@ function popupTabMenu(tabID){
         {
             label: "Syncronize scroll",
             type: "checkbox",
-            enabled: 
-                store.activeTabID != tabID,    // 自分自身の時は無効化
             checked: 
-                store.activeTab.syncScroll && store.activeTab.syncScrollTab.id == tabID, 
+                store.activeTab.syncScroll,
             click: function(e){
                 rc.trigger(ACTION.KONATA_SYNC_SCROLL, store.activeTabID, tabID, e.checked);
             }

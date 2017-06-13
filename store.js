@@ -109,8 +109,6 @@ class Store{
 
         // スクロールのアニメーション
         this.inScrollAnimation = false;
-        this.syncScrollEndPos = [0, 0];
-        this.syncCurScrollPos = [0, 0];
         this.scrollAnimationDiff = [0, 0];
         this.scrollAnimationDirection = [false, false];
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
@@ -168,7 +166,6 @@ class Store{
                 transparent: false, // 透明化の有効無効
                 colorScheme: "Auto",  // カラースキーム
                 syncScroll: false,  // スクロールを同期 
-                syncScrollTab: 0,    // 同期対象のタブ
                 
                 scrollEndPos: [0, 0],   // スクロール終了位置
                 curScrollPos: [0, 0],   // 現在のスクロール位置
@@ -339,13 +336,9 @@ class Store{
             if (!self.activeTab) {
                 return;
             }
-            let renderer = self.activeTab.renderer;
-            renderer.zoomAbs(zoomLevel, posX, posY);
-            // 同期
-            if (self.activeTab.syncScroll) {
-                let renderer = self.activeTab.syncScrollTab.renderer;
-                renderer.zoomAbs(zoomLevel, posX, posY);
-            }
+            self.scrollTabs(function(tab){
+                tab.renderer.zoomAbs(zoomLevel, posX, posY);
+            });
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         };
 
@@ -359,28 +352,28 @@ class Store{
             self.startZoom(zoomLevelDiff, posX, posY);
         });
 
+        // スクロール同期対象のタブに，渡された関数を適用する
+        self.scrollTabs = function(f){
+            let sync = self.activeTab.syncScroll;   // 同期
+            for (let id in self.tabs) {
+                let tab = self.tabs[id];
+                if (sync || self.activeTab.id == tab.id) {
+                    f(tab);
+                }
+            }
+        };
 
         // スクロールのアニメーションのスタート
         self.startScroll = function(scrollDiff){
             self.scrollAnimationDiff = scrollDiff;
             self.scrollAnimationDirection = [scrollDiff[0] > 0, scrollDiff[1] > 0];
-            
-            self.activeTab.curScrollPos = self.activeTab.renderer.viewPos;
-            self.activeTab.scrollEndPos = [
-                self.activeTab.curScrollPos[0] + scrollDiff[0],
-                self.activeTab.curScrollPos[1] + scrollDiff[1]
-            ];
-
-            // 同期
-            if (self.activeTab.syncScroll) {
-                let renderer = self.activeTab.syncScrollTab.renderer;
-                self.syncCurScrollPos = renderer.viewPos;
-                self.syncScrollEndPos = [
-                    self.syncCurScrollPos[0] + scrollDiff[0],
-                    self.syncCurScrollPos[1] + scrollDiff[1]
+            self.scrollTabs(function(tab){
+                tab.curScrollPos = tab.renderer.viewPos;
+                tab.scrollEndPos = [
+                    tab.curScrollPos[0] + scrollDiff[0],
+                    tab.curScrollPos[1] + scrollDiff[1]
                 ];
-            }
-
+            });
             self.inScrollAnimation = true;
             self.animationID = setInterval(self.animateScroll, 16);
         };
@@ -394,17 +387,12 @@ class Store{
             let diff = self.scrollAnimationDiff;
             let dir = self.scrollAnimationDirection;
             let frames = SCROLL_ANIMATION_PERIOD / 16;
-            self.activeTab.curScrollPos[0] += diff[0] / frames;
-            self.activeTab.curScrollPos[1] += diff[1] / frames;
-            self.syncCurScrollPos[0] += diff[0] / frames;
-            self.syncCurScrollPos[1] += diff[1] / frames;
-            
-            self.activeTab.renderer.moveLogicalPos(self.activeTab.curScrollPos);
-            // 同期
-            if (self.activeTab.syncScroll) {
-                let renderer = self.activeTab.syncScrollTab.renderer;
-                renderer.moveLogicalPos(self.syncCurScrollPos);
-            }
+
+            self.scrollTabs(function(tab){
+                tab.curScrollPos[0] += diff[0] / frames;
+                tab.curScrollPos[1] += diff[1] / frames;
+                tab.renderer.moveLogicalPos(tab.curScrollPos);
+            });
 
             if (((dir[0] && self.activeTab.curScrollPos[0] >= self.activeTab.scrollEndPos[0]) ||
                 (!dir[0] && self.activeTab.curScrollPos[0] <= self.activeTab.scrollEndPos[0])) &&
@@ -413,13 +401,9 @@ class Store{
             ){
                 self.inScrollAnimation = false;
                 clearInterval(self.animationID);
-                self.activeTab.renderer.moveLogicalPos(self.activeTab.scrollEndPos);
-
-                // 同期
-                if (self.activeTab.syncScroll) {
-                    let renderer = self.activeTab.syncScrollTab.renderer;
-                    renderer.moveLogicalPos(self.syncScrollEndPos);
-                }
+                self.scrollTabs(function(tab){
+                    tab.renderer.moveLogicalPos(tab.scrollEndPos);
+                });
             }
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         };
@@ -429,12 +413,9 @@ class Store{
             self.inScrollAnimation = false;
             clearInterval(self.animationID);
             
-            self.activeTab.renderer.moveLogicalPos(self.activeTab.scrollEndPos);
-            // 同期
-            if (self.activeTab.syncScroll) {
-                let renderer = self.activeTab.syncScrollTab.renderer;
-                renderer.moveLogicalPos(self.syncScrollEndPos);
-            }
+            self.scrollTabs(function(tab){
+                tab.renderer.moveLogicalPos(tab.scrollEndPos);
+            });
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         };
 
@@ -458,13 +439,9 @@ class Store{
             if (!self.activeTab) {
                 return;
             }
-            let renderer = self.activeTab.renderer;
-            renderer.movePixelDiff(diff);
-            // 同期
-            if (self.activeTab.syncScroll) {
-                let renderer = self.activeTab.syncScrollTab.renderer;
-                renderer.movePixelDiff(diff);
-            }
+            self.scrollTabs(function(tab){
+                tab.renderer.movePixelDiff(diff);
+            });
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
@@ -473,13 +450,9 @@ class Store{
             if (!self.activeTab) {
                 return;
             }
-            let renderer = self.activeTab.renderer;
-            renderer.moveLogicalPos(pos);
-            // 同期
-            if (self.activeTab.syncScroll) {
-                let renderer = self.activeTab.syncScrollTab.renderer;
-                renderer.moveLogicalPos(pos);
-            }
+            self.scrollTabs(function(tab){
+                tab.renderer.moveLogicalPos(pos);
+            });
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
@@ -553,11 +526,9 @@ class Store{
                     return;
                 }
                 tab.syncScroll = true;
-                tab.syncScrollTab = self.tabs[syncedTabID];
             }
             else{
                 tab.syncScroll = false;
-                tab.syncScrollTab = null;
             }
 
             self.trigger(CHANGE.MENU_UPDATE);
