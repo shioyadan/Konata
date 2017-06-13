@@ -146,6 +146,7 @@
             if (e.buttons & 1) {
                 self.inDrag = true;
                 self.prevMousePoint = [e.clientX, e.clientY];
+                RiotControl.trigger(ACTION.KONATA_EMPHASIZE_IN_TRANSPARENT, store.activeTab.id, true);
             }
             // 右クリック
             if (e.buttons & 2) {
@@ -161,6 +162,7 @@
         self.onMouseUp = function(e){
             if (!(e.buttons & 1)) { // 離したので 0 になる
                 self.inDrag = false;
+                RiotControl.trigger(ACTION.KONATA_EMPHASIZE_IN_TRANSPARENT, store.activeTab.id, false);
             }
         };
 
@@ -556,7 +558,13 @@
 
             if (self.id == store.activeTab.id) {
                 container.style.zIndex = "0";   // アクティブなタブを最前面に
-                pipeline.style.opacity = store.activeTab.transparent ? "0.5" : "1"; // 透明化
+                 // 透明化
+                if (store.activeTab.transparent) {
+                    pipeline.style.opacity = store.activeTab.emphasize_in_transparent ? "0.8" : "0.5"; // 透明化
+                }
+                else {
+                    pipeline.style.opacity = "1";
+                }
             }
             else {
                 // 直前に表示されていたタブは優先度をあげておく

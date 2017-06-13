@@ -38,7 +38,7 @@ const ACTION = {
     KONATA_SPLIT_LANES: 69, // レーンを分割して表示するか
     KONATA_FIX_OP_HEIGHT: 70,   // レーン分割時に高さを一定にするかどうか
 
-
+    KONATA_EMPHASIZE_IN_TRANSPARENT: 71, // 透過モード時にアルファ値を下げる
 };
 
 // CHANGE は store で行われた変更の通知に使う
@@ -164,6 +164,7 @@ class Store{
                 renderer: renderer,
                 splitterPos: 450,   // スプリッタの位置
                 transparent: false, // 透明化の有効無効
+                emphasize_in_transparent: false, // 透明化の際に表示を強調するかどうか
                 colorScheme: "Auto",  // カラースキーム
                 syncScroll: false,  // スクロールを同期 
                 
@@ -505,6 +506,18 @@ class Store{
             }
             let tab = self.tabs[tabID];
             tab.transparent = enable;
+            self.trigger(CHANGE.TAB_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // パイプラインのペーンが透明化されている際に，表示を強調する
+        self.on(ACTION.KONATA_EMPHASIZE_IN_TRANSPARENT, function(tabID, enable){
+            if (!(tabID in self.tabs)) {
+                return;
+            }
+            let tab = self.tabs[tabID];
+            tab.emphasize_in_transparent = enable;
             self.trigger(CHANGE.TAB_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             self.trigger(CHANGE.MENU_UPDATE);
