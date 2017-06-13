@@ -109,8 +109,6 @@ class Store{
 
         // スクロールのアニメーション
         this.inScrollAnimation = false;
-        this.scrollEndPos = [0, 0];
-        this.curScrollPos = [0, 0];
         this.syncScrollEndPos = [0, 0];
         this.syncCurScrollPos = [0, 0];
         this.scrollAnimationDiff = [0, 0];
@@ -171,6 +169,10 @@ class Store{
                 colorScheme: "Auto",  // カラースキーム
                 syncScroll: false,  // スクロールを同期 
                 syncScrollTab: 0,    // 同期対象のタブ
+                
+                scrollEndPos: [0, 0],   // スクロール終了位置
+                curScrollPos: [0, 0],   // 現在のスクロール位置
+
                 viewPort: {         // 表示領域
                     top: 0,
                     left: 0,
@@ -362,10 +364,11 @@ class Store{
         self.startScroll = function(scrollDiff){
             self.scrollAnimationDiff = scrollDiff;
             self.scrollAnimationDirection = [scrollDiff[0] > 0, scrollDiff[1] > 0];
-            self.curScrollPos = self.activeTab.renderer.viewPos;
-            self.scrollEndPos = [
-                self.curScrollPos[0] + scrollDiff[0],
-                self.curScrollPos[1] + scrollDiff[1]
+            
+            self.activeTab.curScrollPos = self.activeTab.renderer.viewPos;
+            self.activeTab.scrollEndPos = [
+                self.activeTab.curScrollPos[0] + scrollDiff[0],
+                self.activeTab.curScrollPos[1] + scrollDiff[1]
             ];
 
             // 同期
@@ -391,26 +394,26 @@ class Store{
             let diff = self.scrollAnimationDiff;
             let dir = self.scrollAnimationDirection;
             let frames = SCROLL_ANIMATION_PERIOD / 16;
-            self.curScrollPos[0] += diff[0] / frames;
-            self.curScrollPos[1] += diff[1] / frames;
+            self.activeTab.curScrollPos[0] += diff[0] / frames;
+            self.activeTab.curScrollPos[1] += diff[1] / frames;
             self.syncCurScrollPos[0] += diff[0] / frames;
             self.syncCurScrollPos[1] += diff[1] / frames;
             
-            self.activeTab.renderer.moveLogicalPos(self.curScrollPos);
+            self.activeTab.renderer.moveLogicalPos(self.activeTab.curScrollPos);
             // 同期
             if (self.activeTab.syncScroll) {
                 let renderer = self.activeTab.syncScrollTab.renderer;
                 renderer.moveLogicalPos(self.syncCurScrollPos);
             }
 
-            if (((dir[0] && self.curScrollPos[0] >= self.scrollEndPos[0]) ||
-                (!dir[0] && self.curScrollPos[0] <= self.scrollEndPos[0])) &&
-                ((dir[1] && self.curScrollPos[1] >= self.scrollEndPos[1]) ||
-                (!dir[1] && self.curScrollPos[1] <= self.scrollEndPos[1]))
+            if (((dir[0] && self.activeTab.curScrollPos[0] >= self.activeTab.scrollEndPos[0]) ||
+                (!dir[0] && self.activeTab.curScrollPos[0] <= self.activeTab.scrollEndPos[0])) &&
+                ((dir[1] && self.activeTab.curScrollPos[1] >= self.activeTab.scrollEndPos[1]) ||
+                (!dir[1] && self.activeTab.curScrollPos[1] <= self.activeTab.scrollEndPos[1]))
             ){
                 self.inScrollAnimation = false;
                 clearInterval(self.animationID);
-                self.activeTab.renderer.moveLogicalPos(self.scrollEndPos);
+                self.activeTab.renderer.moveLogicalPos(self.activeTab.scrollEndPos);
 
                 // 同期
                 if (self.activeTab.syncScroll) {
@@ -426,7 +429,7 @@ class Store{
             self.inScrollAnimation = false;
             clearInterval(self.animationID);
             
-            self.activeTab.renderer.moveLogicalPos(self.scrollEndPos);
+            self.activeTab.renderer.moveLogicalPos(self.activeTab.scrollEndPos);
             // 同期
             if (self.activeTab.syncScroll) {
                 let renderer = self.activeTab.syncScrollTab.renderer;
