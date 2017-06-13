@@ -185,6 +185,17 @@ function makePopupTabMenuTemaplte(tabID){
 
     let menuTemplate = [
         {
+            label: "Syncronize scroll",
+            type: "checkbox",
+            checked: 
+                store.activeTab.syncScroll,
+            click: function(e){
+                rc.trigger(ACTION.KONATA_SYNC_SCROLL, store.activeTabID, tabID, e.checked);
+                // 透明化も一緒に有効にする
+                rc.trigger(ACTION.KONATA_TRANSPARENT, tabID, true);
+            }
+        },
+        {
             label: "Transparent mode",
             type: "checkbox",
             checked: tab.transparent, 
@@ -202,15 +213,6 @@ function makePopupTabMenuTemaplte(tabID){
                     click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
                 };
             }),
-        },
-        {
-            label: "Syncronize scroll",
-            type: "checkbox",
-            checked: 
-                store.activeTab.syncScroll,
-            click: function(e){
-                rc.trigger(ACTION.KONATA_SYNC_SCROLL, store.activeTabID, tabID, e.checked);
-            }
         },
     ];
     return menuTemplate;    
