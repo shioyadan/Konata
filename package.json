@@ -1,14 +1,14 @@
 {
   "name": "konata",
-  "version": "0.0.2",
+  "version": "0.13.0",
   "description": "instruction pipeline visualizer",
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "izuoka",
+  "author": "shioya, izuoka",
   "license": "ISC",
-  "devDependencies": {
+  "dependencies ": {
     "devtron": "^1.4.0",
     "jQuery": "^1.7.4",
     "jquery": "^3.1.1",
