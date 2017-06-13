@@ -148,11 +148,12 @@ function installMainMenu(){
                         }
                     },
                     {
-                        label: "Version",
+                        label: "About Konata",
                         click: function(){
+                            let version = require("./version.js");
                             rc.trigger(
                                 ACTION.DIALOG_MODAL_MESSAGE,
-                                "Konata ver 0.12, Kojiro Izuoka and Ryota Shioya."
+                                version.KONATA_VERSION_INFO.about
                             );
                         }
                     }
