@@ -338,16 +338,9 @@
             // 左クリック
             if (e.buttons & 1) {
                 // クリック点に対応した命令を取得し，そこへ移動
-                let render = store.tabs[self.id].renderer;
-                let op = render.getOpFromPixelPosY(e.offsetY);
-                if (op) {
-                    RiotControl.trigger(
-                        ACTION.KONATA_MOVE_LOGICAL_POS, 
-                        [op.fetchedCycle, render.viewPos[1]]
-                    );
-                }
+                RiotControl.trigger(ACTION.KONATA_MOVE_LABEL_CLICK, e.offsetY);
             }
-            // 左クリック
+            // 右クリック
             /*
             if (e.buttons & 2) {
             }
