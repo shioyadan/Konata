@@ -31,10 +31,13 @@ const ACTION = {
     KONATA_SYNC_SCROLL: 63,             // 同期スクロール
 
     KONATA_ZOOM: 73,        // 拡大/縮小
-    KONATA_MOVE_WHEEL: 75,  // ホイールによるスクロール
-    KONATA_MOVE_PIXEL_DIFF: 76,     // 位置移動，引数はピクセル相対値
-    KONATA_MOVE_LOGICAL_POS: 77,    // 位置移動，引数は論理座標（サイクル数，命令ID）
-    KONATA_MOVE_LABEL_CLICK: 78,    // ラベルペーンのクリック時の移動
+    
+    KONATA_MOVE_WHEEL_VERTICAL: 75,  // ホイールによるスクロール（垂直）
+    KONATA_MOVE_WHEEL_HORIZONTAL: 76,  // ホイールによるスクロール（水平）
+    
+    KONATA_MOVE_PIXEL_DIFF: 77,     // 位置移動，引数はピクセル相対値
+    KONATA_MOVE_LOGICAL_POS: 78,    // 位置移動，引数は論理座標（サイクル数，命令ID）
+    KONATA_MOVE_LABEL_CLICK: 79,    // ラベルペーンのクリック時の移動
 
     KONATA_SET_DEP_ARROW_TYPE: 88,  // 依存関係の矢印のタイプの設定
     KONATA_SPLIT_LANES: 89,         // レーンを分割して表示するか
@@ -422,8 +425,9 @@ class Store{
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         };
 
-        // ホイールによる移動
-        self.on(ACTION.KONATA_MOVE_WHEEL, function(wheelUp){
+        // ホイールによる移動（垂直）
+        // 引数 delta * 3 / scale だけ上下に移動
+        self.on(ACTION.KONATA_MOVE_WHEEL_VERTICAL, function(delta){
             if (!self.activeTab) {
                 return;
             }
@@ -432,10 +436,27 @@ class Store{
             }
             let renderer = self.activeTab.renderer;
             let scale = renderer.zoomScale;
-            let diffY = (wheelUp ? 3 : -3) / scale;
+            let diffY = delta * 3 / scale;
             let diffX = renderer.adjustScrpllDiifX(diffY);
             self.startScroll([diffX, diffY]);
         });
+
+        // ホイールによる移動（水平）
+        // 引数 delta * 6 / scale だけ左右に移動
+        self.on(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, function(delta){
+            if (!self.activeTab) {
+                return;
+            }
+            if (self.inScrollAnimation) {
+                self.finishScroll();
+            }
+            let renderer = self.activeTab.renderer;
+            let scale = renderer.zoomScale;
+            let diffX = delta * 6 / scale;
+            let diffY = 0;
+            self.startScroll([diffX, diffY]);
+        });
+
 
         // 位置移動，引数はピクセル相対値
         self.on(ACTION.KONATA_MOVE_PIXEL_DIFF, function(diff){
