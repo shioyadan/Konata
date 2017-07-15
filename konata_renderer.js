@@ -254,6 +254,12 @@ class KonataRenderer{
         self.viewPos_.top = pos[1];
     }
 
+    // id に対応する op を返す
+    getOpFromID(id){
+        let self = this;
+        return self.konata_.getOp(id);   
+    }
+
     // ピクセル座標から対応する op を返す
     getOpFromPixelPosY(y){
         let self = this;

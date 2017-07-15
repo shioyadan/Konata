@@ -13,9 +13,9 @@ const ACTION = {
     DIALOG_MODAL_MESSAGE: 11,
     DIALOG_MODAL_ERROR: 12,
     
-    COMMAND_PALETTE_OPEN: 13,
-    COMMAND_PALETTE_CLOSE: 14,
-    COMMAND_PALETTE_EXECUTE: 15,
+    COMMAND_PALETTE_OPEN: 13,   // コマンドパレットのオープン
+    COMMAND_PALETTE_CLOSE: 14,  // コマンドパレットのクローズ
+    COMMAND_PALETTE_EXECUTE: 15,    // 引数で受け取った文字列を実行
 
     FILE_OPEN: 20,
     FILE_RELOAD: 21,
@@ -148,7 +148,20 @@ class Store{
             self.trigger(CHANGE.COMMAND_PALETTE_CLOSE);
         });
         self.on(ACTION.COMMAND_PALETTE_EXECUTE, function(cmd){
-            console.log("command " + cmd);
+            if (!self.activeTab) {
+                return;
+            }
+
+            // jump y id
+            if (cmd.match(/jump[\s+]y[\s+](\d+)/)) {
+                let id = RegExp.$1;
+                let renderer = self.activeTab.renderer;
+                let pos = renderer.viewPos;
+                let op = renderer.getOpFromID(id);
+                if (op) {
+                    self.startScroll([op.fetchedCycle - pos[0], id - pos[1]]);
+                }
+            }
         });
 
         // 開発者ツールの表示切り替え
