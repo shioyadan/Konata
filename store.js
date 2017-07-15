@@ -12,6 +12,9 @@ const ACTION = {
     DIALOG_FILE_OPEN: 10,
     DIALOG_MODAL_MESSAGE: 11,
     DIALOG_MODAL_ERROR: 12,
+    
+    COMMAND_PALETTE_OPEN: 13,
+    COMMAND_PALETTE_CLOSE: 14,
 
     FILE_OPEN: 20,
     FILE_RELOAD: 21,
@@ -60,6 +63,9 @@ const CHANGE = {
     DIALOG_MODAL_MESSAGE: 111,
     DIALOG_MODAL_ERROR: 112,
     DIALOG_CHECK_RELOAD: 113,
+
+    COMMAND_PALETTE_OPEN: 115,
+    COMMAND_PALETTE_CLOSE: 116,
 
     MENU_UPDATE: 120,   // メニュー内容の更新
 
@@ -131,6 +137,14 @@ class Store{
         });
         self.on(ACTION.DIALOG_MODAL_ERROR, function(msg){
             self.trigger(CHANGE.DIALOG_MODAL_ERROR, msg);
+        });
+
+        // コマンドパレット
+        self.on(ACTION.COMMAND_PALETTE_OPEN, function(){
+            self.trigger(CHANGE.COMMAND_PALETTE_OPEN);
+        });
+        self.on(ACTION.COMMAND_PALETTE_CLOSE, function(){
+            self.trigger(CHANGE.COMMAND_PALETTE_CLOSE);
         });
 
         // 開発者ツールの表示切り替え

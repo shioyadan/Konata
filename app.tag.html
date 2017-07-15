@@ -628,18 +628,55 @@
 <app_command_pallete>
 
     <div ref="command_pallete" class="command_pallete">
-        <input type="text" class="command_pallete_input">
+        <input ref="input" type="text" class="command_pallete_input">
     </div>
 
     <script>
         let self = this;
         self.init = function(){
-            //let c = self.refs.command_pallete.style;
-            //c.visibility = "hidden";
+            // フォーカスが外れたら消す
+            let input = self.refs.input;
+            input.onblur = function(){
+                RiotControl.trigger(ACTION.COMMAND_PALETTE_CLOSE);
+            };
         };
         // エントリポイント
         self.on("mount", self.init);
-    </script>
+
+        // キーボードハンドラ
+        // ESC が押されたら消す
+        let KEY_CODE = require("./key_code.js").KEY_CODE;
+        self.onKeyDown = function(e){
+            // キーボード
+            let key = e.keyCode;
+            if (key == KEY_CODE.ESCAPE) {
+                RiotControl.trigger(ACTION.COMMAND_PALETTE_CLOSE);
+            }
+        };
+
+        // オープン
+        RiotControl.on(CHANGE.COMMAND_PALETTE_OPEN,
+            function(){
+                let cp = self.refs.command_pallete.style;
+                cp.visibility = "visible";
+
+                let input = self.refs.input;
+                input.focus();
+
+                window.addEventListener("keydown", self.onKeyDown);
+            }
+        );
+
+        // クローズ
+        RiotControl.on(CHANGE.COMMAND_PALETTE_CLOSE,
+            function(){
+                let cp = self.refs.command_pallete.style;
+                cp.visibility = "hidden";
+                window.removeEventListener("keydown", self.onKeyDown);
+            }
+        );
+
+</script>
 </app_command_pallete>
 
 <!-- Application -->
@@ -770,6 +807,12 @@
                     let w = store.sheet.width - store.activeTab.splitterPos;
                     let h = store.sheet.height;
                     RiotControl.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
+                }
+                else if (
+                    key == KEY_CODE.F1 || 
+                    (key == KEY_CODE.P && e.ctrlKey && e.shiftKey)
+                ) {
+                    RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN);
                 }
                 //console.log(key);
             };

@@ -1,5 +1,8 @@
 // キーコードの定数を定義
 const KEY_CODE = {
+
+    ESCAPE: 27,
+    
     PAGE_UP: 33,
     PAGE_DOWN: 34,
 
@@ -8,8 +11,12 @@ const KEY_CODE = {
     RIGHT: 39,
     DOWN: 40,
 
+    P: 80,
+
     ADD: 107,
     SUBTRACT: 109,
+
+    F1: 112,
 };
 
 
