@@ -120,6 +120,9 @@
         self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
         self.valid = false;
 
+        self.mouseOffset = [0, 0];  // 最後のマウス座標
+        self.mouseIn = false;   // マウスがキャンバス上にいるかどうか
+
         // マウスのドラッグ
         self.inDrag = false;  // マウスでドラッグ中か
         self.prevMousePoint = [0, 0]; // 前回のマウスポインタの位置
@@ -180,29 +183,43 @@
             RiotControl.trigger(ACTION.KONATA_MOVE_PIXEL_DIFF, diff);
         };
 
-        // ツールチップ用の canvas ローカルなマウス移動
-        self.onLocalMouseMove = function(e){
+        // ツールチップの更新
+        self.updateToolTip = function(){
             let tip = self.refs.tool_tip.style;
-            tip.visibility = "visible";
-            tip.left = e.offsetX + "px";
-            tip.top = e.offsetY + 20 + "px";
+            if (self.mouseIn) {
+                tip.visibility = "visible";
+                tip.left = self.mouseOffset[0] + "px";
+                tip.top = self.mouseOffset[1] + 20 + "px";
 
-            let text = store.tabs[self.id].renderer.getPipelineToolTipText(e.offsetX, e.offsetY);
-            if (!text) {
+                let renderer = store.tabs[self.id].renderer;
+                let text = renderer.getPipelineToolTipText(self.mouseOffset[0], self.mouseOffset[1]);
+                if (!text) {
+                    tip.visibility = "hidden";
+                }
+                self.toolTipText = text;//.split("\n");
+            }
+            else {
                 tip.visibility = "hidden";
             }
-            self.toolTipText = text;//.split("\n");
             self.update();
         };
+
+        // ツールチップ用の canvas ローカルなマウス移動
+        self.onLocalMouseMove = function(e){
+            self.mouseOffset = [e.offsetX, e.offsetY];
+            self.mouseIn = true;
+            self.updateToolTip();
+        };
         self.onLocalMouseLeave = function(){
-            let tip = self.refs.tool_tip.style;
-            tip.visibility = "hidden";
+            self.mouseIn = false;
+            self.updateToolTip();
         };
 
         // ペーンの内容の更新
         self.onPaneContentUpdate = function(){
             let canvas = self.refs.canvas;
             store.tabs[self.id].renderer.drawPipeline(canvas);
+            self.updateToolTip();
         };
 
         // サイズを適用
