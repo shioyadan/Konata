@@ -186,6 +186,10 @@ class KonataRenderer{
         while (!oldOp || oldOp.retiredCycle < self.viewPos_.left) {
             id++;
             oldOp = self.konata_.getOp(id);
+            if (id > self.konata_.lastID){
+                // 画面に表示されている op が一切無かった場合は帰る
+                return 0;
+            }
         }
 
         // 水平方向の補正を行う
