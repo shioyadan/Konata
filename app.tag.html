@@ -306,6 +306,10 @@
         self.height = 100;
         self.oldWidth = -1;
         self.oldHeight = -1;
+
+        self.mouseOffset = [0, 0];  // 最後のマウス座標
+        self.mouseIn = false;   // マウスがキャンバス上にいるかどうか
+
         self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
 
         // 初期化
@@ -350,23 +354,35 @@
             e.preventDefault();
         };        
 
-        //
-        self.onMouseMove = function(e){
+        // ツールチップの更新
+        self.updateToolTip = function(){
             let tip = self.refs.tool_tip.style;
-            tip.visibility = "visible";
-            tip.left = e.offsetX + "px";
-            tip.top = e.offsetY + 20 + "px";
+            if (self.mouseIn) {
+                tip.visibility = "visible";
+                tip.left = self.mouseOffset[0] + "px";
+                tip.top = self.mouseOffset[1] + 20 + "px";
 
-            let text = store.tabs[self.id].renderer.getLabelToolTipText(e.offsetY);
-            if (!text) {
+                let text = store.tabs[self.id].renderer.getLabelToolTipText(self.mouseOffset[1]);
+                if (!text) {
+                    tip.visibility = "hidden";
+                }
+                self.toolTipText = text;//.split("\n");
+            }
+            else {
                 tip.visibility = "hidden";
             }
-            self.toolTipText = text;//.split("\n");
             self.update();
         };
+
+        //
+        self.onMouseMove = function(e){
+            self.mouseOffset = [e.offsetX, e.offsetY];
+            self.mouseIn = true;
+            self.updateToolTip();
+        };
         self.onMouseLeave = function(){
-            let tip = self.refs.tool_tip.style;
-            tip.visibility = "hidden";
+            self.mouseIn = false;
+            self.updateToolTip();
         };
 
 
@@ -374,6 +390,7 @@
         self.onPaneContentUpdate = function(){
             let canvas = self.refs.canvas;
             store.tabs[self.id].renderer.drawLabel(canvas);
+            self.updateToolTip();
         };
 
         // サイズを適用
@@ -715,7 +732,7 @@
                     let h = store.sheet.height;
                     RiotControl.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
                 }
-                console.log(key);
+                //console.log(key);
             };
 
         };
