@@ -72,6 +72,7 @@ html, body {
     /* 絶対位置 */
     position: absolute;
     z-index: 100;
+    
 }
 
 .command_pallete_input {

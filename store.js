@@ -15,6 +15,7 @@ const ACTION = {
     
     COMMAND_PALETTE_OPEN: 13,
     COMMAND_PALETTE_CLOSE: 14,
+    COMMAND_PALETTE_EXECUTE: 15,
 
     FILE_OPEN: 20,
     FILE_RELOAD: 21,
@@ -145,6 +146,9 @@ class Store{
         });
         self.on(ACTION.COMMAND_PALETTE_CLOSE, function(){
             self.trigger(CHANGE.COMMAND_PALETTE_CLOSE);
+        });
+        self.on(ACTION.COMMAND_PALETTE_EXECUTE, function(cmd){
+            console.log("command " + cmd);
         });
 
         // 開発者ツールの表示切り替え

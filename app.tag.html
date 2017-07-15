@@ -652,6 +652,11 @@
             if (key == KEY_CODE.ESCAPE) {
                 RiotControl.trigger(ACTION.COMMAND_PALETTE_CLOSE);
             }
+            else if (key == KEY_CODE.ENTER) {
+                let input = self.refs.input;
+                RiotControl.trigger(ACTION.COMMAND_PALETTE_EXECUTE, input.value);
+                RiotControl.trigger(ACTION.COMMAND_PALETTE_CLOSE);
+            }
         };
 
         // オープン
@@ -659,10 +664,17 @@
             function(){
                 let cp = self.refs.command_pallete.style;
                 cp.visibility = "visible";
+                // 画面外からスライドイン
+                // フォーカスを合わせるためには即座に可視化されてくれないといけないので
+                // visibility は 0 に
+                //cp.transition = "visibility 0s, top 0.05s ease-out";
+                //cp.top = "0px";
 
+                // フォーカスを合わせる
                 let input = self.refs.input;
                 input.focus();
 
+                // キーボードハンドラを登録
                 window.addEventListener("keydown", self.onKeyDown);
             }
         );
@@ -672,7 +684,16 @@
             function(){
                 let cp = self.refs.command_pallete.style;
                 cp.visibility = "hidden";
+                // 画面外へスライドアウト
+                // cp.transition = "visibility 0.1s, top 0.1s ease-out";
+                // cp.top = "-" + self.refs.command_pallete.offsetHeight + "px";
+
+                // キーボードハンドラを解除
                 window.removeEventListener("keydown", self.onKeyDown);
+
+                // 中身をクリア
+                let input = self.refs.input;
+                input.value = "";
             }
         );
 
