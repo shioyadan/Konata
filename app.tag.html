@@ -676,12 +676,34 @@
                 return false;
             };
 
-            document.ondrop = function (e) {
+            document.ondrop = function(e) {
                 e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
                 let file = e.dataTransfer.files[0];
                 rc.trigger(ACTION.FILE_OPEN, file.path);
             };
 
+            // キーボード
+            let KEY_CODE = require("./key_code.js").KEY_CODE;
+            document.onkeydown = function(e) {
+                let key = e.keyCode;
+                if (key == KEY_CODE.UP) {
+                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, false);
+                }
+                else if (key == KEY_CODE.DOWN) {
+                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL, true);
+                }
+                else if (key == KEY_CODE.ADD) {
+                    let w = store.sheet.width - store.activeTab.splitterPos;
+                    let h = store.sheet.height;
+                    RiotControl.trigger(ACTION.KONATA_ZOOM, -1, w / 2, h / 2);
+                }
+                else if (key == KEY_CODE.SUBTRACT) {
+                    let w = store.sheet.width - store.activeTab.splitterPos;
+                    let h = store.sheet.height;
+                    RiotControl.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
+                }
+                console.log(key);
+            };
 
         };
 
