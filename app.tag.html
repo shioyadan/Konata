@@ -687,12 +687,17 @@
             document.onkeydown = function(e) {
                 let key = e.keyCode;
                 if (key == KEY_CODE.UP) {
-                    let adjust = !e.ctrlKey;
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, adjust);
+                    // ctrl 時は水平方向補正なし
+                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.ctrlKey);
                 }
                 else if (key == KEY_CODE.DOWN) {
-                    let adjust = !e.ctrlKey;
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, adjust);
+                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, !e.ctrlKey);
+                }
+                else if (key == KEY_CODE.PAGE_UP) {
+                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -10, !e.ctrlKey);
+                }
+                else if (key == KEY_CODE.PAGE_DOWN) {
+                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 10, !e.ctrlKey);
                 }
                 else if (key == KEY_CODE.LEFT) {
                     RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, -1);
