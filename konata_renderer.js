@@ -260,6 +260,12 @@ class KonataRenderer{
         return self.konata_.getOp(id);   
     }
 
+    // rid に対応する op を返す
+    getOpFromRID(rid){
+        let self = this;
+        return self.konata_.getOpFromRID(rid);   
+    }
+
     // ピクセル座標から対応する op を返す
     getOpFromPixelPosY(y){
         let self = this;

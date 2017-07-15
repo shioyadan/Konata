@@ -18,6 +18,16 @@ class OpCache{
         return this.cache[id];
     }
 
+    getOpFromRID(rid){
+        let cache = this.cache;
+        for (let i = cache.length - 1; i >= 0; i--) {
+            if (cache[i] && cache[i].rid == rid) {
+                return cache[i];
+            }
+        }
+        return null;
+    }
+
     cacheRequest(id){
         if (id > this.lastIndex) {
             return;

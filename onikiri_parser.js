@@ -88,6 +88,16 @@ class OnikiriParser{
         }
         return op;
     }
+    
+    getOpFromRID(rid){
+        let cache = this.opCache_;
+        for (let i = cache.length - 1; i >= 0; i--) {
+            if (cache[i] && cache[i][0].rid == rid) {
+                return cache[i][0];
+            }
+        }
+        return null;
+    }
 
     get lastID(){
         return this.lastID_;

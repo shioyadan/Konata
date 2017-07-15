@@ -4,7 +4,7 @@ class Konata{
 
         // private変数．外部からはアクセサを用意しない限りアクセスできない．
         // ローカル変数と区別するため this. を付ける．
-        this.files = null; // 見たいファイル名とパース結果を関連付ける連想配列
+        this.cache_ = null; // 見たいファイル名とパース結果を関連付ける連想配列
         this.lastFetchedId = 0;
         this.parser_ = null;
 
@@ -14,7 +14,7 @@ class Konata{
     }
 
     close(){
-        this.files = null;
+        this.cache_ = null;
         this.lastFetchedId = null;
         this.parser_ = null;
     }
@@ -32,19 +32,16 @@ class Konata{
 
         parser.setFile(file);
         console.log("Selected parser:" , parser.getName());
-        this.files = new this.OpCache_(path, parser);
+        this.cache_ = new this.OpCache_(path, parser);
     }
 
     getOp(id){
-        let file = this.files;
-        if (file == null) {
-            throw "Not opened";
-        }
-        let op = file.getOp(id);
-        if (op != null) {
-            this.lastFetchedId = id;
-        }
-        return op;
+        return this.cache_.getOp(id);
+        //return this.parser_.getOp(id);
+    }
+
+    getOpFromRID(rid){
+        return this.parser_.getOpFromRID(rid);
     }
 
     get lastID(){

@@ -152,7 +152,7 @@ class Store{
                 return;
             }
 
-            // jump y id
+            // jump y #
             if (cmd.match(/jump[\s+]y[\s+](\d+)/)) {
                 let id = RegExp.$1;
                 let renderer = self.activeTab.renderer;
@@ -160,6 +160,17 @@ class Store{
                 let op = renderer.getOpFromID(id);
                 if (op) {
                     self.startScroll([op.fetchedCycle - pos[0], id - pos[1]]);
+                }
+            }
+
+            // jump r #
+            if (cmd.match(/jump[\s+]r[\s+](\d+)/)) {
+                let rid = RegExp.$1;
+                let renderer = self.activeTab.renderer;
+                let pos = renderer.viewPos;
+                let op = renderer.getOpFromRID(rid);
+                if (op) {
+                    self.startScroll([op.fetchedCycle - pos[0], op.id - pos[1]]);
                 }
             }
         });
