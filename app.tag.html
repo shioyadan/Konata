@@ -105,10 +105,6 @@
         canvas{
             position: absolute;
         }
-        .tool_tip{ 
-            position: absolute;
-            z-index: 100;
-        }
     </style>
 
     <script>
@@ -308,10 +304,6 @@
         }
         canvas{
             position: absolute;
-        }
-        .tool_tip{ 
-            position: absolute;
-            z-index: 100;
         }
     </style>
 
@@ -632,9 +624,36 @@
     </script>
 </app_sheet_list>
 
+<!-- コマンドパレット -->
+<app_command_pallete>
+
+    <div ref="command_pallete" class="command_pallete">
+        <input type="text" class="command_pallete_input">
+    </div>
+
+    <script>
+        let self = this;
+        self.init = function(){
+            //let c = self.refs.command_pallete.style;
+            //c.visibility = "hidden";
+        };
+        // エントリポイント
+        self.on("mount", self.init);
+    </script>
+</app_command_pallete>
 
 <!-- Application -->
 <app>
+    <!-- 各要素の配置について
+    * app_tabbar 内の ul は CSS で位置の指定をしていないため，最上部に表示
+    * app_sheet_list 内の各シートは pane_container で position: absolute; 
+      が指定されているため，タブの直下を基準として全て重なる
+    * app_dialogs 内の各ダイアログは何もしなければタブ直下だが，bootstrap が画面全体に
+      無理矢理かぶせていると思われる
+    * コマンドパレットも position: absolute; であるため，タブ直下で重なる
+    -->
+
+
     <!-- tab bar -->
     <app_tabbar></app_tabbar>
     
@@ -643,6 +662,9 @@
 
     <!-- 色々なダイアログ -->
     <app_dialogs></app_dialogs>
+
+    <!-- コマンドパレット -->
+    <app_command_pallete></app_command_pallete>
 
     <script>
         let self = this;

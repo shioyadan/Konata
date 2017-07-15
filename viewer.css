@@ -48,6 +48,32 @@ html, body {
     /*
     box-shadow: 0px 0px 6px 3px rgb(51, 51, 51);
     */
+
+    position: absolute;
+    z-index: 100;
 }
 
+/* コマンドパレット */
+.command_pallete {
+    background: rgb(243, 243, 243);
+    box-shadow: rgb(168, 168, 168) 0px 5px 8px;
+    padding: 5px;
+    /*line-height: 1.4em;*/
+    font-size: "10px";
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
 
+    /* 左から 33% に*/
+    margin: 0 33%;
+    width: 33%;
+
+    /* 初期は非表示 */
+    visibility: hidden;
+
+    /* 絶対位置 */
+    position: absolute;
+    z-index: 100;
+}
+
+.command_pallete_input {
+    width: 100%;
+}
