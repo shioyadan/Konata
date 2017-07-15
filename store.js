@@ -426,8 +426,9 @@ class Store{
         };
 
         // ホイールによる移動（垂直）
-        // 引数 delta * 3 / scale だけ上下に移動
-        self.on(ACTION.KONATA_MOVE_WHEEL_VERTICAL, function(delta){
+        // delta: delta * 3 / scale だけ上下に移動
+        // adjust: 水平方向のスクロール補正を行うかどうか
+        self.on(ACTION.KONATA_MOVE_WHEEL_VERTICAL, function(delta, adjust){
             if (!self.activeTab) {
                 return;
             }
@@ -437,7 +438,7 @@ class Store{
             let renderer = self.activeTab.renderer;
             let scale = renderer.zoomScale;
             let diffY = delta * 3 / scale;
-            let diffX = renderer.adjustScrpllDiifX(diffY);
+            let diffX = adjust ? renderer.adjustScrpllDiifX(diffY) : 0;
             self.startScroll([diffX, diffY]);
         });
 

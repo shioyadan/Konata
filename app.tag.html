@@ -130,7 +130,7 @@
                 RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY > 0 ? 1 : -1, e.offsetX, e.offsetY);
             } 
             else {  // スクロール
-                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, e.deltaY > 0 ? 1 : -1);
+                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, e.deltaY > 0 ? 1 : -1, true);
             }
         };
 
@@ -329,7 +329,7 @@
                 RiotControl.trigger(ACTION.KONATA_ZOOM, e.deltaY > 0 ? 1 : -1, e.offsetX, e.offsetY);
             } 
             else {  // スクロール
-                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, e.deltaY > 0 ? 1 : -1);
+                RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, e.deltaY > 0 ? 1 : -1, true);
             }
         };
 
@@ -687,10 +687,12 @@
             document.onkeydown = function(e) {
                 let key = e.keyCode;
                 if (key == KEY_CODE.UP) {
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1);
+                    let adjust = !e.ctrlKey;
+                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, adjust);
                 }
                 else if (key == KEY_CODE.DOWN) {
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1);
+                    let adjust = !e.ctrlKey;
+                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, adjust);
                 }
                 else if (key == KEY_CODE.LEFT) {
                     RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, -1);
