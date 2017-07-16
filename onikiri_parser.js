@@ -4,6 +4,7 @@ class OnikiriParser{
         this.Op = require("./op").Op;
         this.Stage = require("./stage").Stage;
 
+        // ファイルリーダ
         this.file_ = null; 
 
         // 現在読み出し中のサイクル
@@ -111,6 +112,7 @@ class OnikiriParser{
             op.retiredCycle = this.curCycle_;
             op.eof = true;
         }
+        this.lastID_ = this.opCache_.length - 1;
         this.complete_ = true;
 
         console.log("parse complete");
@@ -161,9 +163,6 @@ class OnikiriParser{
             op.fetchedCycle = this.curCycle_;
             op.line = lineNum;
             this.opCache_[id] = op;
-            if (this.lastID_ < id) {
-                this.lastID_ = id;
-            }
             break;
 
         case "L": {
@@ -276,6 +275,9 @@ class OnikiriParser{
             op.retiredCycle = this.curCycle_;
             if (parseInt(args[3]) == 1) {
                 op.flush = true;
+            }
+            if (this.lastID_ < id) {
+                this.lastID_ = id;
             }
             break;
         }
