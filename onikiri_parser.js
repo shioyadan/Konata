@@ -16,8 +16,6 @@ class OnikiriParser{
         this.lastID_ = -1;
         
         // op情報のキャッシュ（配列）
-        // op情報とはOp.jsで定義される連想配列とフェッチされた行数情報（メタデータ）
-        // [op, lineIndex];
         this.opCache_ = [];
         
         // Line情報のキャッシュ（配列）
@@ -80,7 +78,7 @@ class OnikiriParser{
     getOp(id){
         let op;
         if (this.opCache_[id] != null) {
-            op = this.opCache_[id][0];
+            op = this.opCache_[id];
         } else {
             op = null;
         }
@@ -93,8 +91,8 @@ class OnikiriParser{
     getOpFromRID(rid){
         let cache = this.opCache_;
         for (let i = cache.length - 1; i >= 0; i--) {
-            if (cache[i] && cache[i][0].rid == rid) {
-                return cache[i][0];
+            if (cache[i] && cache[i].rid == rid) {
+                return cache[i];
             }
         }
         return null;
@@ -132,7 +130,7 @@ class OnikiriParser{
         // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
         let i = this.opCache_.length - 1;
         while (i >= 0) {
-            let op = this.opCache_[i][0];
+            let op = this.opCache_[i];
             if (op.retired && !op.flush) {
                 break; // コミットされた命令がきたら終了
             }
@@ -149,14 +147,14 @@ class OnikiriParser{
     }
 
 
-    parseCommand(args, lineIdx){
+    parseCommand(args, lineNum){
 
         let id = parseInt(args[1]);
 
         /** @type {Op}  */
         let op = null;
         if (id in this.opCache_) {
-            op = this.opCache_[id][0];
+            op = this.opCache_[id];
         }
         
         let cmd = args[0];
@@ -191,8 +189,8 @@ class OnikiriParser{
             op.gid = args[2];
             op.tid = args[3];
             op.fetchedCycle = this.curCycle_;
-            op.line = lineIdx;
-            this.opCache_[id] = [op, lineIdx];
+            op.line = lineNum;
+            this.opCache_[id] = op;
             if (this.lastID_ < id) {
                 this.lastID_ = id;
             }
@@ -330,7 +328,7 @@ class OnikiriParser{
             op.prods.push(
                 {id: prodId, type: type, cycle: this.curCycle_}
             );
-            this.opCache_[prodId][0].cons.push(
+            this.opCache_[prodId].cons.push(
                 {id: id, type: type, cycle: this.curCycle_}
             );
             break;
