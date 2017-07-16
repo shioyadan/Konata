@@ -62,7 +62,6 @@ class OnikiriParser{
         this.startParsing();
         file.readlines(this.parseLine.bind(this));
         this.finishParsing();
-        //this.parseAllLines();
     }
 
     getOps(start, end){
@@ -149,49 +148,8 @@ class OnikiriParser{
         console.log("parse complete");
     }
 
-    parseAllLines(text){
-        if (text) {
-            this.text = text;
-            this.lines_ = text.split("\n");
-        }
-        this.complete_ = false;
-        let lines = this.lines_;
-        
-        this.curCycle_ = 0;
-
-        let startTime = new Date();
-        for (let i = 0, len = lines.length; i < len; i++) {
-            if (this.timeout_ != 0 && i % (1024*16) == 0) { // N行に一度くらい経過時間を確認する
-                let endTime = new Date();
-                if (endTime - startTime > this.timeout_) {
-                    return false; // パースに時間がかかり過ぎているなら諦める。
-                }
-            }
-            let args = lines[i].trim().split("\t");
-            this.parseCommand(args, i);
-        }
-
-        // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
-        let i = this.opCache_.length - 1;
-        while (i >= 0) {
-            let op = this.opCache_[i][0];
-            if (op.retired && !op.flush) {
-                break; // コミットされた命令がきたら終了
-            }
-            i--;
-            if (op.flush) {
-                continue; // フラッシュされた命令には特になにもしない
-            }
-            op.retiredCycle = this.curCycle_;
-            op.eof = true;
-        }
-        this.complete_ = true;
-
-        console.log("parse complete");
-    }
 
     parseCommand(args, lineIdx){
-
 
         let id = parseInt(args[1]);
 
