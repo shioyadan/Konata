@@ -108,7 +108,7 @@ class OnikiriParser{
         let args = line.split("\t");
         this.parseCommand(args);
         this.curLine_++;
-
+        
         this.updateCount_--;
         if (this.updateCount_ < 0) {
             this.updateCount_ = 1024*256;
@@ -139,6 +139,165 @@ class OnikiriParser{
         console.log(`parse complete (${elapsed} ms)`);
     }
 
+    parseInitialCommand(id, op, args){
+        // 特定の命令に関するコマンド出力の開始
+        // 使用例：
+        //      I	0	0	0
+        // * 命令に関するコマンドを出力する前にこれが必要
+        //      ファイル内に新しい命令が初めて現れた際に出力
+        // * 2列目はファイル内の一意のID
+        //      ファイル内で現れるたびに振られるシーケンシャルなID
+        //      基本的に他のコマンドは全てこのIDを使って命令を指定する
+        // * 3列目は命令のID
+        //      シミュレータ内で命令に振られているID．任意のIDが使える
+        // * 4列目はTID（スレッド識別子）
+        op = new this.Op();
+        op.id = id;
+        op.gid = args[2];
+        op.tid = args[3];
+        op.fetchedCycle = this.curCycle_;
+        op.line = this.curLine_;
+        this.opCache_[id] = op;
+    }
+
+    parseLabelCommand(id, op, args){
+        // * 命令に任意のラベルをつける
+        //      * 命令が生きている期間は任意のラベルをつけることができる
+        //      * Lが複数回実行された場合，前回までに設定したラベルに追記される
+        // フォーマット:
+        //    L 	<ID>	<Type>	<Label Data>
+        //
+        // <ID>: ファイル内の一意のID
+        // <Type>: ラベルのタイプ
+        //      0: ビジュアライザ左に直接表示されるラベル．通常はPCと命令，レジスタ番号など
+        //      1: マウスオーバー時に表示される詳細．実行時のレジスタの値や使用した演算器など
+        //      2: 現在のステージにつけられるラベル
+        // <Label Data>: 任意のテキスト
+        let type = parseInt(args[2]);
+
+        // エスケープされている \n を戻す
+        let strRaw = args[3];
+        let str = strRaw.replace(/\\n/g, "\n");
+
+        if (type == 0) {
+            op.labelName += str;
+        }
+        else if (type == 1) {
+            op.labelDetail += str;
+        }
+        else if (type == 2) {
+            if (op.lastParsedStage in op.labelStage){
+                op.labelStage[op.lastParsedStage] += str;
+            }
+            else{
+                op.labelStage[op.lastParsedStage] = str;
+            }
+        }
+    }
+
+    parseStartCommand(id, op, args){
+        let laneName = args[2];
+        let stageName = args[3];
+        let stage = new this.Stage();
+        stage.name = stageName;
+        stage.startCycle = this.curCycle_;
+        if (!(laneName in op.lanes)) {
+            op.lanes[laneName] = {
+                level: 0,  // 1サイクル以上のステージの数
+                stages: [],
+            };
+        }
+
+        let laneInfo = op.lanes[laneName];
+        laneInfo.stages.push(stage);
+        op.lastParsedStage = stageName;
+
+        // X を名前に含むステージは実行ステージと見なす
+        if (stageName.match(/X/)){
+            op.consCycle = this.curCycle_;
+        }
+
+        // レーンのマップに登録
+        if (!(laneName in this.laneMap_)) {
+            this.laneMap_[laneName] = 1;
+        }
+
+        // ステージのマップに登録
+        let map = this.stageLevelMap_;
+        if (stageName in map) {
+            if (map[stageName] > laneInfo.level) {
+                map[stageName] = laneInfo.level;
+            }
+        }
+        else{
+            map[stageName] = laneInfo.level;
+        }
+    }
+
+    parseEndCommand(id, op, args){
+        let laneName = args[2];
+        let stageName = args[3];
+        let stage = null;
+        let laneInfo = op.lanes[laneName];
+        let lane = laneInfo.stages;
+        for (let i = lane.length - 1; i >= 0; i--) {
+            if (lane[i].name == stageName) {
+                stage = lane[i];
+                break;
+            }
+        }
+        if (stage == null) {
+            return;
+        }
+        stage.endCycle = this.curCycle_;
+
+        // レベルの更新
+        // フラッシュで無理矢理閉じられることがあるので，
+        // stageNameMap への登録はここでやってはいけない．
+        if (stage.startCycle != stage.endCycle) {
+            laneInfo.level++;
+        }
+
+        // X を名前に含むステージは実行ステージと見なす
+        if (stageName.match(/X/)){
+            op.prodCycle = this.curCycle_ - 1;
+        }
+    }
+
+    parseRetireCommand(id, op, args){
+        op.retired = true;
+        op.rid = args[2];
+        op.retiredCycle = this.curCycle_;
+        if (parseInt(args[3]) == 1) {
+            op.flush = true;
+        }
+        if (this.lastID_ < id) {
+            this.lastID_ = id;
+        }
+    }
+
+    parseDependencyCommand(id, op, args){
+        // 任意の依存関係 - 典型的にはウェイクアップ
+        // タイプ番号の指定により，違う色で表示される
+        //
+        // フォーマット:
+        //      W	<Consumer ID>	<Producer ID>	<Type>
+        //
+        // <Consumer ID>: 2列目はコンシューマーのID
+        // <Producer ID>: 3列目はプロデューサーのID
+        // <Type>: 4列目は依存関係のタイプ
+        //      0ならウェイクアップ, 1以降は今のところ予約
+        //      コンシューマーが生きている期間のみ使用可能
+
+        let prodId = Number(args[2]);
+        let type = Number(args[3]);
+        op.prods.push(
+            {id: prodId, type: type, cycle: this.curCycle_}
+        );
+        this.opCache_[prodId].cons.push(
+            {id: id, type: type, cycle: this.curCycle_}
+        );
+    }
 
     parseCommand(args){
 
@@ -167,170 +326,28 @@ class OnikiriParser{
             break;
         
         case "I": 
-            // 特定の命令に関するコマンド出力の開始
-            // 使用例：
-            //      I	0	0	0
-            // * 命令に関するコマンドを出力する前にこれが必要
-            //      ファイル内に新しい命令が初めて現れた際に出力
-            // * 2列目はファイル内の一意のID
-            //      ファイル内で現れるたびに振られるシーケンシャルなID
-            //      基本的に他のコマンドは全てこのIDを使って命令を指定する
-            // * 3列目は命令のID
-            //      シミュレータ内で命令に振られているID．任意のIDが使える
-            // * 4列目はTID（スレッド識別子）
-            op = new this.Op();
-            op.id = id;
-            op.gid = args[2];
-            op.tid = args[3];
-            op.fetchedCycle = this.curCycle_;
-            op.line = this.curLine_;
-            this.opCache_[id] = op;
+            this.parseInitialCommand(id, op, args);
             break;
 
-        case "L": {
-            // * 命令に任意のラベルをつける
-            //      * 命令が生きている期間は任意のラベルをつけることができる
-            //      * Lが複数回実行された場合，前回までに設定したラベルに追記される
-            // フォーマット:
-            //    L 	<ID>	<Type>	<Label Data>
-            //
-            // <ID>: ファイル内の一意のID
-            // <Type>: ラベルのタイプ
-            //      0: ビジュアライザ左に直接表示されるラベル．通常はPCと命令，レジスタ番号など
-            //      1: マウスオーバー時に表示される詳細．実行時のレジスタの値や使用した演算器など
-            //      2: 現在のステージにつけられるラベル
-            // <Label Data>: 任意のテキスト
-            let type = parseInt(args[2]);
-
-            // エスケープされている \n を戻す
-            let str = args[3];
-            str = str.replace(/\\n/g, "\n");
-
-            if (type == 0) {
-                op.labelName += str;
-            }
-            else if (type == 1) {
-                op.labelDetail += str;
-            }
-            else if (type == 2) {
-                if (op.lastParsedStage in op.labelStage){
-                    op.labelStage[op.lastParsedStage] += str;
-                }
-                else{
-                    op.labelStage[op.lastParsedStage] = str;
-                }
-            }
-            
+        case "L":
+            this.parseLabelCommand(id, op, args);
             break;
-        }
 
-        case "S": {
-            let laneName = args[2];
-            let stageName = args[3];
-            let stage = new this.Stage();
-            stage.name = stageName;
-            stage.startCycle = this.curCycle_;
-            if (!(laneName in op.lanes)) {
-                op.lanes[laneName] = {
-                    level: 0,  // 1サイクル以上のステージの数
-                    stages: [],
-                };
-            }
-
-            let laneInfo = op.lanes[laneName];
-            laneInfo.stages.push(stage);
-            op.lastParsedStage = stageName;
-
-            // X を名前に含むステージは実行ステージと見なす
-            if (stageName.match(/X/)){
-                op.consCycle = this.curCycle_;
-            }
-
-            // レーンのマップに登録
-            if (!(laneName in this.laneMap_)) {
-                this.laneMap_[laneName] = 1;
-            }
-
-            // ステージのマップに登録
-            let map = this.stageLevelMap_;
-            if (stageName in map) {
-                if (map[stageName] > laneInfo.level) {
-                    map[stageName] = laneInfo.level;
-                }
-            }
-            else{
-                map[stageName] = laneInfo.level;
-            }
+        case "S": 
+            this.parseStartCommand(id, op, args);
             break;
-        }
 
-        case "E": {
-            let laneName = args[2];
-            let stageName = args[3];
-            let stage = null;
-            let laneInfo = op.lanes[laneName];
-            let lane = laneInfo.stages;
-            for (let i = lane.length - 1; i >= 0; i--) {
-                if (lane[i].name == stageName) {
-                    stage = lane[i];
-                    break;
-                }
-            }
-            if (stage == null) {
-                break;
-            }
-            stage.endCycle = this.curCycle_;
-
-            // レベルの更新
-            // フラッシュで無理矢理閉じられることがあるので，
-            // stageNameMap への登録はここでやってはいけない．
-            if (stage.startCycle != stage.endCycle) {
-                laneInfo.level++;
-            }
-
-            // X を名前に含むステージは実行ステージと見なす
-            if (stageName.match(/X/)){
-                op.prodCycle = this.curCycle_ - 1;
-            }
+        case "E": 
+            this.parseEndCommand(id, op, args);
             break;
-        }
 
-        case "R": {
-            op.retired = true;
-            op.rid = args[2];
-            op.retiredCycle = this.curCycle_;
-            if (parseInt(args[3]) == 1) {
-                op.flush = true;
-            }
-            if (this.lastID_ < id) {
-                this.lastID_ = id;
-            }
+        case "R": 
+            this.parseRetireCommand(id, op, args);
             break;
-        }
 
-        case "W": {
-            // 任意の依存関係 - 典型的にはウェイクアップ
-            // タイプ番号の指定により，違う色で表示される
-            //
-            // フォーマット:
-            //      W	<Consumer ID>	<Producer ID>	<Type>
-            //
-            // <Consumer ID>: 2列目はコンシューマーのID
-            // <Producer ID>: 3列目はプロデューサーのID
-            // <Type>: 4列目は依存関係のタイプ
-            //      0ならウェイクアップ, 1以降は今のところ予約
-            //      コンシューマーが生きている期間のみ使用可能
-
-            let prodId = Number(args[2]);
-            let type = Number(args[3]);
-            op.prods.push(
-                {id: prodId, type: type, cycle: this.curCycle_}
-            );
-            this.opCache_[prodId].cons.push(
-                {id: id, type: type, cycle: this.curCycle_}
-            );
+        case "W": 
+            this.parseDependencyCommand(id, op, args);
             break;
-        }
         }  // switch end
     }
 }
