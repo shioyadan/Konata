@@ -136,6 +136,7 @@ class OnikiriParser{
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
 
+        this.updateCallback_();
         console.log(`parse complete (${elapsed} ms)`);
     }
 
@@ -173,7 +174,7 @@ class OnikiriParser{
         //      1: マウスオーバー時に表示される詳細．実行時のレジスタの値や使用した演算器など
         //      2: 現在のステージにつけられるラベル
         // <Label Data>: 任意のテキスト
-        let type = parseInt(args[2]);
+        let type = Number(args[2]);
 
         // エスケープされている \n を戻す
         let strRaw = args[3];
@@ -268,7 +269,7 @@ class OnikiriParser{
         op.retired = true;
         op.rid = args[2];
         op.retiredCycle = this.curCycle_;
-        if (parseInt(args[3]) == 1) {
+        if (Number(args[3]) == 1) {
             op.flush = true;
         }
         if (this.lastID_ < id) {
@@ -301,7 +302,7 @@ class OnikiriParser{
 
     parseCommand(args){
 
-        let id = parseInt(args[1]);
+        let id = Number(args[1]);
 
         /** @type {Op}  */
         let op = null;
@@ -322,7 +323,7 @@ class OnikiriParser{
             // フォーマット
             //      C	<CYCLE>
             // <CYCLE>: 経過サイクル数
-            this.curCycle_ += parseInt(args[1]);
+            this.curCycle_ += Number(args[1]);
             break;
         
         case "I": 
