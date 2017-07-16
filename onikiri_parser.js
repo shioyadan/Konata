@@ -7,10 +7,10 @@ class OnikiriParser{
         this.file_ = null; 
         
         this.text = null;
-        this.lines = null;
+        this.lines_ = null;
 
         // 現在読み出し中のサイクル
-        this.curCycle = 0;
+        this.curCycle_ = 0;
 
         // 最後に読み出された命令の ID
         this.lastID_ = -1;
@@ -22,10 +22,9 @@ class OnikiriParser{
         
         // Line情報のキャッシュ（配列）
         // Line情報とは、Nライン目においてフェッチされているOP番号やサイクル数の情報
-        this.lineCache = [];
-        this.lastIndex = null;
-        this.name = "OnikiriParser";
-        this.timeout = 600 * 1000; // パースを諦めるまでの時間[ms](0なら諦めない)
+        this.lineCache_ = [];
+        this.lastIndex_ = null;
+        this.name_ = "OnikiriParser";
         
         this.complete_ = false;
 
@@ -46,7 +45,7 @@ class OnikiriParser{
         let text = "";
         if (this.file_.isText()) {
             text = this.file_.getText();
-            this.lines = text.split("\n");
+            this.lines_ = text.split("\n");
         } else if (this.file_.getExtension() == ".gz") {
             // 圧縮データなら展開する
             console.log("Extract");
@@ -80,8 +79,7 @@ class OnikiriParser{
         if (this.opCache_[id] != null) {
             op = this.opCache_[id][0];
         } else {
-            op = null;//this.Search(id);
-            //this.opCache_[id][0] = op;
+            op = null;
         }
         if (op == null && !this.complete_) {
             throw("Parsing...");
@@ -120,18 +118,18 @@ class OnikiriParser{
     parseAllLines(text){
         if (text) {
             this.text = text;
-            this.lines = text.split("\n");
+            this.lines_ = text.split("\n");
         }
         this.complete_ = false;
-        let lines = this.lines;
+        let lines = this.lines_;
         
-        this.curCycle = 0;
+        this.curCycle_ = 0;
 
         let startTime = new Date();
         for (let i = 0, len = lines.length; i < len; i++) {
-            if (this.timeout != 0 && i % (1024*16) == 0) { // N行に一度くらい経過時間を確認する
+            if (this.timeout_ != 0 && i % (1024*16) == 0) { // N行に一度くらい経過時間を確認する
                 let endTime = new Date();
-                if (endTime - startTime > this.timeout) {
+                if (endTime - startTime > this.timeout_) {
                     return false; // パースに時間がかかり過ぎているなら諦める。
                 }
             }
@@ -150,7 +148,7 @@ class OnikiriParser{
             if (op.flush) {
                 continue; // フラッシュされた命令には特になにもしない
             }
-            op.retiredCycle = this.curCycle;
+            op.retiredCycle = this.curCycle_;
             op.eof = true;
         }
         this.complete_ = true;
@@ -181,7 +179,7 @@ class OnikiriParser{
             // フォーマット
             //      C	<CYCLE>
             // <CYCLE>: 経過サイクル数
-            this.curCycle += parseInt(args[1]);
+            this.curCycle_ += parseInt(args[1]);
             break;
         
         case "I": 
@@ -200,7 +198,7 @@ class OnikiriParser{
             op.id = id;
             op.gid = args[2];
             op.tid = args[3];
-            op.fetchedCycle = this.curCycle;
+            op.fetchedCycle = this.curCycle_;
             op.line = lineIdx;
             this.opCache_[id] = [op, lineIdx];
             if (this.lastID_ < id) {
@@ -250,7 +248,7 @@ class OnikiriParser{
             let stageName = args[3];
             let stage = new this.Stage();
             stage.name = stageName;
-            stage.startCycle = this.curCycle;
+            stage.startCycle = this.curCycle_;
             if (!(laneName in op.lanes)) {
                 op.lanes[laneName] = [];
             }
@@ -260,7 +258,7 @@ class OnikiriParser{
 
             // X を名前に含むステージは実行ステージと見なす
             if (stageName.match(/X/)){
-                op.consCycle = this.curCycle;
+                op.consCycle = this.curCycle_;
             }
 
             // レーンのマップに登録
@@ -303,11 +301,11 @@ class OnikiriParser{
             if (stage == null) {
                 break;
             }
-            stage.endCycle = this.curCycle;
+            stage.endCycle = this.curCycle_;
 
             // X を名前に含むステージは実行ステージと見なす
             if (stageName.match(/X/)){
-                op.prodCycle = this.curCycle - 1;
+                op.prodCycle = this.curCycle_ - 1;
             }
             break;
         }
@@ -315,7 +313,7 @@ class OnikiriParser{
         case "R": {
             op.retired = true;
             op.rid = args[2];
-            op.retiredCycle = this.curCycle;
+            op.retiredCycle = this.curCycle_;
             if (parseInt(args[3]) == 1) {
                 op.flush = true;
             }
@@ -338,10 +336,10 @@ class OnikiriParser{
             let prodId = Number(args[2]);
             let type = Number(args[3]);
             op.prods.push(
-                {id: prodId, type: type, cycle: this.curCycle}
+                {id: prodId, type: type, cycle: this.curCycle_}
             );
             this.opCache_[prodId][0].cons.push(
-                {id: id, type: type, cycle: this.curCycle}
+                {id: id, type: type, cycle: this.curCycle_}
             );
             break;
         }
