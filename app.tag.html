@@ -645,14 +645,13 @@
 
         // キーボードハンドラ
         // ESC が押されたら消す
-        let KEY_CODE = require("./key_code.js").KEY_CODE;
         self.onKeyDown = function(e){
             // キーボード
-            let key = e.keyCode;
-            if (key == KEY_CODE.ESCAPE) {
+            let key = e.key;
+            if (key == "Escape") {
                 RiotControl.trigger(ACTION.COMMAND_PALETTE_CLOSE);
             }
-            else if (key == KEY_CODE.ENTER) {
+            else if (key == "Enter") {
                 let input = self.refs.input;
                 RiotControl.trigger(ACTION.COMMAND_PALETTE_EXECUTE, input.value);
                 RiotControl.trigger(ACTION.COMMAND_PALETTE_CLOSE);
@@ -797,41 +796,40 @@
             };
 
             // キーボード
-            let KEY_CODE = require("./key_code.js").KEY_CODE;
             document.onkeydown = function(e) {
-                let key = e.keyCode;
-                if (key == KEY_CODE.UP) {
+                let key = e.key;
+                if (key == "ArrowUp") {
                     // ctrl 時は水平方向補正なし
                     RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.ctrlKey);
                 }
-                else if (key == KEY_CODE.DOWN) {
+                else if (key == "ArrowDown") {
                     RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, !e.ctrlKey);
                 }
-                else if (key == KEY_CODE.PAGE_UP) {
+                else if (key == "PageUp") {
                     RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -10, !e.ctrlKey);
                 }
-                else if (key == KEY_CODE.PAGE_DOWN) {
+                else if (key == "PageDown") {
                     RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 10, !e.ctrlKey);
                 }
-                else if (key == KEY_CODE.LEFT) {
+                else if (key == "ArrowLeft") {
                     RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, -1);
                 }
-                else if (key == KEY_CODE.RIGHT) {
+                else if (key == "ArrowRight") {
                     RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, 1);
                 }
-                else if (key == KEY_CODE.ADD) {
+                else if (key == "+") {
                     let w = store.sheet.width - store.activeTab.splitterPos;
                     let h = store.sheet.height;
                     RiotControl.trigger(ACTION.KONATA_ZOOM, -1, w / 2, h / 2);
                 }
-                else if (key == KEY_CODE.SUBTRACT) {
+                else if (key == "-") {
                     let w = store.sheet.width - store.activeTab.splitterPos;
                     let h = store.sheet.height;
                     RiotControl.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
                 }
                 else if (
-                    key == KEY_CODE.F1 || 
-                    (key == KEY_CODE.P && e.ctrlKey && e.shiftKey)
+                    key == "F1" || 
+                    (key == "P" && e.ctrlKey && e.shiftKey)
                 ) {
                     RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN);
                 }
