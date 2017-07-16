@@ -38,19 +38,19 @@ class OnikiriParser{
     
     // Public methods
     getName(){
-        return "OnikiriParser:(" + this.file_.GetPath() + ")";
+        return "OnikiriParser:(" + this.file_.getPath() + ")";
     }
 
     setFile(file){
         this.file_ = file;
         let text = "";
-        if (this.file_.IsText()) {
-            text = this.file_.GetText();
+        if (this.file_.isText()) {
+            text = this.file_.getText();
             this.lines = text.split("\n");
-        } else if (this.file_.GetExtension() == ".gz") {
+        } else if (this.file_.getExtension() == ".gz") {
             // 圧縮データなら展開する
             console.log("Extract");
-            this.file_.Extract().then(this.parseAllLines, null);
+            this.file_.extract().then(this.parseAllLines, null);
         } else {
             throw "Unknown file type.";
         }

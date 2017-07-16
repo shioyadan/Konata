@@ -1,40 +1,40 @@
 class FileReader{
-    constructor(path){
-        // この辺はnodejsの標準ライブラリらすぃ
-        this.fs = require("fs");
-        this.zlib = require("zlib");
-        this.Path = require("path");
+    constructor(file_path){
 
-        this.buf = null;
-        this.text = null;
-        this.path = path;
-        this.success = false;
+        this.fs_ = require("fs");
+        this.zlib_ = require("zlib");
+        this.path_ = require("path");
 
-        if (path == null) {
+        this.buf_ = null;
+        this.text_ = null;
+        this.file_path_ = file_path;
+        this.success_ = false;
+
+        if (file_path == null) {
             // error;
             return;
         }
 
         try {
-            if (this.fs.statSync(path)) {
-                this.buf = this.fs.readFileSync(path);
+            if (this.fs_.statSync(file_path)) {
+                this.buf_ = this.fs_.readFileSync(file_path);
                 //console.log(this.buf);
-                this.success = true;
+                this.success_ = true;
             }
         } catch(e) {
 
         }
     }
 
-    GetPath(){
-        return this.path;
+    getPath(){
+        return this.file_path_;
     }
 
-    IsText(){
+    isText(){
         let txts = [".txt",".log",".text"];
         for (let i = 0, len = txts.length; i < len; i++) {
             let ext = txts[i];
-            if (this.GetExtension() == ext) {
+            if (this.getExtension() == ext) {
                 console.log("This file is text");
                 return true;
             }
@@ -43,8 +43,8 @@ class FileReader{
         return false;
     }
 
-    Extract(that){
-        if (this.IsText()) {
+    extract(that){
+        if (this.isText()) {
             return;
         }
         console.log("gunzip start");
@@ -60,20 +60,20 @@ class FileReader{
         });
     }
 
-    AlloewedExension(){
+    alloewedExension(){
         return [".txt", ".text", ".log", ".gz"];
     }
 
-    GetText(){
-        if (this.text) {
-            return this.text;
+    getText(){
+        if (this.text_) {
+            return this.text_;
         }
-        this.text = this.buf.toString();
-        return this.text;
+        this.text_ = this.buf_.toString();
+        return this.text_;
     }
 
-    GetExtension(){
-        let ext = this.Path.extname(this.path);
+    getExtension(){
+        let ext = this.path_.extname(this.file_path_);
         return ext;
     }
 }
