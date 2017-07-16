@@ -35,16 +35,6 @@ class FileReader{
     }
 
     readlines(read, finish){
-        /*
-        let lines = this.buf_.toString().split("\n");
-        let lineNum = 0;
-        for (let i of lines) {
-            read(i, lineNum);
-            lineNum++;
-        }
-        finish();
-        */
-
         this.readIF_.on("line", read);
         this.readIF_.on("close", finish);
     }

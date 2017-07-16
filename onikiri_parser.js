@@ -7,6 +7,12 @@ class OnikiriParser{
         // ファイルリーダ
         this.file_ = null; 
 
+        // 更新通知のコールバック
+        this.updateCallback_ = null;
+
+        // 現在の行番号
+        this.curLine_ = 1;
+
         // 現在読み出し中のサイクル
         this.curCycle_ = 0;
 
@@ -24,6 +30,12 @@ class OnikiriParser{
 
         // ステージの出現順序を記録するマップ
         this.stageLevelMap_ = {};
+
+        // 読み出し開始時間
+        this.startTime_ = 0;
+
+        // 更新間隔
+        this.updateCount_ = 100;    // 100行読んだら1回表示するようにしとく
     }
     
     // Public methods
@@ -31,8 +43,10 @@ class OnikiriParser{
         return "OnikiriParser:(" + this.file_.getPath() + ")";
     }
 
-    setFile(file){
+    setFile(file, updateCallback){
         this.file_ = file;
+        this.updateCallback_ = updateCallback;
+        this.startTime_ = (new Date()).getTime();
 
         this.startParsing();
         file.readlines(
@@ -90,9 +104,16 @@ class OnikiriParser{
         this.curCycle_ = 0;
     }
 
-    parseLine(line, lineNum){
-        let args = line.trim().split("\t");
-        this.parseCommand(args, lineNum);
+    parseLine(line){
+        let args = line.split("\t");
+        this.parseCommand(args);
+        this.curLine_++;
+
+        this.updateCount_--;
+        if (this.updateCount_ < 0) {
+            this.updateCount_ = 1024*256;
+            this.updateCallback_();
+        }
     }
 
     finishParsing() {
@@ -113,11 +134,13 @@ class OnikiriParser{
         this.lastID_ = this.opCache_.length - 1;
         this.complete_ = true;
 
-        console.log("parse complete");
+        let elapsed = ((new Date()).getTime() - this.startTime_);
+
+        console.log(`parse complete (${elapsed} ms)`);
     }
 
 
-    parseCommand(args, lineNum){
+    parseCommand(args){
 
         let id = parseInt(args[1]);
 
@@ -128,9 +151,10 @@ class OnikiriParser{
         }
         
         let cmd = args[0];
+        /*
         if (cmd.match(/^(L|S|E|R|W)$/) && op == null) {
             // error
-        }
+        }*/
 
         switch(cmd) {
 
@@ -159,7 +183,7 @@ class OnikiriParser{
             op.gid = args[2];
             op.tid = args[3];
             op.fetchedCycle = this.curCycle_;
-            op.line = lineNum;
+            op.line = this.curLine_;
             this.opCache_[id] = op;
             break;
 

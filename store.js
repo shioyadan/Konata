@@ -187,7 +187,10 @@ class Store{
             let konata = new Konata.Konata();
 
             try {
-                konata.openFile(fileName);
+                konata.openFile(fileName, function(){
+                    // 更新通知ハンドラ
+                    self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+                });
             }
             catch (e) {
                 konata.close();

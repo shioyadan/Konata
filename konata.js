@@ -11,7 +11,7 @@ class Konata{
     }
 
 
-    openFile(path){
+    openFile(path, updateCallback){
         if (this.files != null) {
             this.close();
         }
@@ -21,7 +21,7 @@ class Konata{
         this.parser_ = parser;
         console.log("Open :", path);
 
-        parser.setFile(file);
+        parser.setFile(file, updateCallback);
         console.log("Selected parser:" , parser.getName());
     }
 
