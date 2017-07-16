@@ -10,19 +10,10 @@ class FileReader{
         this.file_path_ = file_path;
         this.success_ = false;
 
-        if (file_path == null) {
-            // error;
-            return;
-        }
-
-        try {
-            if (this.fs_.statSync(file_path)) {
-                this.buf_ = this.fs_.readFileSync(file_path);
-                //console.log(this.buf);
-                this.success_ = true;
-            }
-        } catch(e) {
-
+        if (this.fs_.statSync(file_path)) {
+            this.buf_ = this.fs_.readFileSync(file_path);
+            //console.log(this.buf);
+            this.success_ = true;
         }
     }
 
@@ -62,6 +53,15 @@ class FileReader{
 
     alloewedExension(){
         return [".txt", ".text", ".log", ".gz"];
+    }
+
+    readlines(handler){
+        let lines = this.buf_.toString().split("\n");
+        let lineNum = 0;
+        for (let i of lines) {
+            handler(i, lineNum);
+            lineNum++;
+        }
     }
 
     getText(){

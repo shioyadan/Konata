@@ -58,7 +58,11 @@ class OnikiriParser{
             // 知らない文法ならなにもしない。
             throw "Unknown file type.";
         }
-        this.parseAllLines();
+
+        this.startParsing();
+        file.readlines(this.parseLine.bind(this));
+        this.finishParsing();
+        //this.parseAllLines();
     }
 
     getOps(start, end){
@@ -113,6 +117,36 @@ class OnikiriParser{
     // this.textの文法を確認し、Onikiriのものでなさそうならfalse
     check(text){
         return true;
+    }
+
+    startParsing(){
+        this.complete_ = false;
+        this.curCycle_ = 0;
+    }
+
+    parseLine(line, lineNum){
+        let args = line.trim().split("\t");
+        this.parseCommand(args, lineNum);
+    }
+
+    finishParsing() {
+        // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
+        let i = this.opCache_.length - 1;
+        while (i >= 0) {
+            let op = this.opCache_[i][0];
+            if (op.retired && !op.flush) {
+                break; // コミットされた命令がきたら終了
+            }
+            i--;
+            if (op.flush) {
+                continue; // フラッシュされた命令には特になにもしない
+            }
+            op.retiredCycle = this.curCycle_;
+            op.eof = true;
+        }
+        this.complete_ = true;
+
+        console.log("parse complete");
     }
 
     parseAllLines(text){
