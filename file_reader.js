@@ -1,20 +1,16 @@
 class FileReader{
     constructor(file_path){
 
-        this.fs_ = require("fs");
-        this.zlib_ = require("zlib");
         this.path_ = require("path");
 
-        this.buf_ = null;
-        this.text_ = null;
-        this.file_path_ = file_path;
-        this.success_ = false;
 
-        if (this.fs_.statSync(file_path)) {
-            this.buf_ = this.fs_.readFileSync(file_path);
-            //console.log(this.buf);
-            this.success_ = true;
-        }
+        this.file_path_ = file_path;
+
+        //let zlib = require("zlib");
+        let fs = require("fs");
+        let rs = fs.createReadStream(file_path);
+        let readline = require("readline");
+        this.readIF_ = readline.createInterface(rs, {});
     }
 
     getPath(){
@@ -34,34 +30,23 @@ class FileReader{
         return false;
     }
 
-    extract(that){
-        if (this.isText()) {
-            return;
-        }
-        console.log("gunzip start");
-
-        return new Promise (function (resolve, reject) {
-            this.zlib.gunzip(this.buf, function (err, binary) {
-                let string = binary.toString("utf-8");
-                //console.log(string);
-                console.log("Extract");
-                resolve(string, that);
-                this.text = string;
-            });
-        });
-    }
-
     alloewedExension(){
         return [".txt", ".text", ".log", ".gz"];
     }
 
-    readlines(handler){
+    readlines(read, finish){
+        /*
         let lines = this.buf_.toString().split("\n");
         let lineNum = 0;
         for (let i of lines) {
-            handler(i, lineNum);
+            read(i, lineNum);
             lineNum++;
         }
+        finish();
+        */
+
+        this.readIF_.on("line", read);
+        this.readIF_.on("close", finish);
     }
 
     getText(){

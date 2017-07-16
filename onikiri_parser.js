@@ -35,8 +35,10 @@ class OnikiriParser{
         this.file_ = file;
 
         this.startParsing();
-        file.readlines(this.parseLine.bind(this));
-        this.finishParsing();
+        file.readlines(
+            this.parseLine.bind(this), 
+            this.finishParsing.bind(this)
+        );
     }
 
     getOps(start, end){
@@ -53,21 +55,17 @@ class OnikiriParser{
     }
 
     getOp(id){
-        let op;
-        if (this.opCache_[id] != null) {
-            op = this.opCache_[id];
-        } else {
-            op = null;
+        if (id > this.lastID_){
+            return null;
         }
-        if (op == null && !this.complete_) {
-            throw("Parsing...");
+        else{
+            return this.opCache_[id];
         }
-        return op;
     }
     
     getOpFromRID(rid){
         let cache = this.opCache_;
-        for (let i = cache.length - 1; i >= 0; i--) {
+        for (let i = this.lastID_; i >= 0; i--) {
             if (cache[i] && cache[i].rid == rid) {
                 return cache[i];
             }
