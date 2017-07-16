@@ -231,10 +231,14 @@ class OnikiriParser{
             stage.name = stageName;
             stage.startCycle = this.curCycle_;
             if (!(laneName in op.lanes)) {
-                op.lanes[laneName] = [];
+                op.lanes[laneName] = {
+                    level: 0,  // 1サイクル以上のステージの数
+                    stages: [],
+                };
             }
 
-            op.lanes[laneName].push(stage);
+            let laneInfo = op.lanes[laneName];
+            laneInfo.stages.push(stage);
             op.lastParsedStage = stageName;
 
             // X を名前に含むステージは実行ステージと見なす
@@ -249,22 +253,14 @@ class OnikiriParser{
 
             // ステージのマップに登録
             let map = this.stageLevelMap_;
-            let lane = op.lanes[laneName];
-            let level = -1;
-            for (let s of lane) {
-                if (s.startCycle != s.endCycle) {
-                    level++;
-                }
-            }
             if (stageName in map) {
-                if (map[stageName] > level) {
-                    map[stageName] = level;
+                if (map[stageName] > laneInfo.level) {
+                    map[stageName] = laneInfo.level;
                 }
             }
             else{
-                map[stageName] = level;
+                map[stageName] = laneInfo.level;
             }
-
             break;
         }
 
@@ -272,7 +268,8 @@ class OnikiriParser{
             let laneName = args[2];
             let stageName = args[3];
             let stage = null;
-            let lane = op.lanes[laneName];
+            let laneInfo = op.lanes[laneName];
+            let lane = laneInfo.stages;
             for (let i = lane.length - 1; i >= 0; i--) {
                 if (lane[i].name == stageName) {
                     stage = lane[i];
@@ -283,6 +280,13 @@ class OnikiriParser{
                 break;
             }
             stage.endCycle = this.curCycle_;
+
+            // レベルの更新
+            // フラッシュで無理矢理閉じられることがあるので，
+            // stageNameMap への登録はここでやってはいけない．
+            if (stage.startCycle != stage.endCycle) {
+                laneInfo.level++;
+            }
 
             // X を名前に含むステージは実行ステージと見なす
             if (stageName.match(/X/)){

@@ -16,16 +16,14 @@ class Op{
         this.fetchedCycle = -1;
         this.retiredCycle = -1;
 
-        this.line = 0;
+        this.line = 0;  // 行番号
         
-        this.labelName = "";
-        this.labelDetail = "";
+        this.labelName = "";    // 逆アセンブルのペーンに出すコメント
+        this.labelDetail = "";  // パイプラインのペーンに出すコメント
         this.labelStage = {};   // ステージごとのラベル
         
         this.lastParsedStage = "";
 
-        this.labels = []; // ラベル情報の入っている配列
-        
         this.prods = []; // プロデューサ命令のIDの配列
         this.cons = []; // コンシューマ命令のIDの配列
 

@@ -319,7 +319,7 @@ class KonataRenderer{
         let stageText = "";
         let first = true;
         for (let laneName in op.lanes) {
-            for (let stage of op.lanes[laneName]) {
+            for (let stage of op.lanes[laneName].stages) {
                 let start = stage.startCycle;
                 let end = stage.endCycle;
                 let length = end - start;
@@ -776,7 +776,7 @@ class KonataRenderer{
         let fontSizeRaw = self.stageFontSize_;
         ctx.font = self.stageFont_;
 
-        let lane = op.lanes[laneName];
+        let lane = op.lanes[laneName].stages;
         let top = h * self.opH_ + self.PIXEL_ADJUST;
         for (let i = 0, len = lane.length; i < len; i++) {
             let stage = lane[i];
