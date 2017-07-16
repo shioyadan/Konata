@@ -5,9 +5,6 @@ class OnikiriParser{
         this.Stage = require("./stage").Stage;
 
         this.file_ = null; 
-        
-        this.text = null;
-        this.lines_ = null;
 
         // 現在読み出し中のサイクル
         this.curCycle_ = 0;
@@ -17,13 +14,8 @@ class OnikiriParser{
         
         // op情報のキャッシュ（配列）
         this.opCache_ = [];
-        
-        // Line情報のキャッシュ（配列）
-        // Line情報とは、Nライン目においてフェッチされているOP番号やサイクル数の情報
-        this.lineCache_ = [];
-        this.lastIndex_ = null;
-        this.name_ = "OnikiriParser";
-        
+    
+        // パース完了
         this.complete_ = false;
 
         // 出現したレーンのマップ
@@ -40,22 +32,6 @@ class OnikiriParser{
 
     setFile(file){
         this.file_ = file;
-        let text = "";
-        if (this.file_.isText()) {
-            text = this.file_.getText();
-            this.lines_ = text.split("\n");
-        } else if (this.file_.getExtension() == ".gz") {
-            // 圧縮データなら展開する
-            console.log("Extract");
-            this.file_.extract().then(this.parseAllLines, null);
-        } else {
-            throw "Unknown file type.";
-        }
-
-        if (!this.check(text)) {
-            // 知らない文法ならなにもしない。
-            throw "Unknown file type.";
-        }
 
         this.startParsing();
         file.readlines(this.parseLine.bind(this));
@@ -108,12 +84,6 @@ class OnikiriParser{
 
     get stageLevelMap(){
         return this.stageLevelMap_;
-    }
-
-    // Private methods
-    // this.textの文法を確認し、Onikiriのものでなさそうならfalse
-    check(text){
-        return true;
     }
 
     startParsing(){
