@@ -130,6 +130,7 @@ class OnikiriParser{
             }
             op.retiredCycle = this.curCycle_;
             op.eof = true;
+            this.unescpaeLabels(op);
         }
         this.lastID_ = this.opCache_.length - 1;
         this.complete_ = true;
@@ -138,6 +139,20 @@ class OnikiriParser{
 
         this.updateCallback_();
         console.log(`parse complete (${elapsed} ms)`);
+    }
+
+    unescpaeLabels(op){
+        // op 内のラベルのエスケープされている \n を戻す
+        // v8 エンジンでは，文字列を結合すると cons 文字列という形式で
+        // 文字列のリストとして保持するが，これはメモリ効率が悪いが，
+        // 正規表現をかけるとそれが平坦化されるのでメモリ効率もあがる
+        // （op 1つあたり 2KB ぐらいメモリ使用量が減る
+        op.labelName = op.labelName.replace(/\\n/g, "\n");
+        op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
+        for (let i in op.labelStage) {
+            op.labelStage[i] = op.labelStage[i].replace(/\\n/g, "\n");
+        }
+
     }
 
     parseInitialCommand(id, op, args){
@@ -176,9 +191,7 @@ class OnikiriParser{
         // <Label Data>: 任意のテキスト
         let type = Number(args[2]);
 
-        // エスケープされている \n を戻す
-        let strRaw = args[3];
-        let str = strRaw.replace(/\\n/g, "\n");
+        let str = args[3];
 
         if (type == 0) {
             op.labelName += str;
@@ -275,6 +288,8 @@ class OnikiriParser{
         if (this.lastID_ < id) {
             this.lastID_ = id;
         }
+        this.unescpaeLabels(op);
+
     }
 
     parseDependencyCommand(id, op, args){
