@@ -18,9 +18,11 @@ class OnikiriParser{
 
         // 最後に読み出された命令の ID
         this.lastID_ = -1;
+        this.lastRetiredID_ = -1;
         
-        // op情報のキャッシュ（配列）
-        this.opCache_ = [];
+        // op 情報
+        this.opList_ = [];
+        this.retiredOpList_ = [];
     
         // パース完了
         this.complete_ = false;
@@ -49,7 +51,7 @@ class OnikiriParser{
             this.file_.close();
         }
         this.closed_ = true;
-        this.opCache_ = null;   // パージ
+        this.opList_ = null;   // パージ
         console.log(`closed ${this.file_.getPath()}`);
     }
 
@@ -87,18 +89,17 @@ class OnikiriParser{
             return null;
         }
         else{
-            return this.opCache_[id];
+            return this.opList_[id];
         }
     }
     
     getOpFromRID(rid){
-        let cache = this.opCache_;
-        for (let i = this.lastID_; i >= 0; i--) {
-            if (cache[i] && cache[i].rid == rid) {
-                return cache[i];
-            }
+        if (rid > this.lastRetiredID_){
+            return null;
         }
-        return null;
+        else{
+            return this.retiredOpList_[rid];
+        }
     }
 
     get lastID(){
@@ -140,9 +141,9 @@ class OnikiriParser{
         }
         
         // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
-        let i = this.opCache_.length - 1;
+        let i = this.opList_.length - 1;
         while (i >= 0) {
-            let op = this.opCache_[i];
+            let op = this.opList_[i];
             if (op.retired && !op.flush) {
                 break; // コミットされた命令がきたら終了
             }
@@ -154,7 +155,7 @@ class OnikiriParser{
             op.eof = true;
             this.unescpaeLabels(op);
         }
-        this.lastID_ = this.opCache_.length - 1;
+        this.lastID_ = this.opList_.length - 1;
         this.complete_ = true;
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
@@ -195,7 +196,7 @@ class OnikiriParser{
         op.tid = Number(args[3]);
         op.fetchedCycle = this.curCycle_;
         op.line = this.curLine_;
-        this.opCache_[id] = op;
+        this.opList_[id] = op;
     }
 
     parseLabelCommand(id, op, args){
@@ -312,6 +313,12 @@ class OnikiriParser{
         }
         this.unescpaeLabels(op);
 
+        if (!op.flush) {
+            this.retiredOpList_[op.rid] = op;
+            if (this.lastRetiredID_ < op.rid) {
+                this.lastRetiredID_ = op.rid;
+            }
+        }
     }
 
     parseDependencyCommand(id, op, args){
@@ -332,7 +339,7 @@ class OnikiriParser{
         op.prods.push(
             {id: prodId, type: type, cycle: this.curCycle_}
         );
-        this.opCache_[prodId].cons.push(
+        this.opList_[prodId].cons.push(
             {id: id, type: type, cycle: this.curCycle_}
         );
     }
@@ -343,8 +350,8 @@ class OnikiriParser{
 
         /** @type {Op}  */
         let op = null;
-        if (id in this.opCache_) {
-            op = this.opCache_[id];
+        if (id in this.opList_) {
+            op = this.opList_[id];
         }
         
         let cmd = args[0];
