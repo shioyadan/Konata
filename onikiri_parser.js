@@ -37,8 +37,11 @@ class OnikiriParser{
         // 読み出し開始時間
         this.startTime_ = 0;
 
-        // 更新間隔
-        this.updateCount_ = 100;    // 100行読んだら1回表示するようにしとく
+        // 更新間隔のタイマ
+        this.updateTimer_ = 100;    // 100行読んだら1回表示するようにしとく
+
+        // 更新ハンドラの呼び出し回数
+        this.updateCount_ = 0;    
 
         // 強制終了
         this.closed_ = false;
@@ -60,7 +63,7 @@ class OnikiriParser{
         return "OnikiriParser:(" + this.file_.getPath() + ")";
     }
 
-    // updateCallback(percent): 読み出し状況を 0 から 1.0 で渡す
+    // updateCallback(percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
     setFile(file, updateCallback, finishCallback){
         this.file_ = file;
         this.updateCallback_ = updateCallback;
@@ -135,10 +138,14 @@ class OnikiriParser{
         this.parseCommand(args);
         this.curLine_++;
         
-        this.updateCount_--;
-        if (this.updateCount_ < 0) {
-            this.updateCount_ = 1024*256;
-            this.updateCallback_(1.0 * this.curLine_ / 1000000);
+        this.updateTimer_--;
+        if (this.updateTimer_ < 0) {
+            this.updateTimer_ = 1024*32;
+            this.updateCallback_(
+                1.0 * this.file_.bytesRead / this.file_.fileSize,
+                this.updateCount_
+            );
+            this.updateCount_++;
         }
     }
 
@@ -167,7 +174,7 @@ class OnikiriParser{
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
 
-        this.updateCallback_();
+        this.updateCallback_(1.0, this.updateCount_);
         this.finishCallback_();
         console.log(`parse complete (${elapsed} ms)`);
     }

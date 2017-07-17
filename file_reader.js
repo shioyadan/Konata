@@ -1,14 +1,29 @@
 class FileReader{
-    constructor(file_path){
-
+    constructor(){
         this.path_ = require("path");
+        this.filePath_ = "";
+        this.readStream_ = null;
+        this.readIF_ = null;
+        this.fileSize_ = 0;
+    }
 
+    open(file_path){
 
-        this.file_path_ = file_path;
+        let fs = require("fs");
+
+        let stat = fs.statSync(file_path);
+        if (!stat) {
+            throw "Failed to fs.statSync(). There seems to be no file.";
+        }
+        else{
+            this.fileSize_ = stat.size;
+        }
+
+        this.filePath_ = file_path;
 
         //let zlib = require("zlib");
-        let fs = require("fs");
         let rs = fs.createReadStream(file_path);
+        this.readStream_ = rs;  // 読み出し量はファイルサイズ基準なので，こっちをセット
 
         if (this.getExtension(file_path) == ".gz") {
             let zlib = require("zlib");
@@ -17,14 +32,17 @@ class FileReader{
 
         let readline = require("readline");
         this.readIF_ = readline.createInterface(rs, {});
-    }
 
+    }
     close(){
-        this.readIF_.close();
+        if (this.readIF_){
+            this.readIF_.close();
+            this.readIF_ = null;
+        }
     }
 
     getPath(){
-        return this.file_path_;
+        return this.filePath_;
     }
 
     isText(){
@@ -49,6 +67,14 @@ class FileReader{
         this.readIF_.on("close", finish);
     }
 
+    get fileSize(){
+        return this.fileSize_;
+    }
+
+    get bytesRead(){
+        return this.readStream_.bytesRead;
+    }
+
     getText(){
         if (this.text_) {
             return this.text_;
@@ -58,7 +84,7 @@ class FileReader{
     }
 
     getExtension(){
-        let ext = this.path_.extname(this.file_path_);
+        let ext = this.path_.extname(this.filePath_);
         return ext;
     }
 }

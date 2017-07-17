@@ -193,12 +193,15 @@ class Store{
 
             try {
                 konata.openFile(fileName, 
-                    function(percent){  // 更新通知ハンドラ
-                        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+                    function(percent, count){  // 更新通知ハンドラ
                         self.trigger(CHANGE.PROGRESS_BAR_UPDATE, percent);
+                        if (count % 10 == 0) {
+                            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+                        }
                     },
                     function(){  // 読み出し終了ハンドラ
                         self.trigger(CHANGE.PROGRESS_BAR_FINISH);
+                        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
                     }
                 );
             }

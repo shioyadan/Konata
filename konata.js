@@ -7,8 +7,11 @@ class Konata{
     }
 
     close(){
-        this.parser_.close();
-        this.parser_ = null;
+        if (this.parser_) {
+            this.parser_.close();
+            this.parser_ = null;
+
+        }
     }
 
     openFile(path, updateCallback, finishCallback){
@@ -16,7 +19,9 @@ class Konata{
             this.close();
         }
 
-        let file = new this.FileReader_(path);
+        let file = new this.FileReader_();
+        file.open(path);
+
         let parser = new this.OnikiriParser_();
         this.parser_ = parser;
         console.log("Open :", path);
