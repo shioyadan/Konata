@@ -7,6 +7,7 @@ class Konata{
     }
 
     close(){
+        this.parser_.close();
         this.parser_ = null;
     }
 

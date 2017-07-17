@@ -36,9 +36,23 @@ class OnikiriParser{
 
         // 更新間隔
         this.updateCount_ = 100;    // 100行読んだら1回表示するようにしとく
+
+        // 強制終了
+        this.closed_ = false;
     }
     
     // Public methods
+
+    // 閉じる
+    close(){
+        if (this.file_) {
+            this.file_.close();
+        }
+        this.closed_ = true;
+        this.opCache_ = null;   // パージ
+        console.log(`closed ${this.file_.getPath()}`);
+    }
+
     getName(){
         return "OnikiriParser:(" + this.file_.getPath() + ")";
     }
@@ -105,6 +119,10 @@ class OnikiriParser{
     }
 
     parseLine(line){
+        if (this.closed_) {
+            return;
+        }
+
         let args = line.split("\t");
         this.parseCommand(args);
         this.curLine_++;
@@ -117,6 +135,10 @@ class OnikiriParser{
     }
 
     finishParsing() {
+        if (this.closed_) {
+            return;
+        }
+        
         // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
         let i = this.opCache_.length - 1;
         while (i >= 0) {

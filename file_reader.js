@@ -13,6 +13,10 @@ class FileReader{
         this.readIF_ = readline.createInterface(rs, {});
     }
 
+    close(){
+        this.readIF_.close();
+    }
+
     getPath(){
         return this.file_path_;
     }

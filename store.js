@@ -300,6 +300,7 @@ class Store{
                 return;
             }
 
+            self.tabs[id].konata.close();   // 非同期読み込みを明示的に終わらせる
             delete self.tabs[id];
             self.activeTab = null;
             for(let newID in self.tabs){
