@@ -1,8 +1,8 @@
 class Stage{
     constructor(){
         this.name = null;
-        this.startCycle = null;
-        this.endCycle = null;
+        this.startCycle = 0;
+        this.endCycle = 0;
     }
 }
 
