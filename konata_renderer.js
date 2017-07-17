@@ -264,6 +264,21 @@ class KonataRenderer{
         return this.hideFlushedOps ? this.konata_.lastRID : this.konata_.lastID;
     }
 
+    getPosY_FromRID(rid){
+        if (this.hideFlushedOps) {
+            return rid;   
+        }
+        else{
+            let op = this.getOpFromRID(rid);
+            if (op) {
+                return op.id;
+            }
+            else{
+                return -1;
+            }
+        }
+    }
+
     // id に対応する op を返す
     getOpFromID(id){
         let self = this;
@@ -287,6 +302,7 @@ class KonataRenderer{
         let self = this;
         return Math.floor(self.viewPos_.left + x / self.opW_);
     }
+
 
     // ピクセル座標に対応するツールチップのテキストを作る
     getLabelToolTipText(y){

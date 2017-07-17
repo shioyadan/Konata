@@ -157,7 +157,7 @@ class Store{
                 let id = RegExp.$1;
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
-                let op = renderer.getOpFromID(id);
+                let op = renderer.getVisibleOp(id);
                 if (op) {
                     self.startScroll([op.fetchedCycle - pos[0], id - pos[1]]);
                 }
@@ -169,8 +169,9 @@ class Store{
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
                 let op = renderer.getOpFromRID(rid);
+                let y = renderer.getPosY_FromRID(rid);
                 if (op) {
-                    self.startScroll([op.fetchedCycle - pos[0], op.id - pos[1]]);
+                    self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
                 }
             }
         });
