@@ -169,8 +169,8 @@ class OnikiriParser{
         // * 4列目はTID（スレッド識別子）
         op = new this.Op();
         op.id = id;
-        op.gid = args[2];
-        op.tid = args[3];
+        op.gid = Number(args[2]);
+        op.tid = Number(args[3]);
         op.fetchedCycle = this.curCycle_;
         op.line = this.curLine_;
         this.opCache_[id] = op;
@@ -280,7 +280,7 @@ class OnikiriParser{
 
     parseRetireCommand(id, op, args){
         op.retired = true;
-        op.rid = args[2];
+        op.rid = Number(args[2]);
         op.retiredCycle = this.curCycle_;
         if (Number(args[3]) == 1) {
             op.flush = true;

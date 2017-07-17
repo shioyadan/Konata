@@ -82,7 +82,6 @@ class KonataRenderer{
         self.viewPos_ = {left:0, top:0};
         self.zoomLevel_ = 0;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
-        self.laneNum_ = Object.keys(self.konata_.laneMap).length;
 
         self.updateScaleParameter();
     }
@@ -364,6 +363,9 @@ class KonataRenderer{
     updateScaleParameter(){
         let self = this;
         
+        // 非同期読み込みをしているので，レーンの数が変わりうる
+        self.laneNum_ = Object.keys(self.konata_.laneMap).length;
+
         let zoomScale = self.zoomScale_;
         let laneNum = self.laneNum_;
         let splitLanes = self.splitLanes_;
@@ -481,6 +483,7 @@ class KonataRenderer{
         let pos = self.viewPos_;
         let top = pos.top;
 
+        self.updateScaleParameter();    // 非同期読み込みの関係で，毎回呼ぶ必要がある
         self.drawLabelTile_(canvas, top);
         return true;
     }
@@ -538,6 +541,7 @@ class KonataRenderer{
         let top = pos.top;
         let left = pos.left;
 
+        self.updateScaleParameter();    // 非同期読み込みの関係で，毎回呼ぶ必要がある
         self.drawPipelineTile_(canvas, top, left);
         return true;
     }
