@@ -258,10 +258,10 @@ class KonataRenderer{
 
     // 論理Y座標に対応する，現在の表示モードの op を返す
     getVisibleOp(y){
-        return this.hideFlushedOps ? this.getOpFromID(y) : this.getOpFromRID(y);
+        return this.hideFlushedOps ? this.getOpFromRID(y) : this.getOpFromID(y);
     }
     getVisibleBottom(){
-        return this.hideFlushedOps ? this.konata_.lastID : this.konata_.lastRID;
+        return this.hideFlushedOps ? this.konata_.lastRID : this.konata_.lastID;
     }
 
     // id に対応する op を返す
