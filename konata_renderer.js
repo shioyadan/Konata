@@ -45,7 +45,7 @@ class KonataRenderer{
         this.fixOpHeight_ = false;   // レーンを分割して表示する際に高さを一定にするかどうか
 
         // フラッシュされた命令を隠すオプション
-        this.hideFlushedOps = false;
+        this.hideFlushedOps_ = false;
 
         // 線の描画がぼけるので，補正する
         // ref: http://stackoverflow.com/questions/18019453/svg-rectangle-blurred-in-all-browsers
@@ -258,14 +258,14 @@ class KonataRenderer{
 
     // 論理Y座標に対応する，現在の表示モードの op を返す
     getVisibleOp(y){
-        return this.hideFlushedOps ? this.getOpFromRID(y) : this.getOpFromID(y);
+        return this.hideFlushedOps_ ? this.getOpFromRID(y) : this.getOpFromID(y);
     }
     getVisibleBottom(){
-        return this.hideFlushedOps ? this.konata_.lastRID : this.konata_.lastID;
+        return this.hideFlushedOps_ ? this.konata_.lastRID : this.konata_.lastID;
     }
 
     getPosY_FromRID(rid){
-        if (this.hideFlushedOps) {
+        if (this.hideFlushedOps_) {
             return rid;   
         }
         else{
@@ -443,6 +443,16 @@ class KonataRenderer{
         this.fixOpHeight_ = f;
         this.updateScaleParameter();
     }
+
+    // フラッシュされた命令を隠すかどうか
+    get hideFlushedOps(){
+        return this.hideFlushedOps_;
+    }
+    set hideFlushedOps(h){
+        this.hideFlushedOps_ = h;
+        this.updateScaleParameter();
+    }
+
 
     // パイプラインの中まで詳細に表示するかどうか
     // 拡大率によって決定
@@ -663,7 +673,7 @@ class KonataRenderer{
                 if (!cons) {
                     continue;
                 }
-                if (this.hideFlushedOps && cons.flush) {
+                if (this.hideFlushedOps_ && cons.flush) {
                     continue;
                 }
                 let consCycle = cons.consCycle;

@@ -71,6 +71,14 @@ function installMainMenu(){
                         }
                     },
                     {
+                        label: "Hide flushed ops",
+                        type: "checkbox",
+                        checked: tab ? tab.hideFlushedOps : false, 
+                        click: function(e){
+                            rc.trigger(ACTION.KONATA_HIDE_FLUSHED_OPS, tabID, e.checked);
+                        }
+                    },
+                    {
                         label: "Color scheme",
                         submenu: ["Auto", "Orange", "RoyalBlue", "Onikiri"].map(function(color){
                             return {
@@ -204,6 +212,14 @@ function makePopupTabMenuTemaplte(tabID){
             }
         },
         {
+            label: "Hide flushed ops",
+            type: "checkbox",
+            checked: tab.hideFlushedOps, 
+            click: function(e){
+                rc.trigger(ACTION.KONATA_HIDE_FLUSHED_OPS, tabID, e.checked);
+            }
+        },
+        {
             label: "Color scheme",
             submenu: ["Auto", "Orange", "RoyalBlue", "Onikiri"].map(function(color){
                 return {
@@ -234,6 +250,7 @@ function popupPipelineMenu(pos){
     let rc = RiotControl;
     let remote = require("electron").remote;
 
+    // 右クリック時専用
     let menuTemplate = [
         {
             label: "Adjust position",
@@ -262,6 +279,7 @@ function popupPipelineMenu(pos){
         },
     ];
 
+    // タブごとの右クリックメニューを結合
     menuTemplate = menuTemplate.concat(makePopupTabMenuTemaplte(store.activeTab.id));
 
     let Menu = remote.Menu;

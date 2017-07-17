@@ -46,6 +46,7 @@ const ACTION = {
     KONATA_SET_DEP_ARROW_TYPE: 88,  // 依存関係の矢印のタイプの設定
     KONATA_SPLIT_LANES: 89,         // レーンを分割して表示するか
     KONATA_FIX_OP_HEIGHT: 90,       // レーン分割時に高さを一定にするかどうか
+    KONATA_HIDE_FLUSHED_OPS: 91,         // フラッシュされた命令を隠すかどうか
 
 
 };
@@ -215,6 +216,7 @@ class Store{
                 renderer: renderer,
                 splitterPos: 450,   // スプリッタの位置
                 transparent: false, // 透明化の有効無効
+                hideFlushedOps: false,  // フラッシュされた命令を隠すか
                 emphasize_in_transparent: false, // 透明化の際に表示を強調するかどうか
                 colorScheme: "Auto",  // カラースキーム
                 syncScroll: false,  // スクロールを同期 
@@ -584,6 +586,18 @@ class Store{
             for (let tabID in self.tabs) {
                 self.tabs[tabID].renderer.fixOpHeight = enabled;
             }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // パイプラインのペーンを透明化
+        self.on(ACTION.KONATA_HIDE_FLUSHED_OPS, function(tabID, enable){
+            if (!(tabID in self.tabs)) {
+                return;
+            }
+            let tab = self.tabs[tabID];
+            tab.hideFlushedOps = enable;
+            self.tabs[tabID].renderer.hideFlushedOps = enable;
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             self.trigger(CHANGE.MENU_UPDATE);
         });
