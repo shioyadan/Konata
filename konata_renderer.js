@@ -44,6 +44,9 @@ class KonataRenderer{
         this.splitLanes_ = false;    // レーンを分割して表示するかどうか
         this.fixOpHeight_ = false;   // レーンを分割して表示する際に高さを一定にするかどうか
 
+        // フラッシュされた命令を隠すオプション
+        this.hideFlushedOps = false;
+
         // 線の描画がぼけるので，補正する
         // ref: http://stackoverflow.com/questions/18019453/svg-rectangle-blurred-in-all-browsers
         this.PIXEL_ADJUST = 0.5;    
@@ -255,10 +258,10 @@ class KonataRenderer{
 
     // 論理Y座標に対応する，現在の表示モードの op を返す
     getVisibleOp(y){
-        return this.getOpFromID(y);
+        return this.hideFlushedOps ? this.getOpFromID(y) : this.getOpFromRID(y);
     }
     getVisibleBottom(){
-        return this.konata_.lastID;
+        return this.hideFlushedOps ? this.konata_.lastID : this.konata_.lastRID;
     }
 
     // id に対応する op を返す
@@ -642,6 +645,9 @@ class KonataRenderer{
 
                 let cons = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
                 if (!cons) {
+                    continue;
+                }
+                if (this.hideFlushedOps && cons.flush) {
                     continue;
                 }
                 let consCycle = cons.consCycle;

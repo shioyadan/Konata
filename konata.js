@@ -38,6 +38,10 @@ class Konata{
         return this.parser_.lastID;
     }
 
+    get lastRID(){
+        return this.parser_.lastRID;
+    }
+
     get laneMap(){
         return this.parser_.laneMap;
     }

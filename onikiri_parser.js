@@ -18,7 +18,7 @@ class OnikiriParser{
 
         // 最後に読み出された命令の ID
         this.lastID_ = -1;
-        this.lastRetiredID_ = -1;
+        this.lastRID_ = -1;
         
         // op 情報
         this.opList_ = [];
@@ -94,7 +94,7 @@ class OnikiriParser{
     }
     
     getOpFromRID(rid){
-        if (rid > this.lastRetiredID_){
+        if (rid > this.lastRID_){
             return null;
         }
         else{
@@ -104,6 +104,10 @@ class OnikiriParser{
 
     get lastID(){
         return this.lastID_;
+    }
+
+    get lastRID(){
+        return this.lastRID_;
     }
 
     get laneMap(){
@@ -315,8 +319,8 @@ class OnikiriParser{
 
         if (!op.flush) {
             this.retiredOpList_[op.rid] = op;
-            if (this.lastRetiredID_ < op.rid) {
-                this.lastRetiredID_ = op.rid;
+            if (this.lastRID_ < op.rid) {
+                this.lastRID_ = op.rid;
             }
         }
     }
