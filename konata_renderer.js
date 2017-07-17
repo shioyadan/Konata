@@ -174,25 +174,25 @@ class KonataRenderer{
     adjustScrpllDiifX(diffY){
         let self = this;
         let posY = self.viewPos_.top;
-        let id = Math.floor(posY);
-        if (id < 0 || id > self.getVisibleBottom()){
+        let y = Math.floor(posY);
+        if (y < 0 || y > self.getVisibleBottom()){
             return 0;
         }
 
         // 画面に表示されているものの中で最も上にあるものを基準に
         let oldOp = null;
-        oldOp = self.getVisibleOp(id);
+        oldOp = self.getVisibleOp(y);
         while (!oldOp || oldOp.retiredCycle < self.viewPos_.left) {
-            id++;
-            oldOp = self.getVisibleOp(id);
-            if (id > self.getVisibleBottom()){
+            y++;
+            oldOp = self.getVisibleOp(y);
+            if (y > self.getVisibleBottom()){
                 // 画面に表示されている op が一切無かった場合は帰る
                 return 0;
             }
         }
 
         // 水平方向の補正を行う
-        let newTop = id + diffY;
+        let newTop = y + diffY;
         let newOp = self.getVisibleOp(Math.floor(newTop));
         let left = self.viewPos_.left;
         if (!newOp) {
@@ -216,9 +216,9 @@ class KonataRenderer{
         let self = this;
         let posY = self.viewPos_.top + diff[1];
 
-        let id = Math.floor(posY);
+        let y = Math.floor(posY);
         let op = null;
-        op = self.getVisibleOp(id);
+        op = self.getVisibleOp(y);
 
         let oldTop = self.viewPos_.top;
         self.viewPos_.top = posY;
@@ -276,8 +276,8 @@ class KonataRenderer{
     // ピクセル座標から対応する op を返す
     getOpFromPixelPosY(y){
         let self = this;
-        let id = Math.floor(self.viewPos_.top + y / self.opH_);
-        return self.getVisibleOp(id);   
+        let logY = Math.floor(self.viewPos_.top + y / self.opH_);
+        return self.getVisibleOp(logY);   
     }
 
     getCycleFromPixelPosX(x){
@@ -527,12 +527,12 @@ class KonataRenderer{
         let marginTop = (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
 
         try {
-            for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
+            for (let logY = Math.floor(logTop); logY < logTop + logHeight; logY++) {
                 let x = marginLeft;
-                let y = (id - logTop) * self.opH_ + marginTop;
-                let op = self.getVisibleOp(id);
+                let y = (logY - logTop) * self.opH_ + marginTop;
+                let op = self.getVisibleOp(logY);
                 if (op) {
-                    let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
+                    let text = `${logY}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
                     ctx.fillText(text, x, y);
                 }
             }
@@ -580,13 +580,13 @@ class KonataRenderer{
         }
 
         // タイルの描画
-        for (let id = Math.floor(top); id < top + height; id++) {
-            if (scale < 0.005 && id % self.drawingInterval_  != 0) {
+        for (let y = Math.floor(top); y < top + height; y++) {
+            if (scale < 0.005 && y % self.drawingInterval_  != 0) {
                 continue;
             }
             let op = null;
             try {
-                op = self.getVisibleOp(id);
+                op = self.getVisibleOp(y);
             } catch(e) {
                 console.log(e);
                 return;
@@ -594,7 +594,7 @@ class KonataRenderer{
             if (op == null) {
                 break;
             }
-            if (!self.drawOp_(op, id - top + offsetY, left, left + width, scale, ctx)) {
+            if (!self.drawOp_(op, y - top + offsetY, left, left + width, scale, ctx)) {
                 break;
             }
         }
@@ -627,8 +627,8 @@ class KonataRenderer{
         ctx.strokeStyle = "rgb(170,30,30)";
         ctx.fillStyle = "rgb(170,30,30)";
 
-        for (let id = Math.floor(logTop - logHeight); id < logTop + logHeight; id++) {
-            let op = self.getVisibleOp(id);
+        for (let y = Math.floor(logTop - logHeight); y < logTop + logHeight; y++) {
+            let op = self.getVisibleOp(y);
             if (!op) {
                 continue;
             }
@@ -640,7 +640,7 @@ class KonataRenderer{
 
             for (let dep of op.cons) {
 
-                let cons = self.getVisibleOp(dep.id);
+                let cons = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
                 if (!cons) {
                     continue;
                 }
@@ -651,7 +651,7 @@ class KonataRenderer{
 
                 if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
                     let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
-                    let yBegin = (id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let yBegin = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
                     let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
                     let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
 
@@ -659,7 +659,7 @@ class KonataRenderer{
                 }
                 else {
                     let xBegin = (op.fetchedCycle - logLeft) * self.opW_;
-                    let yBegin = (id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let yBegin = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
                     let xEnd = (cons.fetchedCycle - logLeft) * self.opW_;
                     let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
 
