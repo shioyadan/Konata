@@ -9,6 +9,12 @@ class FileReader{
         //let zlib = require("zlib");
         let fs = require("fs");
         let rs = fs.createReadStream(file_path);
+
+        if (this.getExtension(file_path) == ".gz") {
+            let zlib = require("zlib");
+            rs = rs.pipe(zlib.createGunzip());
+        }
+
         let readline = require("readline");
         this.readIF_ = readline.createInterface(rs, {});
     }
