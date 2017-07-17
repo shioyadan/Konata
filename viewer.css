@@ -78,3 +78,18 @@ html, body {
 .command_pallete_input {
     width: 100%;
 }
+
+/* プログレスバー */
+.progress_bar {
+    background: rgb(100, 150, 255);
+    width: 100%;
+    height: 2px;
+
+    /* 初期は非表示 */
+    visibility: hidden;
+
+    /* 絶対位置 */
+    position: absolute;
+    z-index: 100;
+
+}

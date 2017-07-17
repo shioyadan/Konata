@@ -72,6 +72,9 @@ const CHANGE = {
     MENU_UPDATE: 120,   // メニュー内容の更新
 
     SHEET_UPDATE_DEV_TOOL: 190,    // 開発者ツールの表示
+
+    PROGRESS_BAR_UPDATE: 200,    // 読み込みのプレグレスバーの更新
+    PROGRESS_BAR_FINISH: 201,    // ファイル読み込み終了
 };
 
 class Store{
@@ -189,10 +192,15 @@ class Store{
             let konata = new Konata.Konata();
 
             try {
-                konata.openFile(fileName, function(){
-                    // 更新通知ハンドラ
-                    self.trigger(CHANGE.PANE_CONTENT_UPDATE);
-                });
+                konata.openFile(fileName, 
+                    function(percent){  // 更新通知ハンドラ
+                        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+                        self.trigger(CHANGE.PROGRESS_BAR_UPDATE, percent);
+                    },
+                    function(){  // 読み出し終了ハンドラ
+                        self.trigger(CHANGE.PROGRESS_BAR_FINISH);
+                    }
+                );
             }
             catch (e) {
                 konata.close();

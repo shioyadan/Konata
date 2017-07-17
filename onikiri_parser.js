@@ -7,8 +7,9 @@ class OnikiriParser{
         // ファイルリーダ
         this.file_ = null; 
 
-        // 更新通知のコールバック
+        // 更新通知と狩猟のコールバック
         this.updateCallback_ = null;
+        this.finishCallback_ = null;
 
         // 現在の行番号
         this.curLine_ = 1;
@@ -59,9 +60,11 @@ class OnikiriParser{
         return "OnikiriParser:(" + this.file_.getPath() + ")";
     }
 
-    setFile(file, updateCallback){
+    // updateCallback(percent): 読み出し状況を 0 から 1.0 で渡す
+    setFile(file, updateCallback, finishCallback){
         this.file_ = file;
         this.updateCallback_ = updateCallback;
+        this.finishCallback_ = finishCallback;
         this.startTime_ = (new Date()).getTime();
 
         this.startParsing();
@@ -135,7 +138,7 @@ class OnikiriParser{
         this.updateCount_--;
         if (this.updateCount_ < 0) {
             this.updateCount_ = 1024*256;
-            this.updateCallback_();
+            this.updateCallback_(1.0 * this.curLine_ / 1000000);
         }
     }
 
@@ -165,6 +168,7 @@ class OnikiriParser{
         let elapsed = ((new Date()).getTime() - this.startTime_);
 
         this.updateCallback_();
+        this.finishCallback_();
         console.log(`parse complete (${elapsed} ms)`);
     }
 

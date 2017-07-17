@@ -696,8 +696,50 @@
             }
         );
 
-</script>
+    </script>
 </app_command_pallete>
+
+<!-- 読み込みのプレグレスバー -->
+<app_progress_bar>
+
+    <div ref="progress_bar" class="progress_bar">
+    </div>
+
+    <script>
+        let self = this;
+        self.init = function(){
+        };
+        // エントリポイント
+        self.on("mount", self.init);
+
+        // オープン
+        RiotControl.on(CHANGE.TAB_OPEN,
+            function(){
+                let bar = self.refs.progress_bar.style;
+                bar.width = "0%";
+                bar.visibility = "visible";
+            }
+        );
+
+        // プログレスバー
+        RiotControl.on(CHANGE.PROGRESS_BAR_UPDATE,
+            function(percent){
+                let bar = self.refs.progress_bar.style;
+                bar.width = 100 * percent + "%";
+            }
+        );
+        
+        RiotControl.on(CHANGE.PROGRESS_BAR_FINISH,
+            function(){
+                let bar = self.refs.progress_bar.style;
+                bar.visibility = "hidden";
+            }
+        );
+
+</script>
+</app_progress_bar>
+
+
 
 <!-- Application -->
 <app>
@@ -722,6 +764,9 @@
 
     <!-- コマンドパレット -->
     <app_command_pallete></app_command_pallete>
+
+    <!-- 読み込みのプレグレスバー -->
+    <app_progress_bar></app_progress_bar>
 
     <script>
         let self = this;
