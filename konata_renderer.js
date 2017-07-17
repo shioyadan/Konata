@@ -175,17 +175,17 @@ class KonataRenderer{
         let self = this;
         let posY = self.viewPos_.top;
         let id = Math.floor(posY);
-        if (id < 0 || id > self.konata_.lastID){
+        if (id < 0 || id > self.getVisibleBottom()){
             return 0;
         }
 
         // 画面に表示されているものの中で最も上にあるものを基準に
         let oldOp = null;
-        oldOp = self.konata_.getOp(id);
+        oldOp = self.getVisibleOp(id);
         while (!oldOp || oldOp.retiredCycle < self.viewPos_.left) {
             id++;
-            oldOp = self.konata_.getOp(id);
-            if (id > self.konata_.lastID){
+            oldOp = self.getVisibleOp(id);
+            if (id > self.getVisibleBottom()){
                 // 画面に表示されている op が一切無かった場合は帰る
                 return 0;
             }
@@ -193,7 +193,7 @@ class KonataRenderer{
 
         // 水平方向の補正を行う
         let newTop = id + diffY;
-        let newOp = self.konata_.getOp(Math.floor(newTop));
+        let newOp = self.getVisibleOp(Math.floor(newTop));
         let left = self.viewPos_.left;
         if (!newOp) {
             return 0;
@@ -218,14 +218,14 @@ class KonataRenderer{
 
         let id = Math.floor(posY);
         let op = null;
-        op = self.konata_.getOp(id);
+        op = self.getVisibleOp(id);
 
         let oldTop = self.viewPos_.top;
         self.viewPos_.top = posY;
 
         if (adjust && op) {
             // 水平方向の補正を行う
-            let oldOp = self.konata_.getOp(Math.floor(oldTop));
+            let oldOp = self.getVisibleOp(Math.floor(oldTop));
             if (!oldOp) {
                 self.viewPos_.left = op.fetchedCycle;
             }
@@ -253,6 +253,14 @@ class KonataRenderer{
         self.viewPos_.top = pos[1];
     }
 
+    // 論理Y座標に対応する，現在の表示モードの op を返す
+    getVisibleOp(y){
+        return this.getOpFromID(y);
+    }
+    getVisibleBottom(){
+        return this.konata_.lastID;
+    }
+
     // id に対応する op を返す
     getOpFromID(id){
         let self = this;
@@ -269,7 +277,7 @@ class KonataRenderer{
     getOpFromPixelPosY(y){
         let self = this;
         let id = Math.floor(self.viewPos_.top + y / self.opH_);
-        return self.konata_.getOp(id);   
+        return self.getVisibleOp(id);   
     }
 
     getCycleFromPixelPosX(x){
@@ -522,7 +530,7 @@ class KonataRenderer{
             for (let id = Math.floor(logTop); id < logTop + logHeight; id++) {
                 let x = marginLeft;
                 let y = (id - logTop) * self.opH_ + marginTop;
-                let op = self.konata_.getOp(id);
+                let op = self.getVisibleOp(id);
                 if (op) {
                     let text = `${id}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
                     ctx.fillText(text, x, y);
@@ -578,7 +586,7 @@ class KonataRenderer{
             }
             let op = null;
             try {
-                op = self.konata_.getOp(id);
+                op = self.getVisibleOp(id);
             } catch(e) {
                 console.log(e);
                 return;
@@ -596,8 +604,8 @@ class KonataRenderer{
 
 
         // 下側にはみ出ていた場合，暗く描画
-        if (top - offsetY + height > self.konata_.lastID) {
-            let begin = tile.height - (top - offsetY + height - self.konata_.lastID) * self.opH_ + self.PIXEL_ADJUST;
+        if (top - offsetY + height > self.getVisibleBottom()) {
+            let begin = tile.height - (top - offsetY + height - self.getVisibleBottom()) * self.opH_ + self.PIXEL_ADJUST;
             begin = Math.max(0, begin);
             ctx.fillStyle = "rgb(128,128,128)";
             ctx.fillRect(0, begin, tile.width, tile.height);
@@ -620,7 +628,7 @@ class KonataRenderer{
         ctx.fillStyle = "rgb(170,30,30)";
 
         for (let id = Math.floor(logTop - logHeight); id < logTop + logHeight; id++) {
-            let op = self.konata_.getOp(id);
+            let op = self.getVisibleOp(id);
             if (!op) {
                 continue;
             }
@@ -632,7 +640,7 @@ class KonataRenderer{
 
             for (let dep of op.cons) {
 
-                let cons = self.konata_.getOp(dep.id);
+                let cons = self.getVisibleOp(dep.id);
                 if (!cons) {
                     continue;
                 }
