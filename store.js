@@ -601,16 +601,32 @@ class Store{
             self.trigger(CHANGE.MENU_UPDATE);
         });
 
-        // パイプラインのペーンを透明化
+        // フラッシュされた命令を表示しない
         self.on(ACTION.KONATA_HIDE_FLUSHED_OPS, function(tabID, enable){
             if (!(tabID in self.tabs)) {
                 return;
             }
             let tab = self.tabs[tabID];
+            let renderer = self.tabs[tabID].renderer;
+
+            // 現在の表示位置を取得
+            let orgOp = renderer.getOpFromPixelPosY(0);
+            let rid = 0;
+            if (orgOp) {
+                rid = orgOp.rid;
+            }
+
             tab.hideFlushedOps = enable;
-            self.tabs[tabID].renderer.hideFlushedOps = enable;
-            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            renderer.hideFlushedOps = enable;
+
+            // 元の命令の RID の位置に移動
+            let op = renderer.getOpFromRID(rid);
+            if (op) {
+                renderer.moveLogicalPos([op.fetchedCycle, enable ? rid : op.id]);
+            }
+
             self.trigger(CHANGE.MENU_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
         // パイプラインのペーンを透明化
