@@ -51,9 +51,6 @@ class OnikiriParser{
 
     // 閉じる
     close(){
-        if (this.file_) {
-            this.file_.close();
-        }
         this.closed_ = true;
         this.opList_ = null;   // パージ
         console.log(`closed ${this.file_.getPath()}`);

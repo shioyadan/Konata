@@ -4,29 +4,42 @@ class Konata{
         this.parser_ = null;
         this.FileReader_ = require("./file_reader").FileReader;
         this.OnikiriParser_ = require("./onikiri_parser").OnikiriParser;
+
+        this.file_ = null;
+        this.filePath_ = ""; 
+        this.updateCallback_ = null;
+        this.finishCallback_ = null;
     }
 
     close(){
         if (this.parser_) {
             this.parser_.close();
             this.parser_ = null;
-
+        }
+        if (this.file_){
+            this.file_.close();
+            this.file_ = null;
         }
     }
 
     openFile(path, updateCallback, finishCallback){
-        if (this.files != null) {
-            this.close();
-        }
+        this.filePath_ = path;
+        this.updateCallback_ = updateCallback;
+        this.finishCallback_ = finishCallback;
 
-        let file = new this.FileReader_();
-        file.open(path);
+        this.reload();
+    }
+
+    reload(){
+        this.close();
+        this.file_ = new this.FileReader_();
+        this.file_.open(this.filePath_);
 
         let parser = new this.OnikiriParser_();
         this.parser_ = parser;
-        console.log("Open :", path);
+        console.log("Open :", this.filePath_);
 
-        parser.setFile(file, updateCallback, finishCallback);
+        parser.setFile(this.file_, this.updateCallback_, this.finishCallback_);
         console.log("Selected parser:" , parser.getName());
     }
 

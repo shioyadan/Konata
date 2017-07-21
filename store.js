@@ -257,7 +257,7 @@ class Store{
         // ファイルリロード
         self.on(ACTION.FILE_RELOAD, function(){
             let konata = self.activeTab.konata;
-            konata.openFile(self.activeTab.fileName);
+            konata.reload();
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
