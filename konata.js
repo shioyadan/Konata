@@ -20,6 +20,7 @@ class Konata{
             this.file_.close();
             this.file_ = null;
         }
+        console.log(`closed ${this.filePath_}`);
     }
 
     openFile(path, updateCallback, finishCallback){
@@ -39,7 +40,15 @@ class Konata{
         this.parser_ = parser;
         console.log("Open :", this.filePath_);
 
-        parser.setFile(this.file_, this.updateCallback_, this.finishCallback_);
+        let self = this;
+        parser.setFile(
+            this.file_, 
+            this.updateCallback_, 
+            function(){ // Finish handler
+                self.file_.close();
+                self.finishCallback_();
+            }
+        );
         console.log("Selected parser:" , parser.getName());
     }
 
