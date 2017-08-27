@@ -16,5 +16,8 @@
     "riot": "^3.0.4",
     "riot-route": "^3.0.2",
     "riotcontrol": "^0.0.3"
+  },
+  "devDependencies": {
+    "electron": "^1.7.5"
   }
 }

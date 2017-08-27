@@ -6,7 +6,7 @@ build: clean
 		--out=packaging-work \
 		--platform=darwin,win32,linux \
 		--arch=x64  \
-		--electron-version=1.4.13 \
+		--electron-version=1.7.5 \
 		--ignore work \
 		--ignore packaging-work \
 
