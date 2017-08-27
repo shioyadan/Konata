@@ -34,10 +34,15 @@ class FileReader{
         this.readIF_ = readline.createInterface(rs, {});
 
     }
+
     close(){
         if (this.readIF_){
             this.readIF_.close();
             this.readIF_ = null;
+        }
+        if (this.readStream_) {
+            this.readStream_.destroy();
+            this.readStream_ = null;
         }
     }
 
