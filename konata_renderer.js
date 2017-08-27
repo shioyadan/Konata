@@ -674,18 +674,21 @@ class KonataRenderer{
                     continue;
                 }
                 if (this.hideFlushedOps_ && cons.flush) {
-                    continue;
+                    continue;   // フラッシュされた命令は表示しない
                 }
                 let consCycle = cons.consCycle;
                 if (consCycle == -1) {
                     continue;
                 }
 
+                // フラッシュされた命令を表示するかどうかで位置を変える
+                let yCons = this.hideFlushedOps_ ? cons.rid : cons.id;  
+
                 if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
                     let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
                     let yBegin = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
                     let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
-                    let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let yEnd = (yCons - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
 
                     self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin]);
                 }
@@ -693,7 +696,7 @@ class KonataRenderer{
                     let xBegin = (op.fetchedCycle - logLeft) * self.opW_;
                     let yBegin = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
                     let xEnd = (cons.fetchedCycle - logLeft) * self.opW_;
-                    let yEnd = (cons.id - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let yEnd = (yCons - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
 
                     self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0]);
                 }
