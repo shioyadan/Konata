@@ -108,7 +108,7 @@ class Store{
         this.showDevTool = false;
 
         // 依存関係の矢印のタイプ
-        this.depArrowType = KonataRenderer.DEP_ARROW_INSIDE_LINE;
+        this.depArrowType = KonataRenderer.DEP_ARROW_TYPE.INSIDE_LINE;
         this.splitLanes = false;
         this.fixOpHeight = false;
 
