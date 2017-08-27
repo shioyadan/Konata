@@ -3,7 +3,12 @@
 const electron = require("electron");
 const {app} = electron;
 const {BrowserWindow} = electron;
+
+// __dirname には現在のファイルの場所が入る
 let currentURL = "file://" + __dirname + "/index.html";
+
+// 使用できるメモリの最大使用量を 8GB に
+app.commandLine.appendSwitch("js-flags", "--max-old-space-size=8192");
 
 // メインウィンドウはGCされないようにグローバル宣言
 let m_window = null;
