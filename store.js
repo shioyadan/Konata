@@ -317,6 +317,7 @@ class Store{
             self.tabs[id].konata.close();   // 非同期読み込みを明示的に終わらせる
             delete self.tabs[id];
             self.activeTab = null;
+
             for(let newID in self.tabs){
                 self.activeTabID = newID;
                 self.activeTab = self.tabs[newID];
@@ -328,6 +329,7 @@ class Store{
             self.trigger(CHANGE.TAB_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             self.trigger(CHANGE.MENU_UPDATE);
+            self.trigger(CHANGE.PROGRESS_BAR_FINISH);   // 読み込み中なら，更新を終了
         });
 
         // ウィンドウのサイズ変更
