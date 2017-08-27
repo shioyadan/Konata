@@ -330,6 +330,17 @@ class OnikiriParser{
                 this.lastRID_ = op.rid;
             }
         }
+
+        // 閉じていないステージがあった場合はここで閉じる
+        for (let laneName in op.lanes) {
+            let stages = op.lanes[laneName].stages;
+            if (stages.length > 0) {
+                let stage = stages[stages.length - 1];
+                if (stage.endCycle == 0) {
+                    stage.endCycle = this.curCycle_;
+                }
+            }
+        }
     }
 
     parseDependencyCommand(id, op, args){

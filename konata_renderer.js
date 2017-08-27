@@ -827,7 +827,7 @@ class KonataRenderer{
         let top = h * self.opH_ + self.PIXEL_ADJUST;
         for (let i = 0, len = lane.length; i < len; i++) {
             let stage = lane[i];
-            if (stage.endCycle == null) {
+            if (stage.endCycle == 0) {
                 stage.endCycle = op.retiredCycle;
             }
             if (stage.endCycle < startCycle) {
