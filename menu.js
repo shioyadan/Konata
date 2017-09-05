@@ -63,6 +63,15 @@ function installMainMenu(){
                 enabled: tab ? true : false,
                 submenu: [
                     {
+                        label: "Commpand palette",
+                        click: function(){
+                            rc.trigger(ACTION.COMMAND_PALETTE_OPEN);
+                        }
+                    },
+                    {
+                        type: "separator"
+                    },
+                    {
                         label: "Transparent mode",
                         type: "checkbox",
                         checked: tab ? tab.transparent : false, 
