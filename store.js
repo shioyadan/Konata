@@ -20,6 +20,7 @@ const ACTION = {
     FILE_OPEN: 20,
     FILE_RELOAD: 21,
     FILE_CHECK_RELOAD: 22,
+    FILE_SHOW_STATS: 23,
 
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
@@ -276,6 +277,14 @@ class Store{
             self.activeTab.lastFileCheckedTime = mtime;
         });
 
+        // Show statistics
+        self.on(ACTION.FILE_SHOW_STATS, function(){
+            let konata = self.activeTab.konata;
+            konata.stats(function(stats){
+                // self.trigger(ACTION.DIALOG_MODAL_MESSAGE, JSON.stringify(stats));
+                self.trigger(ACTION.DIALOG_MODAL_MESSAGE, "test<br>test");
+            });
+        });
 
         // アクティブなタブの変更
         self.on(ACTION.TAB_ACTIVATE, function(id){

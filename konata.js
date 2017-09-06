@@ -52,6 +52,9 @@ class Konata{
         console.log("Selected parser:" , parser.getName());
     }
 
+    /**
+     * @return {Op} id に対応した op を返す
+     */
     getOp(id){
         return this.parser_.getOp(id);
     }
@@ -74,6 +77,32 @@ class Konata{
 
     get stageLevelMap(){
         return this.parser_.stageLevelMap;
+    }
+
+    // パイプライン中の統計を計算し，終わったら callback に渡す
+    stats(callback){
+        let lastID = this.lastID;
+        let s = {
+            numFlush: 0,
+            numFlushedOp: 0,
+            numBr: 0
+        };
+        let prevFlushed = false;
+        for (let i = 0; i < lastID; i++) {
+            let op = this.getOp(i);
+            if (op.flush) {
+                s.numFlushedOp++;
+                if (!prevFlushed) {
+                    s.numFlush++;
+                }
+            }
+            prevFlushed = op.flush;
+            
+            if (op.labelName.match(/[\s][b][^\s]*[\s]/)) {
+                s.numBr++;
+            }
+        }
+        callback(s);
     }
 
 }

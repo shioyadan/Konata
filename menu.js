@@ -27,6 +27,12 @@ function installMainMenu(){
                         click: function(){rc.trigger(ACTION.FILE_RELOAD);}
                     },
                     {
+                        label: "Stats",
+                        enabled: tab ? true : false,
+                        accelerator: "Command+T",
+                        click: function(){rc.trigger(ACTION.FILE_SHOW_STATS);}
+                    },
+                    {
                         label: "Quit",
                         accelerator: "Command+Q",
                         click: function(){rc.trigger(ACTION.APP_QUIT);}
