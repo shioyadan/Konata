@@ -125,7 +125,7 @@ class Konata{
             prevFlushed = op.flush;
             
             // ラベル内に b で始まる単語が入っていれば分岐
-            if (op.labelName.match(/[\s][b][^\s]*[\s]/)) {
+            if (op.labelName.match(/[\s][b][^\s]*[\s]*/)) {
                 s.numBr++;
                 prevBr = true;
             }
@@ -133,7 +133,7 @@ class Konata{
                 prevBr = false;
             }
 
-            if (op.labelName.match(/[\s]([j])|(call)|(ret)[^\s]*[\s]/)) {
+            if (op.labelName.match(/[\s]([j])|(call)|(ret)[^\s]*[\s]*/)) {
                 s.numJump++;
                 prevJump = true;
             }
