@@ -83,24 +83,43 @@ class Konata{
     stats(callback){
         let lastID = this.lastID;
         let s = {
-            numFetchedOp: lastID,
-            numCommittedOp: this.lastRID,
-            numFlush: 0,
-            numFlushedOp: 0,
-            numBr: 0,
-            numJump: 0,
+            numFetchedOps: lastID,
+            numCommittedOps: this.lastRID,
+            numCycles: this.parser_.lastCycle,
 
-            ipc: this.parser_.lastCycle / this.lastRID
+            numFlush: 0,
+            numFlushedOps: 0,
+
+            numBr: 0,
+            numBrPredMiss: 0,
+            missRateBrPred: 0,
+            mpkiBrPred: 0,
+
+            numJump: 0,
+            numJumpPredMiss: 0,
+            missRateJumpPred: 0,
+            mpkiJumpPred: 0,
+            
+            ipc: this.lastRID / this.parser_.lastCycle
         };
+
+        let prevBr = false;
+        let prevJump = false;
         let prevFlushed = false;
         for (let i = 0; i < lastID; i++) {
             let op = this.getOp(i);
 
             if (op.flush) {
-                s.numFlushedOp++;
+                s.numFlushedOps++;
                 if (!prevFlushed) { 
                     // 一つ前の命令がフラッシュされていなければ，ここがフラッシュの起点
                     s.numFlush++;
+                    if (prevBr) {
+                        s.numBrPredMiss++;
+                    }
+                    if (prevJump) {
+                        s.numJumpPredMiss++;
+                    }
                 }
             }
             prevFlushed = op.flush;
@@ -108,12 +127,27 @@ class Konata{
             // ラベル内に b で始まる単語が入っていれば分岐
             if (op.labelName.match(/[\s][b][^\s]*[\s]/)) {
                 s.numBr++;
+                prevBr = true;
+            }
+            else {
+                prevBr = false;
             }
 
-            if (op.labelName.match(/[\s][j][^\s]*[\s]/)) {
+            if (op.labelName.match(/[\s]([j])|(call)|(ret)[^\s]*[\s]/)) {
                 s.numJump++;
+                prevJump = true;
+            }
+            else {
+                prevJump = false;
             }
         }
+
+        // post process
+        s.missRateBrPred = s.numBrPredMiss / s.numBr;
+        s.mpkiBrPred = s.numBrPredMiss / s.numCommittedOps * 1000;
+        s.missRateJumpPred = s.numJumpPredMiss / s.numJump;
+        s.mpkiJumpPred = s.numJumpPredMiss / s.numCommittedOps * 1000;
+        
         callback(s);
     }
 
