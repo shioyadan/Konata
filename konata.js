@@ -92,12 +92,12 @@ class Konata{
 
             numBr: 0,
             numBrPredMiss: 0,
-            missRateBrPred: 0,
+            rateBrPredMiss: 0,
             mpkiBrPred: 0,
 
             numJump: 0,
             numJumpPredMiss: 0,
-            missRateJumpPred: 0,
+            rateJumpPredMiss: 0,
             mpkiJumpPred: 0,
             
             ipc: this.lastRID / this.parser_.lastCycle
@@ -143,9 +143,9 @@ class Konata{
         }
 
         // post process
-        s.missRateBrPred = s.numBrPredMiss / s.numBr;
+        s.rateBrPredMiss = s.numBrPredMiss / s.numBr;
         s.mpkiBrPred = s.numBrPredMiss / s.numCommittedOps * 1000;
-        s.missRateJumpPred = s.numJumpPredMiss / s.numJump;
+        s.rateJumpPredMiss = s.numJumpPredMiss / s.numJump;
         s.mpkiJumpPred = s.numJumpPredMiss / s.numCommittedOps * 1000;
         
         callback(s);
