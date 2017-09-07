@@ -1,6 +1,6 @@
 {
   "name": "konata",
-  "version": "0.14.0",
+  "version": "0.19.0",
   "description": "instruction pipeline visualizer",
   "main": "main.js",
   "scripts": {
