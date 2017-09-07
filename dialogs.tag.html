@@ -129,9 +129,58 @@
     </script>
 </app_file_open_dialog>
 
+<!-- stats の表示 -->
+<app_stats_dialog>
+    <div ref="top_div" class="modal fade">
+        <div class="modal-dialog modal-content">
+
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-hidden="true">
+                    <i class="glyphicon glyphicon-remove"></i>
+                </button>
+                <h4 class="modal-title">
+                    {opts.title}
+                </h4>
+            </div>
+            
+            <div class="modal-body">
+                <ul>
+                    <li each="{v, i in opts.statList}">{v}</li>
+                </ul>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-default" data-dismiss="modal">
+                    {opts.buttonOK}
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+        /* global RiotControl ACTION */
+        let rc = RiotControl;
+        let self = this;
+
+        rc.on(CHANGE.DIALOG_SHOW_STATS, function(stats){
+            // 配列に変換
+            let statList = [];
+            for (let i in stats) {
+                statList.push([i, stats[i]]);
+            }
+
+            self.opts.title = "Stats";
+            self.opts.statList = statList;
+            self.opts.buttonOK = "OK";
+            self.update();
+            $(self.refs["top_div"]).modal();
+        });
+    </script>
+</app_stats_dialog>
+    
 <app_dialogs>
     <app_modal_dialog></app_modal_dialog>
     <app_file_open_dialog></app_file_open_dialog>
     <app_reload_dialog></app_reload_dialog>
+    <app_stats_dialog></app_stats_dialog>
 </app_dialogs>
     

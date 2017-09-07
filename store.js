@@ -66,7 +66,8 @@ const CHANGE = {
     DIALOG_MODAL_MESSAGE: 111,
     DIALOG_MODAL_ERROR: 112,
     DIALOG_CHECK_RELOAD: 113,
-
+    DIALOG_SHOW_STATS: 114,
+    
     COMMAND_PALETTE_OPEN: 115,
     COMMAND_PALETTE_CLOSE: 116,
 
@@ -281,8 +282,7 @@ class Store{
         self.on(ACTION.FILE_SHOW_STATS, function(){
             let konata = self.activeTab.konata;
             konata.stats(function(stats){
-                self.trigger(ACTION.DIALOG_MODAL_MESSAGE, JSON.stringify(stats));
-                //self.trigger(ACTION.DIALOG_MODAL_MESSAGE, "test<br>test");
+                self.trigger(CHANGE.DIALOG_SHOW_STATS, stats);
             });
         });
 
