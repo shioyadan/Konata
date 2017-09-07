@@ -281,8 +281,8 @@ class Store{
         self.on(ACTION.FILE_SHOW_STATS, function(){
             let konata = self.activeTab.konata;
             konata.stats(function(stats){
-                // self.trigger(ACTION.DIALOG_MODAL_MESSAGE, JSON.stringify(stats));
-                self.trigger(ACTION.DIALOG_MODAL_MESSAGE, "test<br>test");
+                self.trigger(ACTION.DIALOG_MODAL_MESSAGE, JSON.stringify(stats));
+                //self.trigger(ACTION.DIALOG_MODAL_MESSAGE, "test<br>test");
             });
         });
 

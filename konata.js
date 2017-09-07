@@ -83,23 +83,35 @@ class Konata{
     stats(callback){
         let lastID = this.lastID;
         let s = {
+            numFetchedOp: lastID,
+            numCommittedOp: this.lastRID,
             numFlush: 0,
             numFlushedOp: 0,
-            numBr: 0
+            numBr: 0,
+            numJump: 0,
+
+            ipc: this.parser_.lastCycle / this.lastRID
         };
         let prevFlushed = false;
         for (let i = 0; i < lastID; i++) {
             let op = this.getOp(i);
+
             if (op.flush) {
                 s.numFlushedOp++;
-                if (!prevFlushed) {
+                if (!prevFlushed) { 
+                    // 一つ前の命令がフラッシュされていなければ，ここがフラッシュの起点
                     s.numFlush++;
                 }
             }
             prevFlushed = op.flush;
             
+            // ラベル内に b で始まる単語が入っていれば分岐
             if (op.labelName.match(/[\s][b][^\s]*[\s]/)) {
                 s.numBr++;
+            }
+
+            if (op.labelName.match(/[\s][j][^\s]*[\s]/)) {
+                s.numJump++;
             }
         }
         callback(s);

@@ -120,6 +120,10 @@ class OnikiriParser{
         return this.stageLevelMap_;
     }
 
+    get lastCycle(){
+        return this.curCycle_;
+    }
+
     startParsing(){
         this.complete_ = false;
         this.curCycle_ = 0;
