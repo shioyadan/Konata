@@ -144,9 +144,16 @@
             </div>
             
             <div class="modal-body">
-                <ul>
-                    <li each="{v, i in opts.statList}">{v}</li>
-                </ul>
+                <table class="table table-striped table-condensed table-hover">
+                    <tr>
+                        <th>Name</th>
+                        <th>Value</th>
+                    </tr>
+                    <tr each="{value, key in opts.stats}">
+                        <td>{key}</td>
+                        <td>{value}</td>
+                    </tr>
+                </table>
             </div>
 
             <div class="modal-footer">
@@ -162,14 +169,8 @@
         let self = this;
 
         rc.on(CHANGE.DIALOG_SHOW_STATS, function(stats){
-            // 配列に変換
-            let statList = [];
-            for (let i in stats) {
-                statList.push([i, stats[i]]);
-            }
-
             self.opts.title = "Stats";
-            self.opts.statList = statList;
+            self.opts.stats = stats;
             self.opts.buttonOK = "OK";
             self.update();
             $(self.refs["top_div"]).modal();
