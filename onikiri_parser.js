@@ -317,11 +317,15 @@ class OnikiriParser{
     }
 
     parseRetireCommand(id, op, args){
-        op.retired = true;
         op.rid = Number(args[2]);
         op.retiredCycle = this.curCycle_;
         if (Number(args[3]) == 1) {
             op.flush = true;
+            op.retired = false;
+        }
+        else{
+            op.flush = false;
+            op.retired = true;
         }
         if (this.lastID_ < id) {
             this.lastID_ = id;
