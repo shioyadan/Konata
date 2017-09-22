@@ -36,6 +36,8 @@ const ACTION = {
     KONATA_SYNC_SCROLL: 63,             // 同期スクロール
 
     KONATA_ZOOM: 73,        // 拡大/縮小
+
+    KONATA_ADJUST_POSITION: 74,  // 位置自動調整
     
     KONATA_MOVE_WHEEL_VERTICAL: 75,  // ホイールによるスクロール（垂直）
     KONATA_MOVE_WHEEL_HORIZONTAL: 76,  // ホイールによるスクロール（水平）
@@ -495,6 +497,19 @@ class Store{
             });
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         };
+
+        // その時のパイプラインの左上がくるように移動
+        self.on(ACTION.KONATA_ADJUST_POSITION, function(){
+            let render = self.activeTab.renderer;
+            let op = render.getOpFromPixelPosY(0);
+            if (op) {
+                self.trigger(
+                    ACTION.KONATA_MOVE_LOGICAL_POS, 
+                    [op.fetchedCycle, op.id]
+                );
+            }
+        });
+
 
         // ホイールによる移動（垂直）
         // delta: delta * 3 / scale だけ上下に移動

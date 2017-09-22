@@ -269,17 +269,7 @@ function popupPipelineMenu(pos){
     let menuTemplate = [
         {
             label: "Adjust position",
-            click: function(){
-                // その時のパイプラインの左上がくるように移動
-                let render = store.activeTab.renderer;
-                let op = render.getOpFromPixelPosY(0);
-                if (op) {
-                    rc.trigger(
-                        ACTION.KONATA_MOVE_LOGICAL_POS, 
-                        [op.fetchedCycle, op.id]
-                    );
-                }
-            }
+            click: function(){rc.trigger(ACTION.KONATA_ADJUST_POSITION);}
         },
         {
             label:"Zoom out",
