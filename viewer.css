@@ -83,7 +83,7 @@ html, body {
 .progress_bar {
     background: rgb(100, 150, 255);
     width: 0%;
-    height: 1px;
+    height: 2px;
 
     /* 初期は非表示 */
     visibility: hidden;
