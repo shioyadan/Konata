@@ -510,9 +510,10 @@ class Store{
             let activeRenderer = self.activeTab.renderer;
             let op = activeRenderer.getOpFromPixelPosY(0);
             if (op) {
-                activeRenderer.moveLogicalPos([op.fetchedCycle, op.id]);
+                let activeY = self.activeTab.hideFlushedOps ? op.rid : op.id;
+                activeRenderer.moveLogicalPos([op.fetchedCycle, activeY]);
                 
-                // 同期
+                // 同期が有効の場合，左上の命令の RID が一致するようにスクロールさせる
                 let sync = self.activeTab.syncScroll;   
                 if (sync) {
                     for (let id in self.tabs) {
@@ -520,7 +521,8 @@ class Store{
                         let renderer = tab.renderer;
                         let synchedOp = renderer.getOpFromRID(op.rid);
                         if (synchedOp && self.activeTab.id != tab.id) {
-                            renderer.moveLogicalPos([synchedOp.fetchedCycle, synchedOp.id]);
+                            let y = tab.hideFlushedOps ? synchedOp.rid : synchedOp.id;
+                            renderer.moveLogicalPos([synchedOp.fetchedCycle, y]);
                         }
                     }
                 }
