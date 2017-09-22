@@ -508,7 +508,17 @@ class Store{
             }
 
             let activeRenderer = self.activeTab.renderer;
-            let op = activeRenderer.getOpFromPixelPosY(0);
+            let op = null;
+            if (activeRenderer.viewPos[1] < 0) {
+                op = activeRenderer.getOpFromID(0);
+            }
+            else if (activeRenderer.viewPos[1] > activeRenderer.getVisibleBottom()) {
+                let bottom = activeRenderer.getVisibleBottom() - 30;
+                op = self.activeTab.hideFlushedOps ? activeRenderer.getOpFromRID(bottom) : activeRenderer.getOpFromID(bottom);
+            }
+            else{
+                op = activeRenderer.getOpFromPixelPosY(0);
+            }
             if (op) {
                 let activeY = self.activeTab.hideFlushedOps ? op.rid : op.id;
                 activeRenderer.moveLogicalPos([op.fetchedCycle, activeY]);
