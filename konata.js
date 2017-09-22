@@ -90,12 +90,14 @@ class Konata{
             numFlush: 0,
             numFlushedOps: 0,
 
-            numBr: 0,
+            numFetchedBr: 0,
+            numRetiredBr: 0,
             numBrPredMiss: 0,
             rateBrPredMiss: 0,
             mpkiBrPred: 0,
 
-            numJump: 0,
+            numFetchedJump: 0,
+            numRetiredJump: 0,
             numJumpPredMiss: 0,
             rateJumpPredMiss: 0,
             mpkiJumpPred: 0,
@@ -126,7 +128,10 @@ class Konata{
             
             // ラベル内に b で始まる単語が入っていれば分岐
             if (op.labelName.match(/[\s][b][^\s]*[\s]*/)) {
-                s.numBr++;
+                s.numFetchedBr++;
+                if (op.retired) {
+                    s.numRetiredBr++;
+                }
                 prevBr = true;
             }
             else {
@@ -134,7 +139,10 @@ class Konata{
             }
 
             if (op.labelName.match(/[\s]([j])|(call)|(ret)[^\s]*[\s]*/)) {
-                s.numJump++;
+                s.numFetchedJump++;
+                if (op.retired) {
+                    s.numRetiredJump++;
+                }
                 prevJump = true;
             }
             else {
@@ -143,9 +151,9 @@ class Konata{
         }
 
         // post process
-        s.rateBrPredMiss = s.numBrPredMiss / s.numBr;
+        s.rateBrPredMiss = s.numBrPredMiss / s.numRetiredBr;
         s.mpkiBrPred = s.numBrPredMiss / s.numCommittedOps * 1000;
-        s.rateJumpPredMiss = s.numJumpPredMiss / s.numJump;
+        s.rateJumpPredMiss = s.numJumpPredMiss / s.numRetiredJump;
         s.mpkiJumpPred = s.numJumpPredMiss / s.numCommittedOps * 1000;
         
         callback(s);
