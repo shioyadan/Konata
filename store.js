@@ -500,13 +500,31 @@ class Store{
 
         // その時のパイプラインの左上がくるように移動
         self.on(ACTION.KONATA_ADJUST_POSITION, function(){
-            let render = self.activeTab.renderer;
-            let op = render.getOpFromPixelPosY(0);
+            if (!self.activeTab) {
+                return;
+            }
+            if (self.inScrollAnimation) {
+                self.finishScroll();
+            }
+
+            let activeRenderer = self.activeTab.renderer;
+            let op = activeRenderer.getOpFromPixelPosY(0);
             if (op) {
-                self.trigger(
-                    ACTION.KONATA_MOVE_LOGICAL_POS, 
-                    [op.fetchedCycle, op.id]
-                );
+                activeRenderer.moveLogicalPos([op.fetchedCycle, op.id]);
+                
+                // 同期
+                let sync = self.activeTab.syncScroll;   
+                if (sync) {
+                    for (let id in self.tabs) {
+                        let tab = self.tabs[id];
+                        let renderer = tab.renderer;
+                        let synchedOp = renderer.getOpFromRID(op.rid);
+                        if (synchedOp && self.activeTab.id != tab.id) {
+                            renderer.moveLogicalPos([synchedOp.fetchedCycle, synchedOp.id]);
+                        }
+                    }
+                }
+                self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             }
         });
 
