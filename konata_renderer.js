@@ -239,9 +239,9 @@ class KonataRenderer{
         } 
         else {
             self.viewPos_.left += diff[0];
-            if (self.viewPos_.left < 0) {
-                self.viewPos_.left = 0;
-            }
+            //if (self.viewPos_.left < 0) {
+            //    self.viewPos_.left = 0;
+            //}
         }
     }
 
@@ -251,8 +251,9 @@ class KonataRenderer{
      */
     moveLogicalPos(pos){
         let self = this;
-        self.viewPos_.left = Math.max(0, pos[0]);
+        //self.viewPos_.left = Math.max(0, pos[0]);
         //self.viewPos_.top = Math.max(0, pos[1]);
+        self.viewPos_.left = pos[0];
         self.viewPos_.top = pos[1];
     }
 
