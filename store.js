@@ -356,7 +356,13 @@ class Store{
             if (!self.activeTab) {
                 return;
             }
-            self.activeTab.splitterPos = position;
+            let sync = self.activeTab.syncScroll;   // 同期
+            for (let id in self.tabs) {
+                let tab = self.tabs[id];
+                if (sync || self.activeTab.id == tab.id) {
+                    tab.splitterPos = position;
+                }
+            }
             self.trigger(CHANGE.PANE_SIZE_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
