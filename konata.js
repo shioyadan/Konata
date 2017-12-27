@@ -90,6 +90,12 @@ class Konata{
             numFlush: 0,
             numFlushedOps: 0,
 
+            numBrFlush: 0,
+            numBrFlushedOps: 0,
+
+            numStoreFlush: 0,
+            numStoreFlushedOps: 0,
+
             numFetchedBr: 0,
             numRetiredBr: 0,
             numBrPredMiss: 0,
@@ -102,11 +108,18 @@ class Konata{
             rateJumpPredMiss: 0,
             mpkiJumpPred: 0,
             
+            numFetchedStore: 0,
+            numRetiredStore: 0,
+            numSpeculativeStoreMiss: 0,
+            rateSpeculativeStore: 0,
+            mpkiSpeculativeStore: 0,
+            
             ipc: this.lastRID / this.parser_.lastCycle
         };
 
         let prevBr = false;
         let prevJump = false;
+        let prevStore = false;
         let prevFlushed = false;
         for (let i = 0; i < lastID; i++) {
             let op = this.getOp(i);
@@ -121,6 +134,9 @@ class Konata{
                     }
                     if (prevJump) {
                         s.numJumpPredMiss++;
+                    }
+                    if (prevStore) {
+                        s.numSpeculativeStoreMiss++;
                     }
                 }
             }
@@ -138,6 +154,7 @@ class Konata{
                 prevBr = false;
             }
 
+            // j, call, ret はジャンプ
             if (op.labelName.match(/[\s]([j])|(call)|(ret)[^\s]*[\s]*/)) {
                 s.numFetchedJump++;
                 if (op.retired) {
@@ -148,6 +165,18 @@ class Konata{
             else {
                 prevJump = false;
             }
+
+            // st,sw,sh,sb から始まっていたらストア
+            if (op.labelName.match(/[\s](st)|(sw)|(sh)|(sb)[^\s]*[\s]*/)) {
+                s.numFetchedStore++;
+                if (op.retired) {
+                    s.numRetiredStore++;
+                }
+                prevStore = true;
+            }
+            else {
+                prevStore = false;
+            }
         }
 
         // post process
@@ -155,7 +184,10 @@ class Konata{
         s.mpkiBrPred = s.numBrPredMiss / s.numCommittedOps * 1000;
         s.rateJumpPredMiss = s.numJumpPredMiss / s.numRetiredJump;
         s.mpkiJumpPred = s.numJumpPredMiss / s.numCommittedOps * 1000;
-        
+
+        s.rateSpeculativeStore = s.numSpeculativeStoreMiss / s.numRetiredStore;
+        s.mpkiSpeculativeStore = s.numSpeculativeStoreMiss / s.numCommittedOps * 1000;
+
         callback(s);
     }
 
