@@ -128,16 +128,6 @@ class Konata{
             let op = this.getOp(i);
 
             if (op.flush) {
-                s.numFlushedOps++;
-                if (inBrFlush) {
-                    s.numBrFlushedOps++;
-                }
-                else if (inJumpFlush) {
-                    s.numJumpFlushedOps++;
-                }
-                else if (inMemFlush) {
-                    s.numSpeculativeMemFlushedOps++;
-                }
                 
                 if (!prevFlushed) { 
                     // 一つ前の命令がフラッシュされていなければ，ここがフラッシュの起点
@@ -154,6 +144,17 @@ class Konata{
                         inMemFlush = true;
                         s.numSpeculativeMemMiss++;
                     }
+                }
+                // Count the number of flushed ops
+                s.numFlushedOps++;
+                if (inBrFlush) {
+                    s.numBrFlushedOps++;
+                }
+                else if (inJumpFlush) {
+                    s.numJumpFlushedOps++;
+                }
+                else if (inMemFlush) {
+                    s.numSpeculativeMemFlushedOps++;
                 }
             }
             else {
