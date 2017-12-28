@@ -1,4 +1,4 @@
 *.log
 packaging-work
 work
-
+node_modules
