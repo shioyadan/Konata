@@ -1,23 +1,24 @@
 {
   "name": "konata",
-  "version": "0.21.0",
-  "description": "instruction pipeline visualizer",
+  "version": "0.22.0",
+  "description": "Koanata: a instruction pipeline visualizer for Onikiri2 and gem5",
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "shioya, izuoka",
-  "license": "ISC",
-  "dependencies ": {
-    "devtron": "^1.4.0",
-    "jQuery": "^1.7.4",
-    "jquery": "^3.1.1",
-    "jsdom": "^9.6.0",
+  "author": "Ryota Shioya <shioya@nuee.nagoya-u.ac.jp>",
+  "contributors": [
+    "Kojiro Izuoka"
+  ],
+  "license": "BSD-3-Clause",
+  "dependencies": {
     "riot": "^3.0.4",
-    "riot-route": "^3.0.2",
-    "riotcontrol": "^0.0.3"
+    "riotcontrol": "^0.0.3",
+    "bootstrap": "^3.3.7",
+    "jquery": "^3.1.1"
   },
-  "devDependencies": {
+  "devDependencies": {},
+  "dummy": {
     "electron": "^1.7.5"
   }
 }
