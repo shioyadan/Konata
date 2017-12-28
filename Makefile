@@ -1,6 +1,9 @@
 run:
 	electron --debug=5858 . 
 
+init:
+	npm install
+
 build: clean
 	electron-packager . konata \
 		--out=packaging-work \
