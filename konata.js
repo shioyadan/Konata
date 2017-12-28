@@ -90,11 +90,9 @@ class Konata{
             numFlush: 0,
             numFlushedOps: 0,
 
-            numBrFlush: 0,
             numBrFlushedOps: 0,
-
-            numStoreFlush: 0,
-            numStoreFlushedOps: 0,
+            numJumpFlushedOps: 0,
+            numSpeculativeMemFlushedOps: 0,
 
             numFetchedBr: 0,
             numRetiredBr: 0,
@@ -110,9 +108,9 @@ class Konata{
             
             numFetchedStore: 0,
             numRetiredStore: 0,
-            numSpeculativeStoreMiss: 0,
-            rateSpeculativeStore: 0,
-            mpkiSpeculativeStore: 0,
+            numSpeculativeMemMiss: 0,
+            rateSpeculativeMemMiss: 0,
+            mpkiSpeculativeMemMiss: 0,
             
             ipc: this.lastRID / this.parser_.lastCycle
         };
@@ -121,24 +119,47 @@ class Konata{
         let prevJump = false;
         let prevStore = false;
         let prevFlushed = false;
+
+        let inBrFlush = false;
+        let inJumpFlush = false;
+        let inMemFlush = false;
+
         for (let i = 0; i < lastID; i++) {
             let op = this.getOp(i);
 
             if (op.flush) {
                 s.numFlushedOps++;
+                if (inBrFlush) {
+                    s.numBrFlushedOps++;
+                }
+                else if (inJumpFlush) {
+                    s.numJumpFlushedOps++;
+                }
+                else if (inMemFlush) {
+                    s.numSpeculativeMemFlushedOps++;
+                }
+                
                 if (!prevFlushed) { 
                     // 一つ前の命令がフラッシュされていなければ，ここがフラッシュの起点
                     s.numFlush++;
                     if (prevBr) {
+                        inBrFlush = true;
                         s.numBrPredMiss++;
                     }
                     if (prevJump) {
+                        inJumpFlush = true;
                         s.numJumpPredMiss++;
                     }
                     if (prevStore) {
-                        s.numSpeculativeStoreMiss++;
+                        inMemFlush = true;
+                        s.numSpeculativeMemMiss++;
                     }
                 }
+            }
+            else {
+                inBrFlush = false;
+                inJumpFlush = false;
+                inMemFlush = false;
             }
             prevFlushed = op.flush;
             
@@ -182,11 +203,12 @@ class Konata{
         // post process
         s.rateBrPredMiss = s.numBrPredMiss / s.numRetiredBr;
         s.mpkiBrPred = s.numBrPredMiss / s.numCommittedOps * 1000;
+
         s.rateJumpPredMiss = s.numJumpPredMiss / s.numRetiredJump;
         s.mpkiJumpPred = s.numJumpPredMiss / s.numCommittedOps * 1000;
 
-        s.rateSpeculativeStore = s.numSpeculativeStoreMiss / s.numRetiredStore;
-        s.mpkiSpeculativeStore = s.numSpeculativeStoreMiss / s.numCommittedOps * 1000;
+        s.rateSpeculativeMemMiss = s.numSpeculativeMemMiss / s.numRetiredStore;
+        s.mpkiSpeculativeMemMiss = s.numSpeculativeMemMiss / s.numCommittedOps * 1000;
 
         callback(s);
     }
