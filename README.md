@@ -2,6 +2,8 @@
 
 An instruction pipeline visualizer for Onikiri2-Kanata format
 
+Ryota Shioya
+shioya@nuee.nagoya-u.ac.jp
 
 ## Development
 
@@ -15,4 +17,8 @@ An instruction pipeline visualizer for Onikiri2-Kanata format
     make        # Run Konata
     make pack   # Build Konata for Windows/Linux/Mac
 
+## License
 
+Copyright (C) 2016-2017 Ryota Shioya
+
+This software is released under the 3-Clause BSD License License, see LICENSE.md.
