@@ -193,7 +193,7 @@ class OnikiriParser{
 
         this.updateCallback_(1.0, this.updateCount_);
         this.finishCallback_();
-        console.log(`parse complete (${elapsed} ms)`);
+        console.log(`Parsed (${this.name}): ${elapsed} ms`);
     }
 
     unescpaeLabels(op){

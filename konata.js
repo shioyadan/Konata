@@ -22,7 +22,7 @@ class Konata{
         if (this.file_){
             this.file_.close();
             this.file_ = null;
-            console.log(`Closed ${this.filePath_}`);
+            console.log(`Closed: ${this.filePath_}`);
         }
     }
 
@@ -50,8 +50,7 @@ class Konata{
         this.file_.open(this.filePath_);
 
         this.parser_ = parsers.shift();
-        console.log("Parser:", this.parser_.name);
-        console.log("Open:", this.filePath_);
+        console.log(`Open (${this.parser_.name}): ${this.filePath_}`);
 
         let self = this;
         this.parser_.setFile(
@@ -62,7 +61,7 @@ class Konata{
                 self.finishCallback_();
             },
             function(){ // Error handler
-                console.log("Load failed:", self.parser_.name);
+                console.log("Filed to load by:", self.parser_.name);
                 self.close();
                 // 読み出し試行に失敗したの次のパーサーに
                 if (parsers.length > 0) {
