@@ -8,8 +8,10 @@ class Konata{
 
         this.file_ = null;
         this.filePath_ = ""; 
+        // Callback handlers
         this.updateCallback_ = null;
         this.finishCallback_ = null;
+        this.errorCallback_ = null;
     }
 
     close(){
@@ -24,10 +26,11 @@ class Konata{
         }
     }
 
-    openFile(path, updateCallback, finishCallback){
+    openFile(path, updateCallback, finishCallback, errorCallback){
         this.filePath_ = path;
         this.updateCallback_ = updateCallback;
         this.finishCallback_ = finishCallback;
+        this.errorCallback_ = errorCallback;
 
         this.reload();
     }
@@ -55,15 +58,18 @@ class Konata{
             this.file_, 
             this.updateCallback_, 
             function(){ // Finish handler
-                self.file_.close();
+                self.file_.close(); // The parser must not be closed.
                 self.finishCallback_();
             },
             function(){ // Error handler
-                self.file_.close();
                 console.log("Load failed:", self.parser_.name);
+                self.close();
                 // 読み出し試行に失敗したの次のパーサーに
                 if (parsers.length > 0) {
                     self.load_(parsers);
+                }
+                else if (parsers.length == 0) {
+                    self.errorCallback_("Unsupported file format.");
                 }
             }
         );
@@ -73,27 +79,27 @@ class Konata{
      * @return {Op} id に対応した op を返す
      */
     getOp(id){
-        return this.parser_.getOp(id);
+        return this.parser_ ? this.parser_.getOp(id) : null;
     }
 
     getOpFromRID(rid){
-        return this.parser_.getOpFromRID(rid);
+        return this.parser_ ? this.parser_.getOpFromRID(rid) : null;
     }
 
     get lastID(){
-        return this.parser_.lastID;
+        return this.parser_ ? this.parser_.lastID : 0;
     }
 
     get lastRID(){
-        return this.parser_.lastRID;
+        return this.parser_ ? this.parser_.lastRID : 0;
     }
 
     get laneMap(){
-        return this.parser_.laneMap;
+        return this.parser_ ? this.parser_.laneMap : {};
     }
 
     get stageLevelMap(){
-        return this.parser_.stageLevelMap;
+        return this.parser_ ? this.parser_.stageLevelMap : {};
     }
 
     // パイプライン中の統計を計算し，終わったら callback に渡す

@@ -197,15 +197,19 @@ class Store{
 
             try {
                 konata.openFile(fileName, 
-                    function(percent, count){  // 更新通知ハンドラ
+                    (percent, count) => {  // 更新通知ハンドラ
                         self.trigger(CHANGE.PROGRESS_BAR_UPDATE, percent);
                         if (count % 10 == 0) {
                             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
                         }
                     },
-                    function(){  // 読み出し終了ハンドラ
+                    () => {  // 読み出し終了ハンドラ
                         self.trigger(CHANGE.PROGRESS_BAR_FINISH);
                         self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+                    },
+                    (e) => { // エラーハンドラ
+                        konata.close();
+                        self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to load '${fileName}': ${e}`);
                     }
                 );
             }
