@@ -5,20 +5,24 @@ An instruction pipeline visualizer for Onikiri2-Kanata format
 Ryota Shioya
 shioya@nuee.nagoya-u.ac.jp
 
+
 ## Development
 
     # Install electron/electron-packager
-    # They are installed globally because electron is huge.
+    # Since electron is huge, they are installed globally.
     npm -g install electron
     npm -g install electron-packager
 
     # Run and build
     make init   # Setup libraries
     make        # Run Konata
-    make pack   # Build Konata for Windows/Linux/Mac
+    make pack   # Build & pack Konata for Windows/Linux/Mac
+
 
 ## License
 
 Copyright (C) 2016-2017 Ryota Shioya
+This application is released under the 3-Clause BSD License, see LICENSE.md.
 
-This software is released under the 3-Clause BSD License License, see LICENSE.md.
+This application bundles ELECTRON and many third-party packages in accordance with 
+the licenses presented in THIRD-PARTY-LICENSES.md.

@@ -10,14 +10,19 @@
   "contributors": [
     "Kojiro Izuoka"
   ],
+  "repository": {
+    "url": "https://github.com/shioyadan/Konata"
+  },
   "license": "BSD-3-Clause",
   "dependencies": {
-    "riot": "^3.0.4",
     "riotcontrol": "^0.0.3",
+    "riot": "^3.7.4",
     "bootstrap": "^3.3.7",
-    "jquery": "^3.1.1"
+    "jquery": "^3.2.1"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "license-checker": "^15.0.0"
+  },
   "dummy": {
     "electron": "^1.7.5"
   }
