@@ -7,9 +7,10 @@ class Gem5O3PipeViewParser{
         // ファイルリーダ
         this.file_ = null; 
 
-        // 更新通知と狩猟のコールバック
+        // Callback handlers on update, finish, and error
         this.updateCallback_ = null;
         this.finishCallback_ = null;
+        this.errorCallback_ = null;
 
         // 現在の行番号
         this.curLine_ = 1;
@@ -55,15 +56,19 @@ class Gem5O3PipeViewParser{
         this.opList_ = null;   // パージ
     }
 
-    getName(){
-        return "Gem5O3PipeViewParser:(" + this.file_.getPath() + ")";
+    /**
+     * @return {string} パーサーの名前を返す
+     */
+    get name(){
+        return "Gem5O3PipeViewParser";
     }
 
     // updateCallback(percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
-    setFile(file, updateCallback, finishCallback){
+    setFile(file, updateCallback, finishCallback, errorCallback){
         this.file_ = file;
         this.updateCallback_ = updateCallback;
         this.finishCallback_ = finishCallback;
+        this.errorCallback_ = errorCallback;
         this.startTime_ = (new Date()).getTime();
 
         this.startParsing();
@@ -129,9 +134,21 @@ class Gem5O3PipeViewParser{
         this.curCycle_ = 0;
     }
 
+    /**
+     * @param {string} line 
+     */
     parseLine(line){
         if (this.closed_) {
+            // Node.js はファイル読み出しが中断されクローズされた後も，
+            // バッファにたまっている分はコールバック読み出しを行うため，
+            // きちんと無視する必要がある
             return;
+        }
+        if (this.curLine_ == 1) {
+            if (!line.match(/^Kanata/)) {   // This file is not Kanata log.
+                this.errorCallback_();
+                return;
+            }
         }
 
         let args = line.split("\t");
@@ -176,7 +193,7 @@ class Gem5O3PipeViewParser{
 
         this.updateCallback_(1.0, this.updateCount_);
         this.finishCallback_();
-        console.log(`parse complete (${elapsed} ms)`);
+        console.log(`Parsed (${this.name}): ${elapsed} ms`);
     }
 
     unescpaeLabels(op){
@@ -375,7 +392,7 @@ class Gem5O3PipeViewParser{
     }
 
     parseCommand(args){
-        
+
         let id = Number(args[1]);
 
         /** @type {Op}  */
