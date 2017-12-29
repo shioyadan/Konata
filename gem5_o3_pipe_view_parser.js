@@ -19,8 +19,8 @@ class Gem5O3PipeViewParser{
         this.curCycle_ = 0;
 
         // 最後に読み出された命令の ID
-        this.lastID_ = -1;
-        this.lastRID_ = -1;
+        this.lastID_ = 0;
+        this.lastRID_ = 0;
         
         // op 情報
         this.opList_ = [];
@@ -46,6 +46,39 @@ class Gem5O3PipeViewParser{
 
         // 強制終了
         this.closed_ = false;
+
+        // ticks(ps) per clock in GEM5. 
+        // Its default value is 1000 (1000 ps = 1 clock in 1GHz)
+        this.TICKS_PER_CLOCK_ = 1000;
+
+        // Stage ID
+        this.STAGE_ID_FETCH_ = 0;
+        this.STAGE_ID_DECODE_ = 1;
+        this.STAGE_ID_RENAME_ = 2;
+        this.STAGE_ID_DISPATCH_ = 3;
+        this.STAGE_ID_ISSUE_ = 4;
+        this.STAGE_ID_COMPLETE_ = 5;
+        this.STAGE_ID_RETIRE_ = 6;
+
+        this.STAGE_ID_MAP = {
+            "fetch": this.STAGE_ID_FETCH_,
+            "decode": this.STAGE_ID_DECODE_,
+            "rename": this.STAGE_ID_RENAME_,
+            "dispatch": this.STAGE_ID_DISPATCH_,
+            "issue": this.STAGE_ID_ISSUE_,
+            "complete": this.STAGE_ID_COMPLETE_,
+            "retire": this.STAGE_ID_RETIRE_
+        };
+
+        this.STAGE_LABEL_MAP_ = [
+            "F",
+            "Dc",
+            "Rn",
+            "Ds",
+            "Is",
+            "Cm",
+            "Rt",
+        ];
     }
     
     // Public methods
@@ -145,13 +178,13 @@ class Gem5O3PipeViewParser{
             return;
         }
         if (this.curLine_ == 1) {
-            if (!line.match(/^Kanata/)) {   // This file is not Kanata log.
+            if (!line.match(/^O3PipeView/)) {   // This file is not O3PipeView.
                 this.errorCallback_();
                 return;
             }
         }
 
-        let args = line.split("\t");
+        let args = line.split(":");
         this.parseCommand(args);
         this.curLine_++;
         
@@ -171,7 +204,7 @@ class Gem5O3PipeViewParser{
             return;
         }
         
-        // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
+        // リタイア処理が行われなかった終端部分の後処理
         let i = this.opList_.length - 1;
         while (i >= 0) {
             let op = this.opList_[i];
@@ -212,64 +245,34 @@ class Gem5O3PipeViewParser{
 
     parseInitialCommand(id, op, args){
         // 特定の命令に関するコマンド出力の開始
-        // 使用例：
-        //      I	0	0	0
-        // * 命令に関するコマンドを出力する前にこれが必要
-        //      ファイル内に新しい命令が初めて現れた際に出力
-        // * 2列目はファイル内の一意のID
-        //      ファイル内で現れるたびに振られるシーケンシャルなID
-        //      基本的に他のコマンドは全てこのIDを使って命令を指定する
-        // * 3列目は命令のID
-        //      シミュレータ内で命令に振られているID．任意のIDが使える
-        // * 4列目はTID（スレッド識別子）
+        // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
+
+        let tick = Number(args[2]);
+        let insnAddr = Number(args[3]);
+        //let microPC = Number(args[4]);
+        //let seqNum = Number(args[5]);
+        let disasm = Number(args[6]);
+
         op = new this.Op();
         op.id = id;
-        op.gid = Number(args[2]);
-        op.tid = Number(args[3]);
-        op.fetchedCycle = this.curCycle_;
+        op.gid = 0;
+        op.tid = 0;
+        op.fetchedCycle = tick / this.TICKS_PER_CLOCK_;
         op.line = this.curLine_;
+        op.labelName += `${insnAddr}: ${disasm}`;
         this.opList_[id] = op;
     }
 
-    parseLabelCommand(id, op, args){
-        // * 命令に任意のラベルをつける
-        //      * 命令が生きている期間は任意のラベルをつけることができる
-        //      * Lが複数回実行された場合，前回までに設定したラベルに追記される
-        // フォーマット:
-        //    L 	<ID>	<Type>	<Label Data>
-        //
-        // <ID>: ファイル内の一意のID
-        // <Type>: ラベルのタイプ
-        //      0: ビジュアライザ左に直接表示されるラベル．通常はPCと命令，レジスタ番号など
-        //      1: マウスオーバー時に表示される詳細．実行時のレジスタの値や使用した演算器など
-        //      2: 現在のステージにつけられるラベル
-        // <Label Data>: 任意のテキスト
-        let type = Number(args[2]);
-
-        let str = args[3];
-
-        if (type == 0) {
-            op.labelName += str;
-        }
-        else if (type == 1) {
-            op.labelDetail += str;
-        }
-        else if (type == 2) {
-            if (op.lastParsedStage in op.labelStage){
-                op.labelStage[op.lastParsedStage] += str;
-            }
-            else{
-                op.labelStage[op.lastParsedStage] = str;
-            }
-        }
-    }
-
     parseStartCommand(id, op, args){
-        let laneName = args[2];
-        let stageName = args[3];
+        // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
+        let stageName = this.STAGE_LABEL_MAP_[this.STAGE_ID_MAP_[args[1]]];
+        let tick = Number(args[2]);
+
+        let laneName = "0"; // Default lane
         let stage = new this.Stage();
+
         stage.name = stageName;
-        stage.startCycle = this.curCycle_;
+        stage.startCycle = tick / this.TICKS_PER_CLOCK_;
         if (!(laneName in op.lanes)) {
             op.lanes[laneName] = {
                 level: 0,  // 1サイクル以上のステージの数
@@ -282,9 +285,9 @@ class Gem5O3PipeViewParser{
         op.lastParsedStage = stageName;
 
         // X を名前に含むステージは実行ステージと見なす
-        if (stageName.match(/X/)){
-            op.consCycle = this.curCycle_;
-        }
+        //if (stageName.match(/X/)){
+        //    op.consCycle = this.curCycle_;
+        //}
 
         // レーンのマップに登録
         if (!(laneName in this.laneMap_)) {
@@ -393,7 +396,7 @@ class Gem5O3PipeViewParser{
 
     parseCommand(args){
 
-        let id = Number(args[1]);
+        let id = self.lastID_;
 
         /** @type {Op}  */
         let op = null;
@@ -401,30 +404,15 @@ class Gem5O3PipeViewParser{
             op = this.opList_[id];
         }
         
-        let cmd = args[0];
-        /*
-        if (cmd.match(/^(L|S|E|R|W)$/) && op == null) {
-            // error
-        }*/
+        let cmd = args[1];
 
         switch(cmd) {
 
-        case "C": 
-            // 前回ログ出力時からの経過サイクル数を指定
-            // フォーマット
-            //      C	<CYCLE>
-            // <CYCLE>: 経過サイクル数
-            this.curCycle_ += Number(args[1]);
-            break;
         
-        case "I": 
+        case "fetch": 
             this.parseInitialCommand(id, op, args);
             break;
-
-        case "L":
-            this.parseLabelCommand(id, op, args);
-            break;
-
+        /*
         case "S": 
             this.parseStartCommand(id, op, args);
             break;
@@ -440,6 +428,7 @@ class Gem5O3PipeViewParser{
         case "W": 
             this.parseDependencyCommand(id, op, args);
             break;
+        */
         }  // switch end
     }
 }
