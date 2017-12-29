@@ -703,18 +703,30 @@
 <app_progress_bar>
 
     <div class="progress_bar_container">
-        <div each="{percent, tabID in barList}" class="progress_bar" ref={"progress_bar_" + tabID} >
+        <div 
+            each="{percent, tabID in barList}" 
+            class={"progress_bar_" + ((store.activeTabID == tabID) ? "active" : "background")}
+            ref={"progress_bar_" + tabID} 
+        >
         </div>
     </div>
 
     <script>
         let self = this;
         self.barList = {};
+        self.store = store;
         self.init = function(){
         };
         // エントリポイント
         self.on("mount", self.init);
 
+        // タブの移動
+        RiotControl.on(ACTION.TAB_ACTIVATE,
+            () => {
+                self.update();  // アクティブなプログレスバーのスタイルを更新
+            }
+        );
+        
         // オープン
         RiotControl.on(CHANGE.PROGRESS_BAR_START,
             function(tabID){

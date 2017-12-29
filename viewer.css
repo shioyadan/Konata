@@ -79,20 +79,28 @@ html, body {
     width: 100%;
 }
 
-/* プログレスバー */
+/* プログレスバーのコンテナ */
 .progress_bar_container {
     width: 100%;
 
-    /* 絶対位置 */
+    /* 絶対位置にして，オーバーレイする */
     position: absolute;
     z-index: 100;
 }
 
-.progress_bar {
+/* アクティブなタブのプログレスバー */
+.progress_bar_active {
     background: rgb(100, 150, 255);
     width: 0%;
-    height: 2px;
-
-    /* アニメーション */
-    transition: width 50ms linear;
+    height: 3px;
+    transition: width 50ms linear;  /* アニメーション */
 }
+
+/* バックグラウンドでファイルを読んでるタブのプログレスバー */
+.progress_bar_background {
+    background: rgb(180, 180, 180);
+    width: 0%;
+    height: 3px;
+    transition: width 50ms linear;  /* アニメーション */
+}
+
