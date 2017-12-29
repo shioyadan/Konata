@@ -77,8 +77,9 @@ const CHANGE = {
 
     SHEET_UPDATE_DEV_TOOL: 190,    // 開発者ツールの表示
 
-    PROGRESS_BAR_UPDATE: 200,    // 読み込みのプレグレスバーの更新
-    PROGRESS_BAR_FINISH: 201,    // ファイル読み込み終了
+    PROGRESS_BAR_START:  200,    // プレグレスバーの更新開始
+    PROGRESS_BAR_UPDATE: 201,    // 読み込みのプレグレスバーの更新
+    PROGRESS_BAR_FINISH: 202,    // ファイル読み込み終了
 };
 
 class Store{
@@ -194,22 +195,23 @@ class Store{
         self.on(ACTION.FILE_OPEN, function(fileName){
             // Load a file
             let konata = new Konata.Konata();
-            let id = self.nextOpenedTabID;
+            let tabID = self.nextOpenedTabID;
             try {
+                self.trigger(CHANGE.PROGRESS_BAR_START, tabID);
                 konata.openFile(fileName, 
                     (percent, count) => {  // 更新通知ハンドラ
-                        self.trigger(CHANGE.PROGRESS_BAR_UPDATE, percent);
-                        if (count % 10 == 0) {
+                        self.trigger(CHANGE.PROGRESS_BAR_UPDATE, percent, tabID);
+                        if (count % 10 == 0) {  // 常に再描画すると重いので，10% おきに再描画
                             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
                         }
                     },
                     () => {  // 読み出し終了ハンドラ
-                        self.trigger(CHANGE.PROGRESS_BAR_FINISH);
+                        self.trigger(CHANGE.PROGRESS_BAR_FINISH, tabID);
                         self.trigger(CHANGE.PANE_CONTENT_UPDATE);
                     },
-                    (e) => { // エラーハンドラ
-                        self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to load '${fileName}': ${e}`);
-                        self.trigger(ACTION.TAB_CLOSE, id);
+                    (errorMsg) => { // エラーハンドラ
+                        self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to load '${fileName}': ${errorMsg}`);
+                        self.trigger(ACTION.TAB_CLOSE, tabID);
                     }
                 );
             }
@@ -266,6 +268,7 @@ class Store{
         self.on(ACTION.FILE_RELOAD, function(){
             let konata = self.activeTab.konata;
             konata.reload();
+            self.trigger(CHANGE.PROGRESS_BAR_START, self.activeTab.id);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
@@ -344,7 +347,7 @@ class Store{
             self.trigger(CHANGE.TAB_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             self.trigger(CHANGE.MENU_UPDATE);
-            self.trigger(CHANGE.PROGRESS_BAR_FINISH);   // 読み込み中なら，更新を終了
+            self.trigger(CHANGE.PROGRESS_BAR_FINISH, id);   // 読み込み中なら，更新を終了
         });
 
         // ウィンドウのサイズ変更

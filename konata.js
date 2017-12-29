@@ -36,7 +36,10 @@ class Konata{
     }
 
     reload(){
-        let parsers = [new this.OnikiriParser_()];
+        let parsers = [
+            new this.OnikiriParser_(),
+            new this.Gem5O3PipeViewParser_()
+        ];
         this.load_(parsers);
     }
 

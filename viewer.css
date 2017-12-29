@@ -80,19 +80,19 @@ html, body {
 }
 
 /* プログレスバー */
+.progress_bar_container {
+    width: 100%;
+
+    /* 絶対位置 */
+    position: absolute;
+    z-index: 100;
+}
+
 .progress_bar {
     background: rgb(100, 150, 255);
     width: 0%;
     height: 2px;
 
-    /* 初期は非表示 */
-    visibility: hidden;
-
-    /* 絶対位置 */
-    position: absolute;
-    z-index: 100;
-
     /* アニメーション */
     transition: width 50ms linear;
-
 }

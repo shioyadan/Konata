@@ -702,39 +702,53 @@
 <!-- 読み込みのプレグレスバー -->
 <app_progress_bar>
 
-    <div ref="progress_bar" class="progress_bar">
+    <div class="progress_bar_container">
+        <div each="{percent, tabID in barList}" class="progress_bar" ref={"progress_bar_" + tabID} >
+        </div>
     </div>
 
     <script>
         let self = this;
+        self.barList = {};
         self.init = function(){
         };
         // エントリポイント
         self.on("mount", self.init);
 
         // オープン
-        RiotControl.on(CHANGE.TAB_OPEN,
-            function(){
-                let bar = self.refs.progress_bar.style;
+        RiotControl.on(CHANGE.PROGRESS_BAR_START,
+            function(tabID){
+                //console.log("Start progres bar: ", tabID);
+                self.barList[tabID] = 0;
+                self.update();
+                let bar = self.refs["progress_bar_" + tabID].style;
                 bar.width = "0%";
-                bar.visibility = "visible";
             }
         );
 
         // プログレスバー
         RiotControl.on(CHANGE.PROGRESS_BAR_UPDATE,
-            function(percent){
-                let bar = self.refs.progress_bar.style;
+            function(percent, tabID){
+                if (!(tabID in self.barList)) {
+                    // タブをロード中に途中で閉じると，PROGRESS_BAR_FINISH が来た後にも
+                    // バッファ内のロードがしばらく継続されるため，更新ハンドラが
+                    // よばれることがある
+                    return; 
+                }
+                self.barList[tabID] = percent;
+                let bar = self.refs["progress_bar_" + tabID].style;
                 bar.width = 100 * percent + "%";
-                bar.visibility = "visible";
             }
         );
         
         RiotControl.on(CHANGE.PROGRESS_BAR_FINISH,
-            function(){
-                let bar = self.refs.progress_bar.style;
-                bar.visibility = "hidden";
-                bar.width = "0%";
+            function(tabID){
+                if (!(tabID in self.barList)) {
+                    return;
+                }
+                //console.log("Close progres bar: ", tabID);
+                delete self.barList[tabID];
+                self.update();
             }
         );
 
