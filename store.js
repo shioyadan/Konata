@@ -194,7 +194,7 @@ class Store{
         self.on(ACTION.FILE_OPEN, function(fileName){
             // Load a file
             let konata = new Konata.Konata();
-
+            let id = self.nextOpenedTabID;
             try {
                 konata.openFile(fileName, 
                     (percent, count) => {  // 更新通知ハンドラ
@@ -208,8 +208,8 @@ class Store{
                         self.trigger(CHANGE.PANE_CONTENT_UPDATE);
                     },
                     (e) => { // エラーハンドラ
-                        konata.close();
                         self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to load '${fileName}': ${e}`);
+                        self.trigger(ACTION.TAB_CLOSE, id);
                     }
                 );
             }
