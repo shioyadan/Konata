@@ -7,9 +7,10 @@ class OnikiriParser{
         // ファイルリーダ
         this.file_ = null; 
 
-        // 更新通知と狩猟のコールバック
+        // Callback handlers on update, finish, and error
         this.updateCallback_ = null;
         this.finishCallback_ = null;
+        this.errorCallback_ = null;
 
         // 現在の行番号
         this.curLine_ = 1;
@@ -60,10 +61,11 @@ class OnikiriParser{
     }
 
     // updateCallback(percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
-    setFile(file, updateCallback, finishCallback){
+    setFile(file, updateCallback, finishCallback, errorCallback){
         this.file_ = file;
         this.updateCallback_ = updateCallback;
         this.finishCallback_ = finishCallback;
+        this.errorCallback_ = errorCallback;
         this.startTime_ = (new Date()).getTime();
 
         this.startParsing();

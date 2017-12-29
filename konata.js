@@ -48,6 +48,9 @@ class Konata{
             function(){ // Finish handler
                 self.file_.close();
                 self.finishCallback_();
+            },
+            function(){ // Error handler
+                self.file_.close();
             }
         );
         console.log("Selected parser:" , parser.getName());
