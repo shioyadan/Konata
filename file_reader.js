@@ -50,23 +50,6 @@ class FileReader{
         return this.filePath_;
     }
 
-    isText(){
-        let txts = [".txt",".log",".text"];
-        for (let i = 0, len = txts.length; i < len; i++) {
-            let ext = txts[i];
-            if (this.getExtension() == ext) {
-                console.log("This file is text");
-                return true;
-            }
-        }
-        console.log("This file is not text");
-        return false;
-    }
-
-    alloewedExension(){
-        return [".txt", ".text", ".log", ".gz"];
-    }
-
     readlines(read, finish){
         this.readIF_.on("line", read);
         this.readIF_.on("close", finish);
