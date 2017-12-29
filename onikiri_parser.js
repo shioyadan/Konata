@@ -134,9 +134,21 @@ class OnikiriParser{
         this.curCycle_ = 0;
     }
 
+    /**
+     * @param {string} line 
+     */
     parseLine(line){
         if (this.closed_) {
+            // Node.js はファイル読み出しが中断されクローズされた後も，
+            // バッファにたまっている分はコールバック読み出しを行うため，
+            // きちんと無視する必要がある
             return;
+        }
+        if (this.curLine_ == 1) {
+            if (!line.match(/^Kanata/)) {   // This file is not Kanata log.
+                this.errorCallback_();
+                return;
+            }
         }
 
         let args = line.split("\t");
