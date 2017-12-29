@@ -20,8 +20,8 @@ class Konata{
         if (this.file_){
             this.file_.close();
             this.file_ = null;
+            console.log(`Closed ${this.filePath_}`);
         }
-        console.log(`closed ${this.filePath_}`);
     }
 
     openFile(path, updateCallback, finishCallback){
@@ -33,16 +33,25 @@ class Konata{
     }
 
     reload(){
+        let parsers = [new this.OnikiriParser_()];
+        this.load_(parsers);
+    }
+
+    /**
+     * 与えられた paser を使ってファイルのロードを試みる
+     * @param {array} parsers - パーサーのリスト．先頭から順に読み出し試行される
+     */
+    load_(parsers){
         this.close();
         this.file_ = new this.FileReader_();
         this.file_.open(this.filePath_);
 
-        let parser = new this.OnikiriParser_();
-        this.parser_ = parser;
-        console.log("Open :", this.filePath_);
+        this.parser_ = parsers.shift();
+        console.log("Parser:", this.parser_.name);
+        console.log("Open:", this.filePath_);
 
         let self = this;
-        parser.setFile(
+        this.parser_.setFile(
             this.file_, 
             this.updateCallback_, 
             function(){ // Finish handler
@@ -51,9 +60,13 @@ class Konata{
             },
             function(){ // Error handler
                 self.file_.close();
+                console.log("Load failed:", self.parser_.name);
+                // 読み出し試行に失敗したの次のパーサーに
+                if (parsers.length > 0) {
+                    self.load_(parsers);
+                }
             }
         );
-        console.log("Selected parser:" , parser.getName());
     }
 
     /**

@@ -56,8 +56,11 @@ class OnikiriParser{
         this.opList_ = null;   // パージ
     }
 
-    getName(){
-        return "OnikiriParser:(" + this.file_.getPath() + ")";
+    /**
+     * @return {string} パーサーの名前を返す
+     */
+    get name(){
+        return "OnikiriParser";
     }
 
     // updateCallback(percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
