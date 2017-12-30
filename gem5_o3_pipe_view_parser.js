@@ -60,7 +60,7 @@ class Gem5O3PipeViewParser{
         this.STAGE_ID_COMPLETE_ = 5;
         this.STAGE_ID_RETIRE_ = 6;
 
-        this.STAGE_ID_MAP = {
+        this.STAGE_ID_MAP_ = {
             "fetch": this.STAGE_ID_FETCH_,
             "decode": this.STAGE_ID_DECODE_,
             "rename": this.STAGE_ID_RENAME_,
@@ -243,7 +243,7 @@ class Gem5O3PipeViewParser{
 
     }
 
-    parseInitialCommand(id, op, args){
+    parseInitialCommand(id, args){
         // 特定の命令に関するコマンド出力の開始
         // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
 
@@ -253,7 +253,7 @@ class Gem5O3PipeViewParser{
         //let seqNum = Number(args[5]);
         let disasm = Number(args[6]);
 
-        op = new this.Op();
+        let op = new this.Op();
         op.id = id;
         op.gid = 0;
         op.tid = 0;
@@ -261,11 +261,14 @@ class Gem5O3PipeViewParser{
         op.line = this.curLine_;
         op.labelName += `${insnAddr}: ${disasm}`;
         this.opList_[id] = op;
+
+        this.parseStartCommand(id, op, args);
     }
 
     parseStartCommand(id, op, args){
         // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
-        let stageName = this.STAGE_LABEL_MAP_[this.STAGE_ID_MAP_[args[1]]];
+        let stageID = this.STAGE_ID_MAP_[args[1]];
+        let stageName = this.STAGE_LABEL_MAP_[stageID];
         let tick = Number(args[2]);
 
         let laneName = "0"; // Default lane
@@ -307,8 +310,9 @@ class Gem5O3PipeViewParser{
     }
 
     parseEndCommand(id, op, args){
-        let laneName = args[2];
-        let stageName = args[3];
+        let laneName = "0"; // Default lane
+        let stageName = op.lastParsedStage;
+
         let stage = null;
         let laneInfo = op.lanes[laneName];
         let lane = laneInfo.stages;
@@ -410,25 +414,19 @@ class Gem5O3PipeViewParser{
 
         
         case "fetch": 
-            this.parseInitialCommand(id, op, args);
+            this.parseInitialCommand(id, args);
             break;
-        /*
-        case "S": 
+        case "decode": 
+        case "rename": 
+        case "dispatch": 
+        case "issue": 
+        case "complete": 
+            this.parseEndCommand(id, op, args);
             this.parseStartCommand(id, op, args);
             break;
-
-        case "E": 
-            this.parseEndCommand(id, op, args);
+        case "retire": 
+            this.parseStartCommand(id, op, args);
             break;
-
-        case "R": 
-            this.parseRetireCommand(id, op, args);
-            break;
-
-        case "W": 
-            this.parseDependencyCommand(id, op, args);
-            break;
-        */
         }  // switch end
     }
 }
