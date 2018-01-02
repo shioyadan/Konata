@@ -550,7 +550,7 @@ class Gem5O3PipeViewParser{
             if (stages.length > 0) {
                 let stage = stages[stages.length - 1];
                 if (stage.endCycle == 0) {
-                    stage.endCycle = this.curParsingInsnCycle_;
+                    stage.endCycle = tick;
                 }
             }
         }
