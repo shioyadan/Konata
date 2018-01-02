@@ -1,3 +1,4 @@
+
 <!-- タブバー -->
 <app_tabbar>
     <ul class="nav nav-tabs" ref="app_tabbar">
@@ -21,9 +22,9 @@
     </ul>
 
     <script>
+        /* globals RiotControl store ACTION CHANGE */
         let self = this;
         self.tabs = [];
-
 
         // クリック
         self.onClick = function(e, tabID){
@@ -62,7 +63,7 @@
                     fileName: store.tabs[id].fileName,
 
                     // ファイル名部分を取り出して表示
-                    tabName: store.tabs[id].fileName.match(/[^\/\\]+$/)[0],
+                    tabName: store.tabs[id].fileName.match(/[^/\\]+$/)[0],
 
                     // クリックのハンドラを ID ごと埋め込む
                     onClickProxy: function(e){
@@ -108,6 +109,7 @@
     </style>
 
     <script>
+        /* globals RiotControl store ACTION CHANGE */
         let self = this;
         self.width = 100;
         self.height = 100;
@@ -308,7 +310,7 @@
     </style>
 
     <script>
-        /* globals RiotControl store */
+        /* globals RiotControl store ACTION CHANGE */
 
         let self = this;
         self.width = 100;
@@ -466,6 +468,7 @@
     </div>
 
     <script>
+        /* globals RiotControl store ACTION CHANGE */
 
         let self = this;
         self.lastPos = 0;
@@ -584,7 +587,7 @@
 
             if (self.id == store.activeTab.id) {
                 container.style.zIndex = "0";   // アクティブなタブを最前面に
-                 // 透明化
+                // 透明化
                 if (store.activeTab.transparent) {
                     pipeline.style.opacity = store.activeTab.emphasize_in_transparent ? "0.8" : "0.5"; // 透明化
                 }
@@ -610,6 +613,7 @@
     <app_sheet each="{sheet, i in sheets}" id={sheet.id}>
     </app_sheet>
     <script>
+        /* globals RiotControl store CHANGE */
         let self = this;
         self.width = 0;
         self.height = 0;
@@ -632,6 +636,7 @@
     </div>
 
     <script>
+        /* globals RiotControl ACTION CHANGE */
         let self = this;
         self.init = function(){
             // フォーカスが外れたら消す
@@ -712,6 +717,7 @@
     </div>
 
     <script>
+        /* globals RiotControl store ACTION CHANGE */
         let self = this;
         self.barList = {};
         self.store = store;
@@ -799,7 +805,7 @@
     <script>
         let self = this;
 
-        /* global RiotControl ACTION CHANGE */
+        /* global RiotControl ACTION CHANGE store */
         let rc = RiotControl;
 
         self.remote = require("electron").remote;

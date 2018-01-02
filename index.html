@@ -32,7 +32,7 @@
         <!-- 実装 -->
         <script src="store.js" type="text/javascript"></script>
         <script>
-            /* globals riot RiotControl Store */
+            /* globals RiotControl Store */
             let store = new Store();    // Create a store instance.
             RiotControl.addStore(store); // Register the store in central dispatch.
         </script>
@@ -45,7 +45,7 @@
 
         <!-- マウントの実行 -->
         <script>
-            /* globals riot RiotControl Store */
+            /* globals riot*/
             riot.mount("app");
         </script>
 
