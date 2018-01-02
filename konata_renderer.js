@@ -210,7 +210,7 @@ class KonataRenderer{
         if (!newOp) {
             return 0;
         }
-        else if (!oldOp) {
+        else if (!oldOp || newOp.id == oldOp.id) {
             let left = self.viewPos_.left;
             return newOp.fetchedCycle - left;
         }
