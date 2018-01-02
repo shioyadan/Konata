@@ -15,12 +15,18 @@ class Gem5O3PipeViewParser{
         // 現在の行番号
         this.curLine_ = 1;
 
-        // 現在読み出し中のサイクル
+        // 現在読み出し中の ID/サイクル
+        this.curID_ = 0;
         this.curCycle_ = 0;
 
         // 最後に読み出された命令の ID
         this.lastID_ = 0;
         this.lastRID_ = 0;
+
+        // seq_num, flush flag, and tick for a currently parsed instruciton
+        this.curInsnSeqNum_ = -1;
+        this.curInsnFlushed_ = false;   // seq_num 
+        this.curInsnCycle_ = -1;         // This is used when insturuction is flushed
         
         // op 情報
         this.opList_ = [];
@@ -243,33 +249,56 @@ class Gem5O3PipeViewParser{
 
     }
 
-    parseInitialCommand(id, args){
+    parseInitialCommand(args){
         // 特定の命令に関するコマンド出力の開始
         // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
 
         let tick = Number(args[2]);
-        let insnAddr = Number(args[3]);
+        let insnAddr = args[3];
         //let microPC = Number(args[4]);
-        //let seqNum = Number(args[5]);
-        let disasm = Number(args[6]);
+        let seqNum = Number(args[5]);
+        let disasm = args[6];
 
         let op = new this.Op();
+        let id = seqNum;    // 暫定で seqNum を使うことに
         op.id = id;
-        op.gid = 0;
+        op.gid = seqNum;
         op.tid = 0;
         op.fetchedCycle = tick / this.TICKS_PER_CLOCK_;
         op.line = this.curLine_;
         op.labelName += `${insnAddr}: ${disasm}`;
         this.opList_[id] = op;
 
+        // Reset the currenct context
+        this.curID_ = id;
+        this.curInsnSeqNum_ = seqNum;
+        this.curInsnFlushed_ = false;
+        this.curInsnCycle_ = op.fetchedCycle;
+
         this.parseStartCommand(id, op, args);
     }
 
     parseStartCommand(id, op, args){
         // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
-        let stageID = this.STAGE_ID_MAP_[args[1]];
-        let stageName = this.STAGE_LABEL_MAP_[stageID];
+        // O3PipeView:decode:2132807000
+        let cmd = args[1];
         let tick = Number(args[2]);
+        let stageID = this.STAGE_ID_MAP_[cmd];
+        let stageName = this.STAGE_LABEL_MAP_[stageID];
+
+        if (id == 7) {
+            id = id;
+        }
+
+        // If tick is 0, this op is flushed.
+        if (tick == 0) {
+            op.flushed = true;
+            this.curInsnFlushed_ = true;
+            tick = this.curInsnCycle_ * this.TICKS_PER_CLOCK_; // Set the last valid tick
+        }
+        else {
+            this.curInsnCycle_ = tick / this.TICKS_PER_CLOCK_;
+        }
 
         let laneName = "0"; // Default lane
         let stage = new this.Stage();
@@ -310,6 +339,7 @@ class Gem5O3PipeViewParser{
     }
 
     parseEndCommand(id, op, args){
+        let tick = Number(args[2]);
         let laneName = "0"; // Default lane
         let stageName = op.lastParsedStage;
 
@@ -325,7 +355,7 @@ class Gem5O3PipeViewParser{
         if (stage == null) {
             return;
         }
-        stage.endCycle = this.curCycle_;
+        stage.endCycle = tick / this.TICKS_PER_CLOCK_;
 
         // レベルの更新
         // フラッシュで無理矢理閉じられることがあるので，
@@ -341,9 +371,20 @@ class Gem5O3PipeViewParser{
     }
 
     parseRetireCommand(id, op, args){
-        op.rid = Number(args[2]);
-        op.retiredCycle = this.curCycle_;
-        if (Number(args[3]) == 1) {
+        if (id == 7) {
+            id = id;
+        }
+
+        let tick = Number(args[2]);
+        // If tick is 0, this op is flushed.
+        if (tick == 0) {
+            this.curInsnFlushed_ = true;
+            tick = this.curInsnCycle_ * this.TICKS_PER_CLOCK_; // Set the last valid tick
+        }
+        op.retiredCycle = tick / this.TICKS_PER_CLOCK_;
+
+        op.rid = this.lastRID_;
+        if (this.curInsnFlushed_) {
             op.flush = true;
             op.retired = false;
         }
@@ -354,6 +395,10 @@ class Gem5O3PipeViewParser{
         if (this.lastID_ < id) {
             this.lastID_ = id;
         }
+
+        this.curID_++;
+
+        // Decode label strings
         this.unescpaeLabels(op);
 
         if (!op.flush) {
@@ -400,7 +445,7 @@ class Gem5O3PipeViewParser{
 
     parseCommand(args){
 
-        let id = self.lastID_;
+        let id = this.curID_;
 
         /** @type {Op}  */
         let op = null;
@@ -414,7 +459,7 @@ class Gem5O3PipeViewParser{
 
         
         case "fetch": 
-            this.parseInitialCommand(id, args);
+            this.parseInitialCommand(args);
             break;
         case "decode": 
         case "rename": 
@@ -425,7 +470,7 @@ class Gem5O3PipeViewParser{
             this.parseStartCommand(id, op, args);
             break;
         case "retire": 
-            this.parseStartCommand(id, op, args);
+            this.parseRetireCommand(id, op, args);
             break;
         }  // switch end
     }

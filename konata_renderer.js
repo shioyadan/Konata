@@ -622,7 +622,9 @@ class KonataRenderer{
                 return;
             }
             if (op == null) {
-                break;
+                // Since id can not be contiguous in gem5, there can be valid ops 
+                // after null.
+                continue;   
             }
             if (!self.drawOp_(op, y - top + offsetY, left, left + width, scale, ctx)) {
                 break;
