@@ -17,7 +17,6 @@ class Gem5O3PipeViewParser{
         this.curLine_ = 1;
 
         // 現在読み出し中の ID/サイクル
-        this.curParsingSeqNum_ = 0;
         this.curCycle_ = 0;
 
         // 最後に読み出された命令の ID
@@ -26,9 +25,9 @@ class Gem5O3PipeViewParser{
         this.lastSeqNum_ = 0;
 
         // seq_num, flush flag, and tick for a currently parsed instruciton
-        this.curInsnSeqNum_ = -1;
-        this.curInsnFlushed_ = false;   // seq_num 
-        this.curInsnCycle_ = -1;         // This is used when insturuction is flushed
+        this.curParsingSeqNum_ = 0;
+        this.curParsingInsnFlushed_ = false;   // seq_num 
+        this.curParsingInsnCycle_ = -1;         // This is used when insturuction is flushed
         
         // パースが終了した op のリスト
         /** @type {Op[]} */
@@ -56,7 +55,7 @@ class Gem5O3PipeViewParser{
         this.startTime_ = 0;
 
         // 更新間隔のタイマ
-        this.updateTimer_ = 100;    // 100行読んだら1回表示するようにしとく
+        this.updateTimer_ = 100;    // 初回は100行読んだら1回表示するようにしとく
 
         // 更新ハンドラの呼び出し回数
         this.updateCount_ = 0;    
@@ -65,8 +64,8 @@ class Gem5O3PipeViewParser{
         this.closed_ = false;
 
         // ticks(ps) per clock in GEM5. 
-        // Its default value is 1000 (1000 ps = 1 clock in 1GHz)
-        this.TICKS_PER_CLOCK_ = 1000;
+        // The default value is 1000 (1000 ps = 1 clock in 1GHz)
+        this.ticks_per_clock_ = -1;
 
         // Stage ID
         this.STAGE_ID_FETCH_ = 0;
@@ -232,16 +231,25 @@ class Gem5O3PipeViewParser{
         }
     }
 
+    /** @param {number[]} sortedSeqNums */
+    detectTicksPerClock(sortedSeqNums){
+        this.ticks_per_clock_ = 1000;
+    }
+
+    // Update opList from parsingOpList
     drainParsingOps_(force){
-        // Update opList from parsingOpList
-        let nextID = this.opList_.length;
-        let rawKeys = [];
+        // Get sorted sequence numbers
+        let rawSeqNums = [];
         for (let i in this.parsingOpList_) {
-            rawKeys.push(Number(i));
+            rawSeqNums.push(Number(i));
         }
-        let keys = rawKeys.sort((a, b) => {return a - b;});
+        let sortedSeqNums = rawSeqNums.sort((a, b) => {return a - b;});
+
+        this.detectTicksPerClock(sortedSeqNums);
+
+        let nextID = this.opList_.length;
         let flushingNum = 0;
-        for (let seqNum of keys) {
+        for (let seqNum of sortedSeqNums) {
             let nextSeqNum = this.lastSeqNum_ + 1;
             // Since seqNum is occasionally added 2, +1 must be checked.
             if (!force && nextSeqNum != seqNum && nextSeqNum + 1 != seqNum) {
@@ -268,10 +276,22 @@ class Gem5O3PipeViewParser{
                 this.lastRID_++;
                 flushingNum = 0;
             }
-            else {
-                // in a flushing phase
+            else { // in a flushing phase
                 op.rid = this.lastRID_ + flushingNum;
                 flushingNum++;
+            }
+
+            // Update clock cycles
+            op.fetchedCycle /= this.ticks_per_clock_;
+            op.retiredCycle /= this.ticks_per_clock_;
+            op.prodCycle /= this.ticks_per_clock_;
+            op.consCycle /= this.ticks_per_clock_;
+            for (let laneID in op.lanes) {
+                let lane = op.lanes[laneID];
+                for (let stage of lane.stages) {
+                    stage.startCycle /= this.ticks_per_clock_;
+                    stage.endCycle /= this.ticks_per_clock_;
+                }
             }
         } 
         this.lastID_ = this.opList_.length - 1;
@@ -341,16 +361,15 @@ class Gem5O3PipeViewParser{
         op.id = -1; // ここではまだ決定しない
         op.gid = seqNum;
         op.tid = 0;
-        op.fetchedCycle = tick / this.TICKS_PER_CLOCK_;
+        op.fetchedCycle = tick;
         op.line = this.curLine_;
         op.labelName += `${insnAddr}: ${disasm}`;
         this.parsingOpList_[seqNum] = op;
 
         // Reset the currenct context
         this.curParsingSeqNum_ = seqNum;
-        this.curInsnSeqNum_ = seqNum;
-        this.curInsnFlushed_ = false;
-        this.curInsnCycle_ = op.fetchedCycle;
+        this.curParsingInsnFlushed_ = false;
+        this.curParsingInsnCycle_ = op.fetchedCycle;
 
         this.parseStartCommand(seqNum, op, args);
     }
@@ -369,19 +388,19 @@ class Gem5O3PipeViewParser{
 
         // If tick is 0, this op is flushed.
         if (tick == 0) {
-            op.flushed = true;
-            this.curInsnFlushed_ = true;
-            tick = this.curInsnCycle_ * this.TICKS_PER_CLOCK_; // Set the last valid tick
+            op.flush = true;
+            this.curParsingInsnFlushed_ = true;
+            tick = this.curParsingInsnCycle_; // Set the last valid tick
         }
         else {
-            this.curInsnCycle_ = tick / this.TICKS_PER_CLOCK_;
+            this.curParsingInsnCycle_ = tick;
         }
 
         let laneName = "0"; // Default lane
         let stage = new Stage();
 
         stage.name = stageName;
-        stage.startCycle = tick / this.TICKS_PER_CLOCK_;
+        stage.startCycle = tick;
         if (!(laneName in op.lanes)) {
             op.lanes[laneName] = {
                 level: 0,  // 1サイクル以上のステージの数
@@ -432,7 +451,7 @@ class Gem5O3PipeViewParser{
         if (stage == null) {
             return;
         }
-        stage.endCycle = tick / this.TICKS_PER_CLOCK_;
+        stage.endCycle = tick;
 
         // レベルの更新
         // フラッシュで無理矢理閉じられることがあるので，
@@ -455,12 +474,12 @@ class Gem5O3PipeViewParser{
         let tick = Number(args[2]);
         // If tick is 0, this op is flushed.
         if (tick == 0) {
-            this.curInsnFlushed_ = true;
-            tick = this.curInsnCycle_ * this.TICKS_PER_CLOCK_; // Set the last valid tick
+            this.curParsingInsnFlushed_ = true;
+            tick = this.curParsingInsnCycle_; // Set the last valid tick
         }
-        op.retiredCycle = tick / this.TICKS_PER_CLOCK_;
+        op.retiredCycle = tick;
 
-        if (this.curInsnFlushed_) {
+        if (this.curParsingInsnFlushed_) {
             op.flush = true;
             op.retired = false;
         }
