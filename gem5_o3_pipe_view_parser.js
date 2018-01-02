@@ -304,6 +304,10 @@ class Gem5O3PipeViewParser{
             delete this.parsingOpList_[seqNum];
             this.lastSeqNum_ = seqNum;
 
+            if (this.lastID_ > seqNum) {
+                console.log(`Missed parsing. seqNum: ${seqNum} lastID: ${this.lastID_}`);
+            }
+
             // Update clock cycles
             op.fetchedCycle /= this.ticks_per_clock_;
             op.retiredCycle /= this.ticks_per_clock_;
@@ -321,7 +325,26 @@ class Gem5O3PipeViewParser{
                 this.curCycle_ = op.retiredCycle;
             }
         } 
-        this.lastID_ = this.opList_.length - 1;
+
+        let BUFFERED_SIZE = force ? 0 : 1024*16;
+        if (this.lastID_ + BUFFERED_SIZE >= this.opList_.length) {
+            return;
+        }
+        for (let i = this.lastID_; i < this.opList_.length - BUFFERED_SIZE; i++) {
+            let op = this.opList_[i];
+            if (op == null) {
+                continue;
+            }
+            this.lastID_ = i;
+            if (!op.flush) {
+                op.rid = this.lastRID_;
+                this.retiredOpList_[op.rid] = op;
+                this.lastRID_++;
+            }
+            else { // in a flushing phase
+                op.rid = -1;
+            }
+        }
     }
 
     finishParsing() {
@@ -329,10 +352,10 @@ class Gem5O3PipeViewParser{
             return;
         }
 
+        // 未処理の命令を強制処理
+        this.drainParsingOps_(true);
         
         // リタイア処理が行われなかった終端部分の後処理
-        //this.drainParsingOps_(true);
-
         let i = this.opList_.length - 1;
         while (i >= 0) {
             let op = this.opList_[i];
