@@ -215,46 +215,49 @@ class Gem5O3PipeViewParser{
             );
             this.updateCount_++;
 
-            // Update opList from parsingOpList
-            let nextID = this.opList_.length;
-            let rawKeys = [];
-            for (let i in this.parsingOpList_) {
-                rawKeys.push(Number(i));
-            }
-            let keys = rawKeys.sort((a, b) => {return a - b;});
-            let flushingNum = 0;
-            for (let seqNum of keys) {
-                let nextSeqNum = this.lastSeqNum_ + 1;
-                if (nextSeqNum == seqNum || nextSeqNum + 1 == seqNum) {
-                    let op = this.parsingOpList_[seqNum];
-                    if (!op.flush && !op.retired) {
-                        break;
-                    }
-                    this.opList_[nextID] = op;
-                    delete this.parsingOpList_[seqNum];
-                    this.lastSeqNum_ = seqNum;
+            this.drainParsingOps_(false);
+        }
+    }
 
-                    op.id = nextID;
-                    nextID++;
-
-                    if (!op.flush) {
-                        op.rid = this.lastRID_;
-                        this.retiredOpList_[op.rid] = op;
-                        this.lastRID_++;
-                        flushingNum = 0;
-                    }
-                    else{
-                        op.rid = this.lastRID_ + flushingNum;
-                        flushingNum++;
-                    }
-                }
-                else{
+    drainParsingOps_(force){
+        // Update opList from parsingOpList
+        let nextID = this.opList_.length;
+        let rawKeys = [];
+        for (let i in this.parsingOpList_) {
+            rawKeys.push(Number(i));
+        }
+        let keys = rawKeys.sort((a, b) => {return a - b;});
+        let flushingNum = 0;
+        for (let seqNum of keys) {
+            let nextSeqNum = this.lastSeqNum_ + 1;
+            if (nextSeqNum == seqNum || nextSeqNum + 1 == seqNum) {
+                let op = this.parsingOpList_[seqNum];
+                if (!op.flush && !op.retired) {
                     break;
                 }
-            } 
+                this.opList_[nextID] = op;
+                delete this.parsingOpList_[seqNum];
+                this.lastSeqNum_ = seqNum;
 
-            this.lastID_ = this.opList_.length - 1;
-        }
+                op.id = nextID;
+                nextID++;
+
+                if (!op.flush) {
+                    op.rid = this.lastRID_;
+                    this.retiredOpList_[op.rid] = op;
+                    this.lastRID_++;
+                    flushingNum = 0;
+                }
+                else{
+                    op.rid = this.lastRID_ + flushingNum;
+                    flushingNum++;
+                }
+            }
+            else{
+                break;
+            }
+        } 
+        this.lastID_ = this.opList_.length - 1;
     }
 
     finishParsing() {
