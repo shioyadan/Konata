@@ -288,48 +288,21 @@ class Gem5O3PipeViewParser{
     // Update opList from parsingOpList
     drainParsingOps_(force){
         this.detectTicksPerClock(force);
-
-        // Get sorted sequence numbers
-        let rawSeqNums = [];
-        for (let i in this.parsingOpList_) {
-            rawSeqNums.push(Number(i));
+        if (this.ticks_per_clock_ == -1) {
+            return;
         }
-        let sortedSeqNums = rawSeqNums.sort((a, b) => {return a - b;});
 
-
-        let nextID = this.opList_.length;
-        let flushingNum = 0;
-        for (let seqNum of sortedSeqNums) {
-            let nextSeqNum = this.lastSeqNum_ + 1;
-            // Since seqNum is occasionally added 2, +1 must be checked.
-            if (!force && nextSeqNum != seqNum && nextSeqNum + 1 != seqNum) {
-                break;  // A next op has not been parsed yet.
-            }
+        for (let seqNum in this.parsingOpList_) {
 
             let op = this.parsingOpList_[seqNum];
-            if (!op.flush && !op.retired) {
-                break;  // A next op has not been parsed yet.
+            if (!force && !op.flush && !op.retired) {
+                continue;  // This op has not been parsed yet.
             }
 
             // Add an op to opList and remove it from parsingOpList
-            this.opList_[nextID] = op;
+            this.opList_[seqNum] = op;
             delete this.parsingOpList_[seqNum];
             this.lastSeqNum_ = seqNum;
-
-            // Update IDs
-            op.id = nextID;
-            nextID++;
-
-            if (!op.flush) {
-                op.rid = this.lastRID_;
-                this.retiredOpList_[op.rid] = op;
-                this.lastRID_++;
-                flushingNum = 0;
-            }
-            else { // in a flushing phase
-                op.rid = this.lastRID_ + flushingNum;
-                flushingNum++;
-            }
 
             // Update clock cycles
             op.fetchedCycle /= this.ticks_per_clock_;
@@ -343,9 +316,12 @@ class Gem5O3PipeViewParser{
                     stage.endCycle /= this.ticks_per_clock_;
                 }
             }
+
+            if (op.retiredCycle > this.curCycle_) {
+                this.curCycle_ = op.retiredCycle;
+            }
         } 
         this.lastID_ = this.opList_.length - 1;
-        //this.curCycle_ = this.opList_[this.lastID_].retiredCycle;
     }
 
     finishParsing() {
@@ -360,14 +336,17 @@ class Gem5O3PipeViewParser{
         let i = this.opList_.length - 1;
         while (i >= 0) {
             let op = this.opList_[i];
+            i--;
+            if (op == null) {
+                continue;
+            }
             if (op.retired && !op.flush) {
                 break; // コミットされた命令がきたら終了
             }
-            i--;
             if (op.flush) {
                 continue; // フラッシュされた命令には特になにもしない
             }
-            op.retiredCycle = this.curCycle_;
+            op.retiredCycle = this.curParsingInsnCycle_ / this.ticks_per_clock_;
             op.eof = true;
             this.unescpaeLabels(op);
         }
@@ -408,12 +387,13 @@ class Gem5O3PipeViewParser{
         let disasm = args[6];
 
         let op = new Op();
-        op.id = -1; // ここではまだ決定しない
+        op.id = seqNum;
         op.gid = seqNum;
         op.tid = 0;
         op.fetchedCycle = tick;
         op.line = this.curLine_;
         op.labelName += `${insnAddr}: ${disasm}`;
+        op.labelDetail += `fetched tick: ${tick}`;
         this.parsingOpList_[seqNum] = op;
 
         // Reset the currenct context
@@ -438,9 +418,8 @@ class Gem5O3PipeViewParser{
 
         // If tick is 0, this op is flushed.
         if (tick == 0) {
-            //op.flush = true;
             this.curParsingInsnFlushed_ = true;
-            tick = this.curParsingInsnCycle_; // Set the last valid tick
+            tick = this.curParsingInsnCycle_; // Set a last valid tick
         }
         else {
             this.curParsingInsnCycle_ = tick;
@@ -511,9 +490,10 @@ class Gem5O3PipeViewParser{
         }
 
         // X を名前に含むステージは実行ステージと見なす
+        /*
         if (stageName.match(/X/)){
             op.prodCycle = this.curCycle_ - 1;
-        }
+        }*/
     }
 
     parseRetireCommand(seqNum, op, args){
@@ -547,7 +527,7 @@ class Gem5O3PipeViewParser{
             if (stages.length > 0) {
                 let stage = stages[stages.length - 1];
                 if (stage.endCycle == 0) {
-                    stage.endCycle = this.curCycle_;
+                    stage.endCycle = this.curParsingInsnCycle_;
                 }
             }
         }
