@@ -756,6 +756,7 @@
                 self.barList[tabID] = percent;
                 let bar = self.refs["progress_bar_" + tabID].style;
                 bar.width = 100 * percent + "%";
+                self.update();
             }
         );
         
