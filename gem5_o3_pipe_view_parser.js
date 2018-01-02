@@ -230,42 +230,50 @@ class Gem5O3PipeViewParser{
         let flushingNum = 0;
         for (let seqNum of keys) {
             let nextSeqNum = this.lastSeqNum_ + 1;
-            if (nextSeqNum == seqNum || nextSeqNum + 1 == seqNum) {
-                let op = this.parsingOpList_[seqNum];
-                if (!op.flush && !op.retired) {
-                    break;
-                }
-                this.opList_[nextID] = op;
-                delete this.parsingOpList_[seqNum];
-                this.lastSeqNum_ = seqNum;
-
-                op.id = nextID;
-                nextID++;
-
-                if (!op.flush) {
-                    op.rid = this.lastRID_;
-                    this.retiredOpList_[op.rid] = op;
-                    this.lastRID_++;
-                    flushingNum = 0;
-                }
-                else{
-                    op.rid = this.lastRID_ + flushingNum;
-                    flushingNum++;
-                }
+            // Since seqNum is occasionally added 2, +1 must be checked.
+            if (!force && nextSeqNum != seqNum && nextSeqNum + 1 != seqNum) {
+                break;  // A next op has not been parsed yet.
             }
-            else{
-                break;
+
+            let op = this.parsingOpList_[seqNum];
+            if (!op.flush && !op.retired) {
+                break;  // A next op has not been parsed yet.
+            }
+
+            // Add an op to opList and remove it from parsingOpList
+            this.opList_[nextID] = op;
+            delete this.parsingOpList_[seqNum];
+            this.lastSeqNum_ = seqNum;
+
+            // Update IDs
+            op.id = nextID;
+            nextID++;
+
+            if (!op.flush) {
+                op.rid = this.lastRID_;
+                this.retiredOpList_[op.rid] = op;
+                this.lastRID_++;
+                flushingNum = 0;
+            }
+            else {
+                // in a flushing phase
+                op.rid = this.lastRID_ + flushingNum;
+                flushingNum++;
             }
         } 
         this.lastID_ = this.opList_.length - 1;
+        //this.curCycle_ = this.opList_[this.lastID_].retiredCycle;
     }
 
     finishParsing() {
         if (this.closed_) {
             return;
         }
+
         
         // リタイア処理が行われなかった終端部分の後処理
+        //this.drainParsingOps_(true);
+
         let i = this.opList_.length - 1;
         while (i >= 0) {
             let op = this.opList_[i];
