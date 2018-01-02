@@ -151,6 +151,9 @@ class Konata{
 
         for (let i = 0; i < lastID; i++) {
             let op = this.getOp(i);
+            if (op == null) {
+                continue;
+            }
 
             if (op.flush) {
                 
