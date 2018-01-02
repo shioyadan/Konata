@@ -252,13 +252,10 @@ class Gem5O3PipeViewParser{
                 for (let stage of lane.stages) {
                     ticks[stage.startCycle] = 1;
                     ticks[stage.endCycle] = 1;
+                    //if (stage.endCycle == 0 || stage.startCycle == 0)
+                    //    lane = lane;
                 }
             }
-        }
-
-        // If there is not enough ticks, detection is not performed.
-        if (!force && ticks.length < 1024) {
-            return;
         }
 
         // Sort as numbers
@@ -267,6 +264,11 @@ class Gem5O3PipeViewParser{
             rawTicks.push(Number(i));
         }
         let sortedTicks = rawTicks.sort((a, b) => {return a - b;});
+
+        // If there is not enough ticks, detection is not performed.
+        if (!force && sortedTicks.length < 1024) {
+            return;
+        }
 
         // Detect minimum delta
         let minDelta = 0;
@@ -520,7 +522,7 @@ class Gem5O3PipeViewParser{
     }
 
     parseRetireCommand(seqNum, op, args){
-        //if (seqNum == 7) {
+        //if (seqNum == 11) {
         //    seqNum = seqNum;
         //}
 
@@ -547,8 +549,7 @@ class Gem5O3PipeViewParser{
         // 閉じていないステージがあった場合はここで閉じる
         for (let laneName in op.lanes) {
             let stages = op.lanes[laneName].stages;
-            if (stages.length > 0) {
-                let stage = stages[stages.length - 1];
+            for (let stage of stages) {
                 if (stage.endCycle == 0) {
                     stage.endCycle = tick;
                 }
