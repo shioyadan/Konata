@@ -1,8 +1,9 @@
+let Op = require("./op").Op;
+let Stage = require("./stage").Stage;
+
 class Gem5O3PipeViewParser{
 
     constructor(){
-        this.Op = require("./op").Op;
-        this.Stage = require("./stage").Stage;
 
         // ファイルリーダ
         this.file_ = null; 
@@ -30,12 +31,16 @@ class Gem5O3PipeViewParser{
         this.curInsnCycle_ = -1;         // This is used when insturuction is flushed
         
         // パースが終了した op のリスト
+        /** @type {Op[]} */
         this.opList_ = [];
+
+        /** @type {Op} */
         this.retiredOpList_ = [];
 
         // パース中の op のリスト
         // ファイル内の op の順序はほぼランダムなため，一回ここに貯めたあと
         // 再度 id と rid の割り付ける
+        /** @type {Object.<number, Op>} */
         this.parsingOpList_ = {};
         
         // パース完了
@@ -125,6 +130,7 @@ class Gem5O3PipeViewParser{
         );
     }
 
+    /** @returns {Op[]} */
     getOps(start, end){
         let ops = [];
         for (let i = start; i < end; i++) {
@@ -138,6 +144,7 @@ class Gem5O3PipeViewParser{
         return ops;
     }
 
+    /** @returns {Op} */
     getOp(id){
         if (id > this.lastID_){
             return null;
@@ -147,6 +154,7 @@ class Gem5O3PipeViewParser{
         }
     }
     
+    /** @returns {Op} */
     getOpFromRID(rid){
         if (rid > this.lastRID_){
             return null;
@@ -156,22 +164,27 @@ class Gem5O3PipeViewParser{
         }
     }
 
+    /** @returns {number} */
     get lastID(){
         return this.lastID_;
     }
 
+    /** @returns {number} */
     get lastRID(){
         return this.lastRID_;
     }
 
+    /** @returns {Object.<string, number>} */
     get laneMap(){
         return this.laneMap_;
     }
 
+    /** @returns {Object.<string, number>} */
     get stageLevelMap(){
         return this.stageLevelMap_;
     }
 
+    /** @returns {number} */
     get lastCycle(){
         return this.curCycle_;
     }
@@ -298,6 +311,7 @@ class Gem5O3PipeViewParser{
         console.log(`Parsed (${this.name}): ${elapsed} ms`);
     }
 
+    /** @param {Op} op */
     unescpaeLabels(op){
         // op 内のラベルのエスケープされている \n を戻す
         // v8 エンジンでは，文字列を結合すると cons 文字列という形式で
@@ -312,6 +326,7 @@ class Gem5O3PipeViewParser{
 
     }
 
+    /** @param {string[]} args */
     parseInitialCommand(args){
         // 特定の命令に関するコマンド出力の開始
         // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
@@ -322,7 +337,7 @@ class Gem5O3PipeViewParser{
         let seqNum = Number(args[5]);
         let disasm = args[6];
 
-        let op = new this.Op();
+        let op = new Op();
         op.id = -1; // ここではまだ決定しない
         op.gid = seqNum;
         op.tid = 0;
@@ -348,9 +363,9 @@ class Gem5O3PipeViewParser{
         let stageID = this.STAGE_ID_MAP_[cmd];
         let stageName = this.STAGE_LABEL_MAP_[stageID];
 
-        if (seqNum == 7) {
-            seqNum = seqNum;
-        }
+        //if (seqNum == 7) {
+        //    seqNum = seqNum;
+        //}
 
         // If tick is 0, this op is flushed.
         if (tick == 0) {
@@ -363,7 +378,7 @@ class Gem5O3PipeViewParser{
         }
 
         let laneName = "0"; // Default lane
-        let stage = new this.Stage();
+        let stage = new Stage();
 
         stage.name = stageName;
         stage.startCycle = tick / this.TICKS_PER_CLOCK_;
@@ -433,9 +448,9 @@ class Gem5O3PipeViewParser{
     }
 
     parseRetireCommand(seqNum, op, args){
-        if (seqNum == 7) {
-            seqNum = seqNum;
-        }
+        //if (seqNum == 7) {
+        //    seqNum = seqNum;
+        //}
 
         let tick = Number(args[2]);
         // If tick is 0, this op is flushed.
