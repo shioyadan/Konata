@@ -423,7 +423,7 @@ class Gem5O3PipeViewParser{
         op.fetchedCycle = tick;
         op.line = this.curLine_;
         op.labelName += `${insnAddr}: ${disasm}`;
-        op.labelDetail += `fetched tick: ${tick}`;
+        op.labelDetail += `Fetched Tick: ${tick}`;
         this.parsingOpList_[seqNum] = op;
 
         // Reset the currenct context
