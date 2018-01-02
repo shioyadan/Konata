@@ -231,13 +231,64 @@ class Gem5O3PipeViewParser{
         }
     }
 
-    /** @param {number[]} sortedSeqNums */
-    detectTicksPerClock(sortedSeqNums){
-        this.ticks_per_clock_ = 1000;
+    detectTicksPerClock(force){
+        if (this.ticks_per_clock_ != -1) {
+            return;
+        }
+
+        // Collect all outputted ticks
+        let ticks = {};
+        for (let seqNum in this.parsingOpList_) {
+
+            let op = this.parsingOpList_[seqNum];
+            if (!op.flush && !op.retired) {
+                break;  // A next op has not been parsed yet.
+            }
+
+            ticks[op.fetchedCycle] = 1;
+            ticks[op.retiredCycle] = 1;
+            for (let laneID in op.lanes) {
+                let lane = op.lanes[laneID];
+                for (let stage of lane.stages) {
+                    ticks[stage.startCycle] = 1;
+                    ticks[stage.endCycle] = 1;
+                }
+            }
+        }
+
+        // If there is not enough ticks, detection is not performed.
+        if (!force && ticks.length < 1024) {
+            return;
+        }
+
+        // Sort as numbers
+        let rawTicks = [];
+        for (let i of Object.keys(ticks)) {
+            rawTicks.push(Number(i));
+        }
+        let sortedTicks = rawTicks.sort((a, b) => {return a - b;});
+
+        // Detect minimum delta
+        let minDelta = 0;
+        let prevTick = sortedTicks[0]; 
+        for (let i of sortedTicks) {
+            let delta = i - prevTick;
+            if (minDelta == 0 || (delta > 0 && delta < minDelta)) {
+                minDelta = delta;
+            }
+            prevTick = i;
+        }
+
+        if (minDelta > 0) {
+            this.ticks_per_clock_ = minDelta;
+            console.log("Detected ticks per clock: " + minDelta);
+        }
     }
 
     // Update opList from parsingOpList
     drainParsingOps_(force){
+        this.detectTicksPerClock(force);
+
         // Get sorted sequence numbers
         let rawSeqNums = [];
         for (let i in this.parsingOpList_) {
@@ -245,7 +296,6 @@ class Gem5O3PipeViewParser{
         }
         let sortedSeqNums = rawSeqNums.sort((a, b) => {return a - b;});
 
-        this.detectTicksPerClock(sortedSeqNums);
 
         let nextID = this.opList_.length;
         let flushingNum = 0;
@@ -388,7 +438,7 @@ class Gem5O3PipeViewParser{
 
         // If tick is 0, this op is flushed.
         if (tick == 0) {
-            op.flush = true;
+            //op.flush = true;
             this.curParsingInsnFlushed_ = true;
             tick = this.curParsingInsnCycle_; // Set the last valid tick
         }
