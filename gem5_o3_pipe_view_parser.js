@@ -16,22 +16,28 @@ class Gem5O3PipeViewParser{
         this.curLine_ = 1;
 
         // 現在読み出し中の ID/サイクル
-        this.curID_ = 0;
+        this.curParsingSeqNum_ = 0;
         this.curCycle_ = 0;
 
         // 最後に読み出された命令の ID
         this.lastID_ = 0;
         this.lastRID_ = 0;
+        this.lastSeqNum_ = 0;
 
         // seq_num, flush flag, and tick for a currently parsed instruciton
         this.curInsnSeqNum_ = -1;
         this.curInsnFlushed_ = false;   // seq_num 
         this.curInsnCycle_ = -1;         // This is used when insturuction is flushed
         
-        // op 情報
+        // パースが終了した op のリスト
         this.opList_ = [];
         this.retiredOpList_ = [];
-    
+
+        // パース中の op のリスト
+        // ファイル内の op の順序はほぼランダムなため，一回ここに貯めたあと
+        // 再度 id と rid の割り付ける
+        this.parsingOpList_ = {};
+        
         // パース完了
         this.complete_ = false;
 
@@ -92,7 +98,9 @@ class Gem5O3PipeViewParser{
     // 閉じる
     close(){
         this.closed_ = true;
-        this.opList_ = null;   // パージ
+        // パージ
+        this.opList_ = null;   
+        this.parsingOpList_ = null;
     }
 
     /**
@@ -183,6 +191,8 @@ class Gem5O3PipeViewParser{
             // きちんと無視する必要がある
             return;
         }
+
+        // File format detection
         if (this.curLine_ == 1) {
             if (!line.match(/^O3PipeView/)) {   // This file is not O3PipeView.
                 this.errorCallback_();
@@ -197,11 +207,53 @@ class Gem5O3PipeViewParser{
         this.updateTimer_--;
         if (this.updateTimer_ < 0) {
             this.updateTimer_ = 1024*32;
+
+            // Call update callback, which updates progress bars 
             this.updateCallback_(
                 1.0 * this.file_.bytesRead / this.file_.fileSize,
                 this.updateCount_
             );
             this.updateCount_++;
+
+            // Update opList from parsingOpList
+            let nextID = this.opList_.length;
+            let rawKeys = [];
+            for (let i in this.parsingOpList_) {
+                rawKeys.push(Number(i));
+            }
+            let keys = rawKeys.sort((a, b) => {return a - b;});
+            let flushingNum = 0;
+            for (let seqNum of keys) {
+                let nextSeqNum = this.lastSeqNum_ + 1;
+                if (nextSeqNum == seqNum || nextSeqNum + 1 == seqNum) {
+                    let op = this.parsingOpList_[seqNum];
+                    if (!op.flush && !op.retired) {
+                        break;
+                    }
+                    this.opList_[nextID] = op;
+                    delete this.parsingOpList_[seqNum];
+                    this.lastSeqNum_ = seqNum;
+
+                    op.id = nextID;
+                    nextID++;
+
+                    if (!op.flush) {
+                        op.rid = this.lastRID_;
+                        this.retiredOpList_[op.rid] = op;
+                        this.lastRID_++;
+                        flushingNum = 0;
+                    }
+                    else{
+                        op.rid = this.lastRID_ + flushingNum;
+                        flushingNum++;
+                    }
+                }
+                else{
+                    break;
+                }
+            } 
+
+            this.lastID_ = this.opList_.length - 1;
         }
     }
 
@@ -260,25 +312,24 @@ class Gem5O3PipeViewParser{
         let disasm = args[6];
 
         let op = new this.Op();
-        let id = seqNum;    // 暫定で seqNum を使うことに
-        op.id = id;
+        op.id = -1; // ここではまだ決定しない
         op.gid = seqNum;
         op.tid = 0;
         op.fetchedCycle = tick / this.TICKS_PER_CLOCK_;
         op.line = this.curLine_;
         op.labelName += `${insnAddr}: ${disasm}`;
-        this.opList_[id] = op;
+        this.parsingOpList_[seqNum] = op;
 
         // Reset the currenct context
-        this.curID_ = id;
+        this.curParsingSeqNum_ = seqNum;
         this.curInsnSeqNum_ = seqNum;
         this.curInsnFlushed_ = false;
         this.curInsnCycle_ = op.fetchedCycle;
 
-        this.parseStartCommand(id, op, args);
+        this.parseStartCommand(seqNum, op, args);
     }
 
-    parseStartCommand(id, op, args){
+    parseStartCommand(seqNum, op, args){
         // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
         // O3PipeView:decode:2132807000
         let cmd = args[1];
@@ -286,8 +337,8 @@ class Gem5O3PipeViewParser{
         let stageID = this.STAGE_ID_MAP_[cmd];
         let stageName = this.STAGE_LABEL_MAP_[stageID];
 
-        if (id == 7) {
-            id = id;
+        if (seqNum == 7) {
+            seqNum = seqNum;
         }
 
         // If tick is 0, this op is flushed.
@@ -338,7 +389,7 @@ class Gem5O3PipeViewParser{
         }
     }
 
-    parseEndCommand(id, op, args){
+    parseEndCommand(seqNum, op, args){
         let tick = Number(args[2]);
         let laneName = "0"; // Default lane
         let stageName = op.lastParsedStage;
@@ -370,9 +421,9 @@ class Gem5O3PipeViewParser{
         }
     }
 
-    parseRetireCommand(id, op, args){
-        if (id == 7) {
-            id = id;
+    parseRetireCommand(seqNum, op, args){
+        if (seqNum == 7) {
+            seqNum = seqNum;
         }
 
         let tick = Number(args[2]);
@@ -383,7 +434,6 @@ class Gem5O3PipeViewParser{
         }
         op.retiredCycle = tick / this.TICKS_PER_CLOCK_;
 
-        op.rid = this.lastRID_;
         if (this.curInsnFlushed_) {
             op.flush = true;
             op.retired = false;
@@ -392,21 +442,9 @@ class Gem5O3PipeViewParser{
             op.flush = false;
             op.retired = true;
         }
-        if (this.lastID_ < id) {
-            this.lastID_ = id;
-        }
-
-        this.curID_++;
 
         // Decode label strings
         this.unescpaeLabels(op);
-
-        if (!op.flush) {
-            this.retiredOpList_[op.rid] = op;
-            if (this.lastRID_ < op.rid) {
-                this.lastRID_ = op.rid;
-            }
-        }
 
         // 閉じていないステージがあった場合はここで閉じる
         for (let laneName in op.lanes) {
@@ -420,37 +458,14 @@ class Gem5O3PipeViewParser{
         }
     }
 
-    parseDependencyCommand(id, op, args){
-        // 任意の依存関係 - 典型的にはウェイクアップ
-        // タイプ番号の指定により，違う色で表示される
-        //
-        // フォーマット:
-        //      W	<Consumer ID>	<Producer ID>	<Type>
-        //
-        // <Consumer ID>: 2列目はコンシューマーのID
-        // <Producer ID>: 3列目はプロデューサーのID
-        // <Type>: 4列目は依存関係のタイプ
-        //      0ならウェイクアップ, 1以降は今のところ予約
-        //      コンシューマーが生きている期間のみ使用可能
-
-        let prodId = Number(args[2]);
-        let type = Number(args[3]);
-        op.prods.push(
-            {id: prodId, type: type, cycle: this.curCycle_}
-        );
-        this.opList_[prodId].cons.push(
-            {id: id, type: type, cycle: this.curCycle_}
-        );
-    }
-
     parseCommand(args){
 
-        let id = this.curID_;
+        let seqNum = this.curParsingSeqNum_;
 
         /** @type {Op}  */
         let op = null;
-        if (id in this.opList_) {
-            op = this.opList_[id];
+        if (seqNum in this.parsingOpList_) {
+            op = this.parsingOpList_[seqNum];
         }
         
         let cmd = args[1];
@@ -466,11 +481,11 @@ class Gem5O3PipeViewParser{
         case "dispatch": 
         case "issue": 
         case "complete": 
-            this.parseEndCommand(id, op, args);
-            this.parseStartCommand(id, op, args);
+            this.parseEndCommand(seqNum, op, args);
+            this.parseStartCommand(seqNum, op, args);
             break;
         case "retire": 
-            this.parseRetireCommand(id, op, args);
+            this.parseRetireCommand(seqNum, op, args);
             break;
         }  // switch end
     }
