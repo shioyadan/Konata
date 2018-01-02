@@ -67,6 +67,9 @@ class Gem5O3PipeViewParser{
         // The default value is 1000 (1000 ps = 1 clock in 1GHz)
         this.ticks_per_clock_ = -1;
 
+        // 開始時の tick
+        this.cycle_begin_ = -1;
+
         // Stage ID
         this.STAGE_ID_FETCH_ = 0;
         this.STAGE_ID_DECODE_ = 1;
@@ -283,6 +286,7 @@ class Gem5O3PipeViewParser{
 
         if (minDelta > 0) {
             this.ticks_per_clock_ = minDelta;
+            this.cycle_begin_ = sortedTicks[0] / this.ticks_per_clock_;
             console.log("Detected ticks per clock: " + minDelta);
         }
     }
@@ -311,21 +315,18 @@ class Gem5O3PipeViewParser{
             }
 
             // Update clock cycles
-            op.fetchedCycle /= this.ticks_per_clock_;
-            op.retiredCycle /= this.ticks_per_clock_;
-            op.prodCycle /= this.ticks_per_clock_;
-            op.consCycle /= this.ticks_per_clock_;
+            op.fetchedCycle = op.fetchedCycle / this.ticks_per_clock_ - this.cycle_begin_;
+            op.retiredCycle = op.retiredCycle / this.ticks_per_clock_ - this.cycle_begin_;
+            op.prodCycle = op.prodCycle / this.ticks_per_clock_ - this.cycle_begin_;
+            op.consCycle = op.consCycle / this.ticks_per_clock_ - this.cycle_begin_;
             for (let laneID in op.lanes) {
                 let lane = op.lanes[laneID];
                 for (let stage of lane.stages) {
-                    stage.startCycle /= this.ticks_per_clock_;
-                    stage.endCycle /= this.ticks_per_clock_;
+                    stage.startCycle = stage.startCycle / this.ticks_per_clock_ - this.cycle_begin_;
+                    stage.endCycle = stage.endCycle / this.ticks_per_clock_ - this.cycle_begin_;
                 }
             }
 
-            if (op.retiredCycle > this.curCycle_) {
-                this.curCycle_ = op.retiredCycle;
-            }
         } 
 
         let BUFFERED_SIZE = force ? 0 : 1024*16;
@@ -338,6 +339,10 @@ class Gem5O3PipeViewParser{
                 continue;
             }
             this.lastID_ = i;
+            if (op.retiredCycle > this.curCycle_) {
+                this.curCycle_ = op.retiredCycle;
+            }
+
             if (!op.flush) {
                 op.rid = this.lastRID_;
                 this.retiredOpList_[op.rid] = op;
