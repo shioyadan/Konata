@@ -59,8 +59,7 @@ html, body {
     box-shadow: rgb(168, 168, 168) 0px 5px 8px;
     padding: 5px;
     /*line-height: 1.4em;*/
-    font-size: "10px";
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    font-size: 12px;
 
     /* 左から 33% に*/
     margin: 0 33%;
@@ -77,6 +76,29 @@ html, body {
 
 .command_pallete_input {
     width: 100%;
+    margin-bottom: 6px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+}
+
+.command_pallete_hint_item {
+    margin-bottom: 7px;
+    margin-top: 7px;
+}
+
+.command_pallete_hint_item_text {
+    padding-bottom: 3px;
+    padding-top: 3px;
+    float: left;
+}
+
+.command_pallete_hint_item_command {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    border: 1px solid #999;
+    background: #eee;
+    border-radius: 4px;/*角の丸み*/
+    padding-left: 4px;
+    padding-right: 4px;
+    float: right;
 }
 
 /* プログレスバーのコンテナ */

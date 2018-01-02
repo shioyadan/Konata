@@ -633,11 +633,23 @@
 
     <div ref="command_pallete" class="command_pallete">
         <input ref="input" type="text" class="command_pallete_input">
+        <div 
+            class="command_pallete_hint_item"
+            each="{hint, hintID in hintList}" 
+            ref={"hint_" + hintID} 
+        >
+            <div class="command_pallete_hint_item_text">{hint.text}</div>:
+            <div class="command_pallete_hint_item_command">{hint.cmd}</div>
+        </div>
     </div>
 
     <script>
         /* globals RiotControl ACTION CHANGE */
         let self = this;
+        self.hintList = {
+            0: {"text": "Jump to Op (id)", "cmd": "jump y <id>"},
+            1: {"text": "Jump to Op (rid)", "cmd": "jump r <rid>"},
+        };
         self.init = function(){
             // フォーカスが外れたら消す
             let input = self.refs.input;
