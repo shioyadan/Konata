@@ -58,12 +58,15 @@ html, body {
     background: rgb(243, 243, 243);
     box-shadow: rgb(168, 168, 168) 0px 5px 8px;
     padding: 5px;
+    width: 300px; 
+
     /*line-height: 1.4em;*/
     font-size: 12px;
 
-    /* 左から 33% に*/
-    margin: 0 33%;
-    width: 33%;
+    /* absolute 配置 かつleft/top を 非 auto にして margin を auto にすると中央配置になる */
+    margin: 0 auto;
+    left: 0;
+    right: 0;
 
     /* 初期は非表示 */
     visibility: hidden;
