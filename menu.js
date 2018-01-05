@@ -176,7 +176,7 @@ function installMainMenu(){
                             let version = require("./version.js");
                             rc.trigger(
                                 ACTION.DIALOG_MODAL_MESSAGE,
-                                version.KONATA_VERSION_INFO.about
+                                version.getKonataInfo().about
                             );
                         }
                     }

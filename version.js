@@ -1,5 +1,10 @@
-const KONATA_VERSION_INFO = {
-    about: "Konata ver 0.23, Kojiro Izuoka and Ryota Shioya."
-};
+function getKonataInfo(){
 
-module.exports.KONATA_VERSION_INFO = KONATA_VERSION_INFO;
+    let package = require("./package.json");
+
+    return {
+        about: `Konata ver ${package.version}, Kojiro Izuoka and Ryota Shioya.`
+    };
+}
+
+module.exports.getKonataInfo = getKonataInfo;
