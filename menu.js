@@ -69,7 +69,7 @@ function installMainMenu(){
                 enabled: tab ? true : false,
                 submenu: [
                     {
-                        label: "Commpand palette",
+                        label: "Command palette",
                         click: function(){
                             rc.trigger(ACTION.COMMAND_PALETTE_OPEN);
                         }
