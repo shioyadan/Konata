@@ -416,6 +416,11 @@ class Gem5O3PipeViewParser{
         let seqNum = Number(args[5]);
         let disasm = args[6];
 
+        // Even if ":" is inserted after the 6th, it is disassembled text
+        for (let i = 7; i < args.length; i++) {
+            disasm += ":" + args[7];
+        }
+
         let op = new Op();
         op.id = seqNum;
         op.gid = seqNum;
