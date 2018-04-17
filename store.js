@@ -183,6 +183,36 @@ class Store{
                     self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
                 }
             }
+
+            // find #
+            if (cmd.match(/^find[\s+](.+)$/)) {
+                let target = RegExp.$1;
+                let find = self.activeTab.find;
+                //if (find.target == target) {
+                //}
+                let pos = self.activeTab.renderer.viewPos;
+                find.target = target;
+                for (let i = pos[1];i < self.activeTab.konata.lastID; i++) {
+                    let op = self.activeTab.konata.getOp(i);
+                    if (!op) {
+                        continue;
+                    }
+                    if (op.labelName.match(target)) {
+                        console.log(target);
+                        break;
+                    }
+                }
+
+                /*
+                let renderer = self.activeTab.renderer;
+                let pos = renderer.viewPos;
+                let op = renderer.getOpFromRID(rid);
+                let y = renderer.getPosY_FromRID(rid);
+                if (op) {
+                    self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
+                }
+                */
+            }
         });
 
         // 開発者ツールの表示切り替え
@@ -244,6 +274,12 @@ class Store{
                 
                 scrollEndPos: [0, 0],   // スクロール終了位置
                 curScrollPos: [0, 0],   // 現在のスクロール位置
+
+                find: {
+                    targetStr: "",      // 検索中の文字
+                    curID: -1,          // 現在ヒットしている op の id
+                    curIndexInOp: 0,    // その op の中で，何番目にヒットしているか
+                },
 
                 viewPort: {         // 表示領域
                     top: 0,
