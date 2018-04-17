@@ -60,8 +60,9 @@ class KonataRenderer{
         this.labelFontSize_ = 12;
         this.stageFontSize_ = 12;
 
-        // JSON で定義された JSON
-        this.STYLE_FILE_NAME_ = "./style.json";
+        // Styles of Konata rederer defined by JSON
+        this.STYLE_FILE_NAME_ = "./style.json"; // Style JSON file name
+        this.STYLE_THEME_NAME_ = "default";     // Theme name in the JSON file
         this.style_ = null;
     }
 
@@ -80,7 +81,7 @@ class KonataRenderer{
 
         let self = this;
         self.konata_ = konata;
-        self.loadStyle_(self.STYLE_FILE_NAME_);
+        self.loadStyle_(self.STYLE_FILE_NAME_, self.STYLE_THEME_NAME_);
 
         self.viewPos_ = {left:0, top:0};
         self.zoomLevel_ = 0;
@@ -93,11 +94,17 @@ class KonataRenderer{
      * パイプラインのスタイル定義 JSON の読み込み
      * @param {string} fileName - ファイル名
      */
-    loadStyle_(fileName){
+    loadStyle_(fileName, themeName){
         let self = this;
         // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
         // 変わった場合に読み込めなくなるので，require で読む
-        self.style_ = require(fileName);
+        let styleJSON = require(fileName);
+        let style = styleJSON[themeName];
+
+        if ("inheritedFrom" in style) {
+            //console.out("inherited");
+        }
+        self.style_ = style;
     }
 
     /**
@@ -546,7 +553,7 @@ class KonataRenderer{
 
         // 背景をクリア
         let ctx = tile.getContext("2d");
-        ctx.fillStyle = "rgb(245,245,245)";
+        ctx.fillStyle = self.style_.labelPane.backgroundColor;//"rgb(245,245,245)";
         ctx.fillRect(0, 0, tile.width, tile.height);
 
         // 小さくなりすぎたらスキップ
@@ -557,13 +564,13 @@ class KonataRenderer{
         // フォントを設定
         let fontSizeRaw = self.labelFontSize_;
         ctx.font = self.labelFont_;
-        ctx.fillStyle = self.style_.fontColor;
+        ctx.fillStyle = self.style_.labelPane.fontColor;
 
         // スケールを勘案した論理サイズに変換
         let logHeight = tile.height / self.opH_;
         //let logWidth = tile.width / (scale * self.opW_);
         
-        let marginLeft = self.style_.labelStyle.marginLeft;
+        let marginLeft = self.style_.labelPane.marginLeft;
         let marginTop = (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
 
         try {
@@ -602,7 +609,7 @@ class KonataRenderer{
         let width = tile.width / self.opW_;
 
         let ctx = tile.getContext("2d");
-        ctx.fillStyle = "rgb(255,255,255)";
+        ctx.fillStyle = self.style_.pipelinePane.backgroundColor; //"rgb(255,255,255)";
         ctx.fillRect(0, 0, tile.width, tile.height);
 
         // 上側にはみ出ていた場合，暗く描画
