@@ -1,6 +1,6 @@
 {
   "name": "konata",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Koanata: a instruction pipeline visualizer for Onikiri2 and gem5",
   "main": "main.js",
   "scripts": {
@@ -24,6 +24,6 @@
     "license-checker": "^15.0.0"
   },
   "dummy": {
-    "electron": "^1.7.5"
+    "electron": "^3.0.6"
   }
 }
