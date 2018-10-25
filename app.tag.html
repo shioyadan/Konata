@@ -1,11 +1,15 @@
 
 <!-- タブバー -->
 <app_tabbar>
-    <ul class="nav nav-tabs" ref="app_tabbar">
-        <li each="{tab, i in tabs}" class={tab.active}>
+    <ul class="nav nav-tabs" ref="app_tabbar" role="tablist">
+        <li each="{tab, i in tabs}" class="nav-item">
             
             <!-- onClickProxy を介することで，どのタブが押されたかを識別する -->
-            <a href={"#" + tab.id} onmousedown={tab.onClickProxy} data-toggle="tab">
+            <a href={"#" + tab.id} 
+                onmousedown={tab.onClickProxy} 
+                class="{tab.active} nav-link" 
+                data-toggle="tab"
+            >
                 <!-- 
                     &nbsp はタブ名の横のスペース，
                     class="close" は bootstrap で定義された閉じるボタン，
