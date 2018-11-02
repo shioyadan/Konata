@@ -119,7 +119,7 @@ class Store{
 
         // アニメーション
         this.inZoomAnimation = false;
-        this.animationID = 0;
+        this.zoomAnimationID = 0;
 
         // ズームのアニメーション
         this.zoomEndLevel = 0;
@@ -132,6 +132,7 @@ class Store{
         this.inScrollAnimation = false;
         this.scrollAnimationDiff = [0, 0];
         this.scrollAnimationDirection = [false, false];
+        this.scrollAnimationID = 0;
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
         let self = this;
@@ -390,7 +391,7 @@ class Store{
                     self.curZoomLevel + zoomLevelDiff;
                 self.zoomBasePoint = [offsetX, offsetY];
                 self.inZoomAnimation = true;
-                self.animationID = setInterval(self.animateZoom, 16);
+                self.zoomAnimationID = setInterval(self.animateZoom, 16);
             }
         };
 
@@ -412,7 +413,7 @@ class Store{
             if ((self.zoomAnimationDirection && self.curZoomLevel >= self.zoomEndLevel) ||
                 (!self.zoomAnimationDirection && self.curZoomLevel <= self.zoomEndLevel)){
                 self.inZoomAnimation = false;
-                clearInterval(self.animationID);
+                clearInterval(self.zoomAnimationID);
                 self.zoomAbs(
                     self.zoomEndLevel, 
                     self.zoomBasePoint[0], 
@@ -467,7 +468,7 @@ class Store{
                 ];
             });
             self.inScrollAnimation = true;
-            self.animationID = setInterval(self.animateScroll, 16);
+            self.scrollAnimationID = setInterval(self.animateScroll, 16);
         };
 
         // アニメーション中は，一定時間毎に呼び出される
@@ -492,7 +493,7 @@ class Store{
                 (!dir[1] && self.activeTab.curScrollPos[1] <= self.activeTab.scrollEndPos[1]))
             ){
                 self.inScrollAnimation = false;
-                clearInterval(self.animationID);
+                clearInterval(self.scrollAnimationID);
                 self.scrollTabs(function(tab){
                     tab.renderer.moveLogicalPos(tab.scrollEndPos);
                 });
@@ -503,7 +504,7 @@ class Store{
         // スクロールの強制終了
         self.finishScroll = function(){
             self.inScrollAnimation = false;
-            clearInterval(self.animationID);
+            clearInterval(self.scrollAnimationID);
             
             self.scrollTabs(function(tab){
                 tab.renderer.moveLogicalPos(tab.scrollEndPos);
