@@ -3,3 +3,4 @@ packaging-work
 work
 node_modules
 THIRD-PARTY-LICENSES.md
+package-lock.json
