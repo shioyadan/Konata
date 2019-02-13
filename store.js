@@ -163,7 +163,7 @@ class Store{
             }
 
             // jump y #
-            if (cmd.match(/jump[\s+]y[\s+](\d+)/)) {
+            if (cmd.match(/jump[\s]+y[\s+](\d+)/)) {
                 let id = RegExp.$1;
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
@@ -174,7 +174,7 @@ class Store{
             }
 
             // jump r #
-            if (cmd.match(/jump[\s+]r[\s+](\d+)/)) {
+            if (cmd.match(/jump[\s]+r[\s+](\d+)/)) {
                 let rid = RegExp.$1;
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
@@ -186,7 +186,7 @@ class Store{
             }
 
             // find #
-            if (cmd.match(/^find[\s+](.+)$/)) {
+            if (cmd.match(/^find[\s]+(.+)$/)) {
                 let target = RegExp.$1;
                 let find = self.activeTab.find;
                 //if (find.target == target) {
