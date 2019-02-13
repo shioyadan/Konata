@@ -71,7 +71,13 @@ function installMainMenu(){
                     {
                         label: "Command palette",
                         click: function(){
-                            rc.trigger(ACTION.COMMAND_PALETTE_OPEN);
+                            rc.trigger(ACTION.COMMAND_PALETTE_OPEN, "");
+                        }
+                    },
+                    {
+                        label: "Find a string",
+                        click: function(){
+                            rc.trigger(ACTION.COMMAND_PALETTE_OPEN, "f ");
                         }
                     },
                     {

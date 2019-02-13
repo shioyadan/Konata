@@ -51,6 +51,9 @@ const ACTION = {
     KONATA_FIX_OP_HEIGHT: 90,       // レーン分割時に高さを一定にするかどうか
     KONATA_HIDE_FLUSHED_OPS: 91,         // フラッシュされた命令を隠すかどうか
 
+    KONATA_FIND_STRING: 92,         // Find a specified string
+    KONATA_FIND_NEXT_STRING: 93,    // Find a next specified string 
+    KONATA_FIND_PREV_STRING: 94,    // Find a previous specified string          
 
 };
 
@@ -135,6 +138,9 @@ class Store{
         this.scrollAnimationID = 0;
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
+        // Command palette
+        this.isCommandPaletteOpened = false;
+
         let self = this;
         
 
@@ -151,10 +157,12 @@ class Store{
         });
 
         // コマンドパレット
-        self.on(ACTION.COMMAND_PALETTE_OPEN, function(){
-            self.trigger(CHANGE.COMMAND_PALETTE_OPEN);
+        self.on(ACTION.COMMAND_PALETTE_OPEN, function(command){
+            self.isCommandPaletteOpened = true;
+            self.trigger(CHANGE.COMMAND_PALETTE_OPEN, command);
         });
         self.on(ACTION.COMMAND_PALETTE_CLOSE, function(){
+            self.isCommandPaletteOpened = false;
             self.trigger(CHANGE.COMMAND_PALETTE_CLOSE);
         });
         self.on(ACTION.COMMAND_PALETTE_EXECUTE, function(cmd){
@@ -163,7 +171,7 @@ class Store{
             }
 
             // jump y #
-            if (cmd.match(/jump[\s+]y[\s+](\d+)/)) {
+            if (cmd.match(/j[\s]+(\d+)/)) {
                 let id = RegExp.$1;
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
@@ -174,7 +182,7 @@ class Store{
             }
 
             // jump r #
-            if (cmd.match(/jump[\s+]r[\s+](\d+)/)) {
+            if (cmd.match(/jr[\s](\d+)/)) {
                 let rid = RegExp.$1;
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
@@ -183,6 +191,12 @@ class Store{
                 if (op) {
                     self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
                 }
+            }
+
+            // find #
+            if (cmd.match(/^f[\s]+(.+)$/)) {
+                let target = RegExp.$1;
+                self.trigger(ACTION.KONATA_FIND_STRING, target);
             }
         });
 
@@ -245,6 +259,10 @@ class Store{
                 
                 scrollEndPos: [0, 0],   // スクロール終了位置
                 curScrollPos: [0, 0],   // 現在のスクロール位置
+
+                findContext: {
+                    targetStr: ""       // 検索中の文字の正規表現パターン
+                },
 
                 viewPort: {         // 表示領域
                     top: 0,
@@ -745,6 +763,106 @@ class Store{
             }
 
             self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // Find a specified string
+        self.findString = function(target, basePos, reverse) {
+
+            //console.log(`Find: ${target}, start from ${basePos}, reverse:${reverse}`);
+
+            let konata = self.activeTab.konata;
+            let targetPattern = new RegExp(target);
+
+            let search = function(i){
+                let op = konata.getOp(i);
+                if (!op) {
+                    return false;
+                }
+                if (op.labelName.match(targetPattern) || 
+                    op.gid.toString().match(targetPattern) || 
+                    ("R" + op.rid.toString()).match(targetPattern)
+                ) {
+                    
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            }
+
+            let found = false;
+            let foundPos = -1;
+            let lastID = konata.lastID;
+            if (reverse) {
+                for (let i = basePos;i >= 0; i--) {
+                    if (search(i)) { found = true; foundPos = i; break; }
+                }
+                if (!found) {
+                    for (let i = lastID - 1;i > basePos; i--) {
+                        if (search(i)) { found = true; foundPos = i; break; }
+                    }
+                }
+            }
+            else{
+                for (let i = basePos;i < lastID; i++) {
+                    if (search(i)) { found = true; foundPos = i; break; }
+                }
+                if (!found) {
+                    for (let i = 0;i < basePos; i++) {
+                        if (search(i)) { found = true; foundPos = i; break; }
+                    }
+                }
+            }
+
+            if (found) {
+                let op = konata.getOp(foundPos);
+                if (op) {
+                    let viewPos = self.activeTab.renderer.viewPos;
+                    self.startScroll([op.fetchedCycle - viewPos[0], foundPos - viewPos[1]]);
+                }
+                //console.log(`Found: ${target}@${foundPos}`);
+            }
+            return found;
+        };
+
+        self.on(ACTION.KONATA_FIND_STRING, function(target){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            findContext.targetStr = target;
+            
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(target, pos, false)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${target}" is not found.`);
+            }
+        });
+
+        // Find a next string
+        self.on(ACTION.KONATA_FIND_NEXT_STRING, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(findContext.targetStr, pos + 1, false)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetStr}" is not found.`);
+            }
+        });
+
+        // Find a previous string
+        self.on(ACTION.KONATA_FIND_PREV_STRING, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(findContext.targetStr, pos - 1, true)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetStr}" is not found.`);
+            }
         });
     }
 
