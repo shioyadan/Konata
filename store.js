@@ -197,12 +197,18 @@ class Store{
                 let konata = self.activeTab.konata;
                 let lastID = konata.lastID;
                 find.target = target;
+
+                let targetPattern = new RegExp(target);
                 let search = function(i){
                     let op = konata.getOp(i);
                     if (!op) {
                         return false;
                     }
-                    if (op.labelName.match(target)) {
+                    if (op.labelName.match(targetPattern) || 
+                        op.gid.toString().match(targetPattern) || 
+                        ("R" + op.rid.toString()).match(targetPattern)
+                    ) {
+                        
                         return true;
                     }
                     else {
