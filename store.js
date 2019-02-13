@@ -188,20 +188,50 @@ class Store{
             // find #
             if (cmd.match(/^f[\s]+(.+)$/)) {
                 let target = RegExp.$1;
-                let find = self.activeTab.find;
+                let find = self.activeTab.findContext;
                 //if (find.target == target) {
                 //}
                 let pos = self.activeTab.renderer.viewPos;
+                let found = false;
+                let foundPos = -1;
+                let konata = self.activeTab.konata;
+                let lastID = konata.lastID;
                 find.target = target;
-                for (let i = pos[1];i < self.activeTab.konata.lastID; i++) {
-                    let op = self.activeTab.konata.getOp(i);
+                let search = function(i){
+                    let op = konata.getOp(i);
                     if (!op) {
-                        continue;
+                        return false;
                     }
                     if (op.labelName.match(target)) {
-                        console.log(target);
+                        return true;
+                    }
+                    else {
+                        return false;
+                    }
+                }
+                for (let i = pos[1];i < lastID; i++) {
+                    if (search(i)) {
+                        found = true;
+                        foundPos = i;
                         break;
                     }
+                }
+                if (!found) {
+                    for (let i = 0;i < pos[1]; i++) {
+                        if (search(i)) {
+                            found = true;
+                            foundPos = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (found) {
+                    let op = konata.getOp(foundPos);
+                    if (op) {
+                        self.startScroll([op.fetchedCycle - pos[0], foundPos - pos[1]]);
+                    }
+                    //console.log(`Found: ${target}@${foundPos}`);
                 }
 
                 /*
@@ -276,7 +306,7 @@ class Store{
                 scrollEndPos: [0, 0],   // スクロール終了位置
                 curScrollPos: [0, 0],   // 現在のスクロール位置
 
-                find: {
+                findContext: {
                     targetStr: "",      // 検索中の文字
                     curID: -1,          // 現在ヒットしている op の id
                     curIndexInOp: 0,    // その op の中で，何番目にヒットしているか
