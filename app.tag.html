@@ -651,9 +651,9 @@
         /* globals RiotControl ACTION CHANGE */
         let self = this;
         self.hintList = {
-            0: {"text": "Jump to Op (id)", "cmd": "j <id>"},
-            1: {"text": "Jump to Op (rid)", "cmd": "jr <rid>"},
-            2: {"text": "Find (string,id,...)", "cmd": "f <target>"},
+            0: {"text": "Jump to #line",            "cmd": "j  <#line>"},
+            1: {"text": "Jump to an op with rid)",  "cmd": "jr <rid>"},
+            2: {"text": "Find a string",            "cmd": "f  <string>"},
         };
         self.init = function(){
             // フォーカスが外れたら消す
