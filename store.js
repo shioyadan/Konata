@@ -135,6 +135,9 @@ class Store{
         this.scrollAnimationID = 0;
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
+        // Command palette
+        this.isCommandPaletteOpened = false;
+
         let self = this;
         
 
@@ -152,9 +155,11 @@ class Store{
 
         // コマンドパレット
         self.on(ACTION.COMMAND_PALETTE_OPEN, function(){
+            self.isCommandPaletteOpened = true;
             self.trigger(CHANGE.COMMAND_PALETTE_OPEN);
         });
         self.on(ACTION.COMMAND_PALETTE_CLOSE, function(){
+            self.isCommandPaletteOpened = false;
             self.trigger(CHANGE.COMMAND_PALETTE_CLOSE);
         });
         self.on(ACTION.COMMAND_PALETTE_EXECUTE, function(cmd){
