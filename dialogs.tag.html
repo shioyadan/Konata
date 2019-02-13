@@ -30,10 +30,34 @@
         /* global RiotControl ACTION */
         let rc = RiotControl;
         let self = this;
+
+        // キーボードハンドラ
+        // ESC が押されたら消す
+        self.onKeyDown = function(e){
+            // キーボード
+            let key = e.key;
+            if (key == "Escape" || key == "Enter") {
+                let top = $(self.refs["top_div"]);
+                top.modal("hide");
+            }
+        };
+
         self.modal = function (opts) {
             self.opts = opts;
             self.update();
-            $(self.refs["top_div"]).modal();
+            let top = $(self.refs["top_div"]);
+
+            // キーボードハンドラを登録
+            window.addEventListener("keydown", self.onKeyDown);
+
+            top.on(
+                "hidden.bs.modal",
+                () => {
+                    // キーボードハンドラを解除
+                    window.removeEventListener("keydown", self.onKeyDown);
+                }
+            );
+            top.modal();
         };
     </script>
 </app_modal_dialog_module>
