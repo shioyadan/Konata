@@ -157,9 +157,9 @@ class Store{
         });
 
         // コマンドパレット
-        self.on(ACTION.COMMAND_PALETTE_OPEN, function(){
+        self.on(ACTION.COMMAND_PALETTE_OPEN, function(command){
             self.isCommandPaletteOpened = true;
-            self.trigger(CHANGE.COMMAND_PALETTE_OPEN);
+            self.trigger(CHANGE.COMMAND_PALETTE_OPEN, command);
         });
         self.on(ACTION.COMMAND_PALETTE_CLOSE, function(){
             self.isCommandPaletteOpened = false;
@@ -790,26 +790,25 @@ class Store{
                 }
             }
 
-            let pos = basePos;
             let found = false;
             let foundPos = -1;
             let lastID = konata.lastID;
             if (reverse) {
-                for (let i = pos[1];i >= 0; i--) {
+                for (let i = basePos;i >= 0; i--) {
                     if (search(i)) { found = true; foundPos = i; break; }
                 }
                 if (!found) {
-                    for (let i = lastID - 1;i > pos[1] ; i--) {
+                    for (let i = lastID - 1;i > basePos; i--) {
                         if (search(i)) { found = true; foundPos = i; break; }
                     }
                 }
             }
             else{
-                for (let i = pos[1];i < lastID; i++) {
+                for (let i = basePos;i < lastID; i++) {
                     if (search(i)) { found = true; foundPos = i; break; }
                 }
                 if (!found) {
-                    for (let i = 0;i < pos[1]; i++) {
+                    for (let i = 0;i < basePos; i++) {
                         if (search(i)) { found = true; foundPos = i; break; }
                     }
                 }
@@ -823,27 +822,47 @@ class Store{
                 }
                 //console.log(`Found: ${target}@${foundPos}`);
             }
-
+            return found;
         };
 
         self.on(ACTION.KONATA_FIND_STRING, function(target){
+            if (!self.activeTab) {
+                return;
+            }
+
             let findContext = self.activeTab.findContext;
             findContext.targetStr = target;
-            self.findString(target, self.activeTab.renderer.viewPos, false);
+            
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(target, pos, false)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${target}" is not found.`);
+            }
         });
 
         // Find a next string
         self.on(ACTION.KONATA_FIND_NEXT_STRING, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
             let findContext = self.activeTab.findContext;
-            let pos = self.activeTab.renderer.viewPos;
-            self.findString(findContext.targetStr, [pos[0], pos[1]+1], false);
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(findContext.targetStr, pos + 1, false)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetStr}" is not found.`);
+            }
         });
 
         // Find a previous string
         self.on(ACTION.KONATA_FIND_PREV_STRING, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
             let findContext = self.activeTab.findContext;
-            let pos = self.activeTab.renderer.viewPos;
-            self.findString(findContext.targetStr, [pos[0], pos[1]-1], true);
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(findContext.targetStr, pos - 1, true)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetStr}" is not found.`);
+            }
         });
     }
 

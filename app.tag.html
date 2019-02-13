@@ -653,7 +653,7 @@
         self.hintList = {
             0: {"text": "Jump to #line",            "cmd": "j  <#line>"},
             1: {"text": "Jump to an op with rid)",  "cmd": "jr <rid>"},
-            2: {"text": "Find a string",            "cmd": "f  <string>"},
+            2: {"text": "Find a string (F3/shift+F3)",  "cmd": "f  <string>"},
         };
         self.init = function(){
             // フォーカスが外れたら消す
@@ -682,7 +682,7 @@
 
         // オープン
         RiotControl.on(CHANGE.COMMAND_PALETTE_OPEN,
-            function(){
+            function(command){
                 let cp = self.refs.command_pallete.style;
                 cp.visibility = "visible";
                 // 画面外からスライドイン
@@ -693,6 +693,7 @@
 
                 // フォーカスを合わせる
                 let input = self.refs.input;
+                input.value = command;
                 input.focus();
 
                 // キーボードハンドラを登録
@@ -935,12 +936,15 @@
                             RiotControl.trigger(ACTION.KONATA_FIND_NEXT_STRING);
                         }
                     }
+                    else if (key == "f" && e.ctrlKey) {
+                        RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN, "f ");
+                    }
                 }
                 
                 if (key == "F1" || 
                     (key == "P" && e.ctrlKey && e.shiftKey)
                 ) {
-                    RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN);
+                    RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN, "");
                 }
                 //console.log(key);
             };
