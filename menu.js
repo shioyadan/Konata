@@ -256,7 +256,7 @@ function popupTabMenu(tabID){
     let remote = require("electron").remote;
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);
-    menu.popup();
+    menu.popup({});
 }
 
 function popupPipelineMenu(pos){
@@ -289,7 +289,7 @@ function popupPipelineMenu(pos){
 
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);
-    menu.popup();
+    menu.popup({});
 }
 
 

@@ -11,7 +11,7 @@ build: clean
 		--out=packaging-work \
 		--platform=darwin,win32,linux \
 		--arch=x64  \
-		--electron-version=1.7.5 \
+		--electron-version=3.0.6 \
 		--ignore work \
 		--ignore packaging-work \
 		--prune=true	# Exclude devDependencies

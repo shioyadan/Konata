@@ -22,9 +22,18 @@ app.on("window-all-closed", function(){
 
 // Electronの初期化完了後に実行
 app.on("ready", function() {
-    m_window = new BrowserWindow({width: 800, height: 600});
+    // The main window is not shown while loading. 
+    m_window = new BrowserWindow({width: 800, height: 600, show: false});
+    m_window.setMenu(null);
+
     m_window.loadURL(currentURL);
     //m_window.toggleDevTools();
+
+    // After the initial page is renderered, the window will be show. 
+    m_window.once("ready-to-show", () => {
+        m_window.show();
+    });
+
     // ウィンドウが閉じられたらアプリも終了
     m_window.on("closed", function() {
         m_window = null;
