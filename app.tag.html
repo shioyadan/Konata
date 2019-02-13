@@ -927,6 +927,14 @@
                         let h = store.sheet.height;
                         RiotControl.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
                     }
+                    else if (key == "F3") {
+                        if (e.shiftKey) {
+                            RiotControl.trigger(ACTION.KONATA_FIND_PREV_STRING);
+                        }
+                        else{
+                            RiotControl.trigger(ACTION.KONATA_FIND_NEXT_STRING);
+                        }
+                    }
                 }
                 
                 if (key == "F1" || 
