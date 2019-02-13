@@ -42,14 +42,9 @@
             }
         };
 
-        self.modal = function (opts) {
-            self.opts = opts;
-            self.update();
+        // エントリポイント
+        self.on("mount", () => {
             let top = $(self.refs["top_div"]);
-
-            // キーボードハンドラを登録
-            window.addEventListener("keydown", self.onKeyDown);
-
             top.on(
                 "hidden.bs.modal",
                 () => {
@@ -57,6 +52,15 @@
                     window.removeEventListener("keydown", self.onKeyDown);
                 }
             );
+        });
+
+        self.modal = function (opts) {
+            self.opts = opts;
+            self.update();
+            let top = $(self.refs["top_div"]);
+
+            // キーボードハンドラを登録
+            window.addEventListener("keydown", self.onKeyDown);
             top.modal();
         };
     </script>
