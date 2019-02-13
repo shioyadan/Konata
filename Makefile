@@ -1,3 +1,6 @@
+PACKAGER = electron-packager
+#PACKAGER = ./node_modules/electron-packager/cli.js 
+
 run:
 	electron --debug=5858 . 
 
@@ -7,13 +10,14 @@ init:
 
 build: clean
 	./node_modules/license-checker/bin/license-checker --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
-	electron-packager . konata \
+	$(PACKAGER) . konata \
 		--out=packaging-work \
 		--platform=darwin,win32,linux \
 		--arch=x64  \
-		--electron-version=3.0.6 \
+		--electron-version=4.0.4 \
 		--ignore work \
 		--ignore packaging-work \
+		--ignore .vscode \
 		--prune=true	# Exclude devDependencies
 
 DOCUMENTS = README.md LICENSE.md THIRD-PARTY-LICENSES.md
