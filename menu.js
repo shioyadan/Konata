@@ -17,24 +17,22 @@ function installMainMenu(){
                 submenu: [
                     {
                         label: "Open",
-                        accelerator: "Command+O",
+                        accelerator: "CommandOrControl+O",
                         click: function(){rc.trigger(ACTION.DIALOG_FILE_OPEN);}
                     },
                     {
                         label: "Reload",
                         enabled: tab ? true : false,
-                        accelerator: "Command+R",
+                        accelerator: "CommandOrControl+R",
                         click: function(){rc.trigger(ACTION.FILE_RELOAD);}
                     },
                     {
                         label: "Stats",
                         enabled: tab ? true : false,
-                        accelerator: "Command+T",
                         click: function(){rc.trigger(ACTION.FILE_SHOW_STATS);}
                     },
                     {
                         label: "Quit",
-                        accelerator: "Command+Q",
                         click: function(){rc.trigger(ACTION.APP_QUIT);}
                     },
                 ]
@@ -44,22 +42,22 @@ function installMainMenu(){
                 submenu: [
                     {
                         label:"Next tab",
-                        accelerator:"Command + N",
+                        accelerator:"CommandOrControl + Tab",
                         click: function(){rc.trigger(ACTION.TAB_MOVE, true);}
                     },
                     {
                         label:"Previous tab",
-                        accelerator:"Command + P",
+                        accelerator:"CommandOrControl + Shift + Tab",
                         click: function(){rc.trigger(ACTION.TAB_MOVE, false);}
                     },
                     {
                         label:"Zoom out",
-                        accelerator:"Command + Shift + =",
+                        accelerator:"CommandOrControl + -",
                         click: function(){rc.trigger(ACTION.KONATA_ZOOM, 1, 0, 0);}
                     },
                     {
                         label:"Zoom in",
-                        accelerator:"Command + -",
+                        accelerator:"CommandOrControl + Plus",
                         click: function(){rc.trigger(ACTION.KONATA_ZOOM, -1, 0, 0);}
                     },
                 ]
@@ -70,12 +68,14 @@ function installMainMenu(){
                 submenu: [
                     {
                         label: "Command palette",
+                        accelerator: "F1",
                         click: function(){
                             rc.trigger(ACTION.COMMAND_PALETTE_OPEN, "");
                         }
                     },
                     {
                         label: "Find a string",
+                        accelerator: "CommandOrControl + F",
                         click: function(){
                             rc.trigger(ACTION.COMMAND_PALETTE_OPEN, "f ");
                         }

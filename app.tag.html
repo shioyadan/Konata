@@ -936,16 +936,11 @@
                             RiotControl.trigger(ACTION.KONATA_FIND_NEXT_STRING);
                         }
                     }
-                    else if (key == "f" && e.ctrlKey) {
-                        RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN, "f ");
+                    else if (key == "P" && e.ctrlKey && e.shiftKey) {
+                        RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN, "");
                     }
                 }
                 
-                if (key == "F1" || 
-                    (key == "P" && e.ctrlKey && e.shiftKey)
-                ) {
-                    RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN, "");
-                }
                 //console.log(key);
             };
 

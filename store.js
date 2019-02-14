@@ -158,8 +158,10 @@ class Store{
 
         // コマンドパレット
         self.on(ACTION.COMMAND_PALETTE_OPEN, function(command){
-            self.isCommandPaletteOpened = true;
-            self.trigger(CHANGE.COMMAND_PALETTE_OPEN, command);
+            if (!self.isCommandPaletteOpened) { // Avoid overwriting palette contents
+                self.isCommandPaletteOpened = true;
+                self.trigger(CHANGE.COMMAND_PALETTE_OPEN, command);
+            }
         });
         self.on(ACTION.COMMAND_PALETTE_CLOSE, function(){
             self.isCommandPaletteOpened = false;
