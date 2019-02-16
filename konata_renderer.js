@@ -22,6 +22,7 @@ class KonataRenderer{
         // 表示系
         this.ZOOM_RATIO_ = 1;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
         
+        /** @type {Konata}  */
         this.konata_ = null;
         this.colorScheme_ = "Auto";   // カラースキーム名
 

@@ -24,8 +24,11 @@ class Op{
         
         this.lastParsedStage = "";
 
-        this.prods = []; // プロデューサ命令のIDの配列
-        this.cons = []; // コンシューマ命令のIDの配列
+        /** @type {array} prods - プロデューサ命令のIDの配列 */
+        this.prods = []; 
+
+        /** @type {array} cons - コンシューマ命令のIDの配列 */
+        this.cons = [];
 
         // 依存関係の描画に使用
         this.prodCycle = -1;    // 実行ステージの開始

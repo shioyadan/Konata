@@ -1,9 +1,9 @@
 function getKonataInfo(){
 
-    let package = require("./package.json");
+    let packageInfo = require("./package.json");
 
     return {
-        about: `Konata ver ${package.version}, Kojiro Izuoka and Ryota Shioya.`
+        about: `Konata ver ${packageInfo.version}, Kojiro Izuoka and Ryota Shioya.`
     };
 }
 

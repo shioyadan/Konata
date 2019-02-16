@@ -790,7 +790,7 @@ class Store{
                 else {
                     return false;
                 }
-            }
+            };
 
             let found = false;
             let foundPos = -1;
