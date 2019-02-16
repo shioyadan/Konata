@@ -73,6 +73,12 @@ class Gem5O3PipeViewParser{
         // 開始時の tick
         this.cycle_begin_ = -1;
 
+        // O3PipeView のタグが現れたかどうか
+        this.isGem5O3PipeView = false;
+
+        // この行数までに O3PipeView のタグが現れなかったら諦める
+        this.GIVING_UP_LINE = 20000;
+
         // Stage ID
         this.STAGE_ID_FETCH_ = 0;
         this.STAGE_ID_DECODE_ = 1;
@@ -216,15 +222,18 @@ class Gem5O3PipeViewParser{
             return;
         }
 
+        let args = line.split(":");
+
         // File format detection
-        if (this.curLine_ == 1) {
-            if (!line.match(/^O3PipeView/)) {   // This file is not O3PipeView.
+        if (args[0] != "O3PipeView") {
+            this.curLine_++;
+            if (!this.isGem5O3PipeView && this.curLine_ > this.GIVING_UP_LINE) {
                 this.errorCallback_();
-                return;
             }
+            return;
         }
 
-        let args = line.split(":");
+        this.isGem5O3PipeView = true;
         this.parseCommand(args);
         this.curLine_++;
         
@@ -366,6 +375,10 @@ class Gem5O3PipeViewParser{
 
     finishParsing() {
         if (this.closed_) {
+            return;
+        }
+        if (!this.isGem5O3PipeView) {
+            this.errorCallback_();
             return;
         }
 
