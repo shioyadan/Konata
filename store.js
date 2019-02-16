@@ -85,6 +85,9 @@ const CHANGE = {
     PROGRESS_BAR_FINISH: 202,    // ファイル読み込み終了
 };
 
+/**
+ * @mixes Observable
+ */
 class Store{
     constructor(){
         /* globals riot */
@@ -142,7 +145,7 @@ class Store{
         this.isCommandPaletteOpened = false;
 
         let self = this;
-        
+
 
         // ダイアログ
         // 基本的に中継してるだけ
@@ -402,7 +405,7 @@ class Store{
 
 
         // ズームのスタート
-        self.startZoom = function(zoomLevelDiff, offsetX, offsetY){
+        this.startZoom = function(zoomLevelDiff, offsetX, offsetY){
             if (!self.inZoomAnimation) {
                 // 拡大 or 縮小
                 self.zoomAnimationDirection = zoomLevelDiff > 0;
@@ -416,7 +419,7 @@ class Store{
         };
 
         // ズームアニメーション中は，一定時間毎に呼び出される
-        self.animateZoom = function(){
+        this.animateZoom = function(){
             if (!self.inZoomAnimation) {
                 return;
             }
@@ -466,7 +469,7 @@ class Store{
         });
 
         // スクロール同期対象のタブに，渡された関数を適用する
-        self.scrollTabs = function(f){
+        this.scrollTabs = function(f){
             let sync = self.activeTab.syncScroll;   // 同期
             for (let id in self.tabs) {
                 let tab = self.tabs[id];
@@ -477,7 +480,7 @@ class Store{
         };
 
         // スクロールのアニメーションのスタート
-        self.startScroll = function(scrollDiff){
+        this.startScroll = function(scrollDiff){
             self.scrollAnimationDiff = scrollDiff;
             self.scrollAnimationDirection = [scrollDiff[0] > 0, scrollDiff[1] > 0];
             self.scrollTabs(function(tab){
@@ -492,7 +495,7 @@ class Store{
         };
 
         // アニメーション中は，一定時間毎に呼び出される
-        self.animateScroll = function(){
+        this.animateScroll = function(){
             if (!self.inScrollAnimation) {
                 return;
             }
@@ -522,7 +525,7 @@ class Store{
         };
 
         // スクロールの強制終了
-        self.finishScroll = function(){
+        this.finishScroll = function(){
             self.inScrollAnimation = false;
             clearInterval(self.scrollAnimationID);
             
@@ -533,7 +536,7 @@ class Store{
         };
 
         // その時のパイプラインの左上がくるように移動
-        self.on(ACTION.KONATA_ADJUST_POSITION, function(){
+        this.on(ACTION.KONATA_ADJUST_POSITION, function(){
             if (!self.activeTab) {
                 return;
             }
@@ -768,7 +771,7 @@ class Store{
         });
 
         // Find a specified string
-        self.findString = function(target, basePos, reverse) {
+        this.findString = function(target, basePos, reverse) {
 
             //console.log(`Find: ${target}, start from ${basePos}, reverse:${reverse}`);
 

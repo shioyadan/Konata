@@ -307,16 +307,17 @@ class Gem5O3PipeViewParser{
             return;
         }
 
-        for (let seqNum in this.parsingOpList_) {
+        for (let seqNumStr in this.parsingOpList_) {
 
-            let op = this.parsingOpList_[seqNum];
+            let op = this.parsingOpList_[seqNumStr];
             if (!force && !op.flush && !op.retired) {
                 continue;  // This op has not been parsed yet.
             }
 
             // Add an op to opList and remove it from parsingOpList
+            let seqNum = Number(seqNumStr); // Object 型からは文字列のみがでてくる
             this.opList_[seqNum] = op;
-            delete this.parsingOpList_[seqNum];
+            delete this.parsingOpList_[seqNumStr];
             this.lastSeqNum_ = seqNum;
 
             if (this.lastID_ > seqNum) {

@@ -1,11 +1,15 @@
 {
     "compilerOptions": {
       "target": "ES6",
-      "checkJs": true
+      "checkJs": true,
+      "module": "commonjs"
     },
     "exclude": [
         "node_modules",
         "work",
-        "packaging-work"
+        "packaging-work",
+
+        "version.js",
+        "*.tag.html"
     ]
 }

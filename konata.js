@@ -1,3 +1,6 @@
+// JSDoc のタイプチェックに型を認識させるため
+let Op = require("./Op").Op; // eslint-disable-line
+
 class Konata{
     constructor(){
         this.name = "Konata";

@@ -395,7 +395,6 @@ class OnikiriParser{
 
         let id = Number(args[1]);
 
-        /** @type {Op}  */
         let op = null;
         if (id in this.opList_) {
             op = this.opList_[id];

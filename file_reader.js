@@ -26,17 +26,18 @@ class FileReader{
         this.filePath_ = filePath;
 
         //let zlib = require("zlib");
+        let readline = require("readline");
         let rs = fs.createReadStream(filePath);
         this.readStream_ = rs;  // 読み出し量はファイルサイズ基準なので，こっちをセット
 
         if (this.getExtension() == ".gz") {
             let zlib = require("zlib");
-            rs = rs.pipe(zlib.createGunzip());
+            let gzipRS = rs.pipe(zlib.createGunzip());
+            this.readIF_ = readline.createInterface({"input": gzipRS});
         }
-
-        let readline = require("readline");
-        this.readIF_ = readline.createInterface(rs, {});
-
+        else {
+            this.readIF_ = readline.createInterface({"input": rs});
+        }
     }
 
     close(){
@@ -56,8 +57,8 @@ class FileReader{
 
     /**
      * Open a file
-     * @param {function} read - Called when a line is read
-     * @param {function} finish - Called when all lines have been read
+     * @param {function(string): void} read - Called when a line is read
+     * @param {function(string): void} finish - Called when all lines have been read
      */
     readlines(read, finish){
         this.readIF_.on("line", read);

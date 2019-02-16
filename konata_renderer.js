@@ -1,3 +1,7 @@
+// JSDoc のタイプチェックに型を認識させるため
+let Konata = require("./konata").Konata; // eslint-disable-line
+
+
 let DEP_ARROW_TYPE = {
     INSIDE_LINE: 0,
     LEFT_SIDE_CURVE: 1
@@ -75,7 +79,7 @@ class KonataRenderer{
 
     /**
      * 初期化
-     * @param {Konata.Konata} konata - Konata オブジェクトへの参照
+     * @param {Konata} konata - Konata オブジェクトへの参照
      */
     init(konata){
 
@@ -173,7 +177,7 @@ class KonataRenderer{
 
     /**
      * 縦スクロール時の横方向の補正値を計算
-     * @param {Array} diffY - 移動量
+     * @param {number} diffY - 移動量
      */
     adjustScrpllDiifX(diffY){
         let self = this;
@@ -490,7 +494,7 @@ class KonataRenderer{
     }    
 
     /**
-     * @param {number} zoomLevelDiff - zoom level の差分
+     * @param {number} zoomLevel - zoom level
      * @param {number} posX - ズームの中心点
      * @param {number} posY - ズームの中心点
      */
@@ -538,9 +542,8 @@ class KonataRenderer{
     }
 
     /** ラベルを実際に描画
-     * @param {Obaject} tile - 描画対象の canvas
-     * @param {float} logTop - 現在論理位置
-     * @param {float} logLeft - 現在論理位置
+     * @param {Object} tile - 描画対象の canvas
+     * @param {number} logTop - 現在論理位置
      */
     drawLabelTile_(tile, logTop){
         let self = this;
@@ -724,7 +727,6 @@ class KonataRenderer{
     * @param {array} start - やじりの先端
     * @param {array} end - やじりの終端
     * @param {array} v - 向きと高さを指定するベクトル
-    * @param {array} shape - 底辺と高さの比
     */
     drawArrow_(ctx, start, end, v){
         let self = this;

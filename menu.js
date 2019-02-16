@@ -272,6 +272,7 @@ function popupPipelineMenu(pos){
     let remote = require("electron").remote;
 
     // 右クリック時専用
+    /** @type {Array} menuTemplate */
     let menuTemplate = [
         {
             label: "Adjust position",
