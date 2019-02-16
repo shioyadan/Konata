@@ -19,7 +19,7 @@ class Gem5O3PipeViewParser{
         // 現在読み出し中の ID/サイクル
         this.curCycle_ = 0;
 
-        // 最後に読み出された命令の ID
+        /** @type {number} - 最後に読み出された命令の ID*/
         this.lastID_ = 0;
         this.lastRID_ = 0;
         this.lastSeqNum_ = 0;
@@ -33,7 +33,7 @@ class Gem5O3PipeViewParser{
         /** @type {Op[]} */
         this.opList_ = [];
 
-        /** @type {Op} */
+        /** @type {Op[]} */
         this.retiredOpList_ = [];
 
         // パース中の op のリスト
@@ -106,8 +106,8 @@ class Gem5O3PipeViewParser{
     close(){
         this.closed_ = true;
         // パージ
-        this.opList_ = null;   
-        this.parsingOpList_ = null;
+        this.opList_ = [];   
+        this.parsingOpList_ = [];
     }
 
     /**
@@ -117,7 +117,13 @@ class Gem5O3PipeViewParser{
         return "Gem5O3PipeViewParser";
     }
 
-    // updateCallback(percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
+    /**
+     * @param {FileReader} file - ファイルリーダ
+     * @param {function} updateCallback - 
+     *      (percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
+     * @param {function} finishCallback - 終了時に呼び出される
+     * @param {function} errorCallback - エラー時に呼び出される
+     */
     setFile(file, updateCallback, finishCallback, errorCallback){
         this.file_ = file;
         this.updateCallback_ = updateCallback;
