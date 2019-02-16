@@ -1,6 +1,9 @@
 let Op = require("./op").Op;
 let Stage = require("./stage").Stage;
 
+// JSDoc のタイプチェックに型を認識させるため
+let FileReader = require("./file_reader").FileReader; // eslint-disable-line
+
 class Gem5O3PipeViewParser{
 
     constructor(){
@@ -29,8 +32,7 @@ class Gem5O3PipeViewParser{
         this.curParsingInsnFlushed_ = false;   // seq_num 
         this.curParsingInsnCycle_ = -1;         // This is used when insturuction is flushed
         
-        // パースが終了した op のリスト
-        /** @type {Op[]} */
+        /** @type {Op[]} - パースが終了した op のリスト */
         this.opList_ = [];
 
         /** @type {Op[]} */
@@ -39,6 +41,7 @@ class Gem5O3PipeViewParser{
         // パース中の op のリスト
         // ファイル内の op の順序はほぼランダムなため，一回ここに貯めたあと
         // 再度 id と rid の割り付ける
+        // こいつは連続していないので，辞書になっている
         /** @type {Object.<number, Op>} */
         this.parsingOpList_ = {};
         
@@ -107,7 +110,7 @@ class Gem5O3PipeViewParser{
         this.closed_ = true;
         // パージ
         this.opList_ = [];   
-        this.parsingOpList_ = [];
+        this.parsingOpList_ = {};
     }
 
     /**
