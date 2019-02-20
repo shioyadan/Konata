@@ -258,7 +258,7 @@ class Gem5O3PipeViewParser{
                 if (!(sn in this.parsingExLog_)) {
                     this.parsingExLog_[sn] = [];
                 }
-                if (args[0].match(/^\d+/)) { // 先頭に tick があるものだけ保存
+                if (args[0].match(/^\s*\d+/)) { // 先頭に tick があるものだけ保存
                     this.parsingExLog_[sn].push(args);
                 }
                 else{
