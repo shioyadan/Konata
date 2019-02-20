@@ -23,6 +23,7 @@ class Op{
         this.labelStage = {};   // ステージごとのラベル
         
         this.lastParsedStage = "";
+        this.lastParsedCycle = -1;
 
         /** @type {array} prods - プロデューサ命令のIDの配列 */
         this.prods = []; 

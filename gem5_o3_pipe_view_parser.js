@@ -44,6 +44,14 @@ class Gem5O3PipeViewParser{
         // こいつは連続していないので，辞書になっている
         /** @type {Object.<number, Op>} */
         this.parsingOpList_ = {};
+
+        // パース中の O3PipeView 以外のログ
+        /** @type {Object.<number, string[][]>} */
+        this.parsingExLog_ = {};
+
+        // O3PipeView 以外のログで最後に現れた SN
+        this.parsingExLogLastID_ = 0;
+
         
         // パース完了
         this.complete_ = false;
@@ -87,6 +95,7 @@ class Gem5O3PipeViewParser{
         this.STAGE_ID_ISSUE_ = 4;
         this.STAGE_ID_COMPLETE_ = 5;
         this.STAGE_ID_RETIRE_ = 6;
+        this.STAGE_ID_MEM_WRITEBACK_ = 7;
 
         this.STAGE_ID_MAP_ = {
             "fetch": this.STAGE_ID_FETCH_,
@@ -95,7 +104,8 @@ class Gem5O3PipeViewParser{
             "dispatch": this.STAGE_ID_DISPATCH_,
             "issue": this.STAGE_ID_ISSUE_,
             "complete": this.STAGE_ID_COMPLETE_,
-            "retire": this.STAGE_ID_RETIRE_
+            "retire": this.STAGE_ID_RETIRE_,
+            "mem_writeback": this.STAGE_ID_MEM_WRITEBACK_
         };
 
         this.STAGE_LABEL_MAP_ = [
@@ -106,7 +116,10 @@ class Gem5O3PipeViewParser{
             "Is",
             "Cm",
             "Rt",
+            "Mw",
         ];
+
+        this.SERIAL_NUMBER_PATTERN = new RegExp("sn:(\\d+)");
     }
     
     // Public methods
@@ -230,6 +243,28 @@ class Gem5O3PipeViewParser{
             if (!this.isGem5O3PipeView && this.curLine_ > this.GIVING_UP_LINE) {
                 this.errorCallback_();
             }
+
+            // O3PipeView 以外のログで sn:数字 の形式を持っている行は一旦 parsingLog_ に保持
+            let sn = this.parsingExLogLastID_;
+            let matched = this.SERIAL_NUMBER_PATTERN.exec(line);
+            if (matched) {
+                sn = Number(matched[1]);
+                this.parsingExLogLastID_ = sn;
+            }
+            if (this.parsingExLogLastID_ == -1 || sn <= this.lastID_) {   // 既にドレインされたものは諦める
+                //console.log("Drop a drained op");
+            }
+            else {
+                if (!(sn in this.parsingExLog_)) {
+                    this.parsingExLog_[sn] = [];
+                }
+                if (args[0].match(/^\d+/)) { // 先頭に tick があるものだけ保存
+                    this.parsingExLog_[sn].push(args);
+                }
+                else{
+                    this.parsingExLogLastID_ = -1;
+                }
+            }
             return;
         }
 
@@ -323,16 +358,22 @@ class Gem5O3PipeViewParser{
                 continue;  // This op has not been parsed yet.
             }
 
-            // Add an op to opList and remove it from parsingOpList
             let seqNum = Number(seqNumStr); // Object 型からは文字列のみがでてくる
+
+            // Add an op to opList and remove it from parsingOpList
             this.opList_[seqNum] = op;
             delete this.parsingOpList_[seqNumStr];
             this.lastSeqNum_ = seqNum;
 
+            if (seqNum in this.parsingExLog_) {
+                delete this.parsingExLog_[seqNum];
+            }
+
             if (this.lastID_ > seqNum) {
                 console.log(`Missed parsing. seqNum: ${seqNum} lastID: ${this.lastID_}`);
             }
-
+                        // 
+    
             // Update clock cycles
             op.fetchedCycle = op.fetchedCycle / this.ticks_per_clock_ - this.cycle_begin_;
             op.retiredCycle = op.retiredCycle / this.ticks_per_clock_ - this.cycle_begin_;
@@ -428,7 +469,10 @@ class Gem5O3PipeViewParser{
 
     }
 
-    /** @param {string[]} args */
+    /** 
+     * @param {string[]} args 
+     * @return {Op}
+    */
     parseInitialCommand(args){
         // 特定の命令に関するコマンド出力の開始
         // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
@@ -460,6 +504,8 @@ class Gem5O3PipeViewParser{
         this.curParsingInsnCycle_ = op.fetchedCycle;
 
         this.parseStartCommand(seqNum, op, args);
+
+        return op;
     }
 
     parseStartCommand(seqNum, op, args){
@@ -498,6 +544,7 @@ class Gem5O3PipeViewParser{
         let laneInfo = op.lanes[laneName];
         laneInfo.stages.push(stage);
         op.lastParsedStage = stageName;
+        op.lastParsedCycle = tick;
 
         // X を名前に含むステージは実行ステージと見なす
         //if (stageName.match(/X/)){
@@ -525,6 +572,7 @@ class Gem5O3PipeViewParser{
         let tick = Number(args[2]);
         let laneName = "0"; // Default lane
         let stageName = op.lastParsedStage;
+        op.lastParsedCycle = tick;
 
         let stage = null;
         let laneInfo = op.lanes[laneName];
@@ -566,6 +614,7 @@ class Gem5O3PipeViewParser{
             tick = this.curParsingInsnCycle_; // Set the last valid tick
         }
         op.retiredCycle = tick;
+        op.lastParsedCycle = tick;
 
         if (this.curParsingInsnFlushed_) {
             op.flush = true;
@@ -601,25 +650,85 @@ class Gem5O3PipeViewParser{
         }
         
         let cmd = args[1];
+        let tick = Number(args[2]);
 
         switch(cmd) {
-
-        
         case "fetch": 
-            this.parseInitialCommand(args);
+            op = this.parseInitialCommand(args);
             break;
         case "decode": 
         case "rename": 
         case "dispatch": 
         case "issue": 
         case "complete": 
+            this.parseExLog(op, tick);
             this.parseEndCommand(seqNum, op, args);
             this.parseStartCommand(seqNum, op, args);
             break;
         case "retire": 
+            this.parseExLog(op, tick);
             this.parseRetireCommand(seqNum, op, args);
             break;
         }  // switch end
+
+    }
+
+    /** 
+     * @param {Op} op 
+     * @param {number} parseCycleRange
+     */
+    parseExLog(op, parseCycleRange){
+        /** @param {number} seqNum */
+        let seqNum = op.id;
+        if (!(seqNum in this.parsingExLog_)) {
+            return;
+        }
+
+        /** @type string[][] */
+        let log = this.parsingExLog_[seqNum];
+        while (log.length) {
+            let args = log[0];
+            let tick = args[0];
+            if (Number(tick) > parseCycleRange) {
+                break;
+            }
+
+            if (args[1] == " user") {
+                // 3260000: user: 
+                // register values
+                op.labelDetail += "\n " + args.join(":");
+            }
+            else if (args[1] == " global" && args[2] == " RegFile") {
+                // 3260000: global: RegFile: Setting int register 125 to 0x4af000
+                // register values
+                op.labelDetail += "\n " + args[3];
+            }
+            else if (args[1] == " system.cpu.iq" && args[2].match(/ Completing/)) {
+                // 3260000: system.cpu.iq: Completing mem instruction PC: (0x436018=>0x43601c).(0=>1) [sn:157]
+                // Memory write back
+                let dummyArgs = ["O3PipeView", "mem_writeback", tick];
+                this.parseEndCommand(seqNum, op, dummyArgs);
+                this.parseStartCommand(seqNum, op, dummyArgs);
+            }
+            else if (args[1] == " system.cpu.rename" && args.length > 4 && args[4].match(/ (Renaming)|(Looking)/)) {
+                // 3271000: system.cpu.rename: [tid:0]: Renaming arch reg 1 (IntRegClass) to physical reg 152 (152).
+                // Rename
+                op.labelDetail += "\n " + args[4];
+            }
+            else if (args[1].match(/system.cpu.iew.lsq.thread/) && args[2].match(/ (Read called)|(Doing write)/)) {
+                // 3757000: system.cpu.iew.lsq.thread0: Read called, load idx: 14, store idx: -1, storeHead: 24 addr: 0x1efed0
+                // Load addr
+                op.labelDetail += "\n " + args.slice(2, 7).join(":");
+            }
+            
+
+            // Add log to each stage
+            if (!(op.lastParsedStage in op.labelStage)) {
+                op.labelStage[op.lastParsedStage] = "";    
+            }
+            op.labelStage[op.lastParsedStage] += args.join(":") + "\n";
+            log.shift();
+        }
     }
 }
 
