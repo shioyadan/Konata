@@ -105,7 +105,7 @@ class Gem5O3PipeViewParser{
             "issue": this.STAGE_ID_ISSUE_,
             "complete": this.STAGE_ID_COMPLETE_,
             "retire": this.STAGE_ID_RETIRE_,
-            "mem_writeback": this.STAGE_ID_MEM_WRITEBACK_
+            "mem_writeback": this.STAGE_ID_MEM_WRITEBACK_   // 追加ログの解析結果より追加
         };
 
         this.STAGE_LABEL_MAP_ = [
@@ -674,6 +674,7 @@ class Gem5O3PipeViewParser{
     }
 
     /** 
+     * parseCycleRange までの追加ログをパースして op に追加
      * @param {Op} op 
      * @param {number} parseCycleRange
      */
@@ -689,7 +690,7 @@ class Gem5O3PipeViewParser{
         while (log.length) {
             let args = log[0];
             let tick = args[0];
-            if (Number(tick) > parseCycleRange) {
+            if (Number(tick) >= parseCycleRange) {
                 break;
             }
 
