@@ -4,6 +4,16 @@ let Stage = require("./stage").Stage;
 // JSDoc のタイプチェックに型を認識させるため
 let FileReader = require("./file_reader").FileReader; // eslint-disable-line
 
+class Gem5O3PipeViewExLogInfo{
+    constructor(){
+        /** @type {string[][]} */
+        this.logList = [];
+
+        this.srcs = [];
+        this.dsts = [];
+    }
+}
+
 class Gem5O3PipeViewParser{
 
     constructor(){
@@ -46,12 +56,15 @@ class Gem5O3PipeViewParser{
         this.parsingOpList_ = {};
 
         // パース中の O3PipeView 以外のログ
-        /** @type {Object.<number, string[][]>} */
+        /** @type {Object.<number, Gem5O3PipeViewExLogInfo>} */
         this.parsingExLog_ = {};
 
         // O3PipeView 以外のログで最後に現れた SN
         this.parsingExLogLastID_ = 0;
 
+        // A table for dependency tracking
+        /** @type {Object.<string, number>} */
+        this.depTable_ = {};
         
         // パース完了
         this.complete_ = false;
@@ -256,10 +269,10 @@ class Gem5O3PipeViewParser{
             }
             else {
                 if (!(sn in this.parsingExLog_)) {
-                    this.parsingExLog_[sn] = [];
+                    this.parsingExLog_[sn] = new Gem5O3PipeViewExLogInfo();
                 }
                 if (args[0].match(/^\s*\d+/)) { // 先頭に tick があるものだけ保存
-                    this.parsingExLog_[sn].push(args);
+                    this.parsingExLog_[sn].logList.push(args);
                 }
                 else{
                     this.parsingExLogLastID_ = -1;
@@ -345,6 +358,7 @@ class Gem5O3PipeViewParser{
     }
 
     // Update opList from parsingOpList
+    /** @param {boolean} force */
     drainParsingOps_(force){
         this.detectTicksPerClock(force);
         if (this.ticks_per_clock_ == -1) {
@@ -365,20 +379,17 @@ class Gem5O3PipeViewParser{
             delete this.parsingOpList_[seqNumStr];
             this.lastSeqNum_ = seqNum;
 
-            if (seqNum in this.parsingExLog_) {
-                delete this.parsingExLog_[seqNum];
-            }
-
             if (this.lastID_ > seqNum) {
                 console.log(`Missed parsing. seqNum: ${seqNum} lastID: ${this.lastID_}`);
             }
-                        // 
     
             // Update clock cycles
             op.fetchedCycle = op.fetchedCycle / this.ticks_per_clock_ - this.cycle_begin_;
             op.retiredCycle = op.retiredCycle / this.ticks_per_clock_ - this.cycle_begin_;
-            op.prodCycle = op.prodCycle / this.ticks_per_clock_ - this.cycle_begin_;
-            op.consCycle = op.consCycle / this.ticks_per_clock_ - this.cycle_begin_;
+            if (op.prodCycle != -1)
+                op.prodCycle = op.prodCycle / this.ticks_per_clock_ - this.cycle_begin_;
+            if (op.consCycle != -1)
+                op.consCycle = op.consCycle / this.ticks_per_clock_ - this.cycle_begin_;
             for (let laneID in op.lanes) {
                 let lane = op.lanes[laneID];
                 for (let stage of lane.stages) {
@@ -387,6 +398,30 @@ class Gem5O3PipeViewParser{
                 }
             }
 
+            // ExLog post process
+            if (seqNum in this.parsingExLog_) {
+                let exLog = this.parsingExLog_[seqNum];
+                for (let s of exLog.srcs) {
+                    let type = "0"; // default
+                    if (s in this.depTable_) {
+                        let prodId = this.depTable_[s];
+                        let prod = this.opList_[prodId];
+                        if (prod.prodCycle < op.consCycle) {
+                            op.prods.push(
+                                {id: prodId, type: type, cycle: op.prodCycle}
+                            );
+                            prod.cons.push(
+                                {id: seqNum, type: type, cycle: op.consCycle}
+                            );
+                        }
+                    }
+                }
+                //if (!op.flush) {
+                for (let d of exLog.dsts) {
+                    this.depTable_[d] = seqNum;
+                }
+                delete this.parsingExLog_[seqNum];
+            }
         } 
 
         let BUFFERED_SIZE = force ? 0 : 1024*16;
@@ -546,10 +581,15 @@ class Gem5O3PipeViewParser{
         op.lastParsedStage = stageName;
         op.lastParsedCycle = tick;
 
-        // X を名前に含むステージは実行ステージと見なす
-        //if (stageName.match(/X/)){
-        //    op.consCycle = this.curCycle_;
-        //}
+        // Cm を名前に含むステージは実行ステージと見なす
+        if (stageName == "Cm"){
+            op.consCycle = tick;
+            op.prodCycle = tick;
+        }
+        if (stageName == "Mw"){
+            op.prodCycle = tick;
+        }
+
 
         // レーンのマップに登録
         if (!(laneName in this.laneMap_)) {
@@ -594,12 +634,6 @@ class Gem5O3PipeViewParser{
         if (stage.startCycle != stage.endCycle) {
             laneInfo.level++;
         }
-
-        // X を名前に含むステージは実行ステージと見なす
-        /*
-        if (stageName.match(/X/)){
-            op.prodCycle = this.curCycle_ - 1;
-        }*/
     }
 
     parseRetireCommand(seqNum, op, args){
@@ -685,10 +719,10 @@ class Gem5O3PipeViewParser{
             return;
         }
 
-        /** @type string[][] */
-        let log = this.parsingExLog_[seqNum];
-        while (log.length) {
-            let args = log[0];
+        let opExLog = this.parsingExLog_[seqNum];
+        let logList = opExLog.logList;
+        while (logList.length) {
+            let args = logList[0];
             let tick = args[0];
             if (Number(tick) >= parseCycleRange) {
                 break;
@@ -700,25 +734,39 @@ class Gem5O3PipeViewParser{
                 op.labelDetail += "\n " + args.join(":");
             }
             else if (args[1] == " global" && args[2] == " RegFile") {
-                // 3260000: global: RegFile: Setting int register 125 to 0x4af000
                 // register values
+                // 3260000: global: RegFile: Setting int register 125 to 0x4af000
                 op.labelDetail += "\n " + args[3];
             }
             else if (args[1] == " system.cpu.iq" && args[2].match(/ Completing/)) {
-                // 3260000: system.cpu.iq: Completing mem instruction PC: (0x436018=>0x43601c).(0=>1) [sn:157]
                 // Memory write back
+                // 3260000: system.cpu.iq: Completing mem instruction PC: (0x436018=>0x43601c).(0=>1) [sn:157]
                 let dummyArgs = ["O3PipeView", "mem_writeback", tick];
                 this.parseEndCommand(seqNum, op, dummyArgs);
                 this.parseStartCommand(seqNum, op, dummyArgs);
             }
-            else if (args[1] == " system.cpu.rename" && args.length > 4 && args[4].match(/ (Renaming)|(Looking)/)) {
-                // 3271000: system.cpu.rename: [tid:0]: Renaming arch reg 1 (IntRegClass) to physical reg 152 (152).
+            else if (args[1] == " system.cpu.rename" && 
+                args.length > 4 && args[4].match(/ (Renaming)|(Looking)/)
+            ) {
                 // Rename
+                // 3271000: system.cpu.rename: [tid:0]: Renaming arch reg 1 (IntRegClass) to physical reg 152 (152).
+                // 2340100: system.cpu.rename: [tid:0]: Looking up IntRegClass arch reg 43, got phys reg 72 (IntRegClass)
                 op.labelDetail += "\n " + args[4];
+                let dst = args[4].match(/\(([a-zA-Z]+)\) to physical reg \d+ \((\d+)\)/);
+                if (dst) {
+                    opExLog.dsts.push(dst[1] + dst[2]);
+                }
+                let src = args[4].match(/got phys reg (\d+) \(([a-zA-Z]+)\)/);
+                if (src) {
+                    opExLog.srcs.push(src[2] + src[1]);
+                }
             }
-            else if (args[1].match(/system.cpu.iew.lsq.thread/) && args[2].match(/ (Read called)|(Doing write)/)) {
+            else if (
+                args[1].match(/system.cpu.iew.lsq.thread/) && 
+                args[2].match(/ (Read called)|(Doing write)/)
+            ) {
+                // Load/store addr
                 // 3757000: system.cpu.iew.lsq.thread0: Read called, load idx: 14, store idx: -1, storeHead: 24 addr: 0x1efed0
-                // Load addr
                 op.labelDetail += "\n " + args.slice(2, 7).join(":");
             }
             
@@ -728,7 +776,7 @@ class Gem5O3PipeViewParser{
                 op.labelStage[op.lastParsedStage] = "";    
             }
             op.labelStage[op.lastParsedStage] += args.join(":") + "\n";
-            log.shift();
+            logList.shift();
         }
     }
 }

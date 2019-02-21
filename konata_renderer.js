@@ -673,17 +673,58 @@ class KonataRenderer{
         ctx.strokeStyle = "rgb(170,30,30)";
         ctx.fillStyle = "rgb(170,30,30)";
 
-        for (let y = Math.floor(logTop - logHeight); y < logTop + logHeight; y++) {
+        //for (let y = Math.floor(logTop - logHeight); y < logTop + logHeight; y++) {
+        for (let y = Math.floor(logTop); y < logTop + logHeight; y++) {
             let op = self.getVisibleOp(y);
             if (!op) {
                 continue;
             }
 
+            let consCycle = op.consCycle;
+            if (consCycle == -1) {
+                continue;
+            }
+
+            for (let dep of op.prods) {
+
+                let prod = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
+                if (!prod) {
+                    continue;
+                }
+                if (this.hideFlushedOps_ && prod.flush) {
+                    continue;   // フラッシュされた命令は表示しない
+                }
+                let prodCycle = prod.prodCycle;
+                if (prodCycle == -1) {
+                    continue;
+                }
+
+                // フラッシュされた命令を表示するかどうかで位置を変える
+                let yProd = this.hideFlushedOps_ ? prod.rid : prod.id;  
+
+                if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
+                    let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
+                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
+                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin]);
+                }
+                else {
+                    let xBegin = (prod.fetchedCycle - logLeft) * self.opW_;
+                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let xEnd = (op.fetchedCycle - logLeft) * self.opW_;
+                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0]);
+                }
+            }
+
+            /*
             let prodCycle = op.prodCycle;
             if (prodCycle == -1) {
                 continue;
             }
-
             for (let dep of op.cons) {
 
                 let cons = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
@@ -718,6 +759,7 @@ class KonataRenderer{
                     self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0]);
                 }
             }
+            */
         }
     }
 
