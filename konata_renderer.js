@@ -314,6 +314,11 @@ class KonataRenderer{
         return self.getVisibleOp(logY);   
     }
 
+    getPixelPosYFromOp(op){
+        let self = this;
+        return ((this.hideFlushedOps_ ? op.rid : op.id) - self.viewPos_.top) * self.opH_;
+    }
+
     getCycleFromPixelPosX(x){
         let self = this;
         return Math.floor(self.viewPos_.left + x / self.opW_);

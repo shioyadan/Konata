@@ -53,8 +53,11 @@ const ACTION = {
 
     KONATA_FIND_STRING: 92,         // Find a specified string
     KONATA_FIND_NEXT_STRING: 93,    // Find a next specified string 
-    KONATA_FIND_PREV_STRING: 94,    // Find a previous specified string          
+    KONATA_FIND_PREV_STRING: 94,    // Find a previous specified string
+    KONATA_FIND_HIDE_RESULT: 95     // Hide found result
 
+
+    // MUST NOT OVERLAP NUMBERS IN CHANGE
 };
 
 // CHANGE は store で行われた変更の通知に使う
@@ -266,7 +269,10 @@ class Store{
                 curScrollPos: [0, 0],   // 現在のスクロール位置
 
                 findContext: {
-                    targetStr: ""       // 検索中の文字の正規表現パターン
+                    targetPattern: "",  // 検索中の文字の正規表現パターン
+                    foundStr: "",       // ヒットした文字列全体
+                    found: false,       // ヒットしたかどうか
+                    visibility: false,  // 検索結果を表示するかどうか
                 },
 
                 viewPort: {         // 表示領域
@@ -770,6 +776,16 @@ class Store{
             self.trigger(CHANGE.MENU_UPDATE);
         });
 
+        /** @param {Op} op */ 
+        this.makeFindTargetString = function(op) {
+            let labelString = 
+            `${op.gid} R${op.rid} ${op.labelName}\n${op.labelDetail}`;
+            for (let s in op.labelStage) {
+                labelString += "\n" + op.labelStage[s];
+            }
+            return labelString;
+        };
+
         // Find a specified string
         this.findString = function(target, basePos, reverse) {
 
@@ -783,11 +799,8 @@ class Store{
                 if (!op) {
                     return false;
                 }
-                if (op.labelName.match(targetPattern) || 
-                    op.gid.toString().match(targetPattern) || 
-                    ("R" + op.rid.toString()).match(targetPattern)
-                ) {
-                    
+
+                if (targetPattern.exec(self.makeFindTargetString(op))) {
                     return true;
                 }
                 else {
@@ -819,9 +832,17 @@ class Store{
                 }
             }
 
+            self.activeTab.findContext.found = false;
             if (found) {
                 let op = konata.getOp(foundPos);
                 if (op) {
+                    let ctx = self.activeTab.findContext;
+                    ctx.found = true;
+                    ctx.visibility = true;
+                    ctx.targetPattern = target;
+                    ctx.foundStr = this.makeFindTargetString(op);
+                    ctx.op = op;
+
                     let viewPos = self.activeTab.renderer.viewPos;
                     self.startScroll([op.fetchedCycle - viewPos[0], foundPos - viewPos[1]]);
                 }
@@ -836,12 +857,13 @@ class Store{
             }
 
             let findContext = self.activeTab.findContext;
-            findContext.targetStr = target;
+            findContext.targetPattern = target;
             
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
             if (!self.findString(target, pos, false)) {
                 self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${target}" is not found.`);
             }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
         // Find a next string
@@ -852,9 +874,10 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            if (!self.findString(findContext.targetStr, pos + 1, false)) {
-                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetStr}" is not found.`);
+            if (!self.findString(findContext.targetPattern, pos + 1, false)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
             }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
         // Find a previous string
@@ -865,10 +888,22 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            if (!self.findString(findContext.targetStr, pos - 1, true)) {
-                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetStr}" is not found.`);
+            if (!self.findString(findContext.targetPattern, pos - 1, true)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
             }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
+
+        self.on(ACTION.KONATA_FIND_HIDE_RESULT, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            findContext.visibility = false;
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
     }
 
 }

@@ -159,6 +159,8 @@
                 menu.popupPipelineMenu([e.offsetX, e.offsetY]);
             }
 
+            RiotControl.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
+
             // クリック時に他所にフォーカスが奪われるのを防ぐ
             e.preventDefault();
         };        
@@ -299,6 +301,7 @@
     <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
         <canvas ref="canvas"></canvas>
         <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
+        <div ref="find_result_tip" class="find_result_tip"></div>
     </div>
     
     <!--position を absolute にすることで，同じ位置に重ねることができる 
@@ -340,6 +343,9 @@
 
             let tip = self.refs.tool_tip.style;
             tip.visibility = "hidden";
+
+            let find_result_tip = self.refs.find_result_tip.style;
+            find_result_tip.visibility = "hidden";
         };
 
         // マウス操作
@@ -365,12 +371,42 @@
             }
             */
 
+            RiotControl.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
+
             // クリック時に他所にフォーカスが奪われるのを防ぐ
             e.preventDefault();
-        };        
+        };
 
         // ツールチップの更新
         self.updateToolTip = function(){
+
+            // 検索結果
+            let findCtx = store.tabs[self.id].findContext;
+            let find_result_tip = self.refs.find_result_tip.style;
+            if (findCtx.found && findCtx.visibility) {
+                find_result_tip.visibility = "visible";
+                find_result_tip.left = "0px";
+
+                let renderer = store.tabs[self.id].renderer;
+                find_result_tip.top = Math.floor(renderer.getPixelPosYFromOp(findCtx.op)) + 25 + "px";
+
+                // パターンにヒットした行を表示する
+                self.findResultTipText = "";
+                let re = new RegExp(findCtx.targetPattern, "g");
+                for (let line of findCtx.foundStr.split("\n")) {
+                    let m = re.exec(line);
+                    if (m || self.findResultTipText == "") {  // 最初の行はつけておく
+                        self.findResultTipText += line.replace(re, "<span style=\"color:cyan\">$&</span>") + "<br>";
+                    }
+                }
+
+                self.refs.find_result_tip.innerHTML = self.findResultTipText;
+            }
+            else{
+                find_result_tip.visibility = "hidden";
+            }
+
+            // マウスオーバーした領域のラベルの表示
             let tip = self.refs.tool_tip.style;
             if (self.mouseIn) {
                 tip.visibility = "visible";
@@ -534,7 +570,8 @@
             let label_pane = self.refs.label_pane;
             let splitterPos = label_pane.offsetWidth + diff;
             RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
-        
+
+            
             //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
             //console.log(`mousemove ${self.id}`);
         };
@@ -938,6 +975,9 @@
                     }
                     else if (key == "P" && e.ctrlKey && e.shiftKey) {
                         RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN, "");
+                    }
+                    else if (key == "Escape" || key == "Enter") {
+                        RiotControl.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
                     }
                 }
                 
