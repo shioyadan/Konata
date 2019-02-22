@@ -159,8 +159,6 @@
                 menu.popupPipelineMenu([e.offsetX, e.offsetY]);
             }
 
-            RiotControl.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
-
             // クリック時に他所にフォーカスが奪われるのを防ぐ
             e.preventDefault();
         };        
@@ -370,8 +368,6 @@
             if (e.buttons & 2) {
             }
             */
-
-            RiotControl.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
 
             // クリック時に他所にフォーカスが奪われるのを防ぐ
             e.preventDefault();
