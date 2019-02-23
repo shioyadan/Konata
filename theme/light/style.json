@@ -11,9 +11,8 @@
             "fontColor": "#c7c8ca"
         },
         "pipelinePane": {
-            "backgroundColor": "#262930",
-            "brightness": "1",
-            "fontColor": "#eeeeee"
+            "backgroundColor": "#ffffff",
+            "fontColor": "#555555"
         },
 
         "colorScheme": {
