@@ -120,10 +120,12 @@ class KonataRenderer{
 
         if (self.colorScheme_ == "Auto") {
             if (stage == "f" || stage == "stl") {
-                return "#aaaaaa";
+                //return "#aaaaaa";
+                return "hsl(0,0%,50%)";
             }
             let level = self.konata_.stageLevelMap[stage];
-            return `hsl(${((250-level*50)%360)},70%,80%)`;
+            return `hsl(${((250-level*55)%360)},25%,50%)`;
+            //return `hsl(${((250-level*50)%360)},70%,80%)`;
         }
 
         if (self.colorScheme_ in self.style_.colorScheme) {
@@ -841,7 +843,8 @@ class KonataRenderer{
 
         if (self.canDrawDetailedly) {
             // 枠内に表示の余地がある場合
-            ctx.strokeStyle = "#333333";
+            //ctx.strokeStyle = "#333333";
+            ctx.strokeStyle = "#eeeeee";
             let keys = [];
             for (let key in op.lanes) {
                 keys.push(key);
@@ -925,7 +928,8 @@ class KonataRenderer{
             let grad = ctx.createLinearGradient(0, top, 0, top + self.laneH_);
             let color = self.getStageColor_(laneName, stage.name);
             grad.addColorStop(1, color);
-            grad.addColorStop(0, "#eee");
+            //grad.addColorStop(0, "#eee");
+            grad.addColorStop(0, color);
 
             ctx.fillStyle = grad;
             ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
@@ -945,13 +949,12 @@ class KonataRenderer{
             }
 
             if (self.canDrawtext) {
-                ctx.fillStyle = "#555555";
+                ctx.fillStyle = self.style_.pipelinePane.fontColor;
                 let textTop = top + (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
                 let textLeft = (stage.startCycle - startCycle) * self.opW_ + Math.max(0, (self.opW_ - stage.name.length*fontSizeRaw/2)/2);
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
                     ctx.fillText(j, textLeft + j * self.opW_, textTop);
                 }
-                ctx.fillStyle = self.style_.fontColor;
                 ctx.fillText(stage.name, textLeft, textTop);
             }
 
