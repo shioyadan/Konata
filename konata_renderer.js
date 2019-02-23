@@ -1,3 +1,7 @@
+// JSDoc のタイプチェックに型を認識させるため
+let Konata = require("./konata").Konata; // eslint-disable-line
+
+
 let DEP_ARROW_TYPE = {
     INSIDE_LINE: 0,
     LEFT_SIDE_CURVE: 1
@@ -22,6 +26,7 @@ class KonataRenderer{
         // 表示系
         this.ZOOM_RATIO_ = 1;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
         
+        /** @type {Konata}  */
         this.konata_ = null;
         this.colorScheme_ = "Auto";   // カラースキーム名
 
@@ -75,7 +80,7 @@ class KonataRenderer{
 
     /**
      * 初期化
-     * @param {Konata.Konata} konata - Konata オブジェクトへの参照
+     * @param {Konata} konata - Konata オブジェクトへの参照
      */
     init(konata){
 
@@ -179,7 +184,7 @@ class KonataRenderer{
 
     /**
      * 縦スクロール時の横方向の補正値を計算
-     * @param {Array} diffY - 移動量
+     * @param {number} diffY - 移動量
      */
     adjustScrpllDiifX(diffY){
         let self = this;
@@ -314,6 +319,11 @@ class KonataRenderer{
         let self = this;
         let logY = Math.floor(self.viewPos_.top + y / self.opH_);
         return self.getVisibleOp(logY);   
+    }
+
+    getPixelPosYFromOp(op){
+        let self = this;
+        return ((this.hideFlushedOps_ ? op.rid : op.id) - self.viewPos_.top) * self.opH_;
     }
 
     getCycleFromPixelPosX(x){
@@ -496,7 +506,7 @@ class KonataRenderer{
     }    
 
     /**
-     * @param {number} zoomLevelDiff - zoom level の差分
+     * @param {number} zoomLevel - zoom level
      * @param {number} posX - ズームの中心点
      * @param {number} posY - ズームの中心点
      */
@@ -544,9 +554,8 @@ class KonataRenderer{
     }
 
     /** ラベルを実際に描画
-     * @param {Obaject} tile - 描画対象の canvas
-     * @param {float} logTop - 現在論理位置
-     * @param {float} logLeft - 現在論理位置
+     * @param {Object} tile - 描画対象の canvas
+     * @param {number} logTop - 現在論理位置
      */
     drawLabelTile_(tile, logTop){
         let self = this;
@@ -676,17 +685,58 @@ class KonataRenderer{
         ctx.strokeStyle = "rgb(170,30,30)";
         ctx.fillStyle = "rgb(170,30,30)";
 
-        for (let y = Math.floor(logTop - logHeight); y < logTop + logHeight; y++) {
+        //for (let y = Math.floor(logTop - logHeight); y < logTop + logHeight; y++) {
+        for (let y = Math.floor(logTop); y < logTop + logHeight; y++) {
             let op = self.getVisibleOp(y);
             if (!op) {
                 continue;
             }
 
+            let consCycle = op.consCycle;
+            if (consCycle == -1) {
+                continue;
+            }
+
+            for (let dep of op.prods) {
+
+                let prod = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
+                if (!prod) {
+                    continue;
+                }
+                if (this.hideFlushedOps_ && prod.flush) {
+                    continue;   // フラッシュされた命令は表示しない
+                }
+                let prodCycle = prod.prodCycle;
+                if (prodCycle == -1) {
+                    continue;
+                }
+
+                // フラッシュされた命令を表示するかどうかで位置を変える
+                let yProd = this.hideFlushedOps_ ? prod.rid : prod.id;  
+
+                if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
+                    let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
+                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
+                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin]);
+                }
+                else {
+                    let xBegin = (prod.fetchedCycle - logLeft) * self.opW_;
+                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let xEnd = (op.fetchedCycle - logLeft) * self.opW_;
+                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0]);
+                }
+            }
+
+            /*
             let prodCycle = op.prodCycle;
             if (prodCycle == -1) {
                 continue;
             }
-
             for (let dep of op.cons) {
 
                 let cons = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
@@ -721,6 +771,7 @@ class KonataRenderer{
                     self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0]);
                 }
             }
+            */
         }
     }
 
@@ -730,7 +781,6 @@ class KonataRenderer{
     * @param {array} start - やじりの先端
     * @param {array} end - やじりの終端
     * @param {array} v - 向きと高さを指定するベクトル
-    * @param {array} shape - 底辺と高さの比
     */
     drawArrow_(ctx, start, end, v){
         let self = this;

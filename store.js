@@ -51,7 +51,13 @@ const ACTION = {
     KONATA_FIX_OP_HEIGHT: 90,       // レーン分割時に高さを一定にするかどうか
     KONATA_HIDE_FLUSHED_OPS: 91,         // フラッシュされた命令を隠すかどうか
 
+    KONATA_FIND_STRING: 92,         // Find a specified string
+    KONATA_FIND_NEXT_STRING: 93,    // Find a next specified string 
+    KONATA_FIND_PREV_STRING: 94,    // Find a previous specified string
+    KONATA_FIND_HIDE_RESULT: 95     // Hide found result
 
+
+    // MUST NOT OVERLAP NUMBERS IN CHANGE
 };
 
 // CHANGE は store で行われた変更の通知に使う
@@ -82,6 +88,9 @@ const CHANGE = {
     PROGRESS_BAR_FINISH: 202,    // ファイル読み込み終了
 };
 
+/**
+ * @mixes Observable
+ */
 class Store{
     constructor(){
         /* globals riot */
@@ -119,7 +128,7 @@ class Store{
 
         // アニメーション
         this.inZoomAnimation = false;
-        this.animationID = 0;
+        this.zoomAnimationID = 0;
 
         // ズームのアニメーション
         this.zoomEndLevel = 0;
@@ -132,10 +141,14 @@ class Store{
         this.inScrollAnimation = false;
         this.scrollAnimationDiff = [0, 0];
         this.scrollAnimationDirection = [false, false];
+        this.scrollAnimationID = 0;
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
+        // Command palette
+        this.isCommandPaletteOpened = false;
+
         let self = this;
-        
+
 
         // ダイアログ
         // 基本的に中継してるだけ
@@ -150,10 +163,14 @@ class Store{
         });
 
         // コマンドパレット
-        self.on(ACTION.COMMAND_PALETTE_OPEN, function(){
-            self.trigger(CHANGE.COMMAND_PALETTE_OPEN);
+        self.on(ACTION.COMMAND_PALETTE_OPEN, function(command){
+            if (!self.isCommandPaletteOpened) { // Avoid overwriting palette contents
+                self.isCommandPaletteOpened = true;
+                self.trigger(CHANGE.COMMAND_PALETTE_OPEN, command);
+            }
         });
         self.on(ACTION.COMMAND_PALETTE_CLOSE, function(){
+            self.isCommandPaletteOpened = false;
             self.trigger(CHANGE.COMMAND_PALETTE_CLOSE);
         });
         self.on(ACTION.COMMAND_PALETTE_EXECUTE, function(cmd){
@@ -162,7 +179,7 @@ class Store{
             }
 
             // jump y #
-            if (cmd.match(/jump[\s+]y[\s+](\d+)/)) {
+            if (cmd.match(/j[\s]+(\d+)/)) {
                 let id = RegExp.$1;
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
@@ -173,7 +190,7 @@ class Store{
             }
 
             // jump r #
-            if (cmd.match(/jump[\s+]r[\s+](\d+)/)) {
+            if (cmd.match(/jr[\s](\d+)/)) {
                 let rid = RegExp.$1;
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
@@ -182,6 +199,12 @@ class Store{
                 if (op) {
                     self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
                 }
+            }
+
+            // find #
+            if (cmd.match(/^f[\s]+(.+)$/)) {
+                let target = RegExp.$1;
+                self.trigger(ACTION.KONATA_FIND_STRING, target);
             }
         });
 
@@ -244,6 +267,13 @@ class Store{
                 
                 scrollEndPos: [0, 0],   // スクロール終了位置
                 curScrollPos: [0, 0],   // 現在のスクロール位置
+
+                findContext: {
+                    targetPattern: "",  // 検索中の文字の正規表現パターン
+                    foundStr: "",       // ヒットした文字列全体
+                    found: false,       // ヒットしたかどうか
+                    visibility: false,  // 検索結果を表示するかどうか
+                },
 
                 viewPort: {         // 表示領域
                     top: 0,
@@ -381,7 +411,7 @@ class Store{
 
 
         // ズームのスタート
-        self.startZoom = function(zoomLevelDiff, offsetX, offsetY){
+        this.startZoom = function(zoomLevelDiff, offsetX, offsetY){
             if (!self.inZoomAnimation) {
                 // 拡大 or 縮小
                 self.zoomAnimationDirection = zoomLevelDiff > 0;
@@ -390,12 +420,12 @@ class Store{
                     self.curZoomLevel + zoomLevelDiff;
                 self.zoomBasePoint = [offsetX, offsetY];
                 self.inZoomAnimation = true;
-                self.animationID = setInterval(self.animateZoom, 16);
+                self.zoomAnimationID = setInterval(self.animateZoom, 16);
             }
         };
 
         // ズームアニメーション中は，一定時間毎に呼び出される
-        self.animateZoom = function(){
+        this.animateZoom = function(){
             if (!self.inZoomAnimation) {
                 return;
             }
@@ -412,7 +442,7 @@ class Store{
             if ((self.zoomAnimationDirection && self.curZoomLevel >= self.zoomEndLevel) ||
                 (!self.zoomAnimationDirection && self.curZoomLevel <= self.zoomEndLevel)){
                 self.inZoomAnimation = false;
-                clearInterval(self.animationID);
+                clearInterval(self.zoomAnimationID);
                 self.zoomAbs(
                     self.zoomEndLevel, 
                     self.zoomBasePoint[0], 
@@ -445,7 +475,7 @@ class Store{
         });
 
         // スクロール同期対象のタブに，渡された関数を適用する
-        self.scrollTabs = function(f){
+        this.scrollTabs = function(f){
             let sync = self.activeTab.syncScroll;   // 同期
             for (let id in self.tabs) {
                 let tab = self.tabs[id];
@@ -456,7 +486,7 @@ class Store{
         };
 
         // スクロールのアニメーションのスタート
-        self.startScroll = function(scrollDiff){
+        this.startScroll = function(scrollDiff){
             self.scrollAnimationDiff = scrollDiff;
             self.scrollAnimationDirection = [scrollDiff[0] > 0, scrollDiff[1] > 0];
             self.scrollTabs(function(tab){
@@ -467,11 +497,11 @@ class Store{
                 ];
             });
             self.inScrollAnimation = true;
-            self.animationID = setInterval(self.animateScroll, 16);
+            self.scrollAnimationID = setInterval(self.animateScroll, 16);
         };
 
         // アニメーション中は，一定時間毎に呼び出される
-        self.animateScroll = function(){
+        this.animateScroll = function(){
             if (!self.inScrollAnimation) {
                 return;
             }
@@ -492,7 +522,7 @@ class Store{
                 (!dir[1] && self.activeTab.curScrollPos[1] <= self.activeTab.scrollEndPos[1]))
             ){
                 self.inScrollAnimation = false;
-                clearInterval(self.animationID);
+                clearInterval(self.scrollAnimationID);
                 self.scrollTabs(function(tab){
                     tab.renderer.moveLogicalPos(tab.scrollEndPos);
                 });
@@ -501,9 +531,9 @@ class Store{
         };
 
         // スクロールの強制終了
-        self.finishScroll = function(){
+        this.finishScroll = function(){
             self.inScrollAnimation = false;
-            clearInterval(self.animationID);
+            clearInterval(self.scrollAnimationID);
             
             self.scrollTabs(function(tab){
                 tab.renderer.moveLogicalPos(tab.scrollEndPos);
@@ -512,7 +542,7 @@ class Store{
         };
 
         // その時のパイプラインの左上がくるように移動
-        self.on(ACTION.KONATA_ADJUST_POSITION, function(){
+        this.on(ACTION.KONATA_ADJUST_POSITION, function(){
             if (!self.activeTab) {
                 return;
             }
@@ -745,6 +775,135 @@ class Store{
 
             self.trigger(CHANGE.MENU_UPDATE);
         });
+
+        /** @param {Op} op */ 
+        this.makeFindTargetString = function(op) {
+            let labelString = 
+            `${op.gid} R${op.rid} ${op.labelName}\n${op.labelDetail}`;
+            for (let s in op.labelStage) {
+                labelString += "\n" + op.labelStage[s];
+            }
+            return labelString;
+        };
+
+        // Find a specified string
+        this.findString = function(target, basePos, reverse) {
+
+            //console.log(`Find: ${target}, start from ${basePos}, reverse:${reverse}`);
+
+            let konata = self.activeTab.konata;
+            let targetPattern = new RegExp(target);
+
+            let search = function(i){
+                let op = konata.getOp(i);
+                if (!op) {
+                    return false;
+                }
+
+                if (targetPattern.exec(self.makeFindTargetString(op))) {
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            };
+
+            let found = false;
+            let foundPos = -1;
+            let lastID = konata.lastID;
+            if (reverse) {
+                for (let i = basePos;i >= 0; i--) {
+                    if (search(i)) { found = true; foundPos = i; break; }
+                }
+                if (!found) {
+                    for (let i = lastID - 1;i > basePos; i--) {
+                        if (search(i)) { found = true; foundPos = i; break; }
+                    }
+                }
+            }
+            else{
+                for (let i = basePos;i < lastID; i++) {
+                    if (search(i)) { found = true; foundPos = i; break; }
+                }
+                if (!found) {
+                    for (let i = 0;i < basePos; i++) {
+                        if (search(i)) { found = true; foundPos = i; break; }
+                    }
+                }
+            }
+
+            self.activeTab.findContext.found = false;
+            if (found) {
+                let op = konata.getOp(foundPos);
+                if (op) {
+                    let ctx = self.activeTab.findContext;
+                    ctx.found = true;
+                    ctx.visibility = true;
+                    ctx.targetPattern = target;
+                    ctx.foundStr = this.makeFindTargetString(op);
+                    ctx.op = op;
+
+                    let viewPos = self.activeTab.renderer.viewPos;
+                    self.startScroll([op.fetchedCycle - viewPos[0], foundPos - viewPos[1]]);
+                }
+                //console.log(`Found: ${target}@${foundPos}`);
+            }
+            return found;
+        };
+
+        self.on(ACTION.KONATA_FIND_STRING, function(target){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            findContext.targetPattern = target;
+            
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(target, pos, false)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${target}" is not found.`);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // Find a next string
+        self.on(ACTION.KONATA_FIND_NEXT_STRING, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(findContext.targetPattern, pos + 1, false)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        // Find a previous string
+        self.on(ACTION.KONATA_FIND_PREV_STRING, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            if (!self.findString(findContext.targetPattern, pos - 1, true)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
+            }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
+        self.on(ACTION.KONATA_FIND_HIDE_RESULT, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            findContext.visibility = false;
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
     }
 
 }

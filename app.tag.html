@@ -299,6 +299,7 @@
     <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
         <canvas ref="canvas"></canvas>
         <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
+        <div ref="find_result_tip" class="find_result_tip"></div>
     </div>
     
     <!--position を absolute にすることで，同じ位置に重ねることができる 
@@ -340,6 +341,9 @@
 
             let tip = self.refs.tool_tip.style;
             tip.visibility = "hidden";
+
+            let find_result_tip = self.refs.find_result_tip.style;
+            find_result_tip.visibility = "hidden";
         };
 
         // マウス操作
@@ -367,10 +371,38 @@
 
             // クリック時に他所にフォーカスが奪われるのを防ぐ
             e.preventDefault();
-        };        
+        };
 
         // ツールチップの更新
         self.updateToolTip = function(){
+
+            // 検索結果
+            let findCtx = store.tabs[self.id].findContext;
+            let find_result_tip = self.refs.find_result_tip.style;
+            if (findCtx.found && findCtx.visibility) {
+                find_result_tip.visibility = "visible";
+                find_result_tip.left = "0px";
+
+                let renderer = store.tabs[self.id].renderer;
+                find_result_tip.top = Math.floor(renderer.getPixelPosYFromOp(findCtx.op)) + 25 + "px";
+
+                // パターンにヒットした行を表示する
+                self.findResultTipText = "";
+                let re = new RegExp(findCtx.targetPattern, "g");
+                for (let line of findCtx.foundStr.split("\n")) {
+                    let m = re.exec(line);
+                    if (m || self.findResultTipText == "") {  // 最初の行はつけておく
+                        self.findResultTipText += line.replace(re, "<span style=\"color:cyan\">$&</span>") + "<br>";
+                    }
+                }
+
+                self.refs.find_result_tip.innerHTML = self.findResultTipText;
+            }
+            else{
+                find_result_tip.visibility = "hidden";
+            }
+
+            // マウスオーバーした領域のラベルの表示
             let tip = self.refs.tool_tip.style;
             if (self.mouseIn) {
                 tip.visibility = "visible";
@@ -534,7 +566,8 @@
             let label_pane = self.refs.label_pane;
             let splitterPos = label_pane.offsetWidth + diff;
             RiotControl.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
-        
+
+            
             //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
             //console.log(`mousemove ${self.id}`);
         };
@@ -651,8 +684,9 @@
         /* globals RiotControl ACTION CHANGE */
         let self = this;
         self.hintList = {
-            0: {"text": "Jump to Op (id)", "cmd": "jump y <id>"},
-            1: {"text": "Jump to Op (rid)", "cmd": "jump r <rid>"},
+            0: {"text": "Jump to #line",                "cmd": "j  <#line>"},
+            1: {"text": "Jump to an op with rid",       "cmd": "jr <rid>"},
+            2: {"text": "Find a string ('F3' key finds next)",  "cmd": "f  <string>"},
         };
         self.init = function(){
             // フォーカスが外れたら消す
@@ -681,7 +715,7 @@
 
         // オープン
         RiotControl.on(CHANGE.COMMAND_PALETTE_OPEN,
-            function(){
+            function(command){
                 let cp = self.refs.command_pallete.style;
                 cp.visibility = "visible";
                 // 画面外からスライドイン
@@ -692,6 +726,7 @@
 
                 // フォーカスを合わせる
                 let input = self.refs.input;
+                input.value = command;
                 input.focus();
 
                 // キーボードハンドラを登録
@@ -894,41 +929,54 @@
             // キーボード
             document.onkeydown = function(e) {
                 let key = e.key;
-                if (key == "ArrowUp") {
-                    // ctrl 時は水平方向補正なし
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.ctrlKey);
+
+                if (!store.isCommandPaletteOpened) {
+                    // These keys are valid when a command palette is not opend.
+                    if (key == "ArrowUp") {
+                        // ctrl 時は水平方向補正なし
+                        RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.ctrlKey);
+                    }
+                    else if (key == "ArrowDown") {
+                        RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, !e.ctrlKey);
+                    }
+                    else if (key == "PageUp") {
+                        RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -10, !e.ctrlKey);
+                    }
+                    else if (key == "PageDown") {
+                        RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 10, !e.ctrlKey);
+                    }
+                    else if (key == "ArrowLeft") {
+                        RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, -1);
+                    }
+                    else if (key == "ArrowRight") {
+                        RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, 1);
+                    }
+                    else if (key == "+") {
+                        let w = store.sheet.width - store.activeTab.splitterPos;
+                        let h = store.sheet.height;
+                        RiotControl.trigger(ACTION.KONATA_ZOOM, -1, w / 2, h / 2);
+                    }
+                    else if (key == "-") {
+                        let w = store.sheet.width - store.activeTab.splitterPos;
+                        let h = store.sheet.height;
+                        RiotControl.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
+                    }
+                    else if (key == "F3") {
+                        if (e.shiftKey) {
+                            RiotControl.trigger(ACTION.KONATA_FIND_PREV_STRING);
+                        }
+                        else{
+                            RiotControl.trigger(ACTION.KONATA_FIND_NEXT_STRING);
+                        }
+                    }
+                    else if (key == "P" && e.ctrlKey && e.shiftKey) {
+                        RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN, "");
+                    }
+                    else if (key == "Escape" || key == "Enter") {
+                        RiotControl.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
+                    }
                 }
-                else if (key == "ArrowDown") {
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, !e.ctrlKey);
-                }
-                else if (key == "PageUp") {
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -10, !e.ctrlKey);
-                }
-                else if (key == "PageDown") {
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 10, !e.ctrlKey);
-                }
-                else if (key == "ArrowLeft") {
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, -1);
-                }
-                else if (key == "ArrowRight") {
-                    RiotControl.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, 1);
-                }
-                else if (key == "+") {
-                    let w = store.sheet.width - store.activeTab.splitterPos;
-                    let h = store.sheet.height;
-                    RiotControl.trigger(ACTION.KONATA_ZOOM, -1, w / 2, h / 2);
-                }
-                else if (key == "-") {
-                    let w = store.sheet.width - store.activeTab.splitterPos;
-                    let h = store.sheet.height;
-                    RiotControl.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
-                }
-                else if (
-                    key == "F1" || 
-                    (key == "P" && e.ctrlKey && e.shiftKey)
-                ) {
-                    RiotControl.trigger(ACTION.COMMAND_PALETTE_OPEN);
-                }
+                
                 //console.log(key);
             };
 

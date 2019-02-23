@@ -1,3 +1,6 @@
+// JSDoc のタイプチェックに型を認識させるため
+let Op = require("./op").Op; // eslint-disable-line
+
 class Konata{
     constructor(){
         this.name = "Konata";
@@ -60,7 +63,9 @@ class Konata{
             this.file_, 
             this.updateCallback_, 
             function(){ // Finish handler
-                self.file_.close(); // The parser must not be closed.
+                if (self.file_) {
+                    self.file_.close(); // The parser must not be closed.
+                }
                 self.finishCallback_();
             },
             function(){ // Error handler
