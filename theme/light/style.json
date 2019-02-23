@@ -1,23 +1,10 @@
 {
-    "light": {
-       "inheritedFrom": "default"
-    },
     "default": {
         "fontSize": "14",
         "fontFamily": "SFMono-Regular, Consolas, 'Liberation Mono', Menlo, Courier, monospace",
         "fontStyle": "normal",
-
-        "_labelPane": {
-            "marginLeft": "5",
-            "backgroundColor": "#f5f5f5",
-            "fontColor": "#c7c8ca"
-        },
-
         "fontColor": "#222222",
 
-        "splitterPane": {
-            "backgroundColor": "#121317"
-        },
         "labelPane": {
             "marginLeft": "5",
             "backgroundColor": "#303340",
