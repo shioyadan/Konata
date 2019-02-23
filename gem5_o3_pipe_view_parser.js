@@ -278,16 +278,16 @@ class Gem5O3PipeViewParser{
                     this.parsingExLogLastID_ = -1;
                 }
             }
-            return;
+        }
+        else {
+            this.isGem5O3PipeView = true;
+            this.parseCommand(args);
+            this.curLine_++;
         }
 
-        this.isGem5O3PipeView = true;
-        this.parseCommand(args);
-        this.curLine_++;
-        
         this.updateTimer_--;
         if (this.updateTimer_ < 0) {
-            this.updateTimer_ = 1024*32;
+            this.updateTimer_ = 1024*16;
 
             // Call update callback, which updates progress bars 
             this.updateCallback_(
@@ -296,7 +296,9 @@ class Gem5O3PipeViewParser{
             );
             this.updateCount_++;
 
-            this.drainParsingOps_(false);
+            if (this.isGem5O3PipeView) {
+                this.drainParsingOps_(false);
+            }
         }
     }
 
@@ -424,6 +426,8 @@ class Gem5O3PipeViewParser{
             }
         } 
 
+        // 頻繁にパース済みリストが更新されると描画の負荷があがるのである程度バッファしておく
+        // opList_ は上で更新されているが，this.lastID_ が更新されなければ，外部には見えない
         let BUFFERED_SIZE = force ? 0 : 1024*16;
         if (this.lastID_ + BUFFERED_SIZE >= this.opList_.length) {
             return;
