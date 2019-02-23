@@ -108,7 +108,7 @@ class Gem5O3PipeViewParser{
         this.STAGE_ID_ISSUE_ = 4;
         this.STAGE_ID_COMPLETE_ = 5;
         this.STAGE_ID_RETIRE_ = 6;
-        this.STAGE_ID_MEM_WRITEBACK_ = 7;
+        this.STAGE_ID_MEM_COMPLETE_ = 7;
 
         this.STAGE_ID_MAP_ = {
             "fetch": this.STAGE_ID_FETCH_,
@@ -118,7 +118,7 @@ class Gem5O3PipeViewParser{
             "issue": this.STAGE_ID_ISSUE_,
             "complete": this.STAGE_ID_COMPLETE_,
             "retire": this.STAGE_ID_RETIRE_,
-            "mem_writeback": this.STAGE_ID_MEM_WRITEBACK_   // 追加ログの解析結果より追加
+            "mem_complete": this.STAGE_ID_MEM_COMPLETE_   // 追加ログの解析結果より追加
         };
 
         this.STAGE_LABEL_MAP_ = [
@@ -129,7 +129,7 @@ class Gem5O3PipeViewParser{
             "Is",
             "Cm",
             "Rt",
-            "Mw",
+            "Mc",
         ];
 
         this.SERIAL_NUMBER_PATTERN = new RegExp("sn:(\\d+)");
@@ -744,10 +744,10 @@ class Gem5O3PipeViewParser{
                 // 3260000: global: RegFile: Setting int register 125 to 0x4af000
                 op.labelDetail += "\n " + args[3];
             }
-            else if (args[1].match(/\.iq/) && args[2].match(/ Completing/)) {
+            else if (args[1].match(/\.memDep/) && args[2].match(/ Completed mem/)) {
                 // Memory write back
                 // 3260000: system.cpu.iq: Completing mem instruction PC: (0x436018=>0x43601c).(0=>1) [sn:157]
-                let dummyArgs = ["O3PipeView", "mem_writeback", tick];
+                let dummyArgs = ["O3PipeView", "mem_complete", tick];
                 this.parseEndCommand(seqNum, op, dummyArgs);
                 this.parseStartCommand(seqNum, op, dummyArgs);
             }
