@@ -66,7 +66,7 @@ class KonataRenderer{
         this.stageFontSize_ = 12;
 
         // Styles of Konata rederer defined by JSON
-        this.STYLE_FILE_NAME_ = "./style.json"; // Style JSON file name
+        this.STYLE_FILE_NAME_ = "./theme/dark/style.json"; // Style JSON file name
         this.STYLE_THEME_NAME_ = "default";     // Theme name in the JSON file
         this.style_ = null;
     }
