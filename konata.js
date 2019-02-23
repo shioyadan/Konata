@@ -1,5 +1,5 @@
 // JSDoc のタイプチェックに型を認識させるため
-let Op = require("./Op").Op; // eslint-disable-line
+let Op = require("./op").Op; // eslint-disable-line
 
 class Konata{
     constructor(){
