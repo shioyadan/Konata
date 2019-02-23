@@ -713,6 +713,8 @@ class Gem5O3PipeViewParser{
 
     /** 
      * parseCycleRange までの追加ログをパースして op に追加
+     * 追加ログのパース中にステージの追加が行われることがあるため，
+     * parseCommand と同期して処理する必要がある．
      * @param {Op} op 
      * @param {number} parseCycleRange
      */
@@ -742,14 +744,14 @@ class Gem5O3PipeViewParser{
                 // 3260000: global: RegFile: Setting int register 125 to 0x4af000
                 op.labelDetail += "\n " + args[3];
             }
-            else if (args[1] == " system.cpu.iq" && args[2].match(/ Completing/)) {
+            else if (args[1].match(/\.iq/) && args[2].match(/ Completing/)) {
                 // Memory write back
                 // 3260000: system.cpu.iq: Completing mem instruction PC: (0x436018=>0x43601c).(0=>1) [sn:157]
                 let dummyArgs = ["O3PipeView", "mem_writeback", tick];
                 this.parseEndCommand(seqNum, op, dummyArgs);
                 this.parseStartCommand(seqNum, op, dummyArgs);
             }
-            else if (args[1] == " system.cpu.rename" && 
+            else if (args[1].match(/\.rename/) && 
                 args.length > 4 && args[4].match(/ (Renaming)|(Looking)/)
             ) {
                 // Rename
@@ -766,7 +768,7 @@ class Gem5O3PipeViewParser{
                 }
             }
             else if (
-                args[1].match(/system.cpu.iew.lsq.thread/) && 
+                args[1].match(/\.iew.lsq.thread/) && 
                 args[2].match(/ (Read called)|(Doing write)/)
             ) {
                 // Load/store addr
