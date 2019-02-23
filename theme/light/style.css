@@ -5,7 +5,7 @@ html, body {
 /* ラベルとパイプラインの間のスプリッタ */
 .window_splitter {
     border-right: 1px solid #ccc;
-    background-color: #eeeeee; /* ラベル部分と一体化させる */
+    background-color: #f4f4f4; /* ラベル部分と一体化させる */
 }
 
 /* ラベルのツールチップ */

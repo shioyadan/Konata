@@ -7,12 +7,24 @@
 
         "labelPane": {
             "marginLeft": "5",
-            "backgroundColor": "#303340",
-            "fontColor": "#c7c8ca"
+            "backgroundColor": "#f4f4f4",
+            "fontColor": "#222222"
         },
         "pipelinePane": {
             "backgroundColor": "#ffffff",
-            "fontColor": "#555555"
+            "fontColor": "#222222",
+            "borderColor": "#333333",
+
+            "stageBackgroundColor": {
+                "hRateBegin": "55",
+                "sBegin": "100%",
+                "lBegin": "100%",
+                "hRateEnd": "50",
+                "sEnd": "70%",
+                "lEnd": "80%"
+            },
+            "stallBackgroundColor": "#aaaaaa",
+            "invalidBackgroundColor": "rgb(128,128,128)"
         },
 
         "colorScheme": {

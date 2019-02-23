@@ -12,7 +12,21 @@
         },
         "pipelinePane": {
             "backgroundColor": "#262930",
-            "fontColor": "#eeeeee"
+            "fontColor": "#f5f5f5",
+            "borderColor": "#f5f5f5",
+
+            "stageBackgroundColor": {
+                "hRateBegin": "55",
+                "sBegin": "50%",
+                "lBegin": "50%",
+
+                "hRateEnd": "55",
+                "sEnd": "40%",
+                "lEnd": "40%"
+            },
+            "stallBackgroundColor": "hsl(0,0%,50%)",
+            "invalidBackgroundColor": "rgb(30,30,30)",
+            "arrowColor": "rgb(180,20,20)"
         },
 
         "colorScheme": {

@@ -67,6 +67,7 @@ class KonataRenderer{
 
         // Styles of Konata rederer defined by JSON
         this.STYLE_FILE_NAME_ = "./theme/dark/style.json"; // Style JSON file name
+        //this.STYLE_FILE_NAME_ = "./theme/light/style.json"; // Style JSON file name
         this.STYLE_THEME_NAME_ = "default";     // Theme name in the JSON file
         this.style_ = null;
     }
@@ -115,30 +116,41 @@ class KonataRenderer{
     /**
      * ステージ関係のスタイル読込
      */
-    getStageColor_(lane, stage){
+    getStageColor_(lane, stage, isBegin){
         let self = this;
 
         if (self.colorScheme_ == "Auto") {
             if (stage == "f" || stage == "stl") {
-                //return "#aaaaaa";
-                return "hsl(0,0%,50%)";
+                return this.style_.pipelinePane.stallBackgroundColor;
             }
             let level = self.konata_.stageLevelMap[stage];
-            return `hsl(${((250-level*55)%360)},25%,50%)`;
-            //return `hsl(${((250-level*50)%360)},70%,80%)`;
-        }
-
-        if (self.colorScheme_ in self.style_.colorScheme) {
-            let style = self.style_.colorScheme[self.colorScheme_];
-            if (lane in style) {
-                if (stage in style[lane]) {
-                    return style[lane][stage];
-                }
+            let color = this.style_.pipelinePane.stageBackgroundColor;
+            if (isBegin) {
+                let h = ((250-level*color.hRateBegin)%360);
+                return `hsl(${h},${color.sBegin},${color.lBegin})`;
             }
-            return style["defaultColor"];
+            else{
+                let h = ((250-level*color.hRateEnd)%360);
+                return `hsl(${h},${color.sEnd},${color.lEnd})`;
+            }
         }
+        else {
+            if (isBegin) {
+                return "#eee";
+            }
 
-        return self.colorScheme_;
+            if (self.colorScheme_ in self.style_.colorScheme) {
+                let style = self.style_.colorScheme[self.colorScheme_];
+                if (lane in style) {
+                    if (stage in style[lane]) {
+                        return style[lane][stage];
+                    }
+                }
+                return style["defaultColor"];
+            }
+    
+            return self.colorScheme_;
+        }
     }
 
     /**
@@ -628,7 +640,7 @@ class KonataRenderer{
         if (top < 0) {
             let bottom = -top * self.opH_ + self.PIXEL_ADJUST;
             bottom = Math.min(tile.height, bottom);
-            ctx.fillStyle = "rgb(128,128,128)";
+            ctx.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
             ctx.fillRect(0, 0, tile.width, bottom);
             if (bottom >= tile.height) {
                 return;
@@ -667,7 +679,7 @@ class KonataRenderer{
         if (top - offsetY + height > self.getVisibleBottom()) {
             let begin = tile.height - (top - offsetY + height - self.getVisibleBottom()) * self.opH_ + self.PIXEL_ADJUST;
             begin = Math.max(0, begin);
-            ctx.fillStyle = "rgb(128,128,128)";
+            ctx.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
             ctx.fillRect(0, begin, tile.width, tile.height);
         }
     }
@@ -684,8 +696,8 @@ class KonataRenderer{
         let arrowOffsetY = self.laneH_ / 2 + self.PIXEL_ADJUST;
 
         ctx.lineWidth = 1;
-        ctx.strokeStyle = "rgb(170,30,30)";
-        ctx.fillStyle = "rgb(170,30,30)";
+        ctx.strokeStyle = this.style_.pipelinePane.arrowColor;
+        ctx.fillStyle = this.style_.pipelinePane.arrowColor;
 
         //for (let y = Math.floor(logTop - logHeight); y < logTop + logHeight; y++) {
         for (let y = Math.floor(logTop); y < logTop + logHeight; y++) {
@@ -843,8 +855,7 @@ class KonataRenderer{
 
         if (self.canDrawDetailedly) {
             // 枠内に表示の余地がある場合
-            //ctx.strokeStyle = "#333333";
-            ctx.strokeStyle = "#eeeeee";
+            ctx.strokeStyle = this.style_.pipelinePane.borderColor;
             let keys = [];
             for (let key in op.lanes) {
                 keys.push(key);
@@ -926,10 +937,9 @@ class KonataRenderer{
             ];
 
             let grad = ctx.createLinearGradient(0, top, 0, top + self.laneH_);
-            let color = self.getStageColor_(laneName, stage.name);
-            grad.addColorStop(1, color);
-            //grad.addColorStop(0, "#eee");
-            grad.addColorStop(0, color);
+            grad.addColorStop(0, self.getStageColor_(laneName, stage.name, true));
+            grad.addColorStop(1, self.getStageColor_(laneName, stage.name, false));
+            //grad.addColorStop(0, color);
 
             ctx.fillStyle = grad;
             ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);

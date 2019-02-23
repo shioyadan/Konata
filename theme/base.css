@@ -3,7 +3,7 @@ html, body {
     height: 100%;
     margin: 0;        /* すきまなく */
     overflow: hidden; /* はみ出た部分は表示されない */
-  }
+}
   
   .pane_container {
       display: flex;  /* CSS3 flexbox による配置を有効に */
