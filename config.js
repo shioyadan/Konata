@@ -13,6 +13,14 @@ class Config{
         this.VALID_THEME_LIST_ = [
             "light", "dark"
         ];
+        this.THEME_STYLE_LIST = {
+            dark:   "./theme/dark/style.json",    
+            light:  "./theme/light/style.json", 
+        };
+        this.THEME_CSS_LIST = {
+            dark:   "./theme/dark/style.css",    
+            light:  "./theme/light/style.css", 
+        };
 
         // 設定読み込み
         this.load();
@@ -41,7 +49,7 @@ class Config{
             // それがなかったことになってしまう
             let data = JSON.parse(fs.readFileSync(this.FILE_NAME_, "utf8"));
             for (let i in data){
-                if (!i.match(/^.+_$/) && i in this) {
+                if (!i.match(/^[A-Z_]+$/) && i in this) {
                     this[i] = data[i];
                 }
             }
@@ -72,9 +80,9 @@ class Config{
 
         try {
 
-            // 最後が _ で終わってるメンバは保存/読み込みを行わない
+            // 大文字のメンバは保存/読み込みを行わない
             let replacer = (key, value) => {
-                return key.match(/^.+_$/) ? undefined : value;
+                return key.match(/^[A-Z_]+$/) ? undefined : value;
             };
 
             // スペース４つでインデントする

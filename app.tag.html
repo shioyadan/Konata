@@ -899,9 +899,20 @@
             }
         });
 
+        // CSS の更新
+        self.onCSS_Update = function(){
+            let themeCSS = store.config.THEME_CSS_LIST[store.config.theme];
+            let css = document.getElementById("konata_theme_css");
+            css.href = themeCSS;
+        };
+        RiotControl.on(CHANGE.WINDOW_CSS_UPDATE, self.onCSS_Update);
+
         // 初期化
         // マウント時に呼ばれる
         self.init = function(){
+
+            // CSS の設定
+            self.onCSS_Update();
 
             // メニューを追加
             let menu = require("./menu.js");

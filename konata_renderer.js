@@ -70,11 +70,6 @@ class KonataRenderer{
         this.stageFontSize_ = 12;
 
         // Styles of Konata rederer defined by JSON
-        this.STYLE_LIST_ = {
-            dark:   "./theme/dark/style.json",    
-            light:  "./theme/light/style.json", 
-        };
-
         this.style_ = null;
     }
 
@@ -107,13 +102,7 @@ class KonataRenderer{
      * パイプラインのスタイル定義 JSON の読み込み
      */
     loadStyle(){
-
-        let theme = this.config.theme;
-        if (!(theme in this.STYLE_LIST_)) {
-            console.log(`Invalid theme ${theme}`);
-            theme = "light";
-        }
-        let fileName = this.STYLE_LIST_[this.config.theme];
+        let fileName = this.config.THEME_STYLE_LIST[this.config.theme];
 
         // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
         // 変わった場合に読み込めなくなるので，require で読む

@@ -87,6 +87,8 @@ const CHANGE = {
     PROGRESS_BAR_START:  200,    // プレグレスバーの更新開始
     PROGRESS_BAR_UPDATE: 201,    // 読み込みのプレグレスバーの更新
     PROGRESS_BAR_FINISH: 202,    // ファイル読み込み終了
+
+    WINDOW_CSS_UPDATE: 300 // テーマ変更により，CSS が変更された
 };
 
 /**
@@ -680,6 +682,7 @@ class Store{
             for (let tabID in self.tabs) {
                 self.tabs[tabID].renderer.loadStyle();
             }
+            self.trigger(CHANGE.WINDOW_CSS_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             self.trigger(CHANGE.MENU_UPDATE);
         });
