@@ -116,9 +116,7 @@ class KonataRenderer{
 
         // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
         // 変わった場合に読み込めなくなるので，require で読む
-        let styleJSON = require(fileName);
-        let style = styleJSON["default"];
-        this.style_ = style;
+        this.style_ = require(fileName)
     }
 
     /**
