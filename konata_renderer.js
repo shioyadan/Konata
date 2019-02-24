@@ -693,9 +693,12 @@ class KonataRenderer{
         }
         let arrowBeginOffsetX = self.opW_ * 3 / 4 + self.PIXEL_ADJUST;
         let arrowEndOffsetX = self.opW_ * 1 / 4 + self.PIXEL_ADJUST;
-        let arrowOffsetY = self.laneH_ / 2 + self.PIXEL_ADJUST;
+        let arrowMidOffsetY = self.laneH_ / 2 + self.PIXEL_ADJUST;
+        let arrowBeginOffsetY = self.laneH_ * 2 / 3 + self.PIXEL_ADJUST;
+        let arrowEndOffsetY = self.laneH_ * 1 / 3 + self.PIXEL_ADJUST;
 
-        ctx.lineWidth = 1;
+        let arrowWeight = this.style_.pipelinePane.arrowWeight;
+        ctx.lineWidth = arrowWeight;
         ctx.strokeStyle = this.style_.pipelinePane.arrowColor;
         ctx.fillStyle = this.style_.pipelinePane.arrowColor;
 
@@ -730,19 +733,19 @@ class KonataRenderer{
 
                 if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
                     let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
-                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowMidOffsetY;
                     let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
-                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowMidOffsetY;
 
-                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin]);
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin], arrowWeight);
                 }
                 else {
                     let xBegin = (prod.fetchedCycle - logLeft) * self.opW_;
-                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowBeginOffsetY;
                     let xEnd = (op.fetchedCycle - logLeft) * self.opW_;
-                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowOffsetY;
+                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowEndOffsetY;
 
-                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0]);
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0], arrowWeight);
                 }
             }
 
@@ -795,8 +798,9 @@ class KonataRenderer{
     * @param {array} start - やじりの先端
     * @param {array} end - やじりの終端
     * @param {array} v - 向きと高さを指定するベクトル
+    * @param {number} size - サイズの倍率
     */
-    drawArrow_(ctx, start, end, v){
+    drawArrow_(ctx, start, end, v, size){
         let self = this;
         if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
             // パイプライン中の X ステージ
@@ -822,7 +826,7 @@ class KonataRenderer{
         let shape = 0.8;
         let pts = [];
         let norm = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
-        let f = 5 / norm;   // 5: サイズ
+        let f = size * 5 / norm;   // 5: サイズ
         v[0] *= f;
         v[1] *= f;
 

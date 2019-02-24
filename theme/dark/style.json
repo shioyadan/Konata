@@ -18,15 +18,17 @@
             "stageBackgroundColor": {
                 "hRateBegin": "55",
                 "sBegin": "50%",
-                "lBegin": "50%",
+                "lBegin": "40%",
 
                 "hRateEnd": "55",
                 "sEnd": "40%",
-                "lEnd": "40%"
+                "lEnd": "35%"
             },
             "stallBackgroundColor": "hsl(0,0%,50%)",
             "invalidBackgroundColor": "rgb(30,30,30)",
-            "arrowColor": "rgb(180,20,20)"
+
+            "arrowColor": "rgb(255,200,0)",
+            "arrowWeight": "1"
         },
 
         "colorScheme": {

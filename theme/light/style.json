@@ -24,7 +24,9 @@
                 "lEnd": "80%"
             },
             "stallBackgroundColor": "#aaaaaa",
-            "invalidBackgroundColor": "rgb(128,128,128)"
+            "invalidBackgroundColor": "rgb(128,128,128)",
+            "arrowColor": "rgb(170,30,30)",
+            "arrowWeight": "1.0"
         },
 
         "colorScheme": {
