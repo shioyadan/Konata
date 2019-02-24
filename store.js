@@ -34,6 +34,7 @@ const ACTION = {
     KONATA_TRANSPARENT: 61,             // 透過モードの設定
     KONATA_EMPHASIZE_IN_TRANSPARENT: 62, // 透過モード時にアルファ値を下げる
     KONATA_SYNC_SCROLL: 63,             // 同期スクロール
+    KONATA_CHANGE_UI_COLOR_THEME: 64,   // UI のカラーテーマの変更
 
     KONATA_ZOOM: 73,        // 拡大/縮小
 
@@ -669,6 +670,16 @@ class Store{
             let tab = self.tabs[tabID];
             tab.colorScheme = scheme;
             tab.renderer.changeColorScheme(scheme);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // UI のカラーテーマの変更
+        self.on(ACTION.KONATA_CHANGE_UI_COLOR_THEME, function(theme){
+            self.config.theme = theme;
+            for (let tabID in self.tabs) {
+                self.tabs[tabID].renderer.loadStyle();
+            }
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
             self.trigger(CHANGE.MENU_UPDATE);
         });

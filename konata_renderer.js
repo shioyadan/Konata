@@ -94,7 +94,7 @@ class KonataRenderer{
 
         this.konata_ = konata;
         this.config = config;
-        this.loadStyle_();
+        this.loadStyle();
 
         this.viewPos_ = {left:0, top:0};
         this.zoomLevel_ = 0;
@@ -106,7 +106,7 @@ class KonataRenderer{
     /**
      * パイプラインのスタイル定義 JSON の読み込み
      */
-    loadStyle_(){
+    loadStyle(){
 
         let theme = this.config.theme;
         if (!(theme in this.STYLE_LIST_)) {

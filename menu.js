@@ -32,6 +32,39 @@ function installMainMenu(){
                         click: function(){rc.trigger(ACTION.FILE_SHOW_STATS);}
                     },
                     {
+                        type: "separator"
+                    },
+                    {
+                        label: "Color theme",
+                        submenu: [
+                            {
+                                label: "Light",
+                                type: "checkbox",
+                                checked: store.config.theme == "light", 
+                                click: function(){
+                                    rc.trigger(
+                                        ACTION.KONATA_CHANGE_UI_COLOR_THEME,
+                                        "light"
+                                    );
+                                }
+                            },
+                            {
+                                label: "Dark",
+                                type: "checkbox",
+                                checked: store.config.theme == "dark", 
+                                click: function(){
+                                    rc.trigger(
+                                        ACTION.KONATA_CHANGE_UI_COLOR_THEME,
+                                        "dark"
+                                    );
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        type: "separator"
+                    },
+                    {
                         label: "Quit",
                         click: function(){rc.trigger(ACTION.APP_QUIT);}
                     },
