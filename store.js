@@ -98,12 +98,15 @@ class Store{
         
         // この書式じゃないと IntelliSense が効かない
         let electron = require("electron");
+        let fs = require("fs");
+
         let KonataRenderer = require("./konata_renderer");
         let Konata = require("./konata");
-        let fs = require("fs");
+        let Config = require("./config");
 
 
         // Tab
+        this.cfg = new Config.Config();
         this.tabs = {}; // id -> tab
         this.nextOpenedTabID = 0; // 次にオープンされるタブの ID 
 
