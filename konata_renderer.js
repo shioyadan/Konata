@@ -110,13 +110,14 @@ class KonataRenderer{
 
         let theme = this.config.theme;
         if (!(theme in this.STYLE_LIST_)) {
+            console.log(`Invalid theme ${theme}`);
             theme = "light";
         }
-        let fileName = this.STYLE_LIST_[theme];
+        let fileName = this.STYLE_LIST_[this.config.theme];
 
         // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
         // 変わった場合に読み込めなくなるので，require で読む
-        this.style_ = require(fileName)
+        this.style_ = require(fileName);
     }
 
     /**

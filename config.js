@@ -9,8 +9,10 @@ class Config{
 
 
         // デフォルトの設定
-        this.theme = "light";
-
+        this.theme = "dark";
+        this.VALID_THEME_LIST_ = [
+            "light", "dark"
+        ];
 
         // 設定読み込み
         this.load();
@@ -22,6 +24,15 @@ class Config{
         });
     }
 
+    /** 
+     * @param {string} name
+     * @param {array} validList
+     */
+    check_(name, validList){
+        if (!(this[name] in validList)) {
+            this[name] = validList[0];
+        }
+    }
 
     load(){
         try {
@@ -39,6 +50,8 @@ class Config{
         catch (e) {
             console.log(`Could not open ${this.FILE_NAME_}`);
         }
+
+        this.check_("theme", this.VALID_THEME_LIST_);
     }
     
     save(){
