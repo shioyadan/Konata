@@ -35,7 +35,7 @@ function installMainMenu(){
                         type: "separator"
                     },
                     {
-                        label: "Color theme",
+                        label: "UI Color theme",
                         submenu: [
                             {
                                 label: "Light",
@@ -133,7 +133,7 @@ function installMainMenu(){
                         }
                     },
                     {
-                        label: "Color scheme",
+                        label: "Pipeline color scheme",
                         submenu: ["Auto", "Orange", "RoyalBlue", "Onikiri"].map(function(color){
                             return {
                                 label: color,
@@ -274,7 +274,7 @@ function makePopupTabMenuTemaplte(tabID){
             }
         },
         {
-            label: "Color scheme",
+            label: "Pipeline color scheme",
             submenu: ["Auto", "Orange", "RoyalBlue", "Onikiri"].map(function(color){
                 return {
                     label: color,
