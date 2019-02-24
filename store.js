@@ -106,7 +106,7 @@ class Store{
 
 
         // Tab
-        this.cfg = new Config.Config();
+        this.config = new Config.Config();
         this.tabs = {}; // id -> tab
         this.nextOpenedTabID = 0; // 次にオープンされるタブの ID 
 
@@ -249,7 +249,7 @@ class Store{
 
 
             let renderer = new KonataRenderer.KonataRenderer();
-            renderer.init(konata);
+            renderer.init(konata, self.config);
 
             // ファイル更新時間
             let mtime = fs.statSync(fileName).mtime;

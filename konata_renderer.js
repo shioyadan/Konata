@@ -1,5 +1,6 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Konata = require("./konata").Konata; // eslint-disable-line
+let Config = require("./config").Config; // eslint-disable-line
 
 
 let DEP_ARROW_TYPE = {
@@ -26,8 +27,11 @@ class KonataRenderer{
         // 表示系
         this.ZOOM_RATIO_ = 1;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
         
-        /** @type {Konata}  */
+        /** @type {Konata} */
         this.konata_ = null;
+
+        /** @type {Config} */
+        this.config = null;
         this.colorScheme_ = "Auto";   // カラースキーム名
 
         this.OP_W = 32; // スケール1のときの1サイクルの幅
@@ -66,9 +70,11 @@ class KonataRenderer{
         this.stageFontSize_ = 12;
 
         // Styles of Konata rederer defined by JSON
-        this.STYLE_FILE_NAME_ = "./theme/dark/style.json"; // Style JSON file name
-        //this.STYLE_FILE_NAME_ = "./theme/light/style.json"; // Style JSON file name
-        this.STYLE_THEME_NAME_ = "default";     // Theme name in the JSON file
+        this.STYLE_LIST_ = {
+            dark:   "./theme/dark/style.json",    
+            light:  "./theme/light/style.json", 
+        };
+
         this.style_ = null;
     }
 
@@ -82,35 +88,37 @@ class KonataRenderer{
     /**
      * 初期化
      * @param {Konata} konata - Konata オブジェクトへの参照
+     * @param {Config} config - Config オブジェクトへの参照
      */
-    init(konata){
+    init(konata, config){
 
-        let self = this;
-        self.konata_ = konata;
-        self.loadStyle_(self.STYLE_FILE_NAME_, self.STYLE_THEME_NAME_);
+        this.konata_ = konata;
+        this.config = config;
+        this.loadStyle_();
 
-        self.viewPos_ = {left:0, top:0};
-        self.zoomLevel_ = 0;
-        self.zoomScale_ = self.calcScale_(self.zoomLevel_);
+        this.viewPos_ = {left:0, top:0};
+        this.zoomLevel_ = 0;
+        this.zoomScale_ = this.calcScale_(this.zoomLevel_);
 
-        self.updateScaleParameter();
+        this.updateScaleParameter();
     }
 
     /**
      * パイプラインのスタイル定義 JSON の読み込み
-     * @param {string} fileName - ファイル名
      */
-    loadStyle_(fileName, themeName){
-        let self = this;
+    loadStyle_(){
+
+        let theme = this.config.theme;
+        if (!(theme in this.STYLE_LIST_)) {
+            theme = "light";
+        }
+        let fileName = this.STYLE_LIST_[theme];
+
         // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
         // 変わった場合に読み込めなくなるので，require で読む
         let styleJSON = require(fileName);
-        let style = styleJSON[themeName];
-
-        if ("inheritedFrom" in style) {
-            //console.out("inherited");
-        }
-        self.style_ = style;
+        let style = styleJSON["default"];
+        this.style_ = style;
     }
 
     /**
