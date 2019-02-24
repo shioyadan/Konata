@@ -1,6 +1,7 @@
-html, body {
-    background: #ffffff;
+body {
+    background-color: #ffffff;
 }
+
 
 /* ラベルとパイプラインの間のスプリッタ */
 .window_splitter {
