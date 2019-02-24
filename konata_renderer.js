@@ -142,10 +142,6 @@ class KonataRenderer{
             }
         }
         else {
-            if (isBegin) {
-                return "#eee";
-            }
-
             if (self.colorScheme_ in self.style_.colorScheme) {
                 let style = self.style_.colorScheme[self.colorScheme_];
                 if (lane in style) {
