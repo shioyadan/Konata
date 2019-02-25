@@ -32,6 +32,39 @@ function installMainMenu(){
                         click: function(){rc.trigger(ACTION.FILE_SHOW_STATS);}
                     },
                     {
+                        type: "separator"
+                    },
+                    {
+                        label: "UI Color theme",
+                        submenu: [
+                            {
+                                label: "Light",
+                                type: "checkbox",
+                                checked: store.config.theme == "light", 
+                                click: function(){
+                                    rc.trigger(
+                                        ACTION.KONATA_CHANGE_UI_COLOR_THEME,
+                                        "light"
+                                    );
+                                }
+                            },
+                            {
+                                label: "Dark",
+                                type: "checkbox",
+                                checked: store.config.theme == "dark", 
+                                click: function(){
+                                    rc.trigger(
+                                        ACTION.KONATA_CHANGE_UI_COLOR_THEME,
+                                        "dark"
+                                    );
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        type: "separator"
+                    },
+                    {
                         label: "Quit",
                         click: function(){rc.trigger(ACTION.APP_QUIT);}
                     },
@@ -100,7 +133,7 @@ function installMainMenu(){
                         }
                     },
                     {
-                        label: "Color scheme",
+                        label: "Pipeline color scheme",
                         submenu: ["Auto", "Orange", "RoyalBlue", "Onikiri"].map(function(color){
                             return {
                                 label: color,
@@ -144,7 +177,7 @@ function installMainMenu(){
                             {
                                 label: "Inside-line",
                                 type: "checkbox",
-                                checked: store.depArrowType == DEP_ARROW_TYPE.INSIDE_LINE, 
+                                checked: store.config.depArrowType == DEP_ARROW_TYPE.INSIDE_LINE, 
                                 click: function(){
                                     rc.trigger(
                                         ACTION.KONATA_SET_DEP_ARROW_TYPE,
@@ -155,11 +188,22 @@ function installMainMenu(){
                             {
                                 label: "Leftside-curve",
                                 type: "checkbox",
-                                checked: store.depArrowType == DEP_ARROW_TYPE.LEFT_SIDE_CURVE, 
+                                checked: store.config.depArrowType == DEP_ARROW_TYPE.LEFT_SIDE_CURVE, 
                                 click: function(){
                                     rc.trigger(
                                         ACTION.KONATA_SET_DEP_ARROW_TYPE,
                                         DEP_ARROW_TYPE.LEFT_SIDE_CURVE
+                                    );
+                                }
+                            },
+                            {
+                                label: "Not show",
+                                type: "checkbox",
+                                checked: store.config.depArrowType == DEP_ARROW_TYPE.NOT_SHOW, 
+                                click: function(){
+                                    rc.trigger(
+                                        ACTION.KONATA_SET_DEP_ARROW_TYPE,
+                                        DEP_ARROW_TYPE.NOT_SHOW
                                     );
                                 }
                             }
@@ -241,7 +285,7 @@ function makePopupTabMenuTemaplte(tabID){
             }
         },
         {
-            label: "Color scheme",
+            label: "Pipeline color scheme",
             submenu: ["Auto", "Orange", "RoyalBlue", "Onikiri"].map(function(color){
                 return {
                     label: color,
@@ -272,6 +316,7 @@ function popupPipelineMenu(pos){
     let remote = require("electron").remote;
 
     // 右クリック時専用
+    /** @type {Array} menuTemplate */
     let menuTemplate = [
         {
             label: "Adjust position",

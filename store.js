@@ -34,6 +34,7 @@ const ACTION = {
     KONATA_TRANSPARENT: 61,             // 透過モードの設定
     KONATA_EMPHASIZE_IN_TRANSPARENT: 62, // 透過モード時にアルファ値を下げる
     KONATA_SYNC_SCROLL: 63,             // 同期スクロール
+    KONATA_CHANGE_UI_COLOR_THEME: 64,   // UI のカラーテーマの変更
 
     KONATA_ZOOM: 73,        // 拡大/縮小
 
@@ -53,8 +54,11 @@ const ACTION = {
 
     KONATA_FIND_STRING: 92,         // Find a specified string
     KONATA_FIND_NEXT_STRING: 93,    // Find a next specified string 
-    KONATA_FIND_PREV_STRING: 94,    // Find a previous specified string          
+    KONATA_FIND_PREV_STRING: 94,    // Find a previous specified string
+    KONATA_FIND_HIDE_RESULT: 95     // Hide found result
 
+
+    // MUST NOT OVERLAP NUMBERS IN CHANGE
 };
 
 // CHANGE は store で行われた変更の通知に使う
@@ -83,8 +87,13 @@ const CHANGE = {
     PROGRESS_BAR_START:  200,    // プレグレスバーの更新開始
     PROGRESS_BAR_UPDATE: 201,    // 読み込みのプレグレスバーの更新
     PROGRESS_BAR_FINISH: 202,    // ファイル読み込み終了
+
+    WINDOW_CSS_UPDATE: 300 // テーマ変更により，CSS が変更された
 };
 
+/**
+ * @mixes Observable
+ */
 class Store{
     constructor(){
         /* globals riot */
@@ -92,12 +101,15 @@ class Store{
         
         // この書式じゃないと IntelliSense が効かない
         let electron = require("electron");
+        let fs = require("fs");
+
         let KonataRenderer = require("./konata_renderer");
         let Konata = require("./konata");
-        let fs = require("fs");
+        let Config = require("./config");
 
 
         // Tab
+        this.config = new Config.Config();
         this.tabs = {}; // id -> tab
         this.nextOpenedTabID = 0; // 次にオープンされるタブの ID 
 
@@ -116,7 +128,6 @@ class Store{
         this.showDevTool = false;
 
         // 依存関係の矢印のタイプ
-        this.depArrowType = KonataRenderer.DEP_ARROW_TYPE.INSIDE_LINE;
         this.splitLanes = false;
         this.fixOpHeight = false;
 
@@ -142,7 +153,7 @@ class Store{
         this.isCommandPaletteOpened = false;
 
         let self = this;
-        
+
 
         // ダイアログ
         // 基本的に中継してるだけ
@@ -240,7 +251,7 @@ class Store{
 
 
             let renderer = new KonataRenderer.KonataRenderer();
-            renderer.init(konata);
+            renderer.init(konata, self.config);
 
             // ファイル更新時間
             let mtime = fs.statSync(fileName).mtime;
@@ -263,7 +274,10 @@ class Store{
                 curScrollPos: [0, 0],   // 現在のスクロール位置
 
                 findContext: {
-                    targetStr: ""       // 検索中の文字の正規表現パターン
+                    targetPattern: "",  // 検索中の文字の正規表現パターン
+                    foundStr: "",       // ヒットした文字列全体
+                    found: false,       // ヒットしたかどうか
+                    visibility: false,  // 検索結果を表示するかどうか
                 },
 
                 viewPort: {         // 表示領域
@@ -397,12 +411,15 @@ class Store{
 
         // アプリケーション終了
         self.on(ACTION.APP_QUIT, function(){
+            // store.config が生きている間 = ウィンドウの生存期間内に処理をしないといけない
+            // app.quit ではウィンドウの close イベントが呼ばれないため，手動で保存する
+            self.config.save(); 
             electron.remote.app.quit();
         });
 
 
         // ズームのスタート
-        self.startZoom = function(zoomLevelDiff, offsetX, offsetY){
+        this.startZoom = function(zoomLevelDiff, offsetX, offsetY){
             if (!self.inZoomAnimation) {
                 // 拡大 or 縮小
                 self.zoomAnimationDirection = zoomLevelDiff > 0;
@@ -416,7 +433,7 @@ class Store{
         };
 
         // ズームアニメーション中は，一定時間毎に呼び出される
-        self.animateZoom = function(){
+        this.animateZoom = function(){
             if (!self.inZoomAnimation) {
                 return;
             }
@@ -466,7 +483,7 @@ class Store{
         });
 
         // スクロール同期対象のタブに，渡された関数を適用する
-        self.scrollTabs = function(f){
+        this.scrollTabs = function(f){
             let sync = self.activeTab.syncScroll;   // 同期
             for (let id in self.tabs) {
                 let tab = self.tabs[id];
@@ -477,7 +494,7 @@ class Store{
         };
 
         // スクロールのアニメーションのスタート
-        self.startScroll = function(scrollDiff){
+        this.startScroll = function(scrollDiff){
             self.scrollAnimationDiff = scrollDiff;
             self.scrollAnimationDirection = [scrollDiff[0] > 0, scrollDiff[1] > 0];
             self.scrollTabs(function(tab){
@@ -492,7 +509,7 @@ class Store{
         };
 
         // アニメーション中は，一定時間毎に呼び出される
-        self.animateScroll = function(){
+        this.animateScroll = function(){
             if (!self.inScrollAnimation) {
                 return;
             }
@@ -522,7 +539,7 @@ class Store{
         };
 
         // スクロールの強制終了
-        self.finishScroll = function(){
+        this.finishScroll = function(){
             self.inScrollAnimation = false;
             clearInterval(self.scrollAnimationID);
             
@@ -533,7 +550,7 @@ class Store{
         };
 
         // その時のパイプラインの左上がくるように移動
-        self.on(ACTION.KONATA_ADJUST_POSITION, function(){
+        this.on(ACTION.KONATA_ADJUST_POSITION, function(){
             if (!self.activeTab) {
                 return;
             }
@@ -661,9 +678,20 @@ class Store{
             self.trigger(CHANGE.MENU_UPDATE);
         });
 
+        // UI のカラーテーマの変更
+        self.on(ACTION.KONATA_CHANGE_UI_COLOR_THEME, function(theme){
+            self.config.theme = theme;
+            for (let tabID in self.tabs) {
+                self.tabs[tabID].renderer.loadStyle();
+            }
+            self.trigger(CHANGE.WINDOW_CSS_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
         // 依存関係の矢印のタイプを変更
         self.on(ACTION.KONATA_SET_DEP_ARROW_TYPE, function(type){
-            self.depArrowType = type;
+            self.config.depArrowType = type;
             for (let tabID in self.tabs) {
                 self.tabs[tabID].renderer.depArrowType = type;
             }
@@ -767,8 +795,18 @@ class Store{
             self.trigger(CHANGE.MENU_UPDATE);
         });
 
+        /** @param {Op} op */ 
+        this.makeFindTargetString = function(op) {
+            let labelString = 
+            `${op.gid} R${op.rid} ${op.labelName}\n${op.labelDetail}`;
+            for (let s in op.labelStage) {
+                labelString += "\n" + op.labelStage[s];
+            }
+            return labelString;
+        };
+
         // Find a specified string
-        self.findString = function(target, basePos, reverse) {
+        this.findString = function(target, basePos, reverse) {
 
             //console.log(`Find: ${target}, start from ${basePos}, reverse:${reverse}`);
 
@@ -780,17 +818,14 @@ class Store{
                 if (!op) {
                     return false;
                 }
-                if (op.labelName.match(targetPattern) || 
-                    op.gid.toString().match(targetPattern) || 
-                    ("R" + op.rid.toString()).match(targetPattern)
-                ) {
-                    
+
+                if (targetPattern.exec(self.makeFindTargetString(op))) {
                     return true;
                 }
                 else {
                     return false;
                 }
-            }
+            };
 
             let found = false;
             let foundPos = -1;
@@ -816,9 +851,17 @@ class Store{
                 }
             }
 
+            self.activeTab.findContext.found = false;
             if (found) {
                 let op = konata.getOp(foundPos);
                 if (op) {
+                    let ctx = self.activeTab.findContext;
+                    ctx.found = true;
+                    ctx.visibility = true;
+                    ctx.targetPattern = target;
+                    ctx.foundStr = this.makeFindTargetString(op);
+                    ctx.op = op;
+
                     let viewPos = self.activeTab.renderer.viewPos;
                     self.startScroll([op.fetchedCycle - viewPos[0], foundPos - viewPos[1]]);
                 }
@@ -833,12 +876,13 @@ class Store{
             }
 
             let findContext = self.activeTab.findContext;
-            findContext.targetStr = target;
+            findContext.targetPattern = target;
             
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
             if (!self.findString(target, pos, false)) {
                 self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${target}" is not found.`);
             }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
         // Find a next string
@@ -849,9 +893,10 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            if (!self.findString(findContext.targetStr, pos + 1, false)) {
-                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetStr}" is not found.`);
+            if (!self.findString(findContext.targetPattern, pos + 1, false)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
             }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
         // Find a previous string
@@ -862,10 +907,22 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            if (!self.findString(findContext.targetStr, pos - 1, true)) {
-                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetStr}" is not found.`);
+            if (!self.findString(findContext.targetPattern, pos - 1, true)) {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
             }
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
+
+        self.on(ACTION.KONATA_FIND_HIDE_RESULT, function(){
+            if (!self.activeTab) {
+                return;
+            }
+
+            let findContext = self.activeTab.findContext;
+            findContext.visibility = false;
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+        });
+
     }
 
 }

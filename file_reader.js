@@ -7,11 +7,15 @@ class FileReader{
         this.fileSize_ = 0;
     }
 
-    open(file_path){
+    /**
+     * Open a file
+     * @param {string} filePath - a file path
+     */
+    open(filePath){
 
         let fs = require("fs");
 
-        let stat = fs.statSync(file_path);
+        let stat = fs.statSync(filePath);
         if (!stat) {
             throw "Failed to fs.statSync(). There seems to be no file.";
         }
@@ -19,20 +23,21 @@ class FileReader{
             this.fileSize_ = stat.size;
         }
 
-        this.filePath_ = file_path;
+        this.filePath_ = filePath;
 
         //let zlib = require("zlib");
-        let rs = fs.createReadStream(file_path);
+        let readline = require("readline");
+        let rs = fs.createReadStream(filePath);
         this.readStream_ = rs;  // 読み出し量はファイルサイズ基準なので，こっちをセット
 
-        if (this.getExtension(file_path) == ".gz") {
+        if (this.getExtension() == ".gz") {
             let zlib = require("zlib");
-            rs = rs.pipe(zlib.createGunzip());
+            let gzipRS = rs.pipe(zlib.createGunzip());
+            this.readIF_ = readline.createInterface({"input": gzipRS});
         }
-
-        let readline = require("readline");
-        this.readIF_ = readline.createInterface(rs, {});
-
+        else {
+            this.readIF_ = readline.createInterface({"input": rs});
+        }
     }
 
     close(){
@@ -50,6 +55,11 @@ class FileReader{
         return this.filePath_;
     }
 
+    /**
+     * Open a file
+     * @param {function(string): void} read - Called when a line is read
+     * @param {function(string): void} finish - Called when all lines have been read
+     */
     readlines(read, finish){
         this.readIF_.on("line", read);
         this.readIF_.on("close", finish);
@@ -60,15 +70,7 @@ class FileReader{
     }
 
     get bytesRead(){
-        return this.readStream_.bytesRead;
-    }
-
-    getText(){
-        if (this.text_) {
-            return this.text_;
-        }
-        this.text_ = this.buf_.toString();
-        return this.text_;
+        return this.readStream_ ? this.readStream_.bytesRead : 0;
     }
 
     getExtension(){

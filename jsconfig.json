@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+      "target": "ES6",
+      "checkJs": true
+    },
+    "exclude": [
+        "node_modules",
+        "work",
+        "packaging-work",
+
+        "version.js",
+        "*.tag.html"
+    ]
+}

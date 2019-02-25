@@ -1,12 +1,36 @@
 {
-
     "fontSize": "14",
     "fontFamily": "SFMono-Regular, Consolas, 'Liberation Mono', Menlo, Courier, monospace",
     "fontStyle": "normal",
     "fontColor": "#222222",
 
-    "labelStyle": {
-        "marginLeft": "5"
+    "labelPane": {
+        "marginLeft": "5",
+        "backgroundColor": "#f4f4f4",
+        "fontColor": "#222222"
+    },
+    "pipelinePane": {
+        "backgroundColor": "#ffffff",
+        "fontColor": "#444444",
+        "borderColor": "#444444",
+        "borderWeight": "1",
+
+        "stageBackgroundColor": {
+            "hRateBegin": "55",
+            "sBegin": "95%",
+            "lBegin": "95%",
+
+            "hRateEnd": "55",
+            "sEnd": "70%",
+            "lEnd": "80%"
+        },
+        "stallBackgroundColor": "#aaaaaa",
+        "invalidBackgroundColor": "rgb(128,128,128)",
+        "arrowColor": "rgb(170,30,30)",
+        "arrowWeight": "1.0",
+
+        "flushedRegionColor": "rgba(0,0,0,0.4)"
+
     },
 
     "colorScheme": {

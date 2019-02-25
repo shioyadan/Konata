@@ -1,6 +1,12 @@
+// JSDoc のタイプチェックに型を認識させるため
+let Konata = require("./konata").Konata; // eslint-disable-line
+let Config = require("./config").Config; // eslint-disable-line
+
+
 let DEP_ARROW_TYPE = {
-    INSIDE_LINE: 0,
-    LEFT_SIDE_CURVE: 1
+    INSIDE_LINE: "insideLine",
+    LEFT_SIDE_CURVE: "leftSideCurve",
+    NOT_SHOW: "notShow"
 };
 
 class KonataRenderer{
@@ -22,7 +28,11 @@ class KonataRenderer{
         // 表示系
         this.ZOOM_RATIO_ = 1;   // 一回に拡大縮小する率 (2^ZOOM_RATIO)
         
+        /** @type {Konata} */
         this.konata_ = null;
+
+        /** @type {Config} */
+        this.config = null;
         this.colorScheme_ = "Auto";   // カラースキーム名
 
         this.OP_W = 32; // スケール1のときの1サイクルの幅
@@ -60,8 +70,7 @@ class KonataRenderer{
         this.labelFontSize_ = 12;
         this.stageFontSize_ = 12;
 
-        // JSON で定義された JSON
-        this.STYLE_FILE_NAME_ = "./style.json";
+        // Styles of Konata rederer defined by JSON
         this.style_ = null;
     }
 
@@ -74,57 +83,69 @@ class KonataRenderer{
 
     /**
      * 初期化
-     * @param {Konata.Konata} konata - Konata オブジェクトへの参照
+     * @param {Konata} konata - Konata オブジェクトへの参照
+     * @param {Config} config - Config オブジェクトへの参照
      */
-    init(konata){
+    init(konata, config){
 
-        let self = this;
-        self.konata_ = konata;
-        self.loadStyle_(self.STYLE_FILE_NAME_);
+        this.konata_ = konata;
+        this.config = config;
+        this.loadStyle();
 
-        self.viewPos_ = {left:0, top:0};
-        self.zoomLevel_ = 0;
-        self.zoomScale_ = self.calcScale_(self.zoomLevel_);
+        this.viewPos_ = {left:0, top:0};
+        this.zoomLevel_ = 0;
+        this.zoomScale_ = this.calcScale_(this.zoomLevel_);
 
-        self.updateScaleParameter();
+        this.depArrowType = config.depArrowType;
+
+        this.updateScaleParameter();
     }
 
     /**
      * パイプラインのスタイル定義 JSON の読み込み
-     * @param {string} fileName - ファイル名
      */
-    loadStyle_(fileName){
-        let self = this;
+    loadStyle(){
+        let fileName = this.config.THEME_STYLE_LIST[this.config.theme];
+
         // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
         // 変わった場合に読み込めなくなるので，require で読む
-        self.style_ = require(fileName);
+        this.style_ = require(fileName);
     }
 
     /**
      * ステージ関係のスタイル読込
      */
-    getStageColor_(lane, stage){
+    getStageColor_(lane, stage, isBegin){
         let self = this;
 
         if (self.colorScheme_ == "Auto") {
             if (stage == "f" || stage == "stl") {
-                return "#aaaaaa";
+                return this.style_.pipelinePane.stallBackgroundColor;
             }
             let level = self.konata_.stageLevelMap[stage];
-            return `hsl(${((250-level*50)%360)},70%,80%)`;
-        }
-
-        if (self.colorScheme_ in self.style_.colorScheme) {
-            let style = self.style_.colorScheme[self.colorScheme_];
-            if (lane in style) {
-                if (stage in style[lane]) {
-                    return style[lane][stage];
-                }
+            let color = this.style_.pipelinePane.stageBackgroundColor;
+            if (isBegin) {
+                let h = ((250-level*color.hRateBegin)%360);
+                return `hsl(${h},${color.sBegin},${color.lBegin})`;
             }
-            return style["defaultColor"];
+            else{
+                let h = ((250-level*color.hRateEnd)%360);
+                return `hsl(${h},${color.sEnd},${color.lEnd})`;
+            }
         }
-
-        return self.colorScheme_;
+        else {
+            if (self.colorScheme_ in self.style_.colorScheme) {
+                let style = self.style_.colorScheme[self.colorScheme_];
+                if (lane in style) {
+                    if (stage in style[lane]) {
+                        return style[lane][stage];
+                    }
+                }
+                return style["defaultColor"];
+            }
+    
+            return self.colorScheme_;
+        }
     }
 
     /**
@@ -172,7 +193,7 @@ class KonataRenderer{
 
     /**
      * 縦スクロール時の横方向の補正値を計算
-     * @param {Array} diffY - 移動量
+     * @param {number} diffY - 移動量
      */
     adjustScrpllDiifX(diffY){
         let self = this;
@@ -307,6 +328,11 @@ class KonataRenderer{
         let self = this;
         let logY = Math.floor(self.viewPos_.top + y / self.opH_);
         return self.getVisibleOp(logY);   
+    }
+
+    getPixelPosYFromOp(op){
+        let self = this;
+        return ((this.hideFlushedOps_ ? op.rid : op.id) - self.viewPos_.top) * self.opH_;
     }
 
     getCycleFromPixelPosX(x){
@@ -489,7 +515,7 @@ class KonataRenderer{
     }    
 
     /**
-     * @param {number} zoomLevelDiff - zoom level の差分
+     * @param {number} zoomLevel - zoom level
      * @param {number} posX - ズームの中心点
      * @param {number} posY - ズームの中心点
      */
@@ -537,16 +563,15 @@ class KonataRenderer{
     }
 
     /** ラベルを実際に描画
-     * @param {Obaject} tile - 描画対象の canvas
-     * @param {float} logTop - 現在論理位置
-     * @param {float} logLeft - 現在論理位置
+     * @param {Object} tile - 描画対象の canvas
+     * @param {number} logTop - 現在論理位置
      */
     drawLabelTile_(tile, logTop){
         let self = this;
 
         // 背景をクリア
         let ctx = tile.getContext("2d");
-        ctx.fillStyle = "rgb(245,245,245)";
+        ctx.fillStyle = self.style_.labelPane.backgroundColor;//"rgb(245,245,245)";
         ctx.fillRect(0, 0, tile.width, tile.height);
 
         // 小さくなりすぎたらスキップ
@@ -557,13 +582,13 @@ class KonataRenderer{
         // フォントを設定
         let fontSizeRaw = self.labelFontSize_;
         ctx.font = self.labelFont_;
-        ctx.fillStyle = self.style_.fontColor;
+        ctx.fillStyle = self.style_.labelPane.fontColor;
 
         // スケールを勘案した論理サイズに変換
         let logHeight = tile.height / self.opH_;
         //let logWidth = tile.width / (scale * self.opW_);
         
-        let marginLeft = self.style_.labelStyle.marginLeft;
+        let marginLeft = self.style_.labelPane.marginLeft;
         let marginTop = (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
 
         try {
@@ -602,7 +627,7 @@ class KonataRenderer{
         let width = tile.width / self.opW_;
 
         let ctx = tile.getContext("2d");
-        ctx.fillStyle = "rgb(255,255,255)";
+        ctx.fillStyle = self.style_.pipelinePane.backgroundColor; //"rgb(255,255,255)";
         ctx.fillRect(0, 0, tile.width, tile.height);
 
         // 上側にはみ出ていた場合，暗く描画
@@ -610,7 +635,7 @@ class KonataRenderer{
         if (top < 0) {
             let bottom = -top * self.opH_ + self.PIXEL_ADJUST;
             bottom = Math.min(tile.height, bottom);
-            ctx.fillStyle = "rgb(128,128,128)";
+            ctx.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
             ctx.fillRect(0, 0, tile.width, bottom);
             if (bottom >= tile.height) {
                 return;
@@ -642,14 +667,16 @@ class KonataRenderer{
         }
 
         // 依存関係
-        self.drawDependency(offsetY, top, left, width, height, ctx);
+        if (self.depArrowType_ != DEP_ARROW_TYPE.NOT_SHOW) {
+            self.drawDependency(offsetY, top, left, width, height, ctx);
+        }
 
 
         // 下側にはみ出ていた場合，暗く描画
         if (top - offsetY + height > self.getVisibleBottom()) {
             let begin = tile.height - (top - offsetY + height - self.getVisibleBottom()) * self.opH_ + self.PIXEL_ADJUST;
             begin = Math.max(0, begin);
-            ctx.fillStyle = "rgb(128,128,128)";
+            ctx.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
             ctx.fillRect(0, begin, tile.width, tile.height);
         }
     }
@@ -663,23 +690,67 @@ class KonataRenderer{
         }
         let arrowBeginOffsetX = self.opW_ * 3 / 4 + self.PIXEL_ADJUST;
         let arrowEndOffsetX = self.opW_ * 1 / 4 + self.PIXEL_ADJUST;
-        let arrowOffsetY = self.laneH_ / 2 + self.PIXEL_ADJUST;
+        let arrowMidOffsetY = self.laneH_ / 2 + self.PIXEL_ADJUST;
+        let arrowBeginOffsetY = self.laneH_ * 2 / 3 + self.PIXEL_ADJUST;
+        let arrowEndOffsetY = self.laneH_ * 1 / 3 + self.PIXEL_ADJUST;
 
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = "rgb(170,30,30)";
-        ctx.fillStyle = "rgb(170,30,30)";
+        let arrowWeight = this.style_.pipelinePane.arrowWeight;
+        ctx.lineWidth = arrowWeight;
+        ctx.strokeStyle = this.style_.pipelinePane.arrowColor;
+        ctx.fillStyle = this.style_.pipelinePane.arrowColor;
 
-        for (let y = Math.floor(logTop - logHeight); y < logTop + logHeight; y++) {
+        //for (let y = Math.floor(logTop - logHeight); y < logTop + logHeight; y++) {
+        for (let y = Math.floor(logTop); y < logTop + logHeight; y++) {
             let op = self.getVisibleOp(y);
             if (!op) {
                 continue;
             }
 
+            let consCycle = op.consCycle;
+            if (consCycle == -1) {
+                continue;
+            }
+
+            for (let dep of op.prods) {
+
+                let prod = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
+                if (!prod) {
+                    continue;
+                }
+                if (this.hideFlushedOps_ && prod.flush) {
+                    continue;   // フラッシュされた命令は表示しない
+                }
+                let prodCycle = prod.prodCycle;
+                if (prodCycle == -1) {
+                    continue;
+                }
+
+                // フラッシュされた命令を表示するかどうかで位置を変える
+                let yProd = this.hideFlushedOps_ ? prod.rid : prod.id;  
+
+                if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
+                    let xBegin = (prodCycle - logLeft) * self.opW_ + arrowBeginOffsetX;
+                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowMidOffsetY;
+                    let xEnd = (consCycle - logLeft) * self.opW_ + arrowEndOffsetX;
+                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowMidOffsetY;
+
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [xEnd - xBegin, yEnd - yBegin], arrowWeight);
+                }
+                else {
+                    let xBegin = (prod.fetchedCycle - logLeft) * self.opW_;
+                    let yBegin = (yProd - logTop + logOffsetY) * self.opH_ + arrowBeginOffsetY;
+                    let xEnd = (op.fetchedCycle - logLeft) * self.opW_;
+                    let yEnd = (y - logTop + logOffsetY) * self.opH_ + arrowEndOffsetY;
+
+                    self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0], arrowWeight);
+                }
+            }
+
+            /*
             let prodCycle = op.prodCycle;
             if (prodCycle == -1) {
                 continue;
             }
-
             for (let dep of op.cons) {
 
                 let cons = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
@@ -714,6 +785,7 @@ class KonataRenderer{
                     self.drawArrow_(ctx, [xBegin, yBegin], [xEnd, yEnd], [1, 0]);
                 }
             }
+            */
         }
     }
 
@@ -723,9 +795,9 @@ class KonataRenderer{
     * @param {array} start - やじりの先端
     * @param {array} end - やじりの終端
     * @param {array} v - 向きと高さを指定するベクトル
-    * @param {array} shape - 底辺と高さの比
+    * @param {number} size - サイズの倍率
     */
-    drawArrow_(ctx, start, end, v){
+    drawArrow_(ctx, start, end, v, size){
         let self = this;
         if (self.depArrowType_ == DEP_ARROW_TYPE.INSIDE_LINE) {
             // パイプライン中の X ステージ
@@ -751,7 +823,7 @@ class KonataRenderer{
         let shape = 0.8;
         let pts = [];
         let norm = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
-        let f = 5 / norm;   // 5: サイズ
+        let f = size * 5 / norm;   // 5: サイズ
         v[0] *= f;
         v[1] *= f;
 
@@ -784,7 +856,7 @@ class KonataRenderer{
 
         if (self.canDrawDetailedly) {
             // 枠内に表示の余地がある場合
-            ctx.strokeStyle = "#333333";
+            ctx.strokeStyle = this.style_.pipelinePane.borderColor;
             let keys = [];
             for (let key in op.lanes) {
                 keys.push(key);
@@ -821,7 +893,7 @@ class KonataRenderer{
             ctx.fillRect(left, laneTop, right - left, laneHeight);
 
             if (op.flush) {
-                let bgc = "rgba(0,0,0,0.4)";    // 黒の半透明をかぶせる
+                let bgc = this.style_.pipelinePane.flushedRegionColor;    // 黒の半透明をかぶせる
                 ctx.fillStyle = bgc;
                 ctx.fillRect(left, laneTop, right - left, laneHeight);
             }
@@ -866,36 +938,32 @@ class KonataRenderer{
             ];
 
             let grad = ctx.createLinearGradient(0, top, 0, top + self.laneH_);
-            let color = self.getStageColor_(laneName, stage.name);
-            grad.addColorStop(1, color);
-            grad.addColorStop(0, "#eee");
+            grad.addColorStop(0, self.getStageColor_(laneName, stage.name, true));
+            grad.addColorStop(1, self.getStageColor_(laneName, stage.name, false));
+            //grad.addColorStop(0, color);
 
             ctx.fillStyle = grad;
             ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
 
-            if (op.flush) {
-                let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
-                let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
-                ctx.globalAlpha = opacity;
-                ctx.fillStyle = bgc;
-                ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
-                ctx.globalAlpha = 1;
-            }
-            
             if (self.canDrawFrame){
-                ctx.lineWidth = 1;
+                ctx.lineWidth = this.style_.pipelinePane.borderWeight;
                 ctx.strokeRect(rect[0], rect[1], rect[2], rect[3]);
             }
 
             if (self.canDrawtext) {
-                ctx.fillStyle = "#555555";
+                ctx.fillStyle = self.style_.pipelinePane.fontColor;
                 let textTop = top + (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
                 let textLeft = (stage.startCycle - startCycle) * self.opW_ + Math.max(0, (self.opW_ - stage.name.length*fontSizeRaw/2)/2);
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
                     ctx.fillText(j, textLeft + j * self.opW_, textTop);
                 }
-                ctx.fillStyle = self.style_.fontColor;
                 ctx.fillText(stage.name, textLeft, textTop);
+            }
+
+            if (op.flush) {
+                let bgc = this.style_.pipelinePane.flushedRegionColor; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
+                ctx.fillStyle = bgc;
+                ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
             }
 
         }
