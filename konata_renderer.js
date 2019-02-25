@@ -5,7 +5,8 @@ let Config = require("./config").Config; // eslint-disable-line
 
 let DEP_ARROW_TYPE = {
     INSIDE_LINE: "insideLine",
-    LEFT_SIDE_CURVE: "leftSideCurve"
+    LEFT_SIDE_CURVE: "leftSideCurve",
+    NOT_SHOW: "notShow"
 };
 
 class KonataRenderer{
@@ -666,7 +667,9 @@ class KonataRenderer{
         }
 
         // 依存関係
-        self.drawDependency(offsetY, top, left, width, height, ctx);
+        if (self.depArrowType_ != DEP_ARROW_TYPE.NOT_SHOW) {
+            self.drawDependency(offsetY, top, left, width, height, ctx);
+        }
 
 
         // 下側にはみ出ていた場合，暗く描画

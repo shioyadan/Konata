@@ -195,6 +195,17 @@ function installMainMenu(){
                                         DEP_ARROW_TYPE.LEFT_SIDE_CURVE
                                     );
                                 }
+                            },
+                            {
+                                label: "Not show",
+                                type: "checkbox",
+                                checked: store.config.depArrowType == DEP_ARROW_TYPE.NOT_SHOW, 
+                                click: function(){
+                                    rc.trigger(
+                                        ACTION.KONATA_SET_DEP_ARROW_TYPE,
+                                        DEP_ARROW_TYPE.NOT_SHOW
+                                    );
+                                }
                             }
                         ]
                     },

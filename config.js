@@ -25,7 +25,7 @@ class Config{
         // 
         this.depArrowType = "insideLine";
         this.VALID_DEP_ARROW_TYPES_ = [
-            "insideLine", "leftSideCurve"
+            "insideLine", "leftSideCurve", "notShow"
         ];
 
         // 設定読み込み
