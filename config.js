@@ -4,7 +4,7 @@ let electron = require("electron");
 class Config{
     constructor(){
         // 最後が _ で終わってるメンバは保存/読み込みを行わない
-        this.DIR_ = electron.remote.app.getPath("userData");
+        this.DIR_ = electron.remote.app.getPath("userData") + "/konata";
         this.FILE_NAME_ = this.DIR_ + "/config.json";
 
 
@@ -24,12 +24,6 @@ class Config{
 
         // 設定読み込み
         this.load();
-
-        // 終了時に save する
-        let self = this;
-        electron.remote.app.on("quit", () => {
-            self.save();
-        });
     }
 
     /** 
@@ -62,6 +56,7 @@ class Config{
         this.check_("theme", this.VALID_THEME_LIST_);
     }
     
+    // 終了時の保存は，main.js および store の quit ハンドラから呼ばれる
     save(){
         try {
             fs.statSync(this.DIR_);

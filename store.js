@@ -412,6 +412,9 @@ class Store{
 
         // アプリケーション終了
         self.on(ACTION.APP_QUIT, function(){
+            // store.config が生きている間 = ウィンドウの生存期間内に処理をしないといけない
+            // app.quit ではウィンドウの close イベントが呼ばれないため，手動で保存する
+            self.config.save(); 
             electron.remote.app.quit();
         });
 

@@ -34,6 +34,12 @@ app.on("ready", function() {
         m_window.show();
     });
 
+    // ウィンドウが閉じる前に，設定を保存
+    // store.config が生きている間 = ウィンドウの生存期間内に処理をしないといけない
+    m_window.on("close", function() {
+        m_window.webContents.executeJavaScript("store.config.save();");
+    });
+
     // ウィンドウが閉じられたらアプリも終了
     m_window.on("closed", function() {
         m_window = null;
