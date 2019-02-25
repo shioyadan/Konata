@@ -1,5 +1,5 @@
 body {
-    background-color: #ffffff;
+    background-color: #525c7d;
 }
 
 
@@ -47,3 +47,60 @@ body {
     background: rgb(180, 180, 180);
 }
 
+/* bootstrap */
+
+/* タブの下にある境界線 */
+.nav-tabs {
+    border-bottom-color: #464e6a;
+    border-bottom-width: 1px;
+}
+
+/* アクティブじゃないタブ */
+.nav-tabs .nav-link {
+    color: #aaaaaa;
+    background-color: #525c7d;
+    border-color: #464e6a;
+    border-bottom-color: #464e6a;
+    border-bottom-width: 1px;
+}
+
+/* アクティブじゃないタブのホバー */
+.nav-tabs .nav-link:hover {
+    color: #ffffff;
+    border-color: #464e6a;
+    background-color: #363e5a;
+}
+
+/* 閉じるのマーク */
+.close {
+    text-shadow: none;
+    color: #525c7d;
+    opacity: 1.0;
+}
+
+/* 閉じるのマークホバー 優先度を上げるために not がついてる */
+.close:not(:disabled):not(:disabled):hover {
+    color: #ffffff;
+    opacity: 1.0;
+}
+
+/* アクティブなタブ */
+.nav-tabs .nav-link.active {
+    color: #ffffff;
+    background-color: #464e6a;
+    border-color: #464e6a;
+    /*
+    border-bottom-color: #222222;
+    border-bottom-width: 2px;
+    */
+}
+
+.close.active  {
+    color: #ffffff;
+    opacity: 1.0;
+}
+
+.close.active:not(:disabled):hover {
+    color: #ffffff;
+    opacity: 1.0;
+}

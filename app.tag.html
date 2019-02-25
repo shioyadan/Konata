@@ -18,7 +18,7 @@
                 {tab.tabName} &nbsp;
 
                 <!-- onCloseProxy を介することで，どのタブが押されたかを識別する -->
-                <button type="button" class="close" onmousedown={tab.onCloseProxy}>
+                <button type="button" class="{tab.active} close" onmousedown={tab.onCloseProxy}>
                     &times;
                 </button>
             </a>
