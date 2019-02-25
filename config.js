@@ -31,7 +31,14 @@ class Config{
      * @param {array} validList
      */
     check_(name, validList){
-        if (!(this[name] in validList)) {
+        let value = this[name];
+        let found = false;
+        for (let i of validList) {
+            if (i == value) {
+                found = true;
+            }
+        }
+        if (!found) {
             this[name] = validList[0];
         }
     }
