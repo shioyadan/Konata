@@ -893,7 +893,7 @@ class KonataRenderer{
             ctx.fillRect(left, laneTop, right - left, laneHeight);
 
             if (op.flush) {
-                let bgc = "rgba(0,0,0,0.5)";    // 黒の半透明をかぶせる
+                let bgc = this.style_.pipelinePane.flushedRegionColor;    // 黒の半透明をかぶせる
                 ctx.fillStyle = bgc;
                 ctx.fillRect(left, laneTop, right - left, laneHeight);
             }
@@ -945,17 +945,8 @@ class KonataRenderer{
             ctx.fillStyle = grad;
             ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
 
-            if (op.flush) {
-                let opacity = "0.4"; //self.getStyleRule_([".flush"], "opacity", 1, "0.8");
-                let bgc = "#000"; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
-                ctx.globalAlpha = opacity;
-                ctx.fillStyle = bgc;
-                ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
-                ctx.globalAlpha = 1;
-            }
-            
             if (self.canDrawFrame){
-                ctx.lineWidth = 1;
+                ctx.lineWidth = this.style_.pipelinePane.borderWeight;
                 ctx.strokeRect(rect[0], rect[1], rect[2], rect[3]);
             }
 
@@ -967,6 +958,12 @@ class KonataRenderer{
                     ctx.fillText(j, textLeft + j * self.opW_, textTop);
                 }
                 ctx.fillText(stage.name, textLeft, textTop);
+            }
+
+            if (op.flush) {
+                let bgc = this.style_.pipelinePane.flushedRegionColor; //self.getStyleRule_([".flush"], "background-color", 1, "#888");
+                ctx.fillStyle = bgc;
+                ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
             }
 
         }

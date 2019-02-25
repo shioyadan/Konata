@@ -13,13 +13,14 @@
         "backgroundColor": "#ffffff",
         "fontColor": "#444444",
         "borderColor": "#444444",
+        "borderWeight": "1",
 
         "stageBackgroundColor": {
-            "hRateBegin": "50",
+            "hRateBegin": "55",
             "sBegin": "95%",
             "lBegin": "95%",
 
-            "hRateEnd": "50",
+            "hRateEnd": "55",
             "sEnd": "70%",
             "lEnd": "80%"
         },

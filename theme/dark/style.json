@@ -11,16 +11,18 @@
     },
     "pipelinePane": {
         "backgroundColor": "#262930",
-        "fontColor": "#f5f5f5",
-        "borderColor": "#f5f5f5",
+
+        "fontColor": "#f0f0f0",
+        "borderColor": "#f0f0f0",
+        "borderWeight": "0.5",
 
         "stageBackgroundColor": {
             "hRateBegin": "55",
             "sBegin": "40%",
-            "lBegin": "40%",
+            "lBegin": "35%",
 
             "hRateEnd": "55",
-            "sEnd": "30%",
+            "sEnd": "40%",
             "lEnd": "35%"
         },
         "stallBackgroundColor": "hsl(0,0%,50%)",
@@ -29,7 +31,7 @@
         "arrowColor": "rgb(255,200,0)",
         "arrowWeight": "1",
 
-        "flushedRegionColor": "rgba(0,0,0,0.1)"
+        "flushedRegionColor": "rgba(0,0,0,0.5)"
     },
 
     "colorScheme": {
