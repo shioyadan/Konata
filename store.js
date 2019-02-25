@@ -128,7 +128,6 @@ class Store{
         this.showDevTool = false;
 
         // 依存関係の矢印のタイプ
-        this.depArrowType = KonataRenderer.DEP_ARROW_TYPE.INSIDE_LINE;
         this.splitLanes = false;
         this.fixOpHeight = false;
 
@@ -692,7 +691,7 @@ class Store{
 
         // 依存関係の矢印のタイプを変更
         self.on(ACTION.KONATA_SET_DEP_ARROW_TYPE, function(type){
-            self.depArrowType = type;
+            self.config.depArrowType = type;
             for (let tabID in self.tabs) {
                 self.tabs[tabID].renderer.depArrowType = type;
             }

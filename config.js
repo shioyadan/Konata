@@ -22,6 +22,12 @@ class Config{
             light:  "./theme/light/style.css", 
         };
 
+        // 
+        this.depArrowType = "insideLine";
+        this.VALID_DEP_ARROW_TYPES_ = [
+            "insideLine", "leftSideCurve"
+        ];
+
         // 設定読み込み
         this.load();
     }
@@ -61,6 +67,7 @@ class Config{
         }
 
         this.check_("theme", this.VALID_THEME_LIST_);
+        this.check_("depArrowType", this.VALID_DEP_ARROW_TYPES_);
     }
     
     // 終了時の保存は，main.js および store の quit ハンドラから呼ばれる

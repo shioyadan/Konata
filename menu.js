@@ -177,7 +177,7 @@ function installMainMenu(){
                             {
                                 label: "Inside-line",
                                 type: "checkbox",
-                                checked: store.depArrowType == DEP_ARROW_TYPE.INSIDE_LINE, 
+                                checked: store.config.depArrowType == DEP_ARROW_TYPE.INSIDE_LINE, 
                                 click: function(){
                                     rc.trigger(
                                         ACTION.KONATA_SET_DEP_ARROW_TYPE,
@@ -188,7 +188,7 @@ function installMainMenu(){
                             {
                                 label: "Leftside-curve",
                                 type: "checkbox",
-                                checked: store.depArrowType == DEP_ARROW_TYPE.LEFT_SIDE_CURVE, 
+                                checked: store.config.depArrowType == DEP_ARROW_TYPE.LEFT_SIDE_CURVE, 
                                 click: function(){
                                     rc.trigger(
                                         ACTION.KONATA_SET_DEP_ARROW_TYPE,

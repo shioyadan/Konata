@@ -4,8 +4,8 @@ let Config = require("./config").Config; // eslint-disable-line
 
 
 let DEP_ARROW_TYPE = {
-    INSIDE_LINE: 0,
-    LEFT_SIDE_CURVE: 1
+    INSIDE_LINE: "insideLine",
+    LEFT_SIDE_CURVE: "leftSideCurve"
 };
 
 class KonataRenderer{
@@ -94,6 +94,8 @@ class KonataRenderer{
         this.viewPos_ = {left:0, top:0};
         this.zoomLevel_ = 0;
         this.zoomScale_ = this.calcScale_(this.zoomLevel_);
+
+        this.depArrowType = config.depArrowType;
 
         this.updateScaleParameter();
     }
