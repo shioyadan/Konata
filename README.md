@@ -66,6 +66,8 @@ Simply extract an archive and launch an executable file (konata.exe or konata).
         libX11-xcb1 \
         libcanberra-gtk3-module
     ```
+* In ```O3CPUAll``` mode, Konata associates each line in trace.out with each instruction by tracking ```[sn:<serial number>]```. If you output custom log with the above serial information, Konata shows your custom log.
+
 
 ## Development
 
