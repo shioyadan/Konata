@@ -49,7 +49,7 @@ class Config{
             // それがなかったことになってしまう
             let data = JSON.parse(fs.readFileSync(this.FILE_NAME_, "utf8"));
             for (let i in data){
-                if (!i.match(/^[A-Z_]+$/) && i in this) {
+                if (!(i.match(/^[A-Z_]+$/)) && i in this) {
                     this[i] = data[i];
                 }
             }
@@ -70,7 +70,7 @@ class Config{
             console.log(`Could not open ${this.DIR_}`);
             try {
                 fs.mkdirSync(this.DIR_);
-                console.log(`Successfully made a configuration directory ${this.FILE_NAME_}`);
+                console.log(`Successfully made a configuration directory ${this.DIR_}`);
             }
             catch (e) {
                 console.log(`Could not make ${this.DIR_}`);
