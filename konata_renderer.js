@@ -888,7 +888,7 @@ class KonataRenderer{
             ctx.fillRect(left, laneTop, right - left, laneHeight);
 
             if (op.flush) {
-                let bgc = "rgba(0,0,0,0.4)";    // 黒の半透明をかぶせる
+                let bgc = "rgba(0,0,0,0.5)";    // 黒の半透明をかぶせる
                 ctx.fillStyle = bgc;
                 ctx.fillRect(left, laneTop, right - left, laneHeight);
             }
