@@ -27,6 +27,12 @@ class Konata{
             this.file_ = null;
             console.log(`Closed: ${this.filePath_}`);
         }
+
+        // GC を走らせておく
+        if (global.gc) {
+            console.log("Run GC");
+            global.gc();            
+        }
     }
 
     openFile(path, updateCallback, finishCallback, errorCallback){
