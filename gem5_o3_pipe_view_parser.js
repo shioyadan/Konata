@@ -145,7 +145,12 @@ class Gem5O3PipeViewParser{
         this.closed_ = true;
         // パージ
         this.opList_ = [];   
+        this.retiredOpList_ = [];
         this.parsingOpList_ = {};
+        this.parsingExLog_ = {};
+        this.depTable_ = {};
+        this.laneMap_ = {};
+        this.stageLevelMap_ = {};
     }
 
     /**
@@ -378,12 +383,13 @@ class Gem5O3PipeViewParser{
         // GEM5 の O3PipeView はかなり out-of-order に出力されるので，
         // バッファしておく（1万以上平気で seq num がさかのぼることがある）
         let BUFFERED_SIZE = 1024*16;
-        let drainCount = Object.keys(this.parsingOpList_).length - BUFFERED_SIZE;
+        let seqNumList = Object.keys(this.parsingOpList_).sort((a, b) => {return Number(a) - Number(b);});
+        let drainCount = seqNumList.length - BUFFERED_SIZE;
         if (!force &&  drainCount < 0) {
             return;
         }
 
-        for (let seqNumStr in this.parsingOpList_) {
+        for (let seqNumStr of seqNumList) {
 
             let op = this.parsingOpList_[seqNumStr];
             if (!force && !op.flush && !op.retired) {
@@ -508,6 +514,12 @@ class Gem5O3PipeViewParser{
 
         this.updateCallback_(1.0, this.updateCount_);
         this.finishCallback_();
+
+        // Release
+        this.parsingOpList_ = {};
+        this.parsingExLog_ = {};
+        this.depTable_ = {};
+
         console.log(`Parsed (${this.name}): ${elapsed} ms`);
     }
 
@@ -520,10 +532,13 @@ class Gem5O3PipeViewParser{
         // （op 1つあたり 2KB ぐらいメモリ使用量が減る
         op.labelName = op.labelName.replace(/\\n/g, "\n");
         op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
-        for (let i in op.labelStage) {
-            op.labelStage[i] = op.labelStage[i].replace(/\\n/g, "\n");
+        for (let laneName in op.lanes) {
+            for (let stage of op.lanes[laneName].stages) {
+                for (let i = 0; i < stage.labels.length; i++) {
+                    stage.labels[i] = stage.labels[i].replace(/\\n/g, "\n");
+                }
+            }
         }
-
     }
 
     /** 
@@ -600,7 +615,7 @@ class Gem5O3PipeViewParser{
 
         let laneInfo = op.lanes[laneName];
         laneInfo.stages.push(stage);
-        op.lastParsedStage = stageName;
+        op.lastParsedStage = stage;
         op.lastParsedCycle = tick;
 
         // Cm を名前に含むステージは実行ステージと見なす
@@ -633,7 +648,7 @@ class Gem5O3PipeViewParser{
     parseEndCommand(seqNum, op, args){
         let tick = Number(args[2]);
         let laneName = "0"; // Default lane
-        let stageName = op.lastParsedStage;
+        let stageName = op.lastParsedStage.name;
         op.lastParsedCycle = tick;
 
         let stage = null;
@@ -796,10 +811,7 @@ class Gem5O3PipeViewParser{
             
 
             // Add log to each stage
-            if (!(op.lastParsedStage in op.labelStage)) {
-                op.labelStage[op.lastParsedStage] = "";    
-            }
-            op.labelStage[op.lastParsedStage] += args.join(":") + "\n";
+            op.lastParsedStage.labels.push(args.join(":"));
             logList.shift();
         }
     }

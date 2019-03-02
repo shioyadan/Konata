@@ -1,3 +1,6 @@
+// JSDoc のタイプチェックに型を認識させるため
+let Stage = require("./stage").Stage; // eslint-disable-line
+
 class Op{
     constructor(){
         // ファイル内での ID
@@ -20,9 +23,10 @@ class Op{
         
         this.labelName = "";    // 逆アセンブルのペーンに出すコメント
         this.labelDetail = "";  // パイプラインのペーンに出すコメント
-        this.labelStage = {};   // ステージごとのラベル
+        //this.labelStage = {};   // ステージごとのラベル
         
-        this.lastParsedStage = "";
+        /** @type {Stage} */
+        this.lastParsedStage = null;
         this.lastParsedCycle = -1;
 
         /** @type {array} prods - プロデューサ命令のIDの配列 */

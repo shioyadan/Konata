@@ -1,8 +1,9 @@
+let Op = require("./op").Op;
+let Stage = require("./stage").Stage;
+
 class OnikiriParser{
 
     constructor(){
-        this.Op = require("./op").Op;
-        this.Stage = require("./stage").Stage;
 
         // ファイルリーダ
         this.file_ = null; 
@@ -204,8 +205,12 @@ class OnikiriParser{
         // （op 1つあたり 2KB ぐらいメモリ使用量が減る
         op.labelName = op.labelName.replace(/\\n/g, "\n");
         op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
-        for (let i in op.labelStage) {
-            op.labelStage[i] = op.labelStage[i].replace(/\\n/g, "\n");
+        for (let laneName in op.lanes) {
+            for (let stage of op.lanes[laneName].stages) {
+                for (let i = 0; i < stage.labels.length; i++) {
+                    stage.labels[i] = stage.labels[i].replace(/\\n/g, "\n");
+                }
+            }
         }
 
     }
@@ -222,7 +227,7 @@ class OnikiriParser{
         // * 3列目は命令のID
         //      シミュレータ内で命令に振られているID．任意のIDが使える
         // * 4列目はTID（スレッド識別子）
-        op = new this.Op();
+        op = new Op();
         op.id = id;
         op.gid = Number(args[2]);
         op.tid = Number(args[3]);
@@ -231,6 +236,11 @@ class OnikiriParser{
         this.opList_[id] = op;
     }
 
+    /** 
+     * @param {number} id 
+     * @param {Op} op
+     * @param {string[]} args
+     * */
     parseLabelCommand(id, op, args){
         // * 命令に任意のラベルをつける
         //      * 命令が生きている期間は任意のラベルをつけることができる
@@ -255,19 +265,19 @@ class OnikiriParser{
             op.labelDetail += str;
         }
         else if (type == 2) {
-            if (op.lastParsedStage in op.labelStage){
-                op.labelStage[op.lastParsedStage] += str;
-            }
-            else{
-                op.labelStage[op.lastParsedStage] = str;
-            }
+            op.lastParsedStage.labels.push(str);
         }
     }
 
+    /** 
+     * @param {number} id 
+     * @param {Op} op
+     * @param {string[]} args
+     * */
     parseStartCommand(id, op, args){
         let laneName = args[2];
         let stageName = args[3];
-        let stage = new this.Stage();
+        let stage = new Stage();
         stage.name = stageName;
         stage.startCycle = this.curCycle_;
         if (!(laneName in op.lanes)) {
@@ -279,7 +289,7 @@ class OnikiriParser{
 
         let laneInfo = op.lanes[laneName];
         laneInfo.stages.push(stage);
-        op.lastParsedStage = stageName;
+        op.lastParsedStage = stage;
 
         // X を名前に含むステージは実行ステージと見なす
         if (stageName.match(/X/)){

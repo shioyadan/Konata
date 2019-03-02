@@ -1,6 +1,9 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Konata = require("./konata").Konata; // eslint-disable-line
 let Config = require("./config").Config; // eslint-disable-line
+let Op = require("./op").Op;             // eslint-disable-line
+let Stage = require("./stage").Stage;    // eslint-disable-line
+
 
 
 let DEP_ARROW_TYPE = {
@@ -326,6 +329,7 @@ class KonataRenderer{
     }
 
     // ピクセル座標から対応する op を返す
+    /** @returns {Op} */
     getOpFromPixelPosY(y){
         let self = this;
         let logY = Math.floor(self.viewPos_.top + y / self.opH_);
@@ -402,8 +406,8 @@ class KonataRenderer{
                     text += `${stage.name}[${stage.endCycle - stage.startCycle}]`;
 
                     // ステージに関連づけられたラベル
-                    if (stage.name in op.labelStage) {
-                        stageText += op.labelStage[stage.name];
+                    for (let i of stage.labels) {
+                        stageText += `${stage.name}: ${i}\n`;
                     }
                     first = false;
                 }

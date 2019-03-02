@@ -1,7 +1,8 @@
 class Stage{
     constructor(){
-        /** @type {string} name */
         this.name = "";
+        /** @type {string[]} */
+        this.labels = [];
         this.startCycle = 0;
         this.endCycle = 0;
     }
