@@ -959,11 +959,13 @@ class KonataRenderer{
             if (self.canDrawtext) {
                 ctx.fillStyle = self.style_.pipelinePane.fontColor;
                 let textTop = top + (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
-                let textLeft = (stage.startCycle - startCycle) * self.opW_ + Math.max(0, (self.opW_ - stage.name.length*fontSizeRaw/2)/2);
+                let textLeft = (stage.startCycle - startCycle) * self.opW_;
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
-                    ctx.fillText(j, textLeft + j * self.opW_, textTop);
+                    let margin = Math.max(0, (self.opW_ - String(j).length*fontSizeRaw/2)/2);
+                    ctx.fillText(j, textLeft + j * self.opW_ + margin, textTop);
                 }
-                ctx.fillText(stage.name, textLeft, textTop);
+                let margin = Math.max(0, (self.opW_ - stage.name.length*fontSizeRaw/2)/2);
+                ctx.fillText(stage.name, textLeft + margin, textTop);
             }
 
             if (op.flush) {
