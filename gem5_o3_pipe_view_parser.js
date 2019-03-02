@@ -776,7 +776,7 @@ class Gem5O3PipeViewParser{
                 // 3271000: system.cpu.rename: [tid:0]: Renaming arch reg 1 (IntRegClass) to physical reg 152 (152).
                 // 2340100: system.cpu.rename: [tid:0]: Looking up IntRegClass arch reg 43, got phys reg 72 (IntRegClass)
                 op.labelDetail += "\n " + args[4];
-                let dst = args[4].match(/\(([a-zA-Z]+)\) to physical reg \d+ \((\d+)\)/);
+                let dst = args[4].match(/\(([a-zA-Z]+)\) to physical reg (\d+) \(\d+\)/);
                 if (dst) {
                     opExLog.dsts.push(dst[1] + dst[2]);
                 }
