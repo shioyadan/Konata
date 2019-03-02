@@ -382,12 +382,13 @@ class OnikiriParser{
         //      コンシューマーが生きている期間のみ使用可能
 
         let prodId = Number(args[2]);
+        let prod = this.opList_[prodId];
         let type = Number(args[3]);
         op.prods.push(
-            {id: prodId, type: type, cycle: this.curCycle_}
+            {op: prod, type: type, cycle: this.curCycle_}
         );
-        this.opList_[prodId].cons.push(
-            {id: id, type: type, cycle: this.curCycle_}
+        prod.cons.push(
+            {op: op, type: type, cycle: this.curCycle_}
         );
     }
 

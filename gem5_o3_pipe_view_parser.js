@@ -34,8 +34,8 @@ class Gem5O3PipeViewParser{
 
         /** @type {number} - 最後に読み出された命令の ID*/
         this.lastID_ = 0;
+        this.lastGID_ = 0;  // seqNum
         this.lastRID_ = 0;
-        this.lastSeqNum_ = 0;
 
         // seq_num, flush flag, and tick for a currently parsed instruciton
         this.curParsingSeqNum_ = 0;
@@ -60,10 +60,10 @@ class Gem5O3PipeViewParser{
         this.parsingExLog_ = {};
 
         // O3PipeView 以外のログで最後に現れた SN
-        this.parsingExLogLastID_ = 0;
+        this.parsingExLogLastGID_ = -1;
 
         // A table for dependency tracking
-        /** @type {Object.<string, number>} */
+        /** @type {Object.<string, Op>} */
         this.depTable_ = {};
         
         // パース完了
@@ -258,13 +258,13 @@ class Gem5O3PipeViewParser{
             }
 
             // O3PipeView 以外のログで sn:数字 の形式を持っている行は一旦 parsingLog_ に保持
-            let sn = this.parsingExLogLastID_;
+            let sn = this.parsingExLogLastGID_;
             let matched = this.SERIAL_NUMBER_PATTERN.exec(line);
             if (matched) {
                 sn = Number(matched[1]);
-                this.parsingExLogLastID_ = sn;
+                this.parsingExLogLastGID_ = sn;
             }
-            if (this.parsingExLogLastID_ == -1 || sn <= this.lastID_) {   // 既にドレインされたものは諦める
+            if (this.parsingExLogLastGID_ == -1 || sn <= this.lastID_) {   // 既にドレインされたものは諦める
                 //console.log("Drop a drained op");
             }
             else {
@@ -275,7 +275,7 @@ class Gem5O3PipeViewParser{
                     this.parsingExLog_[sn].logList.push(args);
                 }
                 else{
-                    this.parsingExLogLastID_ = -1;
+                    this.parsingExLogLastGID_ = -1;
                 }
             }
         }
@@ -376,13 +376,13 @@ class Gem5O3PipeViewParser{
 
             let seqNum = Number(seqNumStr); // Object 型からは文字列のみがでてくる
 
-            // Add an op to opList and remove it from parsingOpList
-            this.opList_[seqNum] = op;
+            // Add an op to opList and remove it from parsingOpList.
+            // At this time, op.id is not determined.
+            this.opList_.push(op);
             delete this.parsingOpList_[seqNumStr];
-            this.lastSeqNum_ = seqNum;
 
-            if (this.lastID_ > seqNum) {
-                console.log(`Missed parsing. seqNum: ${seqNum} lastID: ${this.lastID_}`);
+            if (this.lastGID_ > seqNum) {
+                console.log(`Missed parsing. seqNum: ${seqNum} lastGID: ${this.lastGID_}`);
             }
     
             // Update clock cycles
@@ -406,21 +406,20 @@ class Gem5O3PipeViewParser{
                 for (let s of exLog.srcs) {
                     let type = "0"; // default
                     if (s in this.depTable_) {
-                        let prodId = this.depTable_[s];
-                        let prod = this.opList_[prodId];
+                        let prod = this.depTable_[s];
                         if (prod.prodCycle < op.consCycle) {
                             op.prods.push(
-                                {id: prodId, type: type, cycle: op.prodCycle}
+                                {op: prod, type: type, cycle: op.prodCycle}
                             );
                             prod.cons.push(
-                                {id: seqNum, type: type, cycle: op.consCycle}
+                                {op: op, type: type, cycle: op.consCycle}
                             );
                         }
                     }
                 }
                 //if (!op.flush) {
                 for (let d of exLog.dsts) {
-                    this.depTable_[d] = seqNum;
+                    this.depTable_[d] = op;
                 }
                 delete this.parsingExLog_[seqNum];
             }
@@ -437,7 +436,10 @@ class Gem5O3PipeViewParser{
             if (op == null) {
                 continue;
             }
+            // op.id is determined
+            op.id = i;
             this.lastID_ = i;
+            this.lastGID_ = op.gid;
             if (op.retiredCycle > this.curCycle_) {
                 this.curCycle_ = op.retiredCycle;
             }
@@ -528,7 +530,7 @@ class Gem5O3PipeViewParser{
         }
 
         let op = new Op();
-        op.id = seqNum;
+        op.id = -1; // この段階ではまだ未定
         op.gid = seqNum;
         op.tid = 0;
         op.fetchedCycle = tick;
@@ -720,7 +722,7 @@ class Gem5O3PipeViewParser{
      */
     parseExLog(op, parseCycleRange){
         /** @param {number} seqNum */
-        let seqNum = op.id;
+        let seqNum = op.gid;
         if (!(seqNum in this.parsingExLog_)) {
             return;
         }

@@ -798,7 +798,7 @@ class Store{
         /** @param {Op} op */ 
         this.makeFindTargetString = function(op) {
             let labelString = 
-            `${op.gid} R${op.rid} ${op.labelName}\n${op.labelDetail}`;
+            `${op.id} S${op.gid} R${op.rid} ${op.labelName}\n${op.labelDetail}`;
             for (let s in op.labelStage) {
                 labelString += "\n" + op.labelStage[s];
             }

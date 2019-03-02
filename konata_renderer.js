@@ -354,7 +354,7 @@ class KonataRenderer{
             `${op.labelName}\n` + 
             `${op.labelDetail}\n` + 
             `Line: \t\t${op.line}\n` +
-            `Global Serial ID:\t${op.gid}\n` +
+            `Serial ID:\t${op.gid}\n` +
             `Thread ID:\t\t${op.tid}\n` +
             `Retire ID:\t\t${op.rid}`;
         if( op.flush ) {
@@ -599,7 +599,7 @@ class KonataRenderer{
                 let y = (logY - logTop) * self.opH_ + marginTop;
                 let op = self.getVisibleOp(logY);
                 if (op) {
-                    let text = `${logY}: ${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
+                    let text = `${logY}: S${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
                     ctx.fillText(text, x, y);
                 }
             }
@@ -715,7 +715,7 @@ class KonataRenderer{
 
             for (let dep of op.prods) {
 
-                let prod = self.getOpFromID(dep.id);    // ここは getVisibleOp ではない
+                let prod = dep.op;    // ここは getVisibleOp ではない
                 if (!prod) {
                     continue;
                 }
