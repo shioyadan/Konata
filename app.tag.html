@@ -299,7 +299,14 @@
     <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
         <canvas ref="canvas"></canvas>
         <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
-        <div ref="find_result_tip" class="find_result_tip"></div>
+
+        <div ref="find_result_tip" class="find_result_tip">
+            <div ref="find_result_tip_content" class="find_result_tip_content">
+            </div>
+            <button ref="find_result_tip_close" type="button" class="find_result_tip_close">
+                &times;
+            </button>
+        </div>
     </div>
     
     <!--position を absolute にすることで，同じ位置に重ねることができる 
@@ -344,6 +351,8 @@
 
             let find_result_tip = self.refs.find_result_tip.style;
             find_result_tip.visibility = "hidden";
+
+            self.refs.find_result_tip_close.onmousedown = self.onClsoeFindResult;
         };
 
         // マウス操作
@@ -396,7 +405,7 @@
                     }
                 }
 
-                self.refs.find_result_tip.innerHTML = self.findResultTipText;
+                self.refs.find_result_tip_content.innerHTML = self.findResultTipText;
             }
             else{
                 find_result_tip.visibility = "hidden";
@@ -432,6 +441,9 @@
             self.updateToolTip();
         };
 
+        self.onClsoeFindResult = function(){
+            RiotControl.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
+        }
 
         // ペーンの内容の更新
         self.onPaneContentUpdate = function(){
