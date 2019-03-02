@@ -33,9 +33,9 @@ class Gem5O3PipeViewParser{
         this.curCycle_ = 0;
 
         /** @type {number} - 最後に読み出された命令の ID*/
-        this.lastID_ = 0;
-        this.lastGID_ = 0;  // seqNum
-        this.lastRID_ = 0;
+        this.lastID_ = -1;
+        this.lastGID_ = -1;  // seqNum
+        this.lastRID_ = -1;
 
         // seq_num, flush flag, and tick for a currently parsed instruciton
         this.curParsingSeqNum_ = 0;
@@ -93,6 +93,9 @@ class Gem5O3PipeViewParser{
 
         // 開始時の tick
         this.cycle_begin_ = -1;
+
+        // 開始時の GID (seq number)
+        this.gidBegin_ = -1;
 
         // O3PipeView のタグが現れたかどうか
         this.isGem5O3PipeView = false;
@@ -189,7 +192,7 @@ class Gem5O3PipeViewParser{
 
     /** @returns {Op} */
     getOp(id){
-        if (id > this.lastID_){
+        if (id > this.lastID_ || this.lastID_ == -1){
             return null;
         }
         else{
@@ -309,8 +312,9 @@ class Gem5O3PipeViewParser{
 
         // Collect all outputted ticks
         let ticks = {};
-        for (let seqNum in this.parsingOpList_) {
-
+        let minSeqNum = -1; 
+        for (let seqNumStr in this.parsingOpList_) {
+            let seqNum = Number(seqNumStr);
             let op = this.parsingOpList_[seqNum];
             if (!op.flush && !op.retired) {
                 break;  // A next op has not been parsed yet.
@@ -326,6 +330,9 @@ class Gem5O3PipeViewParser{
                     //if (stage.endCycle == 0 || stage.startCycle == 0)
                     //    lane = lane;
                 }
+            }
+            if (minSeqNum == -1 || minSeqNum > seqNum) {
+                minSeqNum = seqNum;
             }
         }
 
@@ -355,6 +362,7 @@ class Gem5O3PipeViewParser{
         if (minDelta > 0) {
             this.ticks_per_clock_ = minDelta;
             this.cycle_begin_ = sortedTicks[0] / this.ticks_per_clock_;
+            this.gidBegin_ = minSeqNum;
             console.log("Detected ticks per clock: " + minDelta);
         }
     }
@@ -367,22 +375,34 @@ class Gem5O3PipeViewParser{
             return;
         }
 
+        // GEM5 の O3PipeView はかなり out-of-order に出力されるので，
+        // バッファしておく（1万以上平気で seq num がさかのぼることがある）
+        let BUFFERED_SIZE = 1024*16;
+        let drainCount = Object.keys(this.parsingOpList_).length - BUFFERED_SIZE;
+        if (!force &&  drainCount < 0) {
+            return;
+        }
+
         for (let seqNumStr in this.parsingOpList_) {
 
             let op = this.parsingOpList_[seqNumStr];
             if (!force && !op.flush && !op.retired) {
                 continue;  // This op has not been parsed yet.
             }
+            if (!force && drainCount <= 0) {
+                break;
+            }
+            drainCount--;
 
             let seqNum = Number(seqNumStr); // Object 型からは文字列のみがでてくる
 
             // Add an op to opList and remove it from parsingOpList.
             // At this time, op.id is not determined.
-            this.opList_.push(op);
+            this.opList_[seqNum - this.gidBegin_] = op;
             delete this.parsingOpList_[seqNumStr];
 
             if (this.lastGID_ > seqNum) {
-                console.log(`Missed parsing. seqNum: ${seqNum} lastGID: ${this.lastGID_}`);
+                console.log(`Miss parsed op: seqNum: ${seqNum} lastGID: ${this.lastGID_}. BUFFERED_SIZE must be bigger.`);
             }
     
             // Update clock cycles
@@ -425,13 +445,9 @@ class Gem5O3PipeViewParser{
             }
         } 
 
-        // 頻繁にパース済みリストが更新されると描画の負荷があがるのである程度バッファしておく
-        // opList_ は上で更新されているが，this.lastID_ が更新されなければ，外部には見えない
-        let BUFFERED_SIZE = force ? 0 : 1024*16;
-        if (this.lastID_ + BUFFERED_SIZE >= this.opList_.length) {
-            return;
-        }
-        for (let i = this.lastID_; i < this.opList_.length - BUFFERED_SIZE; i++) {
+        // GEM5 の O3PipeView はたまに out-of-order で出力されるので，
+        // ある程度バッファしておく
+        for (let i = this.lastID_ + 1; i < this.opList_.length; i++) {
             let op = this.opList_[i];
             if (op == null) {
                 continue;
@@ -445,9 +461,9 @@ class Gem5O3PipeViewParser{
             }
 
             if (!op.flush) {
+                this.lastRID_++;
                 op.rid = this.lastRID_;
                 this.retiredOpList_[op.rid] = op;
-                this.lastRID_++;
             }
             else { // in a flushing phase
                 op.rid = -1;
