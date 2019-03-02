@@ -599,7 +599,7 @@ class KonataRenderer{
                 let y = (logY - logTop) * self.opH_ + marginTop;
                 let op = self.getVisibleOp(logY);
                 if (op) {
-                    let text = `${logY}: S${op.gid} (T${op.tid}: R${op.rid}): ${op.labelName}`;
+                    let text = `${logY}: s${op.gid} (t${op.tid}: r${op.rid}): ${op.labelName}`;
                     ctx.fillText(text, x, y);
                 }
             }
