@@ -212,6 +212,9 @@ class Store{
                 let target = RegExp.$1;
                 self.trigger(ACTION.KONATA_FIND_STRING, target);
             }
+            else {
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to parse: ${cmd}`);
+            }
 
             /*
             else if (cmd.match(/^o[\s]+(.+)$/)) {   // find #
