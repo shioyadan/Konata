@@ -937,4 +937,7 @@ class Store{
 }
 
 
-module.exports = Store;
+module.exports.Store = Store;
+module.exports.ACTION = ACTION;
+module.exports.CHANGE = CHANGE;
+

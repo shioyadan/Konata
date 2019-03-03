@@ -1,9 +1,12 @@
 function installMainMenu(store, dispatcher){
 
-    /* global ACTION CHANGE */
     let rc = dispatcher;
     let remote = require("electron").remote;
     let DEP_ARROW_TYPE = require("./konata_renderer").DEP_ARROW_TYPE;
+
+    let Store = require("./store");
+    let ACTION = Store.ACTION;
+    let CHANGE = Store.CHANGE;
 
     function makeMenuTemplate(){
 
@@ -252,9 +255,11 @@ function installMainMenu(store, dispatcher){
 
 // タブ用のポップアップメニューアイテムを作る
 function makePopupTabMenuTemaplte(store, dispatcher, tabID){
-    /* global ACTION */
     let rc = dispatcher;
     let tab = store.tabs[tabID];
+
+    let Store = require("./store");
+    let ACTION = Store.ACTION;
 
     let menuTemplate = [
         {
@@ -311,9 +316,10 @@ function popupTabMenu(store, dispatcher, tabID){
 
 function popupPipelineMenu(store, dispatcher, pos){
 
-    /* global ACTION */
     let rc = dispatcher;
     let remote = require("electron").remote;
+    let Store = require("./store");
+    let ACTION = Store.ACTION;
 
     // 右クリック時専用
     /** @type {Array} menuTemplate */
