@@ -188,8 +188,8 @@ class Store{
                 return;
             }
 
-            // jump y #
-            if (cmd.match(/j[\s]+(\d+)/)) {
+            
+            if (cmd.match(/j[\s]+(\d+)/)) { // js #line
                 let id = Number(RegExp.$1);
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
@@ -198,9 +198,7 @@ class Store{
                     self.startScroll([op.fetchedCycle - pos[0], id - pos[1]]);
                 }
             }
-
-            // jump r #
-            if (cmd.match(/jr[\s](\d+)/)) {
+            else if (cmd.match(/jr[\s](\d+)/)) { // jr #rid
                 let rid = Number(RegExp.$1);
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
@@ -210,12 +208,17 @@ class Store{
                     self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
                 }
             }
-
-            // find #
-            if (cmd.match(/^f[\s]+(.+)$/)) {
+            else if (cmd.match(/^f[\s]+(.+)$/)) {   // find #
                 let target = RegExp.$1;
                 self.trigger(ACTION.KONATA_FIND_STRING, target);
             }
+
+            /*
+            else if (cmd.match(/^o[\s]+(.+)$/)) {   // find #
+                let target = RegExp.$1;
+                self.trigger(ACTION.FILE_OPEN, target);
+            }
+            */
         });
 
         // 開発者ツールの表示切り替え
