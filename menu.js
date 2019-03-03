@@ -1,7 +1,7 @@
-function installMainMenu(){
+function installMainMenu(store, dispatcher){
 
-    /* global RiotControl ACTION CHANGE store */
-    let rc = RiotControl;
+    /* global ACTION CHANGE */
+    let rc = dispatcher;
     let remote = require("electron").remote;
     let DEP_ARROW_TYPE = require("./konata_renderer").DEP_ARROW_TYPE;
 
@@ -251,9 +251,9 @@ function installMainMenu(){
 }
 
 // タブ用のポップアップメニューアイテムを作る
-function makePopupTabMenuTemaplte(tabID){
-    /* global RiotControl ACTION */
-    let rc = RiotControl;
+function makePopupTabMenuTemaplte(store, dispatcher, tabID){
+    /* global ACTION */
+    let rc = dispatcher;
     let tab = store.tabs[tabID];
 
     let menuTemplate = [
@@ -299,9 +299,9 @@ function makePopupTabMenuTemaplte(tabID){
     return menuTemplate;    
 }
 
-function popupTabMenu(tabID){
+function popupTabMenu(store, dispatcher, tabID){
 
-    let menuTemplate = makePopupTabMenuTemaplte(tabID);
+    let menuTemplate = makePopupTabMenuTemaplte(store, dispatcher, tabID);
 
     let remote = require("electron").remote;
     let Menu = remote.Menu;
@@ -309,10 +309,10 @@ function popupTabMenu(tabID){
     menu.popup({});
 }
 
-function popupPipelineMenu(pos){
+function popupPipelineMenu(store, dispatcher, pos){
 
-    /* global RiotControl ACTION */
-    let rc = RiotControl;
+    /* global ACTION */
+    let rc = dispatcher;
     let remote = require("electron").remote;
 
     // 右クリック時専用
@@ -336,7 +336,7 @@ function popupPipelineMenu(pos){
     ];
 
     // タブごとの右クリックメニューを結合
-    menuTemplate = menuTemplate.concat(makePopupTabMenuTemaplte(store.activeTab.id));
+    menuTemplate = menuTemplate.concat(makePopupTabMenuTemaplte(store, dispatcher, store.activeTab.id));
 
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);

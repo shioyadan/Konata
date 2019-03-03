@@ -104,7 +104,7 @@ class Store{
         let KonataRenderer = require("./konata_renderer");
         let Konata = require("./konata");
         let Config = require("./config");
-        let Op = require("./op");   // eslint-disable-line
+        let Op = require("./op").Op;   // eslint-disable-line
 
 
         // Tab

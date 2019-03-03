@@ -27,8 +27,8 @@
         </div>
     </div>
     <script>
-        /* global RiotControl ACTION */
-        let rc = RiotControl;
+        /* global dispatcher ACTION */
+        let rc = dispatcher;
         let self = this;
 
         // キーボードハンドラ
@@ -74,8 +74,8 @@
     </app_modal_dialog_module>
 
     <script>
-        /* global RiotControl ACTION */
-        let rc = RiotControl;
+        /* global dispatcher ACTION */
+        let rc = dispatcher;
 
         let self = this;
         self.modal = function (title, body, buttonOK) {
@@ -103,8 +103,8 @@
         {opts.body}
     </app_modal_dialog_module>
     <script>
-        /* global RiotControl ACTION */
-        let rc = RiotControl;
+        /* global dispatcher ACTION */
+        let rc = dispatcher;
         let self = this;
         rc.on(CHANGE.DIALOG_CHECK_RELOAD, function (fileName) {
             self.refs.dialog.modal({
@@ -123,8 +123,8 @@
 <!-- ファイルオープン -->
 <app_file_open_dialog>
     <script>
-        /* global RiotControl ACTION CHANGE*/
-        let rc = RiotControl;
+        /* global dispatcher ACTION CHANGE*/
+        let rc = dispatcher;
         let remote = require("electron").remote;
 
         // 読み込みダイアログ
@@ -171,8 +171,8 @@
     </app_modal_dialog_module>
 
     <script>
-        /* global RiotControl ACTION */
-        let rc = RiotControl;
+        /* global dispatcher ACTION */
+        let rc = dispatcher;
         let self = this;
 
         rc.on(CHANGE.DIALOG_SHOW_STATS, function (stats) {
