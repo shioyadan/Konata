@@ -96,8 +96,6 @@ const CHANGE = {
  */
 class Store{
     constructor(){
-        /* globals riot */
-        riot.observable(this);
         
         // この書式じゃないと IntelliSense が効かない
         let electron = require("electron");
@@ -106,6 +104,7 @@ class Store{
         let KonataRenderer = require("./konata_renderer");
         let Konata = require("./konata");
         let Config = require("./config");
+        let Op = require("./op");   // eslint-disable-line
 
 
         // Tab
@@ -127,13 +126,13 @@ class Store{
         // 開発者ツールの表示切り替え
         this.showDevTool = false;
 
-        // 依存関係の矢印のタイプ
+        // レーンひょうじかんけい
         this.splitLanes = false;
         this.fixOpHeight = false;
 
         // アニメーション
         this.inZoomAnimation = false;
-        this.zoomAnimationID = 0;
+        this.zoomAnimationID = null;
 
         // ズームのアニメーション
         this.zoomEndLevel = 0;
@@ -146,14 +145,20 @@ class Store{
         this.inScrollAnimation = false;
         this.scrollAnimationDiff = [0, 0];
         this.scrollAnimationDirection = [false, false];
-        this.scrollAnimationID = 0;
+        this.scrollAnimationID = null;
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
         // Command palette
         this.isCommandPaletteOpened = false;
 
-        let self = this;
+        // Dummy functions for a type-script checker
+        // The actual handlers are set in riot.observable.
+        this.on = (ev, func) => { return [ev, func]; };
+        this.trigger = (ev, ...args) => { return [ev, args]; };
+        /* globals riot */
+        riot.observable(this);
 
+        let self = this;
 
         // ダイアログ
         // 基本的に中継してるだけ
@@ -185,7 +190,7 @@ class Store{
 
             // jump y #
             if (cmd.match(/j[\s]+(\d+)/)) {
-                let id = RegExp.$1;
+                let id = Number(RegExp.$1);
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
                 let op = renderer.getVisibleOp(id);
@@ -196,7 +201,7 @@ class Store{
 
             // jump r #
             if (cmd.match(/jr[\s](\d+)/)) {
-                let rid = RegExp.$1;
+                let rid = Number(RegExp.$1);
                 let renderer = self.activeTab.renderer;
                 let pos = renderer.viewPos;
                 let op = renderer.getOpFromRID(rid);
@@ -372,7 +377,7 @@ class Store{
             self.activeTab = null;
 
             for(let newID in self.tabs){
-                self.activeTabID = newID;
+                self.activeTabID = Number(newID);
                 self.activeTab = self.tabs[newID];
                 break;
             }
@@ -462,7 +467,7 @@ class Store{
         // 拡大/縮小
         // zoomLevel は zoom level の値
         // posX, posY はズームの中心点
-        self.zoomAbs = function(zoomLevel, posX, posY){
+        this.zoomAbs = function(zoomLevel, posX, posY){
             if (!self.activeTab) {
                 return;
             }
