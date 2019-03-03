@@ -294,6 +294,7 @@ class KonataRenderer{
     }
 
     // 論理Y座標に対応する，現在の表示モードの op を返す
+    /** @return {Op} */
     getVisibleOp(y){
         return this.hideFlushedOps_ ? this.getOpFromRID(y) : this.getOpFromID(y);
     }
@@ -313,6 +314,25 @@ class KonataRenderer{
             else{
                 return -1;
             }
+        }
+    }
+
+    /**
+     * @return {Number} 
+     * @param {Op} baseOP
+     * */
+    getPosY_FromOp(baseOP){
+        if (this.hideFlushedOps_) {
+            for (let i = baseOP.id; i >= 0; i--) {
+                let op = this.konata_.getOp(i);   
+                if (!op.flush) {
+                    return op.rid;
+                }
+            }
+            return 0;
+        }
+        else{
+            return baseOP.id;
         }
     }
 

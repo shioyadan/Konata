@@ -397,6 +397,12 @@
 
                 // パターンにヒットした行を表示する
                 self.findResultTipText = "";
+
+                // 非表示になっている場合はメッセージを追加
+                if (store.activeTab.hideFlushedOps && findCtx.flushed) {
+                    self.findResultTipText += "A found op is not shown becasue it is flushed.<br>";
+                }
+
                 let re = new RegExp(findCtx.targetPattern, "g");
                 for (let line of findCtx.foundStr.split("\n")) {
                     let m = re.exec(line);

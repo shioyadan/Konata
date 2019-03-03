@@ -289,6 +289,7 @@ class Store{
                     foundStr: "",       // ヒットした文字列全体
                     found: false,       // ヒットしたかどうか
                     visibility: false,  // 検索結果を表示するかどうか
+                    flushed: false      // フラッシュされていて表示されていない
                 },
 
                 viewPort: {         // 表示領域
@@ -870,15 +871,19 @@ class Store{
             if (found) {
                 let op = konata.getOp(foundPos);
                 if (op) {
+                    let renderer = self.activeTab.renderer;
+                    let viewPos = renderer.viewPos;
+                    let moveTo = renderer.getPosY_FromOp(op);
+
                     let ctx = self.activeTab.findContext;
                     ctx.found = true;
                     ctx.visibility = true;
                     ctx.targetPattern = target;
                     ctx.foundStr = this.makeFindTargetString(op);
-                    ctx.op = op;
+                    ctx.op = renderer.getVisibleOp(moveTo);
+                    ctx.flushed = op.flush;
 
-                    let viewPos = self.activeTab.renderer.viewPos;
-                    self.startScroll([op.fetchedCycle - viewPos[0], foundPos - viewPos[1]]);
+                    self.startScroll([op.fetchedCycle - viewPos[0], moveTo - viewPos[1]]);
                 }
                 //console.log(`Found: ${target}@${foundPos}`);
             }
