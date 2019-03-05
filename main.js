@@ -28,7 +28,15 @@ app.on("window-all-closed", function(){
 // Electronの初期化完了後に実行
 app.on("ready", function() {
     // The main window is not shown while loading. 
-    m_window = new BrowserWindow({width: 800, height: 600, show: false});
+    m_window = new BrowserWindow({
+        width: 800, 
+        height: 600, 
+        show: false,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+        }
+    });
     m_window.setMenu(null);
 
     m_window.loadURL(currentURL);
