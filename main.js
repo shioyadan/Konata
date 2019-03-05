@@ -10,7 +10,7 @@ let currentURL = "file://" + __dirname + "/index.html";
 // appendSwitch は複数回呼ぶと，前回に与えたスイッチを上書きしてしまうので注意
 // --max-old-space-size=32768: 使用できるメモリの最大使用量を 32GB に
 // --expose-gc: Make it possible to call GC manually
-app.commandLine.appendSwitch("js-flags", "--expose-gc --max-old-space-size=32768");
+app.commandLine.appendSwitch("js-flags", "--expose-gc --max-old-space-size=65536");
 
 
 // メインウィンドウはGCされないようにグローバル宣言
