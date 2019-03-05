@@ -7,12 +7,10 @@ const {BrowserWindow} = electron;
 // __dirname には現在のファイルの場所が入る
 let currentURL = "file://" + __dirname + "/index.html";
 
-// 使用できるメモリの最大使用量を 32GB に
-app.commandLine.appendSwitch("js-flags", "--max-old-space-size=32768");
-
-// gc 呼び出しを手動でできるように
-// Make it possible to call GC manually
-app.commandLine.appendSwitch("js-flags", "--expose-gc");
+// appendSwitch は複数回呼ぶと，前回に与えたスイッチを上書きしてしまうので注意
+// --max-old-space-size=32768: 使用できるメモリの最大使用量を 32GB に
+// --expose-gc: Make it possible to call GC manually
+app.commandLine.appendSwitch("js-flags", "--expose-gc --max-old-space-size=32768");
 
 
 // メインウィンドウはGCされないようにグローバル宣言
