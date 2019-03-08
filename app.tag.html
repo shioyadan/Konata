@@ -576,8 +576,11 @@
         self.valid = false;
 
         self.on("mount", function(){
+
+            // スプリッタ位置が動いたらディスパッチする
+            // シンクロスクロール時に，他のタブのスプリッタも同時に動かすため
             let splitter_window = self.refs.splitter_window;
-            splitter_window.on("splitter_pos_update", (splitterPos) => {
+            splitter_window.on("splitter_pos_updated", (splitterPos) => {
                 dispatcher.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
             });
 
@@ -587,7 +590,7 @@
                     return;
                 }
                 let tab = store.tabs[self.id];
-                splitter_window.trigger("pane_size_update", store.sheet.width, store.sheet.height, tab.splitterPos);
+                splitter_window.trigger("update_pane_size", tab.splitterPos);
             });
             dispatcher.on(CHANGE.TAB_UPDATE, self.onTabUpdate);
             

@@ -1,5 +1,9 @@
 <!-- 
     水平方向のスプリッタで区切られたウィンドウ
+    ("splitter_pos_updated", splitterPos):
+        スプリッタ位置が変化した場合に，登録したハンドラが呼ばれる
+    ("update_pane_size", splitterPos):
+        スプリッタ位置を外部から変更したいときに呼ぶ
 -->
 
 <horizontal_splitter_window class="horizontal_splitter_window">
@@ -94,18 +98,14 @@
             let splitterPos = left_pane.offsetWidth + diff;
             //dispatcher.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
 
-            self.onPaneSizeUpdate(
-                container.offsetWidth, 
-                container.offsetHeight, 
-                splitterPos
-            );
-            self.trigger("splitter_pos_update", splitterPos);
+            self.UpdatePaneSize(splitterPos);
+            self.trigger("splitter_pos_updated", splitterPos);
             
             //console.log(`move ${pos} ${diff} ${left_pane.offsetWidth} ${splitterPos}`);
             //console.log(`mousemove ${self.id}`);
         };
 
-        self.onPaneSizeUpdate = function(width, height, splitterPos){
+        self.UpdatePaneSize = function(splitterPos){
 
             let container = self.refs.container;
             let left = self.refs.left_pane;
@@ -113,15 +113,15 @@
             let right = self.refs.right_pane;
 
             // 幅
-            left.style.width = "" + splitterPos + "px";
+            left.style.width = `${splitterPos}px`;
             right.style.width = 
-                "" + container.offsetWidth - splitterPos - splitter.offsetWidth + "px";
+                `${container.offsetWidth - splitterPos - splitter.offsetWidth}px`;
             //console.log(`update ${store.window.width} ${store.activeTab.splitterPos} ${right.offsetWidth}`);
             self.update();
         };
 
-        self.on("pane_size_update", (width, height, splitterPos) => {
-            self.onPaneSizeUpdate(width, height, splitterPos);
+        self.on("update_pane_size", (splitterPos) => {
+            self.UpdatePaneSize(splitterPos);
         });
 
     </script>
