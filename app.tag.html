@@ -94,8 +94,11 @@
 
 
 <!-- 可視化されたパイプラインを表示するキャンバス -->
-<app_pipeline_canvas>
-    <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
+<app_pipeline_canvas class="app_pipeline_canvas">
+    <!-- relative で囲ってやらないと，子要素の width: 100% がもっと上のサイズを
+    基準としたものになる．app_label_canvas 自体が上位で absolute 指定される
+    ので，div で一回囲う -->
+    <div class="app_pipeline_canvas_container">
         <canvas ref="canvas"></canvas>
         <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
     </div>
@@ -104,19 +107,32 @@
         見た目に関しては，CSS の方で定義
     -->
     <style>
-        div{
+        app_pipeline_canvas.app_pipeline_canvas{
+            /* カスタムタグは デフォルトで inline なので block を指定してやる．
+            そうしないと，width が効かない */
+            display: block;     
+            /* 親要素のサイズぴったりに張り付くようにする */
+            width: 100%; height: 100%;
+        }
+        .app_pipeline_canvas_container {
+            position: relative; 
+            width: 100%; height: 100%;
+        }
+
+        canvas{
+            width: 100%;
+            height: 100%;
             position: absolute;
         }
-        canvas{
+        .tool_tip {         /* ラベルのツールチップ */
             position: absolute;
+            z-index: 100;
         }
     </style>
 
     <script>
         /* globals dispatcher store ACTION CHANGE */
         let self = this;
-        self.width = 100;
-        self.height = 100;
         self.oldWidth = -1;
         self.oldHeight = -1;
         self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
@@ -224,17 +240,17 @@
             self.updateToolTip();
         };
 
-        // サイズを適用
-        self.on("update", function() {
-            // self.width, self.height にサイズが書き込まれているので，それを反映する
+        // canvas.clientWidth が変わった後の情報が欲しいので，サイズ適用後に呼ぶ
+        self.on("updated", function() {
             let canvas = self.refs.canvas;
+            let width = canvas.clientWidth;
+            let height = canvas.clientHeight;
 
-            // High DPI 対策
-            if (self.oldWidth != self.width || self.oldHeight != self.height){
+            if (self.oldWidth != width || self.oldHeight != height){
                 // サイズを変更すると canvas の中身が破棄されるので，
                 // 本当に変わったときだけ反映する
-                self.oldWidth = self.width;
-                self.oldHeight = self.height;
+                self.oldWidth = width;
+                self.oldHeight = height;
 
                 // High DPI 対策
                 let context = canvas.getContext("2d");
@@ -243,22 +259,16 @@
                 
                 if (devicePixelRatio !== backingStoreRatio) {
                     let ratio = devicePixelRatio / backingStoreRatio;
-                    canvas.width = self.width * ratio;
-                    canvas.height = self.height * ratio;
-                    canvas.style.width = self.width + "px";
-                    canvas.style.height = self.height + "px";
+                    canvas.width = width * ratio;
+                    canvas.height = height * ratio;
                     context.scale(ratio, ratio);
                 }
                 else{
-                    canvas.width = self.width;
-                    canvas.height = self.height;
-                    canvas.style.width = self.width + "px";
-                    canvas.style.height = self.height + "px";
+                    canvas.width = width;
+                    canvas.height = height;
                     context.scale(1, 1);
                 }
-
             }
-
         });
 
         // エントリポイント
@@ -295,11 +305,16 @@
 
 
 <!-- 逆アセンブル結果を表示するキャンバス -->
-<app_label_canvas>
-    <div> <!-- 子要素を親の左上からの相対位置で配置するために absolute のdiv でかこっとく-->
+<app_label_canvas class="app_label_canvas">
+
+    <div class="app_label_canvas_container">
+        <!-- 実際にアセンブリを表示する部分 -->
         <canvas ref="canvas"></canvas>
+
+        <!-- マウスオーバージのヒント -->
         <pre ref="tool_tip" class="tool_tip">{toolTipText}</pre>
 
+        <!-- 検索結果 -->
         <div ref="find_result_tip" class="find_result_tip">
             <div ref="find_result_tip_content" class="find_result_tip_content">
             </div>
@@ -309,15 +324,44 @@
         </div>
     </div>
     
-    <!--position を absolute にすることで，同じ位置に重ねることができる 
-        見た目に関しては，CSS の方で定義
-    -->
     <style>
-        div{
+        app_label_canvas.app_label_canvas{
+            /* 親要素のサイズぴったりに張り付くようにする */
+            width: 100%; height: 100%;
+            /* カスタムタグは デフォルトで inline なので block を指定してやる．
+            そうしないと，width が効かない */
+            display: block;     
+        }
+
+        .app_label_canvas_container {
+            /* relative で囲ってやらないと，子要素の width: 100% がもっと上のサイズを
+            基準としたものになる．app_label_canvas 自体が上位で absolute 指定される
+            ので，div で一回囲う */
+            position: relative; 
+            width: 100%; height: 100%;
+        }
+
+        canvas{
+            width: 100%;
+            height: 100%;
             position: absolute;
         }
-        canvas{
+
+        .tool_tip{
             position: absolute;
+            z-index: 100;
+        }
+        .find_result_tip {
+            position: absolute;
+            z-index: 100;
+        }
+        .find_result_tip_content {
+            position: relative;
+            display: inline-block;  /* 横に閉じるボタンを並べる */
+        }
+        .find_result_tip_close {
+            position: relative;
+            display: inline-block;
         }
     </style>
 
@@ -325,8 +369,6 @@
         /* globals dispatcher store ACTION CHANGE */
 
         let self = this;
-        self.width = 100;
-        self.height = 100;
         self.oldWidth = -1;
         self.oldHeight = -1;
 
@@ -458,16 +500,17 @@
             self.updateToolTip();
         };
 
-        // サイズを適用
-        self.on("update", function() {
-            // self.width, self.height にサイズが書き込まれているので，それを反映する
+        // canvas.clientWidth が変わった後の情報が欲しいので，サイズ適用後に呼ぶ
+        self.on("updated", function() {
             let canvas = self.refs.canvas;
+            let width = canvas.clientWidth;
+            let height = canvas.clientHeight;
 
-            if (self.oldWidth != self.width || self.oldHeight != self.height){
+            if (self.oldWidth != width || self.oldHeight != height){
                 // サイズを変更すると canvas の中身が破棄されるので，
                 // 本当に変わったときだけ反映する
-                self.oldWidth = self.width;
-                self.oldHeight = self.height;
+                self.oldWidth = width;
+                self.oldHeight = height;
 
                 // High DPI 対策
                 let context = canvas.getContext("2d");
@@ -476,20 +519,15 @@
                 
                 if (devicePixelRatio !== backingStoreRatio) {
                     let ratio = devicePixelRatio / backingStoreRatio;
-                    canvas.width = self.width * ratio;
-                    canvas.height = self.height * ratio;
-                    canvas.style.width = self.width + "px";
-                    canvas.style.height = self.height + "px";
+                    canvas.width = width * ratio;
+                    canvas.height = height * ratio;
                     context.scale(ratio, ratio);
                 }
                 else{
-                    canvas.width = self.width;
-                    canvas.height = self.height;
-                    canvas.style.width = self.width + "px";
-                    canvas.style.height = self.height + "px";
+                    canvas.width = width;
+                    canvas.height = height;
                     context.scale(1, 1);
                 }
-
             }
         });
 
@@ -506,39 +544,51 @@
 
 <!-- label + splitter + stages -->
 <app_sheet>
-    <div class="pane_container" ref="pane_container">
-        
-        <div class="label_pane" ref="label_pane">
-             <!-- tab: {id} デバッグ用表示 -->
-            <app_label_canvas id={id}></app_label_canvas>
-        </div>
-        
-        <div class="window_splitter" ref="window_splitter">
-        </div>
-
-        <div class="pipeline_pane" ref="pipeline_pane">
-            <app_pipeline_canvas id={id}></app_pipeline_canvas>
-        </div>
+    <div class="sheet_container" ref="sheet_container">
+        <horizontal_splitter_window ref="splitter_window">
+            <yield to="left_pane">
+                <!-- 子供側のコンテキストで評価されるので，parent がいる-->
+                <app_label_canvas id={parent.id} ref="label"></app_label_canvas>
+            </yield>
+            <yield to="right_pane">
+                <app_pipeline_canvas id={parent.id} ref="pipeline"></app_pipeline_canvas>
+            </yield>
+        </horizontal_splitter_window>
     </div>
 
-    <script>
-        /* globals dispatcher store ACTION CHANGE */
+    <style>
+  
+        .sheet_container {
+            /* sheet_container 同士を同じ位置において z-index を制御するため，位置を絶対指定に．
+            abosulute を指定すると，親要素の左上を基準とした位置に配置される
+            */
+            position: absolute; 
+            width: 100%;
+            height: 100%;
+        }
+        </style>
 
+    <script>
+
+        /* globals dispatcher store ACTION CHANGE */
         let self = this;
-        self.lastPos = 0;
-        self.inDrag = false;
         self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
         self.valid = false;
 
         self.on("mount", function(){
-            // ドラッグ始はスプリッタ
-            let splitter = self.refs.window_splitter;
-            splitter.onmousedown = self.onMouseDown;
+            let splitter_window = self.refs.splitter_window;
+            splitter_window.on("splitter_pos_update", (splitterPos) => {
+                dispatcher.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
+            });
 
-            // splitter 以外でも捉えられるように window に
-            window.addEventListener("mousemove", self.onMouseMove);
-            window.addEventListener("mouseup", self.onMouseUp);
-            dispatcher.on(CHANGE.PANE_SIZE_UPDATE, self.onPaneSizeUpdate);
+            dispatcher.on(CHANGE.PANE_SIZE_UPDATE, () => {
+                if (!(self.id in store.tabs)) {
+                    console("An unknown tab id is used in onPaneSizeUpdate.");
+                    return;
+                }
+                let tab = store.tabs[self.id];
+                splitter_window.trigger("pane_size_update", store.sheet.width, store.sheet.height, tab.splitterPos);
+            });
             dispatcher.on(CHANGE.TAB_UPDATE, self.onTabUpdate);
             
             self.valid = true;
@@ -546,89 +596,9 @@
 
         self.on("unmount", function(){
             self.valid = false;
-            window.removeEventListener("mousemove", self.onMouseMove);
-            window.removeEventListener("mouseup", self.onMouseUp);
             dispatcher.off(CHANGE.PANE_SIZE_UPDATE, self.onPaneSizeUpdate);
             dispatcher.off(CHANGE.TAB_UPDATE, self.onTabUpdate);
         });
-
-
-        self.onMouseDown = function(e){
-            self.lastPos = e.clientX;
-            self.inDrag = true;
-
-            // クリック時に他所にフォーカスが奪われるのを防ぐ
-            e.preventDefault();
-            //console.log(`mousedown ${self.id}`);
-        };
-
-        self.onMouseUp = function(){
-            self.inDrag = false;
-            //console.log(`mouseup ${self.id}`);
-        };
-
-        self.onMouseMove = function(e){
-            if (!self.inDrag) {
-                return;
-            }
-
-            // ウィンドウ外にカーソルがでたときのため補正
-            let containerWidth = self.refs.pane_container.offsetWidth;
-            let pos = Math.min(Math.max(e.clientX, 0), containerWidth);
-            
-
-            // 差分を求める
-            let diff = pos - self.lastPos;
-            self.lastPos = pos;
-
-            let label_pane = self.refs.label_pane;
-            let splitterPos = label_pane.offsetWidth + diff;
-            dispatcher.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
-
-            
-            //console.log(`move ${pos} ${diff} ${label_pane.offsetWidth} ${splitterPos}`);
-            //console.log(`mousemove ${self.id}`);
-        };
-
-        self.onPaneSizeUpdate = function(){
-            // これは全てのアクティブなタブでのみ実行する必要がある
-            //if (self.id != store.activeTabID) {
-            //    return;
-            //}
-
-            if (!(self.id in store.tabs)) {
-                console("An unknown tab id is used in onPaneSizeUpdate.");
-                return;
-            }
-            let tab = store.tabs[self.id];
-
-            let container = self.refs.pane_container;
-            let label = self.refs.label_pane;
-            let splitter = self.refs.window_splitter;
-            let pipeline = self.refs.pipeline_pane;
-
-            // 幅
-            container.style.width = "" + store.sheet.width + "px";
-            label.style.width = "" + tab.splitterPos + "px";
-            pipeline.style.width = 
-                "" + store.sheet.width - tab.splitterPos - splitter.offsetWidth + "px";
-            //console.log(`update ${store.window.width} ${store.activeTab.splitterPos} ${pipeline.offsetWidth}`);
-
-            // 高さ
-            label.style.height = "" + store.sheet.height + "px";
-            splitter.style.height = "" + store.sheet.height + "px";
-            pipeline.style.height = "" + store.sheet.height + "px";
-
-            // canvas
-            let label_canvas = self.tags.app_label_canvas;
-            let pipeline_canvas = self.tags.app_pipeline_canvas;
-            label_canvas.width = label.offsetWidth;
-            label_canvas.height = label.offsetHeight;
-            pipeline_canvas.width = pipeline.offsetWidth;
-            pipeline_canvas.height = pipeline.offsetHeight;
-
-            self.update();
-        };
 
         // タブの内容の更新
         // シートの zindex を操作して，アクティブなもののみを見せる
@@ -637,11 +607,11 @@
                 return;
             }
             // これは全てのタブで実行する必要がある
-            let container = self.refs.pane_container;
-            let pipeline = self.refs.pipeline_pane;
+            let splitter_window = self.refs.sheet_container;
+            let pipeline = self.refs.splitter_window.refs.pipeline.refs.canvas;
 
             if (self.id == store.activeTab.id) {
-                container.style.zIndex = "0";   // アクティブなタブを最前面に
+                splitter_window.style.zIndex = "0";   // アクティブなタブを最前面に
                 // 透明化
                 if (store.activeTab.transparent) {
                     pipeline.style.opacity = store.activeTab.emphasize_in_transparent ? "0.8" : "0.5"; // 透明化
@@ -652,7 +622,7 @@
             }
             else {
                 // 直前に表示されていたタブは優先度をあげておく
-                container.style.zIndex = store.prevTabID == self.id ?  "-1" : "-2";
+                splitter_window.style.zIndex = store.prevTabID == self.id ?  "-1" : "-2";
                 pipeline.style.opacity = "1";   // 透明化の有効無効
             }
 
@@ -849,7 +819,7 @@
 <app>
     <!-- 各要素の配置について
     * app_tabbar 内の ul は CSS で位置の指定をしていないため，最上部に表示
-    * app_sheet_list 内の各シートは pane_container で position: absolute; 
+    * app_sheet_list 内の各シートは sheet_container で position: absolute; 
       が指定されているため，タブの直下を基準として全て重なる
     * app_dialogs 内の各ダイアログは何もしなければタブ直下だが，bootstrap が画面全体に
       無理矢理かぶせていると思われる

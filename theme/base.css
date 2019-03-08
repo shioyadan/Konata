@@ -4,21 +4,6 @@ html, body {
     margin: 0;        /* すきまなく */
     overflow: hidden; /* はみ出た部分は表示されない */
 }
-  
-.pane_container {
-    display: flex;  /* CSS3 flexbox による配置を有効に */
-    flex-direction: row;  /* 子要素を横方向に並べる*/  
-    flex: auto;
-    /* pane_container 同士を同じ位置において z-index を制御するため，位置を絶対指定に．
-    abosulute を指定すると，親要素の左上を基準とした位置に配置される
-    */
-    position: absolute; 
-}
-
-/* 左側のラベルペーン */
-.label_pane {
-    width: 400px;    /* この幅は実際には Store の中で設定され，ここの値はダミー */
-}
 
 /* ラベルとパイプラインの間のスプリッタ */
 .window_splitter {
@@ -38,9 +23,6 @@ html, body {
     /*
     box-shadow: 0px 0px 6px 3px rgb(51, 51, 51);
     */
-
-    position: absolute;
-    z-index: 100;
 }
 
 /* 検索結果のツールチップ */
@@ -53,17 +35,11 @@ html, body {
     /*
     box-shadow: 0px 0px 6px 3px rgb(51, 51, 51);
     */
-
-    position: relative;
-    z-index: 100;
     white-space: nowrap;    /* 改行禁止 */
 }
 
 .find_result_tip_content {
     background-color: rgba(0,0,0,0);
-
-    position: relative;
-    display: inline-block;  /* 横に閉じるボタンを並べる */
 }
 
 .find_result_tip_close {
@@ -74,8 +50,6 @@ html, body {
 
     cursor: pointer;
 
-    position: relative;
-    display: inline-block;
     vertical-align: top;
     margin-left: 10px;
     margin-top: -12px;

@@ -1,0 +1,141 @@
+<!-- 
+    水平方向のスプリッタで区切られたウィンドウ
+-->
+
+<horizontal_splitter_window class="horizontal_splitter_window">
+    
+    <div class="horizontal_splitter_window_container" ref="horizontal_splitter_window_container">
+        <div ref="left_pane">
+            <yield from="left_pane"/>
+        </div>
+        <div class="window_splitter" ref="window_splitter">
+        </div>
+        <div ref="right_pane">
+            <yield from="right_pane"/>
+        </div>
+    </div>
+
+    <style>
+        /* カスタムタグは デフォルトで inline なので block を指定してやる．
+        そうしないと，width が効かない */
+        horizontal_splitter_window.horizontal_splitter_window {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .horizontal_splitter_window_container {
+            width: 100%;
+            height: 100%;
+            display: flex;          /* CSS3 flexbox による配置を有効に */
+            flex-direction: row;    /* 子要素を横方向に並べる*/  
+            flex: auto;
+        }
+        div {
+            height: 100%;
+        }
+    </style>
+    
+    <script>
+        let self = this;
+        self.lastPos = 0;
+        self.inDrag = false;
+        self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
+        self.valid = false;
+
+        self.on("mount", function(){
+            // ドラッグ始はスプリッタ
+            let splitter = self.refs.window_splitter;
+            splitter.onmousedown = self.onMouseDown;
+
+            // splitter 以外でも捉えられるように window に
+            window.addEventListener("mousemove", self.onMouseMove);
+            window.addEventListener("mouseup", self.onMouseUp);
+            self.valid = true;
+        });
+
+        self.on("unmount", function(){
+            self.valid = false;
+            window.removeEventListener("mousemove", self.onMouseMove);
+            window.removeEventListener("mouseup", self.onMouseUp);
+        });
+
+
+        self.onMouseDown = function(e){
+            self.lastPos = e.clientX;
+            self.inDrag = true;
+
+            // クリック時に他所にフォーカスが奪われるのを防ぐ
+            e.preventDefault();
+            //console.log(`mousedown ${self.id}`);
+        };
+
+        self.onMouseUp = function(){
+            self.inDrag = false;
+            //console.log(`mouseup ${self.id}`);
+        };
+
+        self.onMouseMove = function(e){
+            if (!self.inDrag) {
+                return;
+            }
+
+            let container = self.refs.horizontal_splitter_window_container;
+
+            // ウィンドウ外にカーソルがでたときのため補正
+            let containerWidth = container.offsetWidth;
+            let pos = Math.min(Math.max(e.clientX, 0), containerWidth);
+            
+            // 差分を求める
+            let diff = pos - self.lastPos;
+            self.lastPos = pos;
+
+            // 差分を現在の幅に足す
+            let left_pane = self.refs.left_pane;
+            let splitterPos = left_pane.offsetWidth + diff;
+            //dispatcher.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
+
+            self.onPaneSizeUpdate(
+                container.offsetWidth, 
+                container.offsetHeight, 
+                splitterPos
+            );
+            self.trigger("splitter_pos_update", splitterPos);
+            
+            //console.log(`move ${pos} ${diff} ${left_pane.offsetWidth} ${splitterPos}`);
+            //console.log(`mousemove ${self.id}`);
+        };
+
+        self.onPaneSizeUpdate = function(width, height, splitterPos){
+
+            let left = self.refs.left_pane;
+            let splitter = self.refs.window_splitter;
+            let right = self.refs.right_pane;
+
+            // 幅
+            left.style.width = "" + splitterPos + "px";
+            right.style.width = 
+                "" + width - splitterPos - splitter.offsetWidth + "px";
+            //console.log(`update ${store.window.width} ${store.activeTab.splitterPos} ${right.offsetWidth}`);
+
+            // 高さ
+            /*
+            left.style.height = "" + height + "px";
+            splitter.style.height = "" + height + "px";
+            right.style.height = "" + height + "px";
+            */
+
+            self.update();
+        };
+
+        /*
+        self.on("on_splitter_pos_changed", () => {
+        });
+        */
+
+        self.on("pane_size_update", (width, height, splitterPos) => {
+            self.onPaneSizeUpdate(width, height, splitterPos);
+        });
+
+    </script>
+</horizontal_splitter_window>
+
