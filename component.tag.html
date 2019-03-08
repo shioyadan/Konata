@@ -1,5 +1,14 @@
 <!-- 
-    水平方向のスプリッタで区切られたウィンドウ
+水平方向のスプリッタで区切られたウィンドウ
+Usage:
+    <horizontal_splitter_window>
+        <yield to="left_pane"></yield>
+        <yield to="splitter"></yield>
+        <yield to="right_pane"></yield>
+    </horizontal_splitter_window>
+
+
+ハンドラ：
     ("splitter_pos_updated", splitterPos):
         スプリッタ位置が変化した場合に，登録したハンドラが呼ばれる
     ("update_pane_size", splitterPos):
@@ -12,7 +21,8 @@
         <div ref="left_pane">
             <yield from="left_pane"/>
         </div>
-        <div class="window_splitter" ref="window_splitter">
+        <div ref="splitter">
+            <yield from="splitter"/>
         </div>
         <div ref="right_pane">
             <yield from="right_pane"/>
@@ -48,7 +58,7 @@
 
         self.on("mount", function(){
             // ドラッグ始はスプリッタ
-            let splitter = self.refs.window_splitter;
+            let splitter = self.refs.splitter;
             splitter.onmousedown = self.onMouseDown;
 
             // splitter 以外でも捉えられるように window に
@@ -109,7 +119,7 @@
 
             let container = self.refs.container;
             let left = self.refs.left_pane;
-            let splitter = self.refs.window_splitter;
+            let splitter = self.refs.splitter;
             let right = self.refs.right_pane;
 
             // 幅
