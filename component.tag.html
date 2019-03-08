@@ -4,7 +4,7 @@
 
 <horizontal_splitter_window class="horizontal_splitter_window">
     
-    <div class="horizontal_splitter_window_container" ref="horizontal_splitter_window_container">
+    <div class="horizontal_splitter_window_container" ref="container">
         <div ref="left_pane">
             <yield from="left_pane"/>
         </div>
@@ -79,7 +79,7 @@
                 return;
             }
 
-            let container = self.refs.horizontal_splitter_window_container;
+            let container = self.refs.container;
 
             // ウィンドウ外にカーソルがでたときのため補正
             let containerWidth = container.offsetWidth;
@@ -107,6 +107,7 @@
 
         self.onPaneSizeUpdate = function(width, height, splitterPos){
 
+            let container = self.refs.container;
             let left = self.refs.left_pane;
             let splitter = self.refs.window_splitter;
             let right = self.refs.right_pane;
@@ -114,23 +115,10 @@
             // 幅
             left.style.width = "" + splitterPos + "px";
             right.style.width = 
-                "" + width - splitterPos - splitter.offsetWidth + "px";
+                "" + container.offsetWidth - splitterPos - splitter.offsetWidth + "px";
             //console.log(`update ${store.window.width} ${store.activeTab.splitterPos} ${right.offsetWidth}`);
-
-            // 高さ
-            /*
-            left.style.height = "" + height + "px";
-            splitter.style.height = "" + height + "px";
-            right.style.height = "" + height + "px";
-            */
-
             self.update();
         };
-
-        /*
-        self.on("on_splitter_pos_changed", () => {
-        });
-        */
 
         self.on("pane_size_update", (width, height, splitterPos) => {
             self.onPaneSizeUpdate(width, height, splitterPos);
