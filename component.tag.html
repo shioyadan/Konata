@@ -1,7 +1,7 @@
 <!-- 
 水平方向のスプリッタで区切られたウィンドウ
 Usage:
-    <horizontal_splitter_window>
+    <horizontal_splitter_window splitter_pos="30%" direction="horizontal">
         <yield to="left_pane"></yield>
         <yield to="splitter"></yield>
         <yield to="right_pane"></yield>
@@ -18,7 +18,7 @@ Usage:
 <horizontal_splitter_window class="horizontal_splitter_window">
     
     <div class="horizontal_splitter_window_container" ref="container">
-        <div ref="left_pane" style="width:30%;">
+        <div ref="left_pane">
             <yield from="left_pane"/>
         </div>
         <div ref="splitter">
@@ -40,13 +40,12 @@ Usage:
         .horizontal_splitter_window_container {
             width: 100%;
             height: 100%;
-            display: flex;          /* CSS3 flexbox による配置を有効に */
-            flex-direction: row;    /* 子要素を横方向に並べる*/  
+            display: flex;           /* CSS3 flexbox による配置を有効に */
+            /*flex-direction: row;      コード内で指定されうる */  
             flex: auto;
         }
         div {
             position: relative;     /* ここを relative にしておかないと，子要素が外にあふれ出す */
-            height: 100%;
         }
     </style>
     
@@ -54,8 +53,20 @@ Usage:
         let self = this;
         self.lastPos = 0;
         self.inDrag = false;
-        self.id = self.opts.id; // タブ ID は上位から ID 属性として与える
-        self.valid = false;
+        // 方向
+        self.isHorizontal = true;
+        if ("direction" in self.opts) {
+            if (self.opts.direction == "horizontal") {
+                self.isHorizontal = true;
+            }
+            else if (self.opts.direction == "vertical") {
+                self.isHorizontal = false;
+            }
+            else {
+                console.log("Unknown direction.");
+            }
+        }
+            
 
         self.on("mount", function(){
             // ドラッグ始はスプリッタ
@@ -70,11 +81,28 @@ Usage:
             // window 以外の要素は resizeObserver を使う必要がある
             self.resizeObserver.observe(self.refs.container);
 
-            self.valid = true;
+            // スプリッタ初期位置
+            let initPos = ("splitter_pos" in self.opts) ? self.opts.splitter_pos : "30%";
+            if (self.isHorizontal) {
+                self.refs.left_pane.style.width = initPos;
+                self.refs.left_pane.style.height  = "100%";
+                self.refs.splitter.style.height   = "100%";
+                self.refs.right_pane.style.height = "100%";
+            }
+            else {
+                self.refs.left_pane.style.height = initPos;
+                self.refs.left_pane.style.width  = "100%";
+                self.refs.splitter.style.width   = "100%";
+                self.refs.right_pane.style.width = "100%";
+            }
+
+            // flex の配置
+            self.refs.container.style.flexDirection = 
+                self.isHorizontal ? "row" : "column";
+            self.update();
         });
 
         self.on("unmount", function(){
-            self.valid = false;
             window.removeEventListener("mousemove", self.onMouseMove);
             window.removeEventListener("mouseup", self.onMouseUp);
             self.resizeObserver.disconnect();   // 全要素解放
@@ -82,17 +110,15 @@ Usage:
 
 
         self.onMouseDown = function(e){
-            self.lastPos = e.clientX;
+            self.lastPos = self.isHorizontal ? e.clientX : e.clientY;
             self.inDrag = true;
 
             // クリック時に他所にフォーカスが奪われるのを防ぐ
             e.preventDefault();
-            //console.log(`mousedown ${self.id}`);
         };
 
         self.onMouseUp = function(){
             self.inDrag = false;
-            //console.log(`mouseup ${self.id}`);
         };
 
         self.onMouseMove = function(e){
@@ -103,8 +129,10 @@ Usage:
             let container = self.refs.container;
 
             // ウィンドウ外にカーソルがでたときのため補正
-            let containerWidth = container.offsetWidth;
-            let pos = Math.min(Math.max(e.clientX, 0), containerWidth);
+            let containerSize = 
+                self.isHorizontal ? container.offsetWidth : container.offsetHeight;
+            let mousePos = self.isHorizontal ? e.clientX : e.clientY;
+            let pos = Math.min(Math.max(mousePos, 0), containerSize);
             
             // 差分を求める
             let diff = pos - self.lastPos;
@@ -112,7 +140,9 @@ Usage:
 
             // 差分を現在の幅に足す
             let left_pane = self.refs.left_pane;
-            let splitterPos = left_pane.offsetWidth + diff;
+            let splitterPos = 
+                self.isHorizontal ? left_pane.offsetWidth : left_pane.offsetHeight;
+            splitterPos += diff;
             //dispatcher.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
 
             self.UpdatePaneSize(splitterPos);
@@ -125,7 +155,8 @@ Usage:
         self.resizeObserver = new ResizeObserver(   // eslint-disable-line
             () => {
                 let left_pane = self.refs.left_pane;
-                let splitterPos = left_pane.offsetWidth;
+                let splitterPos = 
+                    self.isHorizontal ? left_pane.offsetWidth : left_pane.offsetHeight;
                 self.UpdatePaneSize(splitterPos);
                 self.trigger("splitter_pos_updated", splitterPos);
             }
@@ -139,9 +170,17 @@ Usage:
             let right = self.refs.right_pane;
 
             // 幅
-            left.style.width = `${splitterPos}px`;
-            right.style.width = 
-                `${container.offsetWidth - splitterPos - splitter.offsetWidth}px`;
+            if (self.isHorizontal) {
+                left.style.width = `${splitterPos}px`;
+                right.style.width = 
+                    `${container.offsetWidth - splitterPos - splitter.offsetWidth}px`;
+            }
+            else {
+                left.style.height = `${splitterPos}px`;
+                right.style.height = 
+                    `${container.offsetHeight - splitterPos - splitter.offsetHeight}px`;
+
+            }
             //console.log(`update ${store.window.width} ${store.activeTab.splitterPos} ${right.offsetWidth}`);
             self.update();
         };
