@@ -1,11 +1,11 @@
 <!-- 
-水平方向のスプリッタで区切られたウィンドウ
+スプリッタで区切られたウィンドウ
 Usage:
-    <horizontal_splitter_window splitter_pos="30%" direction="horizontal">
-        <yield to="left_pane"></yield>
+    <splitter_window splitter_pos="30%" direction="horizontal">
+        <yield to="first_pane"></yield>
         <yield to="splitter"></yield>
-        <yield to="right_pane"></yield>
-    </horizontal_splitter_window>
+        <yield to="second_pane"></yield>
+    </splitter_window>
 
 
 ハンドラ：
@@ -15,29 +15,29 @@ Usage:
         スプリッタ位置を外部から変更したいときに呼ぶ
 -->
 
-<horizontal_splitter_window class="horizontal_splitter_window">
+<splitter_window class="splitter_window">
     
-    <div class="horizontal_splitter_window_container" ref="container">
-        <div ref="left_pane">
-            <yield from="left_pane"/>
+    <div class="splitter_window_container" ref="container">
+        <div ref="first_pane">
+            <yield from="first_pane"/>
         </div>
         <div ref="splitter">
             <yield from="splitter"/>
         </div>
-        <div ref="right_pane">
-            <yield from="right_pane"/>
+        <div ref="second_pane">
+            <yield from="second_pane"/>
         </div>
     </div>
 
     <style>
         /* カスタムタグは デフォルトで inline なので block を指定してやる．
         そうしないと，width が効かない */
-        horizontal_splitter_window.horizontal_splitter_window {
+        splitter_window.splitter_window {
             width: 100%;
             height: 100%;
             display: block;
         }
-        .horizontal_splitter_window_container {
+        .splitter_window_container {
             width: 100%;
             height: 100%;
             display: flex;           /* CSS3 flexbox による配置を有効に */
@@ -84,16 +84,16 @@ Usage:
             // スプリッタ初期位置
             let initPos = ("splitter_pos" in self.opts) ? self.opts.splitter_pos : "30%";
             if (self.isHorizontal) {
-                self.refs.left_pane.style.width = initPos;
-                self.refs.left_pane.style.height  = "100%";
+                self.refs.first_pane.style.width = initPos;
+                self.refs.first_pane.style.height  = "100%";
                 self.refs.splitter.style.height   = "100%";
-                self.refs.right_pane.style.height = "100%";
+                self.refs.second_pane.style.height = "100%";
             }
             else {
-                self.refs.left_pane.style.height = initPos;
-                self.refs.left_pane.style.width  = "100%";
+                self.refs.first_pane.style.height = initPos;
+                self.refs.first_pane.style.width  = "100%";
                 self.refs.splitter.style.width   = "100%";
-                self.refs.right_pane.style.width = "100%";
+                self.refs.second_pane.style.width = "100%";
             }
 
             // flex の配置
@@ -139,24 +139,24 @@ Usage:
             self.lastPos = pos;
 
             // 差分を現在の幅に足す
-            let left_pane = self.refs.left_pane;
+            let first_pane = self.refs.first_pane;
             let splitterPos = 
-                self.isHorizontal ? left_pane.offsetWidth : left_pane.offsetHeight;
+                self.isHorizontal ? first_pane.offsetWidth : first_pane.offsetHeight;
             splitterPos += diff;
             //dispatcher.trigger(ACTION.PANE_SPLITTER_MOVE, splitterPos);
 
             self.UpdatePaneSize(splitterPos);
             self.trigger("splitter_pos_updated", splitterPos);
             
-            //console.log(`move ${pos} ${diff} ${left_pane.offsetWidth} ${splitterPos}`);
+            //console.log(`move ${pos} ${diff} ${first_pane.offsetWidth} ${splitterPos}`);
             //console.log(`mousemove ${self.id}`);
         };
 
         self.resizeObserver = new ResizeObserver(   // eslint-disable-line
             () => {
-                let left_pane = self.refs.left_pane;
+                let first_pane = self.refs.first_pane;
                 let splitterPos = 
-                    self.isHorizontal ? left_pane.offsetWidth : left_pane.offsetHeight;
+                    self.isHorizontal ? first_pane.offsetWidth : first_pane.offsetHeight;
                 self.UpdatePaneSize(splitterPos);
                 self.trigger("splitter_pos_updated", splitterPos);
             }
@@ -165,9 +165,9 @@ Usage:
         self.UpdatePaneSize = function(splitterPos){
 
             let container = self.refs.container;
-            let left = self.refs.left_pane;
+            let left = self.refs.first_pane;
             let splitter = self.refs.splitter;
-            let right = self.refs.right_pane;
+            let right = self.refs.second_pane;
 
             // 幅
             if (self.isHorizontal) {
@@ -190,5 +190,5 @@ Usage:
         });
 
     </script>
-</horizontal_splitter_window>
+</splitter_window>
 

@@ -7,6 +7,7 @@ html, body {
 
 /* ラベルとパイプラインの間のスプリッタ */
 .window_splitter {
+    height: 100%;
     width: 10px;
     min-width: 10px;
     max-width: 10px;

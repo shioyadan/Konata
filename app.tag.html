@@ -545,18 +545,18 @@
 <!-- label + splitter + stages -->
 <app_sheet class="app_sheet">
     <div class="sheet_container" ref="sheet_container">
-        <horizontal_splitter_window ref="splitter_window">
-            <yield to="left_pane">
+        <splitter_window ref="splitter_window">
+            <yield to="first_pane">
                 <!-- 子供側のコンテキストで評価されるので，parent がいる-->
                 <app_label_canvas id={parent.id} ref="label"></app_label_canvas>
             </yield>
             <yield to="splitter">
                 <div class="window_splitter"></div>
             </yield>
-            <yield to="right_pane">
+            <yield to="second_pane">
                 <app_pipeline_canvas id={parent.id} ref="pipeline"></app_pipeline_canvas>
             </yield>
-        </horizontal_splitter_window>
+        </splitter_window>
     </div>
 
     <style>
@@ -846,18 +846,6 @@
     
     <!-- client -->
     <app_sheet_list ref="app_sheet_list"></app_sheet_list>
-    <!--
-    <horizontal_splitter_window>
-        <yield to="left_pane">
-        </yield>
-        <yield to="splitter">
-            <div class="window_splitter"></div>
-        </yield>
-        <yield to="right_pane">
-            testtest
-        </yield>
-    </horizontal_splitter_window>
-    -->
 
     <!-- 色々なダイアログ -->
     <app_dialogs></app_dialogs>
