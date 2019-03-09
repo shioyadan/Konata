@@ -117,12 +117,6 @@ class Store{
         this.prevTabID = -1;     // 前回アクティブだったタブの ID 
         this.prevTab = null;       // 前回アクティブだったタブ
 
-        // ウィンドウサイズ
-        this.sheet = {
-            width: 800,
-            height: 600
-        };
-
         // 開発者ツールの表示切り替え
         this.showDevTool = false;
 
@@ -398,9 +392,7 @@ class Store{
         });
 
         // ウィンドウのサイズ変更
-        self.on(ACTION.SHEET_RESIZE, function(width, height){
-            self.sheet.width = width;
-            self.sheet.height = height;
+        self.on(ACTION.SHEET_RESIZE, function(){
             self.trigger(CHANGE.PANE_SIZE_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });

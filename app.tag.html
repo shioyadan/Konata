@@ -543,7 +543,7 @@
 </app_label_canvas>
 
 <!-- label + splitter + stages -->
-<app_sheet>
+<app_sheet class="app_sheet">
     <div class="sheet_container" ref="sheet_container">
         <horizontal_splitter_window ref="splitter_window">
             <yield to="left_pane">
@@ -560,6 +560,9 @@
     </div>
 
     <style>
+        app_sheet.app_sheet {
+            display: block; position:absolute; width: 100%; height: 100%;
+        }
   
         .sheet_container {
             /* sheet_container 同士を同じ位置において z-index を制御するため，位置を絶対指定に．
@@ -569,7 +572,7 @@
             width: 100%;
             height: 100%;
         }
-        </style>
+    </style>
 
     <script>
 
@@ -640,9 +643,14 @@
 </app_sheet>
 
 <!-- List of sheets -->
-<app_sheet_list>
+<app_sheet_list class="app_sheet_list">
     <app_sheet each="{sheet, i in sheets}" id={sheet.id}>
     </app_sheet>
+    <style>
+        app_sheet_list.app_sheet_list {
+            display: block; position:absolute; width: 100%; height: 100%;
+        }
+    </style>
     <script>
         /* globals dispatcher store CHANGE */
         let self = this;
@@ -837,7 +845,19 @@
     <app_tabbar></app_tabbar>
     
     <!-- client -->
-    <app_sheet_list></app_sheet_list>
+    <app_sheet_list ref="app_sheet_list"></app_sheet_list>
+    <!--
+    <horizontal_splitter_window>
+        <yield to="left_pane">
+        </yield>
+        <yield to="splitter">
+            <div class="window_splitter"></div>
+        </yield>
+        <yield to="right_pane">
+            testtest
+        </yield>
+    </horizontal_splitter_window>
+    -->
 
     <!-- 色々なダイアログ -->
     <app_dialogs></app_dialogs>
@@ -870,11 +890,13 @@
         // リサイズハンドラ
         self.onResize = function(){
             // シートのサイズを計算
+            /*
             let width = document.body.offsetWidth;
             let height = 
                 document.body.offsetHeight - 
                 self.tags.app_tabbar.getHeight();
-            rc.trigger(ACTION.SHEET_RESIZE, width, height);
+            */
+            rc.trigger(ACTION.SHEET_RESIZE);
         };
 
         // フォーカスハンドラ
@@ -957,13 +979,13 @@
                         dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_HORIZONTAL, 1);
                     }
                     else if (key == "+") {
-                        let w = store.sheet.width - store.activeTab.splitterPos;
-                        let h = store.sheet.height;
+                        let w = self.refs.app_sheet_list.root.offsetWidth - store.activeTab.splitterPos;
+                        let h = self.refs.app_sheet_list.root.offsetHeight;
                         dispatcher.trigger(ACTION.KONATA_ZOOM, -1, w / 2, h / 2);
                     }
                     else if (key == "-") {
-                        let w = store.sheet.width - store.activeTab.splitterPos;
-                        let h = store.sheet.height;
+                        let w = self.refs.app_sheet_list.root.offsetWidth - store.activeTab.splitterPos;
+                        let h = self.refs.app_sheet_list.root.offsetHeight;
                         dispatcher.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
                     }
                     else if (key == "F3") {
