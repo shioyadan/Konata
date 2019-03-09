@@ -18,7 +18,7 @@ Usage:
 <horizontal_splitter_window class="horizontal_splitter_window">
     
     <div class="horizontal_splitter_window_container" ref="container">
-        <div ref="left_pane">
+        <div ref="left_pane" style="width:30%;">
             <yield from="left_pane"/>
         </div>
         <div ref="splitter">
@@ -45,6 +45,7 @@ Usage:
             flex: auto;
         }
         div {
+            position: relative;     /* ここを relative にしておかないと，子要素が外にあふれ出す */
             height: 100%;
         }
     </style>
@@ -61,9 +62,14 @@ Usage:
             let splitter = self.refs.splitter;
             splitter.onmousedown = self.onMouseDown;
 
-            // splitter 以外でも捉えられるように window に
+            // splitter 以外からも捉えられるように window に
             window.addEventListener("mousemove", self.onMouseMove);
             window.addEventListener("mouseup", self.onMouseUp);
+
+            // ウィンドウサイズの変更
+            // window 以外の要素は resizeObserver を使う必要がある
+            self.resizeObserver.observe(self.refs.container);
+
             self.valid = true;
         });
 
@@ -71,6 +77,7 @@ Usage:
             self.valid = false;
             window.removeEventListener("mousemove", self.onMouseMove);
             window.removeEventListener("mouseup", self.onMouseUp);
+            self.resizeObserver.disconnect();   // 全要素解放
         });
 
 
@@ -114,6 +121,15 @@ Usage:
             //console.log(`move ${pos} ${diff} ${left_pane.offsetWidth} ${splitterPos}`);
             //console.log(`mousemove ${self.id}`);
         };
+
+        self.resizeObserver = new ResizeObserver(   // eslint-disable-line
+            () => {
+                let left_pane = self.refs.left_pane;
+                let splitterPos = left_pane.offsetWidth;
+                self.UpdatePaneSize(splitterPos);
+                self.trigger("splitter_pos_updated", splitterPos);
+            }
+        );
 
         self.UpdatePaneSize = function(splitterPos){
 
