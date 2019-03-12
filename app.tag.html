@@ -560,9 +560,14 @@
     </div>
 
     <style>
+        /*
+        app_sheet のスタイルを有効して広げると，裏に回ったタブ内部の 
+        container へマウスのイベントが不可視の app_sheet に横取りされる．
+        したがって，ここでは app_sheet 自体はサイズ０のままにしておく
         app_sheet.app_sheet {
             display: block; position:absolute; width: 100%; height: 100%;
         }
+        */
   
         .sheet_container {
             /* sheet_container 同士を同じ位置において z-index を制御するため，位置を絶対指定に．
