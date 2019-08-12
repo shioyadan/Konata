@@ -28,6 +28,9 @@ class Config{
             "insideLine", "leftSideCurve", "notShow"
         ];
 
+        /** @type {string[]} */
+        this.recentLoadedFiles = [];
+
         // 設定読み込み
         this.load();
     }
@@ -48,6 +51,24 @@ class Config{
             this[name] = validList[0];
         }
     }
+
+    /** @param {string} fileName */
+    onLoadFile(fileName){
+        let files = this.recentLoadedFiles;
+        for (let i = 0; i < files.length; i++) {
+            if (files[i] == fileName) {
+                files.splice(i, 1);
+            }
+        }
+
+        files.unshift(fileName);
+        while (files.length > 10) {
+            files.pop();
+        }
+
+        this.save();
+    }
+
 
     load(){
         try {

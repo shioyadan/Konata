@@ -254,6 +254,7 @@ class Store{
                 return;
             }
 
+            self.config.onLoadFile(fileName);
 
             let renderer = new KonataRenderer.KonataRenderer();
             renderer.init(konata, self.config);

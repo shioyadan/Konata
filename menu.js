@@ -71,7 +71,17 @@ function installMainMenu(store, dispatcher){
                         label: "Quit",
                         click: function(){rc.trigger(ACTION.APP_QUIT);}
                     },
-                ]
+                    {
+                        type: "separator"
+                    },
+                ].concat(
+                    store.config.recentLoadedFiles.map(function(fileName){
+                        return {
+                            label: fileName,
+                            click: function(){rc.trigger(ACTION.FILE_OPEN, fileName);}
+                        };
+                    })
+                )
             },
             {
                 label: "Window",
