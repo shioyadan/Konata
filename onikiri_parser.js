@@ -185,7 +185,7 @@ class OnikiriParser{
             }
             op.retiredCycle = this.curCycle_;
             op.eof = true;
-            this.unescpaeLabels(op);
+            this.unescapeLabels(op);
         }
         this.lastID_ = this.opList_.length - 1;
         this.complete_ = true;
@@ -197,7 +197,7 @@ class OnikiriParser{
         console.log(`Parsed (${this.name}): ${elapsed} ms`);
     }
 
-    unescpaeLabels(op){
+    unescapeLabels(op){
         // op 内のラベルのエスケープされている \n を戻す
         // v8 エンジンでは，文字列を結合すると cons 文字列という形式で
         // 文字列のリストとして保持するが，これはメモリ効率が悪いが，
@@ -357,7 +357,7 @@ class OnikiriParser{
         if (this.lastID_ < id) {
             this.lastID_ = id;
         }
-        this.unescpaeLabels(op);
+        this.unescapeLabels(op);
 
         if (!op.flush) {
             this.retiredOpList_[op.rid] = op;

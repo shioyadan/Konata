@@ -53,7 +53,7 @@ class Konata{
     }
 
     /**
-     * 与えられた paser を使ってファイルのロードを試みる
+     * 与えられた parser を使ってファイルのロードを試みる
      * @param {array} parsers - パーサーのリスト．先頭から順に読み出し試行される
      */
     load_(parsers){

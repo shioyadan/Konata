@@ -37,10 +37,10 @@ class Gem5O3PipeViewParser{
         this.lastGID_ = -1;  // seqNum
         this.lastRID_ = -1;
 
-        // seq_num, flush flag, and tick for a currently parsed instruciton
+        // seq_num, flush flag, and tick for a currently parsed instruction
         this.curParsingSeqNum_ = 0;
         this.curParsingInsnFlushed_ = false;   // seq_num 
-        this.curParsingInsnCycle_ = -1;         // This is used when insturuction is flushed
+        this.curParsingInsnCycle_ = -1;         // This is used when instruction is flushed
         
         /** @type {Op[]} - パースが終了した op のリスト */
         this.opList_ = [];
@@ -505,7 +505,7 @@ class Gem5O3PipeViewParser{
             }
             op.retiredCycle = this.curParsingInsnCycle_ / this.ticks_per_clock_;
             op.eof = true;
-            this.unescpaeLabels(op);
+            this.unescapeLabels(op);
         }
         this.lastID_ = this.opList_.length - 1;
         this.complete_ = true;
@@ -524,7 +524,7 @@ class Gem5O3PipeViewParser{
     }
 
     /** @param {Op} op */
-    unescpaeLabels(op){
+    unescapeLabels(op){
         // op 内のラベルのエスケープされている \n を戻す
         // v8 エンジンでは，文字列を結合すると cons 文字列という形式で
         // 文字列のリストとして保持するが，これはメモリ効率が悪いが，
@@ -570,7 +570,7 @@ class Gem5O3PipeViewParser{
         op.labelDetail += `Fetched Tick: ${tick}`;
         this.parsingOpList_[seqNum] = op;
 
-        // Reset the currenct context
+        // Reset the current context
         this.curParsingSeqNum_ = seqNum;
         this.curParsingInsnFlushed_ = false;
         this.curParsingInsnCycle_ = op.fetchedCycle;
@@ -697,7 +697,7 @@ class Gem5O3PipeViewParser{
         }
 
         // Decode label strings
-        this.unescpaeLabels(op);
+        this.unescapeLabels(op);
 
         // 閉じていないステージがあった場合はここで閉じる
         for (let laneName in op.lanes) {

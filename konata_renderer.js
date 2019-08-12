@@ -73,7 +73,8 @@ class KonataRenderer{
         this.labelFontSize_ = 12;
         this.stageFontSize_ = 12;
 
-        // Styles of Konata rederer defined by JSON
+        // Styles of Konata renderer defined by JSON
+        /** @type {Object} */
         this.style_ = null;
     }
 
@@ -200,7 +201,7 @@ class KonataRenderer{
      * 縦スクロール時の横方向の補正値を計算
      * @param {number} diffY - 移動量
      */
-    adjustScrpllDiifX(diffY){
+    adjustScrollDiffX(diffY){
         let self = this;
         let posY = self.viewPos_.top;
         let y = Math.floor(posY);
@@ -527,7 +528,7 @@ class KonataRenderer{
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
         return laneHeight - 2 > 2;  // 枠1ピクセルを除いて内部があるかどうか
     }
-    get canDrawtext(){
+    get canDrawText(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
         return laneHeight - 2 > 8;  // 枠1ピクセルを除いて内部があるかどうか
     }
@@ -601,7 +602,7 @@ class KonataRenderer{
         ctx.fillRect(0, 0, tile.width, tile.height);
 
         // 小さくなりすぎたらスキップ
-        if (!self.canDrawtext) {
+        if (!self.canDrawText) {
             return;
         }
 
@@ -976,7 +977,7 @@ class KonataRenderer{
                 ctx.strokeRect(rect[0], rect[1], rect[2], rect[3]);
             }
 
-            if (self.canDrawtext) {
+            if (self.canDrawText) {
                 ctx.fillStyle = self.style_.pipelinePane.fontColor;
                 let textTop = top + (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
                 let textLeft = (stage.startCycle - startCycle) * self.opW_;

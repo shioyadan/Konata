@@ -609,7 +609,7 @@ class Store{
             let renderer = self.activeTab.renderer;
             let scale = renderer.zoomScale;
             let diffY = delta * 3 / scale;
-            let diffX = adjust ? renderer.adjustScrpllDiifX(diffY) : 0;
+            let diffX = adjust ? renderer.adjustScrollDiffX(diffY) : 0;
             self.startScroll([diffX, diffY]);
         });
 
