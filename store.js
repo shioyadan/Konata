@@ -55,8 +55,10 @@ const ACTION = {
     KONATA_FIND_STRING: 92,         // Find a specified string
     KONATA_FIND_NEXT_STRING: 93,    // Find a next specified string 
     KONATA_FIND_PREV_STRING: 94,    // Find a previous specified string
-    KONATA_FIND_HIDE_RESULT: 95     // Hide found result
-
+    KONATA_FIND_HIDE_RESULT: 95,    // Hide found result
+    
+    KONATA_GO_TO_BOOKMARK: 96,      // Go to a specified bookmark
+    KONATA_SET_BOOKMARK: 97,        // Set a bookmark
 
     // MUST NOT OVERLAP NUMBERS IN CHANGE
 };
@@ -936,6 +938,27 @@ class Store{
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
+        self.on(ACTION.KONATA_SET_BOOKMARK, function(index){
+            let b = self.config.bookmarks[index];
+            let tab = self.activeTab;
+            let renderer = tab.renderer;
+            b.x = Math.floor(renderer.viewPos[0]);
+            b.y = Math.floor(renderer.viewPos[1]);
+            b.zoom = renderer.zoomLevel;
+
+            // リロード時に消えないように保存
+            self.config.save(); 
+        });
+        self.on(ACTION.KONATA_GO_TO_BOOKMARK, function(index){
+            let b = self.config.bookmarks[index];
+            let tab = self.activeTab;
+            let renderer = tab.renderer;
+            self.startScroll([
+                b.x - renderer.viewPos[0],
+                b.y - renderer.viewPos[1]
+            ]);
+            self.startZoom(b.zoom - renderer.zoomLevel, b.x, b.y);
+        });
     }
 
 }

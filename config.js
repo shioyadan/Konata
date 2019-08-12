@@ -31,6 +31,16 @@ class Config{
         /** @type {string[]} */
         this.recentLoadedFiles = [];
 
+        /** @type {Object<string, number>[]} */
+        this.bookmarks = [];
+        for (let i = 0; i < 10; i++) {
+            this.bookmarks.push({
+                x: 0,
+                y: 0,
+                zoom: 0
+            });
+        }
+
         // 設定読み込み
         this.load();
     }

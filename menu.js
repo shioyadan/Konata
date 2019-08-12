@@ -130,6 +130,31 @@ function installMainMenu(store, dispatcher){
                         type: "separator"
                     },
                     {
+                        label: "Go to bookmark",
+                        enabled: tab ? true : false,
+                        submenu: tab ? store.config.bookmarks.map(function(bkm, index){
+                            return {
+                                label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
+                                click: function(){rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);},
+                                accelerator: `${index}`
+                            };
+                        }) : [],
+                    },
+                    {
+                        label: "Set bookmark",
+                        enabled: tab ? true : false,
+                        submenu: tab ? store.config.bookmarks.map(function(bkm, index){
+                            return {
+                                label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
+                                click: function(){rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);},
+                                accelerator: "CommandOrControl+" + index
+                            };
+                        }) : [],
+                    },
+                    {
+                        type: "separator"
+                    },
+                    {
                         label: "Transparent mode",
                         type: "checkbox",
                         checked: tab ? tab.transparent : false, 
@@ -345,6 +370,29 @@ function popupPipelineMenu(store, dispatcher, pos){
         {
             label:"Zoom in",
             click: function(){rc.trigger(ACTION.KONATA_ZOOM, -1, pos[0], pos[1]);}
+        },
+        {
+            type: "separator"
+        },
+        {
+            label: "Go to bookmark",
+            submenu: store.config.bookmarks.map(function(bkm, index){
+                return {
+                    label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
+                    click: function(){rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);},
+                    accelerator: `${index}`
+                };
+            }),
+        },
+        {
+            label: "Set bookmark",
+            submenu: store.config.bookmarks.map(function(bkm, index){
+                return {
+                    label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
+                    click: function(){rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);},
+                    accelerator: "CommandOrControl+" + index
+                };
+            }),
         },
         {
             type: "separator"
