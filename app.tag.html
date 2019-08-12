@@ -394,7 +394,7 @@
             let find_result_tip = self.refs.find_result_tip.style;
             find_result_tip.visibility = "hidden";
 
-            self.refs.find_result_tip_close.onmousedown = self.onClsoeFindResult;
+            self.refs.find_result_tip_close.onmousedown = self.onCloseFindResult;
         };
 
         // マウス操作
@@ -442,7 +442,7 @@
 
                 // 非表示になっている場合はメッセージを追加
                 if (store.activeTab.hideFlushedOps && findCtx.flushed) {
-                    self.findResultTipText += "A found op is not shown becasue it is flushed.<br>";
+                    self.findResultTipText += "A found op is not shown because it is flushed.<br>";
                 }
 
                 let re = new RegExp(findCtx.targetPattern, "g");
@@ -489,7 +489,7 @@
             self.updateToolTip();
         };
 
-        self.onClsoeFindResult = function(){
+        self.onCloseFindResult = function(){
             dispatcher.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
         }
 
@@ -571,7 +571,7 @@
   
         .sheet_container {
             /* sheet_container 同士を同じ位置において z-index を制御するため，位置を絶対指定に．
-            abosulute を指定すると，親要素の左上を基準とした位置に配置される
+            absolute を指定すると，親要素の左上を基準とした位置に配置される
             */
             position: absolute; 
             width: 100%;
@@ -673,17 +673,17 @@
 </app_sheet_list>
 
 <!-- コマンドパレット -->
-<app_command_pallete>
+<app_command_palette>
 
-    <div ref="command_pallete" class="command_pallete">
-        <input ref="input" type="text" class="command_pallete_input">
+    <div ref="command_palette" class="command_palette">
+        <input ref="input" type="text" class="command_palette_input">
         <div 
-            class="command_pallete_hint_item"
+            class="command_palette_hint_item"
             each="{hint, hintID in hintList}" 
             ref={"hint_" + hintID} 
         >
-            <div class="command_pallete_hint_item_text">{hint.text}</div>:
-            <div class="command_pallete_hint_item_command">{hint.cmd}</div>
+            <div class="command_palette_hint_item_text">{hint.text}</div>:
+            <div class="command_palette_hint_item_command">{hint.cmd}</div>
         </div>
     </div>
 
@@ -723,7 +723,7 @@
         // オープン
         dispatcher.on(CHANGE.COMMAND_PALETTE_OPEN,
             function(command){
-                let cp = self.refs.command_pallete.style;
+                let cp = self.refs.command_palette.style;
                 cp.visibility = "visible";
                 // 画面外からスライドイン
                 // フォーカスを合わせるためには即座に可視化されてくれないといけないので
@@ -744,11 +744,11 @@
         // クローズ
         dispatcher.on(CHANGE.COMMAND_PALETTE_CLOSE,
             function(){
-                let cp = self.refs.command_pallete.style;
+                let cp = self.refs.command_palette.style;
                 cp.visibility = "hidden";
                 // 画面外へスライドアウト
                 // cp.transition = "visibility 0.1s, top 0.1s ease-out";
-                // cp.top = "-" + self.refs.command_pallete.offsetHeight + "px";
+                // cp.top = "-" + self.refs.command_palette.offsetHeight + "px";
 
                 // キーボードハンドラを解除
                 window.removeEventListener("keydown", self.onKeyDown);
@@ -760,7 +760,7 @@
         );
 
     </script>
-</app_command_pallete>
+</app_command_palette>
 
 <!-- 読み込みのプレグレスバー -->
 <app_progress_bar>
@@ -794,7 +794,7 @@
         // オープン
         dispatcher.on(CHANGE.PROGRESS_BAR_START,
             function(tabID){
-                //console.log("Start progres bar: ", tabID);
+                //console.log("Start progress bar: ", tabID);
                 self.barList[tabID] = 0;
                 self.update();
                 let bar = self.refs["progress_bar_" + tabID].style;
@@ -823,7 +823,7 @@
                 if (!(tabID in self.barList)) {
                     return;
                 }
-                //console.log("Close progres bar: ", tabID);
+                //console.log("Close progress bar: ", tabID);
                 delete self.barList[tabID];
                 self.update();
             }
@@ -856,7 +856,7 @@
     <app_dialogs></app_dialogs>
 
     <!-- コマンドパレット -->
-    <app_command_pallete></app_command_pallete>
+    <app_command_palette></app_command_palette>
 
     <!-- 読み込みのプレグレスバー -->
     <app_progress_bar></app_progress_bar>
@@ -951,7 +951,7 @@
                 let key = e.key;
 
                 if (!store.isCommandPaletteOpened) {
-                    // These keys are valid when a command palette is not opend.
+                    // These keys are valid when a command palette is not opened.
                     if (key == "ArrowUp") {
                         // ctrl 時は水平方向補正なし
                         dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.ctrlKey);

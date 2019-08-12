@@ -40,7 +40,7 @@ app.on("ready", function() {
     m_window.loadURL(currentURL);
     //m_window.toggleDevTools();
 
-    // After the initial page is renderered, the window will be show. 
+    // After the initial page is rendered, the window will be show. 
     m_window.once("ready-to-show", () => {
         m_window.show();
     });

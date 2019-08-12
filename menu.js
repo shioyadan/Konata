@@ -254,7 +254,7 @@ function installMainMenu(store, dispatcher){
 }
 
 // タブ用のポップアップメニューアイテムを作る
-function makePopupTabMenuTemaplte(store, dispatcher, tabID){
+function makePopupTabMenuTemplate(store, dispatcher, tabID){
     let rc = dispatcher;
     let tab = store.tabs[tabID];
 
@@ -263,7 +263,7 @@ function makePopupTabMenuTemaplte(store, dispatcher, tabID){
 
     let menuTemplate = [
         {
-            label: "Syncronize scroll",
+            label: "Synchronize scroll",
             type: "checkbox",
             checked: 
                 store.activeTab.syncScroll,
@@ -306,7 +306,7 @@ function makePopupTabMenuTemaplte(store, dispatcher, tabID){
 
 function popupTabMenu(store, dispatcher, tabID){
 
-    let menuTemplate = makePopupTabMenuTemaplte(store, dispatcher, tabID);
+    let menuTemplate = makePopupTabMenuTemplate(store, dispatcher, tabID);
 
     let remote = require("electron").remote;
     let Menu = remote.Menu;
@@ -342,7 +342,7 @@ function popupPipelineMenu(store, dispatcher, pos){
     ];
 
     // タブごとの右クリックメニューを結合
-    menuTemplate = menuTemplate.concat(makePopupTabMenuTemaplte(store, dispatcher, store.activeTab.id));
+    menuTemplate = menuTemplate.concat(makePopupTabMenuTemplate(store, dispatcher, store.activeTab.id));
 
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);

@@ -58,7 +58,7 @@ html, body {
 }
 
 /* コマンドパレット */
-.command_pallete {
+.command_palette {
     padding: 5px;
     width: 300px; 
 
@@ -79,24 +79,24 @@ html, body {
     
 }
 
-.command_pallete_input {
+.command_palette_input {
     width: 100%;
     margin-bottom: 6px;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
 }
 
-.command_pallete_hint_item {
+.command_palette_hint_item {
     margin-bottom: 7px;
     margin-top: 7px;
 }
 
-.command_pallete_hint_item_text {
+.command_palette_hint_item_text {
     padding-bottom: 3px;
     padding-top: 3px;
     float: left;
 }
 
-.command_pallete_hint_item_command {
+.command_palette_hint_item_command {
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
     border-radius: 4px;/*角の丸み*/
     padding-left: 4px;

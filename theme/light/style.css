@@ -22,17 +22,17 @@ body {
 }
 
 /* コマンドパレット */
-.command_pallete {
+.command_palette {
     background: rgb(243, 243, 243);
     box-shadow: rgb(168, 168, 168) 0px 5px 8px;
 }
 
 /*
-.command_pallete_input {
+.command_palette_input {
 }
 */
 
-.command_pallete_hint_item_command {
+.command_palette_hint_item_command {
     border: 1px solid #999;
     background: #eee;
 }

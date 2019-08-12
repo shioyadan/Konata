@@ -21,19 +21,19 @@ body {
 }
 
 /* コマンドパレット */
-.command_pallete {
+.command_palette {
     color: #eee;
     background: rgb(38, 41, 44);
     box-shadow: rgb(0, 0, 0) 0px 2px 4px;
 }
 
-.command_pallete_input {
+.command_palette_input {
     color: #eee;
     background: rgb(38, 41, 44);
     border: 0px;
 }
 
-.command_pallete_hint_item_command {
+.command_palette_hint_item_command {
     border: 1px solid #333;
     background: #555;
 }
