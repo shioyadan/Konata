@@ -545,8 +545,9 @@ class KonataRenderer{
      * @param {number} zoomLevel - zoom level
      * @param {number} posX - ズームの中心点
      * @param {number} posY - ズームの中心点
+     * @param {boolean} compensatePos - 中心点の位置補正を行うかどうか
      */
-    zoomAbs(zoomLevel, posX, posY){
+    zoomAbs(zoomLevel, posX, posY, compensatePos=true){
         let self = this;
         self.zoomLevel_ = zoomLevel;
 
@@ -560,11 +561,13 @@ class KonataRenderer{
         // 位置の補正
         //let oldLeft = self.viewPos_.left;
         //let oldTop = self.viewPos_.top;
-        let ratio = oldScale / self.zoomScale_;
-        self.moveLogicalPos([
-            self.viewPos_.left - (posX - posX / ratio) / self.opW_,
-            self.viewPos_.top - (posY - posY / ratio) / self.opH_
-        ]);
+        if (compensatePos) {
+            let ratio = oldScale / self.zoomScale_;
+            self.moveLogicalPos([
+                self.viewPos_.left - (posX - posX / ratio) / self.opW_,
+                self.viewPos_.top - (posY - posY / ratio) / self.opH_
+            ]);
+        }
         //console.log(`zoom ratio:${ratio}  [${oldLeft}, ${oldTop}] to [${self.viewPos_.left}, ${self.viewPos_.top}]`);
     }
 
