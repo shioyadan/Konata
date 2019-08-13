@@ -156,8 +156,17 @@
 
 <!-- stats の表示 -->
 <app_stats_dialog>
-
+    
     <app_modal_dialog_module ref="dialog">
+        <!-- "form-group" "form-control" は bootstrap のもの -->
+        <div class="form-group">
+            <input 
+                ref="filter" 
+                class="form-control" 
+                type="text"
+                placeholder="Filter pattern for 'Name' column" 
+            >
+        </div>
         <table class="table table-striped table-sm table-hover">
             <tr>
                 <th>Name</th>
@@ -174,14 +183,46 @@
         /* global dispatcher ACTION */
         let rc = dispatcher;
         let self = this;
+        self.stats = {};
 
-        rc.on(CHANGE.DIALOG_SHOW_STATS, function (stats) {
+        rc.on(CHANGE.DIALOG_SHOW_STATS, function(stats){
+            self.stats = stats;
             self.refs.dialog.modal({
                 "title": "Stats",
                 "buttonOK": "OK",
-                "stats": stats 
+                "stats": self.getFilteredStats()
             });
+
+            // input 内で何か入力があった時のイベントハンドラ
+            // 入れ子の内側のものは，refs の参照も入れ子になる
+            let filter = self.refs.dialog.refs.filter;
+            filter.oninput = function(){
+                // 内部でもっている dialog 内の opts を強制的に書き換えて更新
+                self.refs.dialog.opts.stats = self.getFilteredStats();
+                self.update();
+            };
+
+            filter.focus();
         });
+
+        // stats の更新があったときに呼ばれるハンドラ
+        rc.on(CHANGE.DIALOG_UPDATE_STATS, function(stats){
+            self.stats = stats;
+            self.refs.dialog.opts.stats = self.getFilteredStats();
+            self.update();
+        });
+
+        // stats の中身をフィルタして返す
+        self.getFilteredStats = function(){
+            let filter = new RegExp(self.refs.dialog.refs.filter.value, "i");
+            let stats = {};
+            for (let key in self.stats) {
+                if (key.match(filter)) {
+                    stats[key] = self.stats[key];
+                }
+            }
+            return stats;
+        };
     </script>
 </app_stats_dialog>
 
