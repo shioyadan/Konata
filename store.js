@@ -93,56 +93,6 @@ const CHANGE = {
     WINDOW_CSS_UPDATE: 300 // テーマ変更により，CSS が変更された
 };
 
-
-class Tab{
-    /** 
-     * @param {string} fileName
-     * @param {Konata} konata
-     * @param {KonataRenderer} renderer
-     * */
-    constructor(id, fileName, konata, renderer){
-        let fs = require("fs");
-        let KonataRenderer = require("./konata_renderer").KonataRenderer;
-        let Konata = require("./konata").Konata;
-        let Op = require("./op").Op;   // eslint-disable-line
-
-        // ファイル更新時間
-        let mtime = fs.statSync(fileName).mtime;
-
-        this.id = id; 
-        this.fileName = fileName;
-        this.lastFileCheckedTime = mtime;
-        this.konata = konata;
-        this.renderer = renderer;
-        this.splitterPos = 450;
-        this.transparent = false; // 透明化の有効無効
-        this.hideFlushedOps = false;  // フラッシュされた命令を隠すか
-        this.emphasize_in_transparent = false; // 透明化の際に表示を強調するかどうか
-        this.colorScheme = "Auto";  // カラースキーム
-        this.syncScroll =  false;  // スクロールを同期 
-        
-        this.scrollEndPos =  [0, 0];   // スクロール終了位置
-        this.curScrollPos =  [0, 0];   // 現在のスクロール位置
-
-        this.FindContext = class{
-            constructor(){
-                this.targetPattern = "";  // 検索中の文字の正規表現パターン
-                this.foundStr = "";       // ヒットした文字列全体
-                this.found = false;       // ヒットしたかどうか
-                this.visibility = false;  // 検索結果を表示するかどうか
-                /** @type {Op} */
-                this.op = null; // 見つかった op
-
-                // 検索の ID．新しい検索を行うたびにインクリメントされる
-                // 現在実行中の検索は，ID が変化した場合はキャンセルされる
-                this.findID = 0;
-                this.flushed = false;   // フラッシュされたかどうか
-            }
-        }
-        this.findContext = new this.FindContext;
-    }
-}
-
 /**
  * @mixes Observable
  */
@@ -161,41 +111,31 @@ class Store{
 
         // Tab
         this.config = new Config.Config();
-
-        /** @type {Object.<number,Tab>} */
         this.tabs = {}; // id -> tab
-
         this.nextOpenedTabID = 0; // 次にオープンされるタブの ID 
-        this.activeTabID = 0;     // 現在アクティブなタブの ID 
-        this.prevTabID = -1;      // 前回アクティブだったタブの ID 
 
-        /** @type {Tab} */
+        this.activeTabID = 0;   // 現在アクティブなタブの ID 
         this.activeTab = null;  // 現在アクティブなタブ
-
-        /** @type {Tab} */
+        this.prevTabID = -1;     // 前回アクティブだったタブの ID 
         this.prevTab = null;       // 前回アクティブだったタブ
 
         // 開発者ツールの表示切り替え
         this.showDevTool = false;
 
-        // レーン表示関係
+        // レーンひょうじかんけい
         this.splitLanes = false;
         this.fixOpHeight = false;
 
+        // アニメーション
+        this.inZoomAnimation = false;
+        this.zoomAnimationID = null;
 
         // ズームのアニメーション
-        this.zoom = {
-            inAnimation: false,
-            diff: 0.0,  
-            speed: 1.0,
-            endLevel: 0.0,
-            curLevel: 0.0,
-            basePoint: [0, 0],
-            direction: false,
-            timerID: null,
-            compensatePos: true // 位置補正を行うか
-        };
-        let ZOOM_ANIMATION_PERIOD = 80;    // mille seconds
+        this.zoomEndLevel = 0;
+        this.curZoomLevel = 0;
+        this.zoomBasePoint = [0, 0];
+        this.zoomAnimationDirection = false;
+        let ZOOM_ANIMATION_SPEED = 0.2;
 
         // スクロールのアニメーション
         this.inScrollAnimation = false;
@@ -321,8 +261,41 @@ class Store{
             let renderer = new KonataRenderer.KonataRenderer();
             renderer.init(konata, self.config);
 
-            let tab = new Tab(self.nextOpenedTabID, fileName, konata, renderer);
+            // ファイル更新時間
+            let mtime = fs.statSync(fileName).mtime;
 
+            // Create a new tab
+            let tab = {
+                id: self.nextOpenedTabID, 
+                fileName: fileName,
+                lastFileCheckedTime: mtime,
+                konata: konata,
+                renderer: renderer,
+                splitterPos: 450,   // スプリッタの位置
+                transparent: false, // 透明化の有効無効
+                hideFlushedOps: false,  // フラッシュされた命令を隠すか
+                emphasize_in_transparent: false, // 透明化の際に表示を強調するかどうか
+                colorScheme: "Auto",  // カラースキーム
+                syncScroll: false,  // スクロールを同期 
+                
+                scrollEndPos: [0, 0],   // スクロール終了位置
+                curScrollPos: [0, 0],   // 現在のスクロール位置
+
+                findContext: {
+                    targetPattern: "",  // 検索中の文字の正規表現パターン
+                    foundStr: "",       // ヒットした文字列全体
+                    found: false,       // ヒットしたかどうか
+                    visibility: false,  // 検索結果を表示するかどうか
+                    flushed: false      // フラッシュされていて表示されていない
+                },
+
+                viewPort: {         // 表示領域
+                    top: 0,
+                    left: 0,
+                    width: 0,
+                    height: 0,
+                },  
+            };
             self.tabs[self.nextOpenedTabID] = tab;
             self.activeTabID = self.nextOpenedTabID;
             self.activeTab = self.tabs[self.activeTabID];
@@ -453,47 +426,42 @@ class Store{
 
 
         // ズームのスタート
-        this.startZoom = function(zoomLevelDiff, offsetX, offsetY, speed=1.0, compensatePos=false){
-            if (!self.zoom.inAnimation) {
+        this.startZoom = function(zoomLevelDiff, offsetX, offsetY){
+            if (!self.inZoomAnimation) {
                 // 拡大 or 縮小
-                self.zoom.direction = zoomLevelDiff > 0;
-                self.zoom.diff = zoomLevelDiff;
-                self.zoom.curLevel = self.activeTab.renderer.zoomLevel;
-                self.zoom.endLevel = 
-                    self.zoom.curLevel + zoomLevelDiff;
-                self.zoom.speed = speed;
-                self.zoom.basePoint = [offsetX, offsetY];
-                self.zoom.inAnimation = true;
-                self.zoom.timerID = setInterval(self.animateZoom, 16);
-                self.zoom.compensatePos = compensatePos;
+                self.zoomAnimationDirection = zoomLevelDiff > 0;
+                self.curZoomLevel = self.activeTab.renderer.zoomLevel;
+                self.zoomEndLevel = 
+                    self.curZoomLevel + zoomLevelDiff;
+                self.zoomBasePoint = [offsetX, offsetY];
+                self.inZoomAnimation = true;
+                self.zoomAnimationID = setInterval(self.animateZoom, 16);
             }
         };
 
         // ズームアニメーション中は，一定時間毎に呼び出される
         this.animateZoom = function(){
-            if (!self.zoom.inAnimation) {
+            if (!self.inZoomAnimation) {
                 return;
             }
 
-            let frames = ZOOM_ANIMATION_PERIOD / 16 / self.zoom.speed;
-            self.zoom.curLevel += self.zoom.diff / frames;
+            self.curZoomLevel += 
+                self.zoomAnimationDirection ? ZOOM_ANIMATION_SPEED : -ZOOM_ANIMATION_SPEED;
             
             self.zoomAbs(
-                self.zoom.curLevel, 
-                self.zoom.basePoint[0], 
-                self.zoom.basePoint[1],
-                self.zoom.compensatePos
+                self.curZoomLevel, 
+                self.zoomBasePoint[0], 
+                self.zoomBasePoint[1]
             );
 
-            if ((self.zoom.direction && self.zoom.curLevel >= self.zoom.endLevel) ||
-                (!self.zoom.direction && self.zoom.curLevel <= self.zoom.endLevel)){
-                self.zoom.inAnimation = false;
-                clearInterval(self.zoom.timerID);
+            if ((self.zoomAnimationDirection && self.curZoomLevel >= self.zoomEndLevel) ||
+                (!self.zoomAnimationDirection && self.curZoomLevel <= self.zoomEndLevel)){
+                self.inZoomAnimation = false;
+                clearInterval(self.zoomAnimationID);
                 self.zoomAbs(
-                    self.zoom.endLevel, 
-                    self.zoom.basePoint[0], 
-                    self.zoom.basePoint[1],
-                    self.zoom.compensatePos
+                    self.zoomEndLevel, 
+                    self.zoomBasePoint[0], 
+                    self.zoomBasePoint[1]
                 );
             }
         };
@@ -501,12 +469,12 @@ class Store{
         // 拡大/縮小
         // zoomLevel は zoom level の値
         // posX, posY はズームの中心点
-        this.zoomAbs = function(zoomLevel, posX, posY, compensatePos){
+        this.zoomAbs = function(zoomLevel, posX, posY){
             if (!self.activeTab) {
                 return;
             }
             self.scrollTabs(function(tab){
-                tab.renderer.zoomAbs(zoomLevel, posX, posY, compensatePos);
+                tab.renderer.zoomAbs(zoomLevel, posX, posY);
             });
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         };
@@ -514,11 +482,11 @@ class Store{
         // 拡大/縮小
         // zoomLevelDiff は zoom level の差分
         // posX, posY はズームの中心点
-        self.on(ACTION.KONATA_ZOOM, function(zoomLevelDiff, posX, posY, speed=1.0){
-            if (!self.activeTab || self.zoom.inAnimation) {
+        self.on(ACTION.KONATA_ZOOM, function(zoomLevelDiff, posX, posY){
+            if (!self.activeTab || self.inZoomAnimation) {
                 return;
             }
-            self.startZoom(zoomLevelDiff, posX, posY, speed, true);
+            self.startZoom(zoomLevelDiff, posX, posY);
         });
 
         // スクロール同期対象のタブに，渡された関数を適用する
@@ -534,6 +502,10 @@ class Store{
 
         // スクロールのアニメーションのスタート
         this.startScroll = function(scrollDiff){
+            if (self.inScrollAnimation) {
+                self.finishScroll();
+            }
+
             self.scrollAnimationDiff = scrollDiff;
             self.scrollAnimationDirection = [scrollDiff[0] > 0, scrollDiff[1] > 0];
             self.scrollTabs(function(tab){
@@ -989,8 +961,7 @@ class Store{
                 b.x - renderer.viewPos[0],
                 b.y - renderer.viewPos[1]
             ]);
-            // 位置補正を行うと，ブックマークで指定した位置にいけない
-            self.startZoom(b.zoom - renderer.zoomLevel, b.x, b.y, 0.5, false);
+            self.startZoom(b.zoom - renderer.zoomLevel, b.x, b.y);
         });
     }
 
