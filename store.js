@@ -93,6 +93,56 @@ const CHANGE = {
     WINDOW_CSS_UPDATE: 300 // テーマ変更により，CSS が変更された
 };
 
+
+class Tab{
+    /** 
+     * @param {string} fileName
+     * @param {Konata} konata
+     * @param {KonataRenderer} renderer
+     * */
+    constructor(id, fileName, konata, renderer){
+        let fs = require("fs");
+        let KonataRenderer = require("./konata_renderer").KonataRenderer;
+        let Konata = require("./konata").Konata;
+        let Op = require("./op").Op;   // eslint-disable-line
+
+        // ファイル更新時間
+        let mtime = fs.statSync(fileName).mtime;
+
+        this.id = id; 
+        this.fileName = fileName;
+        this.lastFileCheckedTime = mtime;
+        this.konata = konata;
+        this.renderer = renderer;
+        this.splitterPos = 450;
+        this.transparent = false; // 透明化の有効無効
+        this.hideFlushedOps = false;  // フラッシュされた命令を隠すか
+        this.emphasize_in_transparent = false; // 透明化の際に表示を強調するかどうか
+        this.colorScheme = "Auto";  // カラースキーム
+        this.syncScroll =  false;  // スクロールを同期 
+        
+        this.scrollEndPos =  [0, 0];   // スクロール終了位置
+        this.curScrollPos =  [0, 0];   // 現在のスクロール位置
+
+        this.FindContext = class{
+            constructor(){
+                this.targetPattern = "";  // 検索中の文字の正規表現パターン
+                this.foundStr = "";       // ヒットした文字列全体
+                this.found = false;       // ヒットしたかどうか
+                this.visibility = false;  // 検索結果を表示するかどうか
+                /** @type {Op} */
+                this.op = null; // 見つかった op
+
+                // 検索の ID．新しい検索を行うたびにインクリメントされる
+                // 現在実行中の検索は，ID が変化した場合はキャンセルされる
+                this.findID = 0;
+                this.flushed = false;   // フラッシュされたかどうか
+            }
+        }
+        this.findContext = new this.FindContext;
+    }
+}
+
 /**
  * @mixes Observable
  */
@@ -261,41 +311,8 @@ class Store{
             let renderer = new KonataRenderer.KonataRenderer();
             renderer.init(konata, self.config);
 
-            // ファイル更新時間
-            let mtime = fs.statSync(fileName).mtime;
+            let tab = new Tab(self.nextOpenedTabID, fileName, konata, renderer);
 
-            // Create a new tab
-            let tab = {
-                id: self.nextOpenedTabID, 
-                fileName: fileName,
-                lastFileCheckedTime: mtime,
-                konata: konata,
-                renderer: renderer,
-                splitterPos: 450,   // スプリッタの位置
-                transparent: false, // 透明化の有効無効
-                hideFlushedOps: false,  // フラッシュされた命令を隠すか
-                emphasize_in_transparent: false, // 透明化の際に表示を強調するかどうか
-                colorScheme: "Auto",  // カラースキーム
-                syncScroll: false,  // スクロールを同期 
-                
-                scrollEndPos: [0, 0],   // スクロール終了位置
-                curScrollPos: [0, 0],   // 現在のスクロール位置
-
-                findContext: {
-                    targetPattern: "",  // 検索中の文字の正規表現パターン
-                    foundStr: "",       // ヒットした文字列全体
-                    found: false,       // ヒットしたかどうか
-                    visibility: false,  // 検索結果を表示するかどうか
-                    flushed: false      // フラッシュされていて表示されていない
-                },
-
-                viewPort: {         // 表示領域
-                    top: 0,
-                    left: 0,
-                    width: 0,
-                    height: 0,
-                },  
-            };
             self.tabs[self.nextOpenedTabID] = tab;
             self.activeTabID = self.nextOpenedTabID;
             self.activeTab = self.tabs[self.activeTabID];
