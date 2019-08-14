@@ -767,9 +767,9 @@
 
     <div class="progress_bar_container">
         <div 
-            each="{percent, tabID in barList}" 
-            class={"progress_bar_" + ((store.activeTabID == tabID) ? "active" : "background")}
-            ref={"progress_bar_" + tabID} 
+            each="{bar, barID in barList}" 
+            class={"progress_bar_" + ((store.activeTabID == bar.tabID) ? ("active " + bar.barType) : "background")}
+            ref={"progress_bar_" + barID} 
         >
         </div>
     </div>
@@ -784,6 +784,10 @@
         // エントリポイント
         self.on("mount", self.init);
 
+        self.makeBarID = function(tabID, barType){
+            return tabID + "_" + barType;
+        }
+
         // タブの移動
         dispatcher.on(ACTION.TAB_ACTIVATE,
             () => {
@@ -793,43 +797,51 @@
         
         // オープン
         dispatcher.on(CHANGE.PROGRESS_BAR_START,
-            function(tabID){
+            function(tabID, barType="default"){
                 //console.log("Start progress bar: ", tabID);
-                self.barList[tabID] = 0;
+                let barID = self.makeBarID(tabID, barType);
+                self.barList[barID] = {
+                    tabID: tabID,
+                    barType: barType,
+                    ratio: 0
+                };
                 self.update();
-                let bar = self.refs["progress_bar_" + tabID].style;
+                let bar = self.refs["progress_bar_" + barID].style;
                 bar.width = "0%";
             }
         );
 
         // プログレスバー
         dispatcher.on(CHANGE.PROGRESS_BAR_UPDATE,
-            function(percent, tabID){
-                if (!(tabID in self.barList)) {
+            function(ratio, tabID, barType="default"){
+                let barID = self.makeBarID(tabID, barType);
+                if (!(barID in self.barList)) {
                     // タブをロード中に途中で閉じると，PROGRESS_BAR_FINISH が来た後にも
                     // バッファ内のロードがしばらく継続されるため，更新ハンドラが
                     // よばれることがある
                     return; 
                 }
-                self.barList[tabID] = percent;
-                let bar = self.refs["progress_bar_" + tabID].style;
-                bar.width = 100 * percent + "%";
+                self.barList[barID].ratio = ratio;
+                let bar = self.refs["progress_bar_" + barID].style;
+                //bar.width = Math.floor(100 * ratio) + "%";
+                bar.width = (100 * ratio) + "%";
                 self.update();
             }
         );
         
         dispatcher.on(CHANGE.PROGRESS_BAR_FINISH,
-            function(tabID){
-                if (!(tabID in self.barList)) {
+            function(tabID, barType="default"){
+                let barID = self.makeBarID(tabID, barType);
+                if (!(barID in self.barList)) {
                     return;
                 }
                 //console.log("Close progress bar: ", tabID);
-                delete self.barList[tabID];
+                delete self.barList[barID];
                 self.update();
             }
         );
 
-</script>
+    </script>
 </app_progress_bar>
 
 

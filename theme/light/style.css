@@ -39,7 +39,16 @@ body {
 
 /* アクティブなタブのプログレスバー */
 .progress_bar_active {
-    background: rgb(100, 150, 255);
+    background: hsl(220, 100%, 65%);
+}
+.progress_bar_active.load {
+    background: hsl(220, 100%, 65%);
+}
+.progress_bar_active.search {
+    background: hsl(150, 30%, 50%);
+}
+.progress_bar_active.stats {
+    background: hsl(20, 50%, 65%);
 }
 
 /* バックグラウンドでファイルを読んでるタブのプログレスバー */
