@@ -1,6 +1,6 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Op = require("./op").Op; // eslint-disable-line
-let Stats = require("./stats").Stats; // eslint-disable-line
+let Stats = require("./stats").GenericStats; // eslint-disable-line
 
 class Konata{
     constructor(){

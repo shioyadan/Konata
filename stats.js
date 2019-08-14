@@ -2,7 +2,7 @@
 let Op = require("./op").Op; // eslint-disable-line
 let Konata = require("./konata").Konata; // eslint-disable-line
 
-class Stats{
+class GenericStats{
     /** @param {Konata} konata */
     constructor(konata){
         let lastID = konata.lastID;
@@ -105,8 +105,7 @@ class Stats{
         }
         this.prevFlushed_ = op.flush;
         
-        // ラベル内に b で始まる単語が入っていれば分岐
-        if (op.labelName.match(/[\s][b][^\s]*[\s]*/)) {
+        if (this.isBranch_(op.labelName)) {
             s.numFetchedBr++;
             if (op.retired) {
                 s.numRetiredBr++;
@@ -117,8 +116,7 @@ class Stats{
             this.prevBr_ = false;
         }
 
-        // j, call, ret はジャンプ
-        if (op.labelName.match(/[\s]([j])|(call)|(ret)[^\s]*[\s]*/)) {
+        if (this.isJump_(op.labelName)) {
             s.numFetchedJump++;
             if (op.retired) {
                 s.numRetiredJump++;
@@ -129,8 +127,7 @@ class Stats{
             this.prevJump_ = false;
         }
 
-        // st,sw,sh,sb から始まっていたらストア
-        if (op.labelName.match(/[\s](st)|(sw)|(sh)|(sb)[^\s]*[\s]*/)) {
+        if (this.isStore_(op.labelName)) {
             s.numFetchedStore++;
             if (op.retired) {
                 s.numRetiredStore++;
@@ -140,8 +137,22 @@ class Stats{
         else {
             this.prevStore_ = false;
         }
+    }
 
+    // ラベル内に b で始まる単語が入っていれば分岐
+    isBranch_(text){
+        return text.match(/[\s][b][^\s]*[\s]*/);
+    }
+
+    // j, call, ret はジャンプ
+    isJump_(text){
+        return text.match(/[\s]([j])|(call)|(ret)[^\s]*[\s]*/);
+    }
+    
+    // st,sw,sh,sb から始まっていたらストア
+    isStore_(text){
+        return text.match(/[\s](st)|(sw)|(sh)|(sb)[^\s]*[\s]*/);
     }
 }
 
-module.exports.Stats = Stats;
+module.exports.GenericStats = GenericStats;
