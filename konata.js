@@ -1,6 +1,6 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Op = require("./op").Op; // eslint-disable-line
-let Stats = require("./stats").GenericStats; // eslint-disable-line
+let CreateStats = require("./stats").CreateStats; // eslint-disable-line
 
 class Konata{
     constructor(){
@@ -119,12 +119,14 @@ class Konata{
     }
 
     // パイプライン中の統計を計算し，終わったら finish に渡す
-    async stats(update, finish){
+    async statsBody_(update, finish, statsList){
         let lastID = this.lastID;
 
-        let stats = new Stats(this);
         let sleepTimer = 0;
         let SLEEP_INTERVAL = 50000;
+        let GIVE_UP_TIME = 1000;
+
+        let stats = statsList.shift();
 
         for (let i = 0; i < lastID; i++) {
             let op = this.getOp(i);
@@ -132,6 +134,12 @@ class Konata{
                 continue;
             }
             stats.update(op);
+
+            if (!stats.isDetected &&  i > GIVE_UP_TIME) {
+                console.log(`Gave up analyzing this file (${stats.name})`);
+                this.statsBody_(update, finish, statsList);
+                return;
+            }
 
             // 一定時間毎に setTimeout でその他の処理への切り替えを入れる
             if (sleepTimer > SLEEP_INTERVAL) {
@@ -145,8 +153,19 @@ class Konata{
             sleepTimer++;
         }
 
+        if (!stats.isDetected) {
+            console.log(`Gave up analyzing this file (${stats.name})`);
+            this.statsBody_(update, finish, statsList);
+            return;
+        }
+
+        console.log(`Finished stats processing ('${stats.name}')`);
         stats.finish();
         finish(stats.stats);
+    }
+    async stats(update, finish){
+        let statsList = CreateStats(this);
+        this.statsBody_(update, finish, statsList);
     }
 
 }

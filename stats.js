@@ -48,6 +48,12 @@ class GenericStats{
         this.inBrFlush_ = false;
         this.inJumpFlush_ = false;
         this.inMemFlush_ = false;
+
+        this.isDetected_ = true;    // 常に true
+    }
+
+    get name(){
+        return "GenericStats";
     }
 
     get stats() {return this.stats_;}
@@ -153,6 +159,64 @@ class GenericStats{
     isStore_(text){
         return text.match(/[\s](st)|(sw)|(sh)|(sb)[^\s]*[\s]*/);
     }
+
+    get isDetected() {return this.isDetected_;}
 }
 
-module.exports.GenericStats = GenericStats;
+class X86_Gem5_Stats extends GenericStats{
+    /** @param {Konata} konata */
+    constructor(konata){
+        super(konata);
+        this.isDetected_ = false;
+    }
+
+    get name(){
+        return "X86_Gem5_Stats";
+    }
+
+    update(op){
+        super.update(op);
+
+        if (!this.isDetected_ ) {
+            let text = op.labelName;
+            if (text.match(/[eErR][aAbBcCdD][xX][^,]*,[^,]*[eErR][aAbBcCdD][xX]/)) {
+                this.isDetected_  = true;
+            }
+            if (text.match(/[xXyY][mM][mM][^,]*,[^,]*[xXyY][mM][mM]/)) {
+                this.isDetected_  = true;
+            }
+            if (this.isDetected_) {
+                console.log(`Detected X86-Gem5 from '${text}' in X86_Gem5_Stats`);
+            }
+        }
+    }
+
+
+    // J で始まり JMP ではなく，wrip に分解される命令は条件分岐
+    isBranch_(text){
+        return text.match(/[\s]*[jJ][^mM][^:]+:\s*wrip/);
+    }
+
+    // jmX, call, ret で wrip はジャンプ
+    isJump_(text){
+        return text.match(/([\s]*([jJ][mM])|([cC][aA][lL][lL])|([rR][eE][tT]))[^:]+:\s*wrip/);
+    }
+    
+    // : st はストア
+    isStore_(text){
+        return text.match(/[\s]*[^:]+:\s*st/);
+    }
+}
+
+/** 
+ * @param {Konata} konata
+ * @returns {GenericStats[]} */
+function CreateStats(konata){
+    return [
+        new X86_Gem5_Stats(konata),
+        new GenericStats(konata),
+    ];
+}
+
+//module.exports.GenericStats = GenericStats;
+module.exports.CreateStats = CreateStats;
