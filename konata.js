@@ -1,5 +1,6 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Op = require("./op").Op; // eslint-disable-line
+let Stats = require("./stats").Stats; // eslint-disable-line
 
 class Konata{
     constructor(){
@@ -120,50 +121,8 @@ class Konata{
     // パイプライン中の統計を計算し，終わったら finish に渡す
     async stats(update, finish){
         let lastID = this.lastID;
-        let s = {
-            numFetchedOps: lastID,
-            numCommittedOps: this.lastRID,
-            numCycles: this.parser_.lastCycle,
 
-            numFlush: 0,
-            numFlushedOps: 0,
-
-            numBrFlushedOps: 0,
-            numJumpFlushedOps: 0,
-            numSpeculativeMemFlushedOps: 0,
-
-            numFetchedBr: 0,
-            numRetiredBr: 0,
-            numBrPredMiss: 0,
-            rateBrPredMiss: 0,
-            mpkiBrPred: 0,
-
-            numFetchedJump: 0,
-            numRetiredJump: 0,
-            numJumpPredMiss: 0,
-            rateJumpPredMiss: 0,
-            mpkiJumpPred: 0,
-            
-            numFetchedStore: 0,
-            numRetiredStore: 0,
-            numSpeculativeMemMiss: 0,
-            rateSpeculativeMemMiss: 0,
-            mpkiSpeculativeMemMiss: 0,
-            
-            ipc: this.lastRID / this.parser_.lastCycle
-        };
-
-        let prevBr = false;
-        let prevJump = false;
-        let prevStore = false;
-        let prevFlushed = false;
-
-        let inBrFlush = false;
-        let inJumpFlush = false;
-        let inMemFlush = false;
-
-        let startTime = (new Date()).getTime();
-        
+        let stats = new Stats(this);
         let sleepTimer = 0;
         let SLEEP_INTERVAL = 50000;
 
@@ -172,79 +131,7 @@ class Konata{
             if (op == null) {
                 continue;
             }
-
-            if (op.flush) {
-                
-                if (!prevFlushed) { 
-                    // 一つ前の命令がフラッシュされていなければ，ここがフラッシュの起点
-                    s.numFlush++;
-                    if (prevBr) {
-                        inBrFlush = true;
-                        s.numBrPredMiss++;
-                    }
-                    if (prevJump) {
-                        inJumpFlush = true;
-                        s.numJumpPredMiss++;
-                    }
-                    if (prevStore) {
-                        inMemFlush = true;
-                        s.numSpeculativeMemMiss++;
-                    }
-                }
-                // Count the number of flushed ops
-                s.numFlushedOps++;
-                if (inBrFlush) {
-                    s.numBrFlushedOps++;
-                }
-                else if (inJumpFlush) {
-                    s.numJumpFlushedOps++;
-                }
-                else if (inMemFlush) {
-                    s.numSpeculativeMemFlushedOps++;
-                }
-            }
-            else {
-                inBrFlush = false;
-                inJumpFlush = false;
-                inMemFlush = false;
-            }
-            prevFlushed = op.flush;
-            
-            // ラベル内に b で始まる単語が入っていれば分岐
-            if (op.labelName.match(/[\s][b][^\s]*[\s]*/)) {
-                s.numFetchedBr++;
-                if (op.retired) {
-                    s.numRetiredBr++;
-                }
-                prevBr = true;
-            }
-            else {
-                prevBr = false;
-            }
-
-            // j, call, ret はジャンプ
-            if (op.labelName.match(/[\s]([j])|(call)|(ret)[^\s]*[\s]*/)) {
-                s.numFetchedJump++;
-                if (op.retired) {
-                    s.numRetiredJump++;
-                }
-                prevJump = true;
-            }
-            else {
-                prevJump = false;
-            }
-
-            // st,sw,sh,sb から始まっていたらストア
-            if (op.labelName.match(/[\s](st)|(sw)|(sh)|(sb)[^\s]*[\s]*/)) {
-                s.numFetchedStore++;
-                if (op.retired) {
-                    s.numRetiredStore++;
-                }
-                prevStore = true;
-            }
-            else {
-                prevStore = false;
-            }
+            stats.update(op);
 
             // 一定時間毎に setTimeout でその他の処理への切り替えを入れる
             if (sleepTimer > SLEEP_INTERVAL) {
@@ -258,17 +145,8 @@ class Konata{
             sleepTimer++;
         }
 
-        // post process
-        s.rateBrPredMiss = s.numBrPredMiss / s.numRetiredBr;
-        s.mpkiBrPred = s.numBrPredMiss / s.numCommittedOps * 1000;
-
-        s.rateJumpPredMiss = s.numJumpPredMiss / s.numRetiredJump;
-        s.mpkiJumpPred = s.numJumpPredMiss / s.numCommittedOps * 1000;
-
-        s.rateSpeculativeMemMiss = s.numSpeculativeMemMiss / s.numRetiredStore;
-        s.mpkiSpeculativeMemMiss = s.numSpeculativeMemMiss / s.numCommittedOps * 1000;
-
-        finish(s);
+        stats.finish();
+        finish(stats.stats);
     }
 
 }
