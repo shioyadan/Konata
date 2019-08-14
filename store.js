@@ -880,72 +880,102 @@ class Store{
         };
 
         // Find a specified string
-        this.findString = function(target, basePos, reverse) {
+        /** 
+         * @param {string} target 
+         * @param {number} basePos 
+         * @param {boolean} reverse 
+         * @param {function(boolean, boolean): void} resultHandler 
+         * */
+        this.findString = async function(target, basePos, reverse, resultHandler) {
 
             //console.log(`Find: ${target}, start from ${basePos}, reverse:${reverse}`);
 
-            let konata = self.activeTab.konata;
+            let tab = self.activeTab;
+
+            tab.findContext.findID++;
+            let findID = tab.findContext.findID;
+
+            let konata = tab.konata;
             let targetPattern = new RegExp(target);
 
-            let search = function(i){
-                let op = konata.getOp(i);
-                if (!op) {
-                    return false;
-                }
+            let SLEEP_PERIOD = 1024*8;
+            let prevSleepTime = new Date().getTime();
+            let startTime = new Date().getTime();
 
-                if (targetPattern.exec(self.makeFindTargetString(op))) {
-                    return true;
-                }
-                else {
-                    return false;
-                }
-            };
-
+            let canceled = false;
             let found = false;
             let foundPos = -1;
-            let lastID = konata.lastID;
-            if (reverse) {
-                for (let i = basePos;i >= 0; i--) {
-                    if (search(i)) { found = true; foundPos = i; break; }
+            let lastOpID = konata.lastID;
+            let cur = basePos;
+
+            if (cur < 0 || cur >= lastOpID) cur = 0;  // 開始位置の座標が外の場合
+            self.trigger(CHANGE.PROGRESS_BAR_START, tab.id, "search");
+
+            for (let i = 0; i < lastOpID; i++) {
+                cur += reverse ? -1 : 1;
+                // ラップアラウンド
+                if (cur < 0) cur += lastOpID;
+                else if (cur > lastOpID) cur = 0;
+
+                // 検索
+                let op = konata.getOp(cur);
+                if (op && targetPattern.exec(self.makeFindTargetString(op))){
+                    found = true; 
+                    foundPos = cur; 
+                    break; 
                 }
-                if (!found) {
-                    for (let i = lastID - 1;i > basePos; i--) {
-                        if (search(i)) { found = true; foundPos = i; break; }
+
+                // 一定時間経過ごとに，プログレスバーを更新
+                if (i % SLEEP_PERIOD == 0) {
+                    let curTime = new Date().getTime();
+                    if (prevSleepTime + 100 < curTime){
+                        prevSleepTime = curTime;
+                        self.trigger(CHANGE.PROGRESS_BAR_UPDATE, i / lastOpID, tab.id, "search");
+                        await new Promise(r => setTimeout(r, 17));
+                        if (findID != tab.findContext.findID) {
+                            // 新しい検索が開始されたので抜ける
+                            canceled = true;
+                            break;
+                        }
                     }
                 }
             }
-            else{
-                for (let i = basePos;i < lastID; i++) {
-                    if (search(i)) { found = true; foundPos = i; break; }
-                }
-                if (!found) {
-                    for (let i = 0;i < basePos; i++) {
-                        if (search(i)) { found = true; foundPos = i; break; }
+            let elapsedTime = new Date().getTime() - startTime;
+            console.log(`Search finished: ${target}@${foundPos}, ${elapsedTime} msec`);
+            self.trigger(CHANGE.PROGRESS_BAR_FINISH, tab.id, "search");
+
+            if (!canceled) {
+                tab.findContext.found = false;
+                if (found) {
+                    let op = konata.getOp(foundPos);
+                    if (op) {
+                        let renderer = tab.renderer;
+                        let viewPos = renderer.viewPos;
+                        let moveTo = renderer.getPosY_FromOp(op);
+    
+                        let ctx = tab.findContext;
+                        ctx.found = true;
+                        ctx.visibility = true;
+                        ctx.targetPattern = target;
+                        ctx.foundStr = this.makeFindTargetString(op);
+                        ctx.op = renderer.getVisibleOp(moveTo);
+                        ctx.flushed = op.flush;
+    
+                        let hOpPos = op.fetchedCycle;//renderer.calcLogicalAddrPos(op);
+                        if (hOpPos < viewPos[0] || 
+                            hOpPos > viewPos[0] + 800 / renderer.opW_
+                        ) { // 表示範囲内になかった場合は，横位置も移動
+                            hOpPos = hOpPos + (-100 / renderer.opW_) - viewPos[0];
+                        }
+                        else{ // 横位置を変えない
+                            hOpPos = 0;
+                        }
+                        self.startScroll([hOpPos, moveTo - viewPos[1]]);
                     }
+                    //console.log(`Found: ${target}@${foundPos}`);
                 }
             }
-
-            self.activeTab.findContext.found = false;
-            if (found) {
-                let op = konata.getOp(foundPos);
-                if (op) {
-                    let renderer = self.activeTab.renderer;
-                    let viewPos = renderer.viewPos;
-                    let moveTo = renderer.getPosY_FromOp(op);
-
-                    let ctx = self.activeTab.findContext;
-                    ctx.found = true;
-                    ctx.visibility = true;
-                    ctx.targetPattern = target;
-                    ctx.foundStr = this.makeFindTargetString(op);
-                    ctx.op = renderer.getVisibleOp(moveTo);
-                    ctx.flushed = op.flush;
-
-                    self.startScroll([op.fetchedCycle - viewPos[0], moveTo - viewPos[1]]);
-                }
-                //console.log(`Found: ${target}@${foundPos}`);
-            }
-            return found;
+            resultHandler(found, canceled);
         };
 
         self.on(ACTION.KONATA_FIND_STRING, function(target){
@@ -953,14 +983,25 @@ class Store{
                 return;
             }
 
+            // 無効な正規表限をチェック
+            try{
+                new RegExp(target);
+            }
+            catch(e){
+                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${target}" is invalid regular expression. \n${e}`);
+                return;
+            }
+
             let findContext = self.activeTab.findContext;
             findContext.targetPattern = target;
             
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            if (!self.findString(target, pos, false)) {
-                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${target}" is not found.`);
-            }
-            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.findString(target, pos, false, function(hit, canceled){
+                if (!hit && !canceled) {
+                    self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${target}" is not found.`);
+                }
+                self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            });
         });
 
         // Find a next string
@@ -971,10 +1012,12 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            if (!self.findString(findContext.targetPattern, pos + 1, false)) {
-                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
-            }
-            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.findString(findContext.targetPattern, pos + 1, false, function(hit, canceled){
+                if (!hit && !canceled) {
+                    self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
+                }
+                self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            });
         });
 
         // Find a previous string
@@ -985,10 +1028,12 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            if (!self.findString(findContext.targetPattern, pos - 1, true)) {
-                self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
-            }
-            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.findString(findContext.targetPattern, pos - 1, true, function(hit, canceled){
+                if (!hit && !canceled) {
+                    self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
+                }
+                self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            });
         });
 
         self.on(ACTION.KONATA_FIND_HIDE_RESULT, function(){
@@ -998,6 +1043,7 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             findContext.visibility = false;
+            findContext.findID++;
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
 
