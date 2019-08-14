@@ -15,9 +15,11 @@ class Konata{
         this.updateCallback_ = null;
         this.finishCallback_ = null;
         this.errorCallback_ = null;
+        this.closed_ = false;
     }
 
     close(){
+        this.closed_ = true;
         if (this.parser_) {
             this.parser_.close();
             this.parser_ = null;
@@ -115,8 +117,8 @@ class Konata{
         return this.parser_ ? this.parser_.stageLevelMap : {};
     }
 
-    // パイプライン中の統計を計算し，終わったら callback に渡す
-    stats(callback){
+    // パイプライン中の統計を計算し，終わったら finish に渡す
+    async stats(update, finish){
         let lastID = this.lastID;
         let s = {
             numFetchedOps: lastID,
@@ -159,6 +161,11 @@ class Konata{
         let inBrFlush = false;
         let inJumpFlush = false;
         let inMemFlush = false;
+
+        let startTime = (new Date()).getTime();
+        
+        let sleepTimer = 0;
+        let SLEEP_INTERVAL = 50000;
 
         for (let i = 0; i < lastID; i++) {
             let op = this.getOp(i);
@@ -238,6 +245,17 @@ class Konata{
             else {
                 prevStore = false;
             }
+
+            // 一定時間毎に setTimeout でその他の処理への切り替えを入れる
+            if (sleepTimer > SLEEP_INTERVAL) {
+                sleepTimer = 0;
+                update(i / lastID, i / SLEEP_INTERVAL);
+                await new Promise(r => setTimeout(r, 0));
+                if (this.closed_){
+                    break;
+                }
+            }
+            sleepTimer++;
         }
 
         // post process
@@ -250,7 +268,7 @@ class Konata{
         s.rateSpeculativeMemMiss = s.numSpeculativeMemMiss / s.numRetiredStore;
         s.mpkiSpeculativeMemMiss = s.numSpeculativeMemMiss / s.numCommittedOps * 1000;
 
-        callback(s);
+        finish(s);
     }
 
 }

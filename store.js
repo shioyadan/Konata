@@ -361,10 +361,25 @@ class Store{
 
         // Show statistics
         self.on(ACTION.FILE_SHOW_STATS, function(){
-            let konata = self.activeTab.konata;
-            konata.stats(function(stats){
-                self.trigger(CHANGE.DIALOG_SHOW_STATS, stats);
-            });
+            if (!self.activeTab) {
+                return;
+            }
+            let tab = self.activeTab;
+            let tabID = tab.id;
+            self.trigger(CHANGE.PROGRESS_BAR_START, tab.id, "stats");
+            tab.konata.stats(
+                (percent, count) => {  // 更新通知ハンドラ
+                    self.trigger(CHANGE.PROGRESS_BAR_UPDATE, percent, tabID, "stats");
+                    if (count % 10 == 0) {  // 常に再描画すると重いので，10% おきに再描画
+                        self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+                    }
+                },
+                (stats) => {  // 読み出し終了ハンドラ
+                    self.trigger(CHANGE.PROGRESS_BAR_FINISH, tabID, "stats");
+                    self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+                    self.trigger(CHANGE.DIALOG_SHOW_STATS, stats);
+                },
+            );
         });
 
         // アクティブなタブの変更
