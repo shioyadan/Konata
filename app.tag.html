@@ -491,7 +491,7 @@
 
         self.onCloseFindResult = function(){
             dispatcher.trigger(ACTION.KONATA_FIND_HIDE_RESULT);
-        }
+        };
 
         // ペーンの内容の更新
         self.onPaneContentUpdate = function(){
@@ -786,7 +786,7 @@
 
         self.makeBarID = function(tabID, barType){
             return tabID + "_" + barType;
-        }
+        };
 
         // タブの移動
         dispatcher.on(ACTION.TAB_ACTIVATE,
