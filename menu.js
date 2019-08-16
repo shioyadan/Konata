@@ -135,7 +135,11 @@ function installMainMenu(store, dispatcher){
                         submenu: tab ? store.config.bookmarks.map(function(bkm, index){
                             return {
                                 label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
-                                click: function(){rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);},
+                                click: function(){
+                                    if (!store.isCommandPaletteOpened){
+                                        rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);
+                                    }
+                                },
                                 accelerator: `${index}`
                             };
                         }) : [],
@@ -146,7 +150,11 @@ function installMainMenu(store, dispatcher){
                         submenu: tab ? store.config.bookmarks.map(function(bkm, index){
                             return {
                                 label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
-                                click: function(){rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);},
+                                click: function(){
+                                    if (!store.isCommandPaletteOpened){
+                                        rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);
+                                    }
+                                },
                                 accelerator: "CommandOrControl+" + index
                             };
                         }) : [],
@@ -379,7 +387,11 @@ function popupPipelineMenu(store, dispatcher, pos){
             submenu: store.config.bookmarks.map(function(bkm, index){
                 return {
                     label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
-                    click: function(){rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);},
+                    click: function(){
+                        if (!store.isCommandPaletteOpened){
+                            rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);
+                        }
+                    },
                     accelerator: `${index}`
                 };
             }),
@@ -389,7 +401,11 @@ function popupPipelineMenu(store, dispatcher, pos){
             submenu: store.config.bookmarks.map(function(bkm, index){
                 return {
                     label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
-                    click: function(){rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);},
+                    click: function(){
+                        if (!store.isCommandPaletteOpened){
+                            rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);
+                        }
+                    },
                     accelerator: "CommandOrControl+" + index
                 };
             }),
