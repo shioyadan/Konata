@@ -180,7 +180,7 @@ function installMainMenu(store, dispatcher){
                     },
                     {
                         label: "Pipeline color scheme",
-                        submenu: ["Auto", "Orange", "RoyalBlue"/*, "Onikiri"*/].map(function(color){
+                        submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].map(function(color){
                             return {
                                 label: color,
                                 type: "checkbox",
@@ -334,7 +334,7 @@ function makePopupTabMenuTemplate(store, dispatcher, tabID){
         },
         {
             label: "Pipeline color scheme",
-            submenu: ["Auto", "Orange", "RoyalBlue"/*, "Onikiri"*/].map(function(color){
+            submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].map(function(color){
                 return {
                     label: color,
                     type: "checkbox",
