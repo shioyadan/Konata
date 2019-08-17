@@ -523,7 +523,11 @@ class KonataRenderer{
     // 拡大率によって決定
     get canDrawDetailedly(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight - 2 > 0;  // 枠1ピクセルを除いて内部があるかどうか
+        return laneHeight > 1;   // 1 以上あるかどうか
+    }
+    get canDrawDependency(){
+        let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
+        return laneHeight - 2 > 2;  // 枠1ピクセルを除いて内部があるかどうか
     }
     get canDrawFrame(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
@@ -716,7 +720,7 @@ class KonataRenderer{
         // 依存関係の描画
         let self = this;
 
-        if (!self.canDrawDetailedly) {
+        if (!self.canDrawDependency) {
             return;
         }
         let arrowBeginOffsetX = self.opW_ * 3 / 4 + self.PIXEL_ADJUST;
