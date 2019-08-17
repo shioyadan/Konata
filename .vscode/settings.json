@@ -1,3 +1,17 @@
 {
-    "files.eol": "\n"
+    "files.eol": "\n",
+    "cSpell.words": [
+        "cur",
+        "detailedly",
+        "disasm",
+        "dsts",
+        "flushed",
+        "insn",
+        "kanata",
+        "konata",
+        "linebreak",
+        "parsing",
+        "readlines",
+        "srcs"
+    ]
 }
