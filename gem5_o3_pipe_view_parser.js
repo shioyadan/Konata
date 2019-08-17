@@ -1,5 +1,6 @@
 let Op = require("./op").Op;
 let Stage = require("./stage").Stage;
+let StageLevel = require("./stage").StageLevel;
 
 // JSDoc のタイプチェックに型を認識させるため
 let FileReader = require("./file_reader").FileReader; // eslint-disable-line
@@ -636,12 +637,15 @@ class Gem5O3PipeViewParser{
         // ステージのマップに登録
         let map = this.stageLevelMap_;
         if (stageName in map) {
-            if (map[stageName] > laneInfo.level) {
-                map[stageName] = laneInfo.level;
+            if (map[stageName].appearance > laneInfo.level) {
+                map[stageName].appearance = laneInfo.level;
             }
         }
         else{
-            map[stageName] = laneInfo.level;
+            let level = new StageLevel;
+            level.appearance = laneInfo.level;
+            level.unique = Object.keys(map).length;
+            map[stageName] = level;
         }
     }
 

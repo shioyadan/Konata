@@ -126,7 +126,7 @@ class KonataRenderer{
             if (stage == "f" || stage == "stl") {
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
-            let level = self.konata_.stageLevelMap[stage];
+            let level = self.konata_.stageLevelMap[stage].unique;
             let color = this.style_.pipelinePane.stageBackgroundColor;
             if (isBegin) {
                 let h = ((250-level*color.hRateBegin)%360);

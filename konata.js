@@ -1,6 +1,7 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Op = require("./op").Op; // eslint-disable-line
 let CreateStats = require("./stats").CreateStats; // eslint-disable-line
+let StageLevel = require("./stage").StageLevel; // eslint-disable-line
 
 class Konata{
     constructor(){
@@ -114,6 +115,7 @@ class Konata{
         return this.parser_ ? this.parser_.laneMap : {};
     }
 
+    /** @return {Object.<string,StageLevel>} */
     get stageLevelMap(){
         return this.parser_ ? this.parser_.stageLevelMap : {};
     }

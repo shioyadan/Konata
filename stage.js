@@ -8,4 +8,13 @@ class Stage{
     }
 }
 
+class StageLevel{
+    constructor(){
+        this.appearance = 0;    // The order of appearance
+        this.unique = 0;        // Different levels are assigned to all levels 
+    }
+}
+
 module.exports.Stage = Stage;
+module.exports.StageLevel = StageLevel;
+
