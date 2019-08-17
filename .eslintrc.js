@@ -5,6 +5,10 @@ module.exports = {
         "jquery": true,
         "es6": true
     },
+    "parserOptions": {
+        // let/const/forOf/async などを使うため，バージョンをあげる
+        "ecmaVersion": 2018
+    },
     "extends": "eslint:recommended",
     "rules": {
         "indent": [
@@ -44,8 +48,4 @@ module.exports = {
     // HTML 内のスクリプトをチェックするためにプラグインを有効化
     "plugins": ["html"],
 
-    // let/const/forOf などを使う
-    "parserOptions": {
-        "ecmaVersion": 6,
-    },
 };
