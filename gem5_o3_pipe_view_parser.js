@@ -3,8 +3,9 @@ let Stage = require("./stage").Stage;
 let StageLevel = require("./stage").StageLevel;
 let Lane = require("./stage").Lane;
 
-// JSDoc のタイプチェックに型を認識させるため
-let FileReader = require("./file_reader").FileReader; // eslint-disable-line
+// To enable JSDoc type check, load FileReader.
+// To avoid conflicts with node.js internal FileReader, use a different name.
+let InternalFileReader = require("./file_reader").FileReader; // eslint-disable-line
 
 class Gem5O3PipeViewExLogInfo{
     constructor(){
@@ -21,6 +22,7 @@ class Gem5O3PipeViewParser{
     constructor(){
 
         // ファイルリーダ
+        /** @type {InternalFileReader} */
         this.file_ = null; 
 
         // Callback handlers on update, finish, and error
@@ -163,7 +165,7 @@ class Gem5O3PipeViewParser{
     }
 
     /**
-     * @param {FileReader} file - ファイルリーダ
+     * @param {InternalFileReader} file - ファイルリーダ
      * @param {function} updateCallback - 
      *      (percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
      * @param {function} finishCallback - 終了時に呼び出される
