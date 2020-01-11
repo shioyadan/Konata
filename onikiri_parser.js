@@ -1,6 +1,7 @@
 let Op = require("./op").Op;
 let Stage = require("./stage").Stage;
 let StageLevel = require("./stage").StageLevel;
+let Lane = require("./stage").Lane;
 
 class OnikiriParser{
 
@@ -283,10 +284,7 @@ class OnikiriParser{
         stage.name = stageName;
         stage.startCycle = this.curCycle_;
         if (!(laneName in op.lanes)) {
-            op.lanes[laneName] = {
-                level: 0,  // 1サイクル以上のステージの数
-                stages: [],
-            };
+            op.lanes[laneName] = new Lane;
         }
 
         let laneInfo = op.lanes[laneName];

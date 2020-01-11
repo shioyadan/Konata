@@ -1,5 +1,6 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Stage = require("./stage").Stage; // eslint-disable-line
+let Lane = require("./stage").Lane; // eslint-disable-line
 
 class Op{
     constructor(){
@@ -15,6 +16,7 @@ class Op{
         this.flush = false; // Flushであるかどうか
         
         this.eof = false; // ファイル終端による終了
+        /** @type {Object<string, Lane>} */
         this.lanes = {}; // レーン情報の連想配列
         this.fetchedCycle = -1;
         this.retiredCycle = -1;

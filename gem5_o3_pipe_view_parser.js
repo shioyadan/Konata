@@ -1,6 +1,7 @@
 let Op = require("./op").Op;
 let Stage = require("./stage").Stage;
 let StageLevel = require("./stage").StageLevel;
+let Lane = require("./stage").Lane;
 
 // JSDoc のタイプチェックに型を認識させるため
 let FileReader = require("./file_reader").FileReader; // eslint-disable-line
@@ -608,10 +609,7 @@ class Gem5O3PipeViewParser{
         stage.name = stageName;
         stage.startCycle = tick;
         if (!(laneName in op.lanes)) {
-            op.lanes[laneName] = {
-                level: 0,  // 1サイクル以上のステージの数
-                stages: [],
-            };
+            op.lanes[laneName] = new Lane;
         }
 
         let laneInfo = op.lanes[laneName];

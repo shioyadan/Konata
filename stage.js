@@ -15,6 +15,15 @@ class StageLevel{
     }
 }
 
+class Lane{
+    constructor(){
+        this.level = 0;  // 1サイクル以上のステージの数
+        /** @type {Array<Stage>} */
+        this.stages = [];
+    }
+}
+
 module.exports.Stage = Stage;
 module.exports.StageLevel = StageLevel;
+module.exports.Lane = Lane;
 
