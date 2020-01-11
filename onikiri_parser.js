@@ -1,4 +1,5 @@
 let Op = require("./op").Op;
+let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
 let StageLevel = require("./stage").StageLevel;
 let Lane = require("./stage").Lane;
@@ -381,6 +382,11 @@ class OnikiriParser{
         }
     }
 
+    /** 
+     * @param {number} id 
+     * @param {Op} op
+     * @param {Array<string>} args
+    */
     parseDependencyCommand(id, op, args){
         // 任意の依存関係 - 典型的にはウェイクアップ
         // タイプ番号の指定により，違う色で表示される
@@ -397,12 +403,8 @@ class OnikiriParser{
         let prodId = Number(args[2]);
         let prod = this.opList_[prodId];
         let type = Number(args[3]);
-        op.prods.push(
-            {op: prod, type: type, cycle: this.curCycle_}
-        );
-        prod.cons.push(
-            {op: op, type: type, cycle: this.curCycle_}
-        );
+        op.prods.push(new Dependency(prod, type, this.curCycle_));
+        prod.cons.push(new Dependency(op, type, this.curCycle_));
     }
 
     parseCommand(args){

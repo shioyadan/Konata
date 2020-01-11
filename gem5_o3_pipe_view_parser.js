@@ -1,4 +1,5 @@
 let Op = require("./op").Op;
+let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
 let StageLevel = require("./stage").StageLevel;
 let Lane = require("./stage").Lane;
@@ -56,11 +57,11 @@ class Gem5O3PipeViewParser{
         // ファイル内の op の順序はほぼランダムなため，一回ここに貯めたあと
         // 再度 id と rid の割り付ける
         // こいつは連続していないので，辞書になっている
-        /** @type {Object.<number, Op>} */
+        /** @type {Object.<string, Op>} */
         this.parsingOpList_ = {};
 
         // パース中の O3PipeView 以外のログ
-        /** @type {Object.<number, Gem5O3PipeViewExLogInfo>} */
+        /** @type {Object.<string, Gem5O3PipeViewExLogInfo>} */
         this.parsingExLog_ = {};
 
         // O3PipeView 以外のログで最後に現れた SN
@@ -434,16 +435,12 @@ class Gem5O3PipeViewParser{
             if (seqNum in this.parsingExLog_) {
                 let exLog = this.parsingExLog_[seqNum];
                 for (let s of exLog.srcs) {
-                    let type = "0"; // default
+                    let type = 0; // default
                     if (s in this.depTable_) {
                         let prod = this.depTable_[s];
                         if (prod.prodCycle < op.consCycle) {
-                            op.prods.push(
-                                {op: prod, type: type, cycle: op.prodCycle}
-                            );
-                            prod.cons.push(
-                                {op: op, type: type, cycle: op.consCycle}
-                            );
+                            op.prods.push(new Dependency(prod, type, op.prodCycle));
+                            prod.cons.push(new Dependency(op, type, op.consCycle));
                         }
                     }
                 }

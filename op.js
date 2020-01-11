@@ -31,10 +31,10 @@ class Op{
         this.lastParsedStage = null;
         this.lastParsedCycle = -1;
 
-        /** @type {array} prods - プロデューサ命令のIDの配列 */
+        /** @type {Array<Dependency>} prods - プロデューサ命令のIDの配列 */
         this.prods = []; 
 
-        /** @type {array} cons - コンシューマ命令のIDの配列 */
+        /** @type {Array<Dependency>} cons - コンシューマ命令のIDの配列 */
         this.cons = [];
 
         // 依存関係の描画に使用
@@ -43,4 +43,18 @@ class Op{
     }
 }
 
+class Dependency{
+    /** 
+     * @param {Op} op 
+     * @param {number} type
+     * @param {number} cycle
+     * */
+    constructor(op, type, cycle) {
+        this.op = op;
+        this.type = type;
+        this.cycle = cycle;
+    }
+}
+
 module.exports.Op = Op;
+module.exports.Dependency = Dependency;
