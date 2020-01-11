@@ -428,8 +428,12 @@ class KonataRenderer{
                     text += `${stage.name}[${stage.endCycle - stage.startCycle}]`;
 
                     // ステージに関連づけられたラベル
-                    for (let i of stage.labels) {
-                        stageText += `${stage.name}: ${i}\n`;
+                    if (stage.labels != "") {
+                        for (let line of stage.labels.split("\n")) {
+                            if (line != ""){
+                                stageText += `${stage.name}: ${line}\n`;
+                            }
+                        }
                     }
                     first = false;
                 }

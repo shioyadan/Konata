@@ -871,8 +871,8 @@ class Store{
             `${op.id}: s${op.gid} (t${op.tid}: r${op.rid}) ${op.labelName}\n${op.labelDetail}`;
             for (let laneName in op.lanes) {
                 for (let stage of op.lanes[laneName].stages) {
-                    for (let label of stage.labels) {
-                        labelString += "\n" + label;
+                    if (stage.labels != "") {
+                        labelString += "\n" + stage.labels;
                     }
                 }
             }

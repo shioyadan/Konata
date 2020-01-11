@@ -535,9 +535,7 @@ class Gem5O3PipeViewParser{
         op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
         for (let laneName in op.lanes) {
             for (let stage of op.lanes[laneName].stages) {
-                for (let i = 0; i < stage.labels.length; i++) {
-                    stage.labels[i] = stage.labels[i].replace(/\\n/g, "\n");
-                }
+                stage.labels = stage.labels.replace(/\\n/g, "\n");
             }
         }
     }
@@ -812,7 +810,9 @@ class Gem5O3PipeViewParser{
             
 
             // Add log to each stage
-            op.lastParsedStage.labels.push(args.join(":"));
+            if (op.lastParsedStage.labels != "")
+                op.lastParsedStage.labels += "\n";
+            op.lastParsedStage.labels += args.join(":");
             logList.shift();
         }
     }

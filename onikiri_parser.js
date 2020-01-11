@@ -201,6 +201,9 @@ class OnikiriParser{
         console.log(`Parsed (${this.name}): ${elapsed} ms`);
     }
 
+    /**
+     * @param {Op} op 
+     */
     unescapeLabels(op){
         // op 内のラベルのエスケープされている \n を戻す
         // v8 エンジンでは，文字列を結合すると cons 文字列という形式で
@@ -211,9 +214,7 @@ class OnikiriParser{
         op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
         for (let laneName in op.lanes) {
             for (let stage of op.lanes[laneName].stages) {
-                for (let i = 0; i < stage.labels.length; i++) {
-                    stage.labels[i] = stage.labels[i].replace(/\\n/g, "\n");
-                }
+                stage.labels = stage.labels.replace(/\\n/g, "\n");
             }
         }
 
@@ -269,7 +270,9 @@ class OnikiriParser{
             op.labelDetail += str;
         }
         else if (type == 2) {
-            op.lastParsedStage.labels.push(str);
+            if (op.lastParsedStage.labels != "")
+                op.lastParsedStage.labels += "\n";
+            op.lastParsedStage.labels += str;
         }
     }
 
