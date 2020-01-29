@@ -527,19 +527,19 @@ class KonataRenderer{
     // 拡大率によって決定
     get canDrawDetailedly(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight > 1;   // 1 以上あるかどうか
+        return laneHeight > this.config.drawDetailedlyThreshold;     // 閾値以上の高さがあるかどうか
     }
     get canDrawDependency(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight - 2 > 2;  // 枠1ピクセルを除いて内部があるかどうか
+        return laneHeight > this.config.drawDependencyThreshold;
     }
     get canDrawFrame(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight - 2 > 2;  // 枠1ピクセルを除いて内部があるかどうか
+        return laneHeight > this.config.drawFrameThreshold;
     }
     get canDrawText(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight - 2 > 8;  // 枠1ピクセルを除いて内部があるかどうか
+        return laneHeight > this.config.drawTextThreshold;
     }
 
     get zoomLevel(){

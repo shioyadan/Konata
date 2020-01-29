@@ -22,12 +22,20 @@ class Config{
             light:  "./theme/light/style.css", 
         };
 
+        // Window position
         this.windowBounds = {
             x: 100,
             y: 100,
             width: 800,
             height: 600
         };
+
+        // 描画モードの切り替え閾値
+        this.drawDetailedlyThreshold = 1;   // レーンの高さがこれより小さい時はステージの描画を省略
+        this.drawDependencyThreshold = 2 + 2;   // 枠1ピクセルを除いて内部があるかどうか
+        this.drawFrameThreshold = 2 + 2;
+        this.drawTextThreshold = 8 + 2; // 
+
 
         // 
         this.depArrowType = "insideLine";
