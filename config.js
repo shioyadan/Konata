@@ -22,6 +22,13 @@ class Config{
             light:  "./theme/light/style.css", 
         };
 
+        this.windowBounds = {
+            x: 100,
+            y: 100,
+            width: 800,
+            height: 600
+        };
+
         // 
         this.depArrowType = "insideLine";
         this.VALID_DEP_ARROW_TYPES_ = [

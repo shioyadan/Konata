@@ -438,7 +438,13 @@ class Store{
         });
 
         // ウィンドウのサイズ変更
-        self.on(ACTION.SHEET_RESIZE, function(){
+        self.on(ACTION.SHEET_RESIZE, function(bounds){
+            if ("x" in bounds && "y" in bounds && 
+                "width" in bounds && "height" in bounds
+            ) {
+                self.config.windowBounds = bounds;
+                //console.log(bounds);
+            }
             self.trigger(CHANGE.PANE_SIZE_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });

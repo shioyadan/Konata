@@ -28,8 +28,12 @@ app.on("ready", function() {
     // The main window is not shown while loading. 
     m_window = new BrowserWindow({
         width: 800, 
-        height: 600, 
+        height: 600,
+
+        // The window is initially hidden and 
+        // is activate in an initial handler in <app> in app.tag.html
         show: false,
+        
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
@@ -39,11 +43,6 @@ app.on("ready", function() {
 
     m_window.loadURL(currentURL);
     //m_window.toggleDevTools();
-
-    // After the initial page is rendered, the window will be show. 
-    m_window.once("ready-to-show", () => {
-        m_window.show();
-    });
 
     // ウィンドウが閉じる前に，設定を保存
     // store.config が生きている間 = ウィンドウの生存期間内に処理をしないといけない

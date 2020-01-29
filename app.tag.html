@@ -895,14 +895,15 @@
         // リサイズハンドラ
         self.onResize = function(){
             // シートのサイズを計算
-            /*
-            let width = document.body.offsetWidth;
-            let height = 
-                document.body.offsetHeight - 
-                self.tags.app_tabbar.getHeight();
-            */
-            rc.trigger(ACTION.SHEET_RESIZE);
+            let win = self.remote.getCurrentWindow();
+            let bounds = win.getBounds();   // {x, y, width, height}
+            rc.trigger(ACTION.SHEET_RESIZE, bounds);
         };
+
+        // Window move handler
+        self.onMove = function(){
+            self.onResize();    // Redirect to onResize
+        }
 
         // フォーカスハンドラ
         self.onFocus = function(){
@@ -931,6 +932,16 @@
         // 初期化
         // マウント時に呼ばれる
         self.init = function(){
+            // Get the current window
+            let electronWindow = self.remote.getCurrentWindow();
+
+            // Must set window bounds before resize/move handlers are set
+            // to avoid overwriting config.windowBounds
+            //electronWindow.setBounds(store.config.windowBounds);
+            electronWindow.setSize(
+                store.config.windowBounds.width, 
+                store.config.windowBounds.height
+            );
 
             // CSS の設定
             self.onCSS_Update();
@@ -945,6 +956,9 @@
             // リサイズハンドラ
             window.addEventListener("resize", self.onResize, false);
             self.onResize();    // サイズを適用しておくために1回呼んでおく
+
+            // Window move handler
+            electronWindow.on("move", self.onMove);
 
             // ドラッグアンドドロップ
             document.ondragover = function(e) {
@@ -1012,11 +1026,12 @@
                 //console.log(key);
             };
 
+            // Now all initialization is finished and show window.
+            electronWindow.show();
         };
 
         // エントリポイント
         self.on("mount", self.init);
-
     </script>
 </app>
 
