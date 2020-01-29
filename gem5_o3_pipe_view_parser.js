@@ -41,6 +41,7 @@ class Gem5O3PipeViewParser{
         this.lastID_ = -1;
         this.lastGID_ = -1;  // seqNum
         this.lastRID_ = -1;
+        this.lastNotFlushedID = -1; // 最後に正常にリタイアした命令の id
 
         // seq_num, flush flag, and tick for a currently parsed instruction
         this.curParsingSeqNum_ = 0;
@@ -469,11 +470,13 @@ class Gem5O3PipeViewParser{
 
             if (!op.flush) {
                 this.lastRID_++;
+                this.lastNotFlushedID = this.lastID;
                 op.rid = this.lastRID_;
                 this.retiredOpList_[op.rid] = op;
             }
             else { // in a flushing phase
-                op.rid = -1;
+                // Dummy RID
+                op.rid = this.lastRID_ + this.lastID - this.lastNotFlushedID;
             }
         }
     }
