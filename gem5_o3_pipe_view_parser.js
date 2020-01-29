@@ -439,8 +439,8 @@ class Gem5O3PipeViewParser{
                     if (s in this.depTable_) {
                         let prod = this.depTable_[s];
                         if (prod.prodCycle < op.consCycle) {
-                            op.prods.push(new Dependency(prod, type, op.prodCycle));
-                            prod.cons.push(new Dependency(op, type, op.consCycle));
+                            op.prods.push(new Dependency(prod.id, type, op.prodCycle));
+                            prod.cons.push(new Dependency(op.id, type, op.consCycle));
                         }
                     }
                 }

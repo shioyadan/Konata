@@ -27,7 +27,9 @@ class OnikiriParser{
         this.lastRID_ = -1;
         
         // op 情報
+        /** @type {Op[]} */
         this.opList_ = [];
+        /** @type {Op[]} */
         this.retiredOpList_ = [];
     
         // パース完了
@@ -406,8 +408,8 @@ class OnikiriParser{
         let prodId = Number(args[2]);
         let prod = this.opList_[prodId];
         let type = Number(args[3]);
-        op.prods.push(new Dependency(prod, type, this.curCycle_));
-        prod.cons.push(new Dependency(op, type, this.curCycle_));
+        op.prods.push(new Dependency(prod.id, type, this.curCycle_));
+        prod.cons.push(new Dependency(op.id, type, this.curCycle_));
     }
 
     parseCommand(args){

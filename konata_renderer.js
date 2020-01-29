@@ -752,7 +752,7 @@ class KonataRenderer{
 
             for (let dep of op.prods) {
 
-                let prod = dep.op;    // ここは getVisibleOp ではない
+                let prod = this.konata_.getOp(dep.opID);    // ここは getVisibleOp ではない
                 if (!prod) {
                     continue;
                 }
