@@ -102,8 +102,8 @@ class Tab{
      * */
     constructor(id, fileName, konata, renderer){
         let fs = require("fs");
-        let KonataRenderer = require("./konata_renderer").KonataRenderer;
-        let Konata = require("./konata").Konata;
+        let KonataRenderer = require("./konata_renderer").KonataRenderer; // eslint-disable-line
+        let Konata = require("./konata").Konata; // eslint-disable-line
         let Op = require("./op").Op;   // eslint-disable-line
 
         // ファイル更新時間
@@ -138,7 +138,7 @@ class Tab{
                 this.findID = 0;
                 this.flushed = false;   // フラッシュされたかどうか
             }
-        }
+        };
         this.findContext = new this.FindContext;
     }
 }
