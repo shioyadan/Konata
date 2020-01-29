@@ -633,6 +633,9 @@ class Store{
             if (self.inScrollAnimation) {
                 self.finishScroll();
             }
+            if (self.zoom.inAnimation) {
+                self.finishZoom();
+            }
 
             let activeRenderer = self.activeTab.renderer;
             let op = null;
@@ -659,6 +662,7 @@ class Store{
                         let synchedOp = renderer.getOpFromRID(op.rid);
                         if (synchedOp && self.activeTab.id != tab.id) {
                             let y = tab.hideFlushedOps ? synchedOp.rid : synchedOp.id;
+                            renderer.zoomAbs(activeRenderer.zoomLevel, 0, 0, false);
                             renderer.moveLogicalPos([synchedOp.fetchedCycle, y]);
                         }
                     }
