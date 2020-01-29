@@ -213,27 +213,11 @@ class KonataRenderer{
         // 画面に表示されているものの中で最も上にあるものを基準に
         let oldOp = null;
         oldOp = self.getVisibleOp(y);
-        while (!oldOp || oldOp.retiredCycle < self.viewPos_.left) {
-            y++;
-            oldOp = self.getVisibleOp(y);
-            if (y > self.getVisibleBottom()){
-                // 画面に表示されている op が一切無かった場合は帰る
-                return 0;
-            }
-        }
 
         // 水平方向の補正を行う
         let newTop = y + diffY;
         let newY = Math.floor(newTop);
         let newOp = self.getVisibleOp(newY);
-        while (!newOp || newOp.retiredCycle < self.viewPos_.left) {
-            newY++;
-            newOp = self.getVisibleOp(newY);
-            if (newY > self.getVisibleBottom()){
-                // 画面に表示されている op が一切無かった場合は帰る
-                return 0;
-            }
-        }
 
         if (!newOp) {
             return 0;
