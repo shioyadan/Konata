@@ -2,14 +2,15 @@
 let Op = require("./op").Op; // eslint-disable-line
 let CreateStats = require("./stats").CreateStats; // eslint-disable-line
 let StageLevel = require("./stage").StageLevel; // eslint-disable-line
+let OnikiriParser = require("./onikiri_parser").OnikiriParser;
+let Gem5O3PipeViewParser = require("./gem5_o3_pipe_view_parser").Gem5O3PipeViewParser;
 
 class Konata{
     constructor(){
         this.name = "Konata";
+        /** @type {OnikiriParser|Gem5O3PipeViewParser} */
         this.parser_ = null;
         this.FileReader_ = require("./file_reader").FileReader;
-        this.OnikiriParser_ = require("./onikiri_parser").OnikiriParser;
-        this.Gem5O3PipeViewParser_ = require("./gem5_o3_pipe_view_parser").Gem5O3PipeViewParser;
 
         this.file_ = null;
         this.filePath_ = ""; 
@@ -50,8 +51,8 @@ class Konata{
 
     reload(){
         let parsers = [
-            new this.OnikiriParser_(),
-            new this.Gem5O3PipeViewParser_()
+            new OnikiriParser(),
+            new Gem5O3PipeViewParser()
         ];
         this.load_(parsers);
     }

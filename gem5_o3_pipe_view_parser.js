@@ -78,6 +78,7 @@ class Gem5O3PipeViewParser{
         this.laneMap_ = {};
 
         // ステージの出現順序を記録するマップ
+        /** @type {Object.<string, StageLevel>} */
         this.stageLevelMap_ = {};
 
         // 読み出し開始時間
@@ -235,7 +236,6 @@ class Gem5O3PipeViewParser{
         return this.laneMap_;
     }
 
-    /** @returns {Object.<string, number>} */
     get stageLevelMap(){
         return this.stageLevelMap_;
     }
