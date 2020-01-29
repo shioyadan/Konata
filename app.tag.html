@@ -903,7 +903,7 @@
         // Window move handler
         self.onMove = function(){
             self.onResize();    // Redirect to onResize
-        }
+        };
 
         // フォーカスハンドラ
         self.onFocus = function(){
@@ -937,11 +937,7 @@
 
             // Must set window bounds before resize/move handlers are set
             // to avoid overwriting config.windowBounds
-            //electronWindow.setBounds(store.config.windowBounds);
-            electronWindow.setSize(
-                store.config.windowBounds.width, 
-                store.config.windowBounds.height
-            );
+            electronWindow.setBounds(store.config.windowBounds);
 
             // CSS の設定
             self.onCSS_Update();
