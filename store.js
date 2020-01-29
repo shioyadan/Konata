@@ -650,6 +650,7 @@ class Store{
                 op = activeRenderer.getOpFromPixelPosY(0);
             }
             if (op) {
+                op = activeRenderer.getOpFromRID(op.rid);
                 let activeY = self.activeTab.hideFlushedOps ? op.rid : op.id;
                 activeRenderer.moveLogicalPos([op.fetchedCycle, activeY]);
                 
