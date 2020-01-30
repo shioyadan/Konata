@@ -60,7 +60,7 @@ html, body {
 /* コマンドパレット */
 .command_palette {
     padding: 5px;
-    width: 300px; 
+    width: 500px; 
 
     /*line-height: 1.4em;*/
     font-size: 12px;

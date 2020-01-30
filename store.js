@@ -243,42 +243,54 @@ class Store{
             self.trigger(CHANGE.COMMAND_PALETTE_CLOSE);
         });
         self.on(ACTION.COMMAND_PALETTE_EXECUTE, function(cmd){
-            if (!self.activeTab) {
-                return;
-            }
+            let accept = false;
 
-            
             if (cmd.match(/j[\s]+(\d+)/)) { // js #line
-                let id = Number(RegExp.$1);
-                let renderer = self.activeTab.renderer;
-                let pos = renderer.viewPos;
-                let op = renderer.getVisibleOp(id);
-                if (op) {
-                    self.startScroll([op.fetchedCycle - pos[0], id - pos[1]]);
+                if (self.activeTab) {
+                    let id = Number(RegExp.$1);
+                    let renderer = self.activeTab.renderer;
+                    let pos = renderer.viewPos;
+                    let op = renderer.getVisibleOp(id);
+                    if (op) {
+                        self.startScroll([op.fetchedCycle - pos[0], id - pos[1]]);
+                    }
+                    accept = true;
                 }
             }
             else if (cmd.match(/jr[\s](\d+)/)) { // jr #rid
-                let rid = Number(RegExp.$1);
-                let renderer = self.activeTab.renderer;
-                let pos = renderer.viewPos;
-                let op = renderer.getOpFromRID(rid);
-                let y = renderer.getPosY_FromRID(rid);
-                if (op) {
-                    self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
+                if (self.activeTab) {
+                    let rid = Number(RegExp.$1);
+                    let renderer = self.activeTab.renderer;
+                    let pos = renderer.viewPos;
+                    let op = renderer.getOpFromRID(rid);
+                    let y = renderer.getPosY_FromRID(rid);
+                    if (op) {
+                        self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
+                    }
+                    accept = true;
                 }
             }
             else if (cmd.match(/^f[\s]+(.+)$/)) {   // find #
+                if (self.activeTab) {
+                    let target = RegExp.$1;
+                    self.trigger(ACTION.KONATA_FIND_STRING, target);
+                    accept = true;
+                }
+            }
+            else if (cmd.match(/^l[\s]+(.+)$/)) {   // load #
                 let target = RegExp.$1;
-                self.trigger(ACTION.KONATA_FIND_STRING, target);
+                self.trigger(ACTION.FILE_OPEN, target);
+                accept = true;
             }
             else {
                 self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to parse: ${cmd}`);
             }
-            self.config.commandHistory.unshift(cmd);
-            if (self.config.commandHistory.length > self.config.maxCommandHistoryNum) {
-                self.config.commandHistory.pop();
+            if (accept) {
+                self.config.commandHistory.unshift(cmd);
+                if (self.config.commandHistory.length > self.config.maxCommandHistoryNum) {
+                    self.config.commandHistory.pop();
+                }
             }
-
             /*
             else if (cmd.match(/^o[\s]+(.+)$/)) {   // find #
                 let target = RegExp.$1;
