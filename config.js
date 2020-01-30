@@ -57,6 +57,11 @@ class Config{
             });
         }
 
+        /** The history of command pallettes  
+         * @type {string[]} */
+        this.commandHistory = [];
+        this.maxCommandHistoryNum = 20;
+
         // 設定読み込み
         this.load();
     }

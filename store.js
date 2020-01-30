@@ -274,6 +274,10 @@ class Store{
             else {
                 self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to parse: ${cmd}`);
             }
+            self.config.commandHistory.unshift(cmd);
+            if (self.config.commandHistory.length > self.config.maxCommandHistoryNum) {
+                self.config.commandHistory.pop();
+            }
 
             /*
             else if (cmd.match(/^o[\s]+(.+)$/)) {   // find #

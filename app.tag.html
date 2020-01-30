@@ -688,8 +688,9 @@
     </div>
 
     <script>
-        /* globals dispatcher ACTION CHANGE */
+        /* globals dispatcher ACTION CHANGE store */
         let self = this;
+        self.historyIndex = -1;
         self.hintList = {
             0: {"text": "Jump to #line",                "cmd": "j  <#line>"},
             1: {"text": "Jump to an op with rid",       "cmd": "jr <rid>"},
@@ -718,6 +719,16 @@
                 dispatcher.trigger(ACTION.COMMAND_PALETTE_EXECUTE, input.value);
                 dispatcher.trigger(ACTION.COMMAND_PALETTE_CLOSE);
             }
+            else if (key == "ArrowUp" || key == "ArrowDown") {
+                let input = self.refs.input;
+                self.historyIndex += key == "ArrowUp" ? 1 : -1;
+                self.historyIndex = Math.min(store.config.commandHistory.length - 1, Math.max(-1, self.historyIndex));
+                let cmd = self.historyIndex == -1 ? "" : store.config.commandHistory[self.historyIndex];
+                input.value = cmd;
+                input.selectionStart = cmd.length;
+                input.selectionEnd = cmd.length;
+                e.preventDefault(); // ArrowUp/ArrowDown may change a caret position.
+            }
         };
 
         // オープン
@@ -730,6 +741,8 @@
                 // visibility は 0 に
                 //cp.transition = "visibility 0s, top 0.05s ease-out";
                 //cp.top = "0px";
+
+                self.historyIndex = -1;
 
                 // フォーカスを合わせる
                 let input = self.refs.input;
