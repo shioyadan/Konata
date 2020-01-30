@@ -99,12 +99,14 @@ class Tab{
      * @param {string} fileName
      * @param {Konata} konata
      * @param {KonataRenderer} renderer
+     * @param {Config} config
      * */
-    constructor(id, fileName, konata, renderer){
+    constructor(id, fileName, konata, renderer, config){
         let fs = require("fs");
         let KonataRenderer = require("./konata_renderer").KonataRenderer; // eslint-disable-line
         let Konata = require("./konata").Konata; // eslint-disable-line
         let Op = require("./op").Op;   // eslint-disable-line
+        let Config = require("./config").Config;   // eslint-disable-line
 
         // ファイル更新時間
         let mtime = fs.statSync(fileName).mtime;
@@ -114,7 +116,7 @@ class Tab{
         this.lastFileCheckedTime = mtime;
         this.konata = konata;
         this.renderer = renderer;
-        this.splitterPos = 450;
+        this.splitterPos = config.splitterPosition;
         this.transparent = false; // 透明化の有効無効
         this.hideFlushedOps = false;  // フラッシュされた命令を隠すか
         this.emphasize_in_transparent = false; // 透明化の際に表示を強調するかどうか
@@ -322,7 +324,7 @@ class Store{
             let renderer = new KonataRenderer.KonataRenderer();
             renderer.init(konata, self.config);
 
-            let tab = new Tab(self.nextOpenedTabID, fileName, konata, renderer);
+            let tab = new Tab(self.nextOpenedTabID, fileName, konata, renderer, self.config);
 
             self.tabs[self.nextOpenedTabID] = tab;
             self.activeTabID = self.nextOpenedTabID;
@@ -461,6 +463,7 @@ class Store{
                     tab.splitterPos = position;
                 }
             }
+            self.config.splitterPosition = position;
             self.trigger(CHANGE.PANE_SIZE_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });

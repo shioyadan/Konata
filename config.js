@@ -22,13 +22,14 @@ class Config{
             light:  "./theme/light/style.css", 
         };
 
-        // Window position
+        // Window/Splitter position
         this.windowBounds = {
             x: 100,
             y: 100,
             width: 800,
             height: 600
         };
+        this.splitterPosition = 450;
 
         // 描画モードの切り替え閾値
         this.drawDetailedlyThreshold = 1;   // レーンの高さがこれより小さい時はステージの描画を省略
