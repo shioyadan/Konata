@@ -185,19 +185,19 @@ class Gem5O3PipeViewParser{
     }
 
     getOp(id){
-        return this.opListBody_.getOp(id);
+        return this.opListBody_.getParsedOp(id);
     }
     
     getOpFromRID(rid){
-        return this.opListBody_.getOpFromRID(rid);
+        return this.opListBody_.getParsedOpFromRID(rid);
     }
 
     get lastID(){
-        return this.opListBody_.lastID_;
+        return this.opListBody_.parsedLastID;
     }
 
     get lastRID(){
-        return this.opListBody_.lastRID_;
+        return this.opListBody_.parsedLastRID;
     }
 
     /** @returns {Object.<string, number>} */
@@ -246,7 +246,7 @@ class Gem5O3PipeViewParser{
                 sn = Number(matched[1]);
                 this.parsingExLogLastGID_ = sn;
             }
-            if (this.parsingExLogLastGID_ == -1 || sn <= this.opListBody_.lastID) {   // 既にドレインされたものは諦める
+            if (this.parsingExLogLastGID_ == -1 || sn <= this.opListBody_.parsedLastID) {   // 既にドレインされたものは諦める
                 //console.log("Drop a drained op");
             }
             else {
@@ -423,27 +423,27 @@ class Gem5O3PipeViewParser{
 
         // GEM5 の O3PipeView はたまに out-of-order で出力されるので，
         // ある程度バッファしておく
-        for (let i = this.opListBody_.lastID + 1; i < this.opListBody_.length; i++) {
+        for (let i = this.opListBody_.parsedLastID + 1; i < this.opListBody_.parsingLength; i++) {
             let op = this.opListBody_.getParsingOp(i);
             if (op == null) {
                 continue;
             }
             // op.id is determined
             op.id = i;
-            this.opListBody_.lastID = i;
+            this.opListBody_.setParsedLastID(i);
             this.lastGID_ = op.gid;
             if (op.retiredCycle > this.curCycle_) {
                 this.curCycle_ = op.retiredCycle;
             }
 
             if (!op.flush) {
-                op.rid = this.opListBody_.lastRID + 1;
-                this.opListBody_.setRetiredOp(op.rid, op);
-                this.lastNotFlushedID = this.opListBody_.lastID;
+                op.rid = this.opListBody_.parsedLastRID + 1;
+                this.opListBody_.setParsedRetiredOp(op.rid, op);
+                this.lastNotFlushedID = this.opListBody_.parsedLastID;
             }
             else { // in a flushing phase
                 // Dummy RID
-                op.rid = this.opListBody_.lastRID + this.lastID - this.lastNotFlushedID;
+                op.rid = this.opListBody_.parsedLastRID + this.lastID - this.lastNotFlushedID;
             }
         }
     }
@@ -461,7 +461,7 @@ class Gem5O3PipeViewParser{
         this.drainParsingOps_(true);
         
         // リタイア処理が行われなかった終端部分の後処理
-        let i = this.opListBody_.length - 1;
+        let i = this.opListBody_.parsingLength - 1;
         while (i >= 0) {
             let op = this.opListBody_.getParsingOp(i);
             i--;
@@ -478,7 +478,7 @@ class Gem5O3PipeViewParser{
             op.eof = true;
             this.unescapeLabels(op);
         }
-        this.opListBody_.lastID = this.opListBody_.length - 1;
+        this.opListBody_.setParsedLastID(this.opListBody_.parsingLength - 1);
         this.complete_ = true;
 
         let elapsed = ((new Date()).getTime() - this.startTime_);

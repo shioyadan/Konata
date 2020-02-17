@@ -9,15 +9,15 @@ class OpList {
         this.retiredOpList_ = [];
 
         // 最後にパースが完了した ID
-        this.lastID_ = -1;
-        this.lastRID_ = -1;
+        this.parsedLastID_ = -1;
+        this.parsedLastRID_ = -1;
     }
 
     close(){
         this.opList = [];
         this.retiredOpList_ = [];
-        this.lastID_ = -1;
-        this.lastRID_ = -1;
+        this.parsedLastID_ = -1;
+        this.parsedLastRID_ = -1;
     }
 
     /** 
@@ -28,8 +28,8 @@ class OpList {
         this.opList_[id] = op;
     }
 
-    getOp(id){
-        if (id > this.lastID_){
+    getParsedOp(id){
+        if (id > this.parsedLastID_){
             return null;
         }
         else{
@@ -46,8 +46,8 @@ class OpList {
         }
     }
 
-    getOpFromRID(rid){
-        if (rid > this.lastRID_){
+    getParsedOpFromRID(rid){
+        if (rid > this.parsedLastRID_){
             return null;
         }
         else{
@@ -59,32 +59,28 @@ class OpList {
      * @param {number} rid
      * @param {Op} op
      * */
-    setRetiredOp(rid, op){
+    setParsedRetiredOp(rid, op){
         this.retiredOpList_[rid] = op;
-        if (this.lastRID_ < op.rid) {
-            this.lastRID_ = op.rid;
+        if (this.parsedLastRID_ < op.rid) {
+            this.parsedLastRID_ = op.rid;
         }
     }
 
+    setParsedLastID(id){
+        this.parsedLastID_ = id;
+    }
+
     // 現在保持しているリストの長さ
-    get length(){
+    get parsingLength(){
         return this.opList_.length;
     }
 
-    get lastID(){
-        return this.lastID_;
+    get parsedLastID(){
+        return this.parsedLastID_;
     }
 
-    set lastID(id){
-        this.lastID_ = id;
-    }
-
-    get lastRID(){
-        return this.lastRID_;
-    }
-
-    set lastRID(rid){
-        this.lastRID_ = rid;
+    get parsedLastRID(){
+        return this.parsedLastRID_;
     }
 }
 

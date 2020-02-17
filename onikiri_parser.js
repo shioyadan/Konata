@@ -81,19 +81,19 @@ class OnikiriParser{
     }
 
     getOp(id){
-        return this.opListBody_.getOp(id);
+        return this.opListBody_.getParsedOp(id);
     }
     
     getOpFromRID(rid){
-        return this.opListBody_.getOpFromRID(rid);
+        return this.opListBody_.getParsedOpFromRID(rid);
     }
 
     get lastID(){
-        return this.opListBody_.lastID_;
+        return this.opListBody_.parsedLastID;
     }
 
     get lastRID(){
-        return this.opListBody_.lastRID_;
+        return this.opListBody_.parsedLastRID;
     }
 
     get laneMap(){
@@ -151,7 +151,7 @@ class OnikiriParser{
         }
         
         // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
-        let i = this.opListBody_.length - 1;
+        let i = this.opListBody_.parsingLength - 1;
         while (i >= 0) {
             let op = this.opListBody_.getParsingOp(i);
             if (op.retired && !op.flush) {
@@ -165,7 +165,7 @@ class OnikiriParser{
             op.eof = true;
             this.unescapeLabels(op);
         }
-        this.opListBody_.lastID = this.opListBody_.length - 1;
+        this.opListBody_.setParsedLastID(this.opListBody_.parsingLength - 1);
         this.complete_ = true;
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
@@ -341,7 +341,7 @@ class OnikiriParser{
         this.unescapeLabels(op);
 
         if (!op.flush) {
-            this.opListBody_.setRetiredOp(op.rid, op);
+            this.opListBody_.setParsedRetiredOp(op.rid, op);
         }
 
         // 閉じていないステージがあった場合はここで閉じる
