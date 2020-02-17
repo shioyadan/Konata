@@ -5,8 +5,8 @@ class OpList {
         // op 情報
         /** @type {Op[]} */
         this.opList_ = [];
-        /** @type {Op[]} */
-        this.retiredOpList_ = [];
+        /** @type {number[]} */
+        this.retiredOpID_List_ = [];
 
         // 最後にパースが完了した ID
         this.parsedLastID_ = -1;
@@ -15,7 +15,7 @@ class OpList {
 
     close(){
         this.opList = [];
-        this.retiredOpList_ = [];
+        this.retiredOpID_List_ = [];
         this.parsedLastID_ = -1;
         this.parsedLastRID_ = -1;
     }
@@ -51,7 +51,8 @@ class OpList {
             return null;
         }
         else{
-            return this.retiredOpList_[rid];
+            let id = this.retiredOpID_List_[rid];
+            return this.getParsedOp(id);
         }
     }
 
@@ -60,7 +61,7 @@ class OpList {
      * @param {Op} op
      * */
     setParsedRetiredOp(rid, op){
-        this.retiredOpList_[rid] = op;
+        this.retiredOpID_List_[rid] = op.id;
         if (this.parsedLastRID_ < op.rid) {
             this.parsedLastRID_ = op.rid;
         }
