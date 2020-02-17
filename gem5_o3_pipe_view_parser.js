@@ -184,20 +184,6 @@ class Gem5O3PipeViewParser{
         );
     }
 
-    /** @returns {Op[]} */
-    getOps(start, end){
-        let ops = [];
-        for (let i = start; i < end; i++) {
-            let op = this.getOp(i);
-            ops.push(op);
-            if (op == null) {
-                // opがnullなら、それ以上の命令はない
-                break;
-            }
-        }
-        return ops;
-    }
-
     getOp(id){
         return this.opListBody_.getOp(id);
     }
