@@ -1,7 +1,9 @@
 let Op = require("./op").Op; // eslint-disable-line
+let zlib = require('zlib'); 
 
 let PAGE_SIZE_BITS = 8;
 let PAGE_SIZE = 1 << PAGE_SIZE_BITS;
+
 function idToPageIndex(id){
     return id >> PAGE_SIZE_BITS;
 }
@@ -12,30 +14,52 @@ function PageIndexToID(pageIndex){
 class OpListPage {
     constructor(headID){
 
-        this.headID = headID;
+        this.headID_ = headID;
         
         /** @type {Op[]} */
-        this.opList = [];
+        this.opList_ = [];
+
+        /** @type {Buffer} */
+        this.compressedData_ = null;
+        this.isCompressed_ = false;
     }
 
     getOp(id) {
-        let disp = id - this.headID;
+        let disp = id - this.headID_;
         if (disp < 0 || disp >= PAGE_SIZE) {
-            console.log(`Out of range id:${id} head:${this.headID}`);
+            console.log(`Out of range id:${id} head:${this.headID_}`);
             return null;
         }
         else{
-            return this.opList[disp];
+            if (this.isCompressed_) {
+                //let json = zlib.inflateSync(this.compressedData_);
+                let json = zlib.gunzipSync(this.compressedData_).toString();
+                this.opList_ = JSON.parse(json);
+                this.compressedData_ = null;
+                this.isCompressed_ = false;
+            }
+
+            return this.opList_[disp];
         }
     }
 
     setOp(id, op) {
-        let disp = id - this.headID;
+        let disp = id - this.headID_;
         if (disp < 0 || disp >= PAGE_SIZE) {
-            console.log(`Out of range id:${id} head:${this.headID}`);
+            console.log(`Out of range id:${id} head:${this.headID_}`);
         }
         else{
-            this.opList[disp] = op;
+            this.opList_[disp] = op;
+        }
+    }
+
+    compress(){
+        if (!this.isCompressed_) {
+            let json = JSON.stringify(this.opList_);
+            //this.compressedData_ = zlib.deflateSync(json);
+            this.compressedData_ = zlib.gzipSync(json);
+            this.opList_ = [];
+            this.isCompressed_ = true;
         }
     }
 }
@@ -128,6 +152,14 @@ class OpList {
 
     setParsedLastID(id){
         this.parsedLastID_ = id;
+
+        //let head = PageIndexToID(idToPageIndex(id));
+        //if (id == head + PAGE_SIZE - 1) {
+        //}
+        let pageIndex = idToPageIndex(id - PAGE_SIZE * 16);
+        if (pageIndex >= 0) {
+            this.opPages_[pageIndex].compress();
+        }
     }
 
     // 現在保持しているリストの長さ
