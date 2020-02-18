@@ -335,8 +335,8 @@ class OnikiriParser{
             op.flush = false;
             op.retired = true;
         }
-        if (this.lastID_ < id) {
-            this.lastID_ = id;
+        if (this.opListBody_.parsedLastID < id) {
+            this.opListBody_.setParsedLastID(id);
         }
         this.unescapeLabels(op);
 
