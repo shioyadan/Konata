@@ -1,5 +1,5 @@
 let Op = require("./op").Op; // eslint-disable-line
-let zlib = require('zlib'); 
+let zlib = require("zlib"); 
 
 let PAGE_SIZE_BITS = 8;
 let PAGE_SIZE = 1 << PAGE_SIZE_BITS;
