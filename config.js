@@ -22,6 +22,12 @@ class Config{
             light:  "./theme/light/style.css", 
         };
 
+        this.colorScheme = "Auto";
+        /*
+        this.VALID_COLOR_SCHEME_ = [
+            "Auto", "Unique"
+        ];*/
+
         // Window/Splitter position
         this.windowBounds = {
             x: 100,

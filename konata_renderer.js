@@ -102,6 +102,7 @@ class KonataRenderer{
 
         this.depArrowType = config.depArrowType;
 
+        this.changeColorScheme(config.colorScheme);
         this.updateScaleParameter();
     }
 
