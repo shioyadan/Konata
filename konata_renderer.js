@@ -126,7 +126,7 @@ class KonataRenderer{
             if (stageName == "f" || stageName == "stl") {
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
-            let stageLevel = self.konata_.stageLevelMap[stageName];
+            let stageLevel = self.konata_.stageLevelMap.get(laneName, stageName);
             let level = self.colorScheme_ == "Auto" ? stageLevel.appearance : stageLevel.unique;
             let color = this.style_.pipelinePane.stageBackgroundColor;
             if (isBegin) {

@@ -116,9 +116,8 @@ class Konata{
         return this.parser_ ? this.parser_.laneMap : {};
     }
 
-    /** @return {Object.<string,StageLevel>} */
     get stageLevelMap(){
-        return this.parser_ ? this.parser_.stageLevelMap : {};
+        return this.parser_ ? this.parser_.stageLevelMap : null;
     }
 
     // パイプライン中の統計を計算し，終わったら finish に渡す
