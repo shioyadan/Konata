@@ -201,7 +201,8 @@ function installMainMenu(store, dispatcher){
                                         ACTION.KONATA_SPLIT_LANES,
                                         e.checked
                                     );
-                                }
+                                },
+                                accelerator: "N"
                             },
                             {
                                 label: "Fix op height",
@@ -342,6 +343,35 @@ function makePopupTabMenuTemplate(store, dispatcher, tabID){
                     click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
                 };
             }),
+        },
+        {
+            label: "Lane",
+            submenu: [
+                {
+                    label: "Split lanes",
+                    type: "checkbox",
+                    checked: store.splitLanes, 
+                    click: function(e){
+                        rc.trigger(
+                            ACTION.KONATA_SPLIT_LANES,
+                            e.checked
+                        );
+                    },
+                    accelerator: "N"
+                },
+                {
+                    label: "Fix op height",
+                    type: "checkbox",
+                    checked: store.fixOpHeight, 
+                    enabled: store.splitLanes,
+                    click: function(e){
+                        rc.trigger(
+                            ACTION.KONATA_FIX_OP_HEIGHT,
+                            e.checked
+                        );
+                    }
+                },
+            ]
         },
     ];
     return menuTemplate;    
