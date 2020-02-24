@@ -22,6 +22,56 @@ class Config{
             light:  "./theme/light/style.css", 
         };
 
+        this.colorScheme = "Auto";
+        /*
+        this.VALID_COLOR_SCHEME_ = [
+            "Auto", "Unique"
+        ];*/
+
+        this.customColorSchemes = {
+            "Example": {
+                "enable": 0,
+                "defaultColor": "#aaffaa",
+                "0": {
+                    "F":    "#b9a5e8",
+                    "Rn":   "#a0c0ff",
+                    "D":    "#8cdddf",
+    
+                    "Sr":   "#9bed88",
+                    "Sw":   "#83d2ab",
+    
+                    "rs":   "#73d29b",
+    
+                    "Wku":  "#abed88",
+                    "Slc":  "#e6d990",
+    
+                    "rsc":  "#83e2ab",
+    
+                    "Ip":   "#eebb77",
+    
+                    "I":    "#eeaa88",
+                    "X":    "#ee7777",
+    
+                    "Xam":  "#ee7777",
+                    "Xbm":  "#ee7777",
+                    "Xlu":  "#ee7777",
+                    "Xlm":  "#ee7777",
+    
+                    "Wb":   "#dd8899",
+                    "Cm":   "#cca5c8",
+    
+                    "f":    "#aaaaaa",
+    
+                    "iXlR0": "#ee7777",
+                    "iXlR1": "#ee7777",
+                    "iXlR2": "#ee7777"
+                },
+                "1":  {
+                    "stl":  "#aaaaaa"
+                }
+            }
+        };
+
         // Window/Splitter position
         this.windowBounds = {
             x: 100,

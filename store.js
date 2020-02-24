@@ -120,7 +120,7 @@ class Tab{
         this.transparent = false; // 透明化の有効無効
         this.hideFlushedOps = false;  // フラッシュされた命令を隠すか
         this.emphasize_in_transparent = false; // 透明化の際に表示を強調するかどうか
-        this.colorScheme = "Auto";  // カラースキーム
+        this.colorScheme = config.colorScheme;  // カラースキーム
         this.syncScroll =  false;  // スクロールを同期 
         
         this.scrollEndPos =  [0, 0];   // スクロール終了位置
@@ -775,6 +775,7 @@ class Store{
                 return;
             }
             let tab = self.tabs[tabID];
+            self.config.colorScheme = scheme;
             tab.colorScheme = scheme;
             tab.renderer.changeColorScheme(scheme);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);

@@ -3,6 +3,7 @@ let OpList = require("./op_list").OpList;
 let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
 let StageLevel = require("./stage").StageLevel;
+let StageLevelMap = require("./stage").StageLevelMap;
 let Lane = require("./stage").Lane;
 
 // To enable JSDoc type check, load FileReader.
@@ -76,8 +77,7 @@ class Gem5O3PipeViewParser{
         this.laneMap_ = {};
 
         // ステージの出現順序を記録するマップ
-        /** @type {Object.<string, StageLevel>} */
-        this.stageLevelMap_ = {};
+        this.stageLevelMap_ = new StageLevelMap();
 
         // 読み出し開始時間
         this.startTime_ = 0;
@@ -153,7 +153,6 @@ class Gem5O3PipeViewParser{
         this.parsingExLog_ = {};
         this.depTable_ = {};
         this.laneMap_ = {};
-        this.stageLevelMap_ = {};
     }
 
     /**
@@ -600,18 +599,7 @@ class Gem5O3PipeViewParser{
         }
 
         // ステージのマップに登録
-        let map = this.stageLevelMap_;
-        if (stageName in map) {
-            if (map[stageName].appearance > laneInfo.level) {
-                map[stageName].appearance = laneInfo.level;
-            }
-        }
-        else{
-            let level = new StageLevel;
-            level.appearance = laneInfo.level;
-            level.unique = Object.keys(map).length;
-            map[stageName] = level;
-        }
+        this.stageLevelMap_.update(laneName, stageName, laneInfo);
     }
 
     parseEndCommand(seqNum, op, args){
