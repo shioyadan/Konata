@@ -180,14 +180,20 @@ function installMainMenu(store, dispatcher){
                     },
                     {
                         label: "Pipeline color scheme",
-                        submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].map(function(color){
-                            return {
-                                label: color,
-                                type: "checkbox",
-                                checked: tab ? tab.colorScheme == color : true, 
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
-                            };
-                        }),
+                        submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].
+                            concat(
+                                Object.keys(store.config.customColorSchemes).filter(function(color){
+                                    return store.config.customColorSchemes[color].enable;
+                                })
+                            ).
+                            map(function(color){
+                                return {
+                                    label: color,
+                                    type: "checkbox",
+                                    checked: tab ? tab.colorScheme == color : true, 
+                                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
+                                };
+                            }),
                     },
                     {
                         label: "Lane",
@@ -335,14 +341,20 @@ function makePopupTabMenuTemplate(store, dispatcher, tabID){
         },
         {
             label: "Pipeline color scheme",
-            submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].map(function(color){
-                return {
-                    label: color,
-                    type: "checkbox",
-                    checked: tab ? tab.colorScheme == color : true, 
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
-                };
-            }),
+            submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].
+                concat(
+                    Object.keys(store.config.customColorSchemes).filter(function(color){
+                        return store.config.customColorSchemes[color].enable;
+                    })
+                ).
+                map(function(color){
+                    return {
+                        label: color,
+                        type: "checkbox",
+                        checked: tab ? tab.colorScheme == color : true, 
+                        click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
+                    };
+                }),
         },
         {
             label: "Lane",

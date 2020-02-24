@@ -142,16 +142,14 @@ class KonataRenderer{
             }
         }
         else {
-            if ("colorScheme" in self.style_) {
-                if (self.colorScheme_ in self.style_.colorScheme) {
-                    let style = self.style_.colorScheme[self.colorScheme_];
-                    if (laneName in style) {
-                        if (stageName in style[laneName]) {
-                            return style[laneName][stageName];
-                        }
+            if (self.colorScheme_ in self.config.customColorSchemes) {
+                let style = self.config.customColorSchemes[self.colorScheme_];
+                if (laneName in style) {
+                    if (stageName in style[laneName]) {
+                        return style[laneName][stageName];
                     }
-                    return style["defaultColor"];
                 }
+                return style["defaultColor"];
             }
     
             return self.colorScheme_;
