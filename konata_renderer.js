@@ -119,14 +119,14 @@ class KonataRenderer{
     /**
      * ステージ関係のスタイル読込
      */
-    getStageColor_(lane, stage, isBegin){
+    getStageColor_(laneName, stageName, isBegin){
         let self = this;
 
         if (self.colorScheme_ == "Auto" || self.colorScheme_ == "Unique") {
-            if (stage == "f" || stage == "stl") {
+            if (stageName == "f" || stageName == "stl") {
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
-            let stageLevel = self.konata_.stageLevelMap[stage];
+            let stageLevel = self.konata_.stageLevelMap[stageName];
             let level = self.colorScheme_ == "Auto" ? stageLevel.appearance : stageLevel.unique;
             let color = this.style_.pipelinePane.stageBackgroundColor;
             if (isBegin) {
@@ -142,9 +142,9 @@ class KonataRenderer{
             if ("colorScheme" in self.style_) {
                 if (self.colorScheme_ in self.style_.colorScheme) {
                     let style = self.style_.colorScheme[self.colorScheme_];
-                    if (lane in style) {
-                        if (stage in style[lane]) {
-                            return style[lane][stage];
+                    if (laneName in style) {
+                        if (stageName in style[laneName]) {
+                            return style[laneName][stageName];
                         }
                     }
                     return style["defaultColor"];
