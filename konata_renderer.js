@@ -310,7 +310,7 @@ class KonataRenderer{
     getPosY_FromOp(baseOP){
         if (this.hideFlushedOps_) {
             for (let i = baseOP.id; i >= 0; i--) {
-                let op = this.konata_.getOp(i);   
+                let op = this.getOpFromID(i);   
                 if (!op.flush) {
                     return op.rid;
                 }
@@ -736,7 +736,7 @@ class KonataRenderer{
 
             for (let dep of op.prods) {
 
-                let prod = this.konata_.getOp(dep.opID);    // ここは getVisibleOp ではない
+                let prod = this.getOpFromID(dep.opID);    // ここは getVisibleOp ではない
                 if (!prod) {
                     continue;
                 }
