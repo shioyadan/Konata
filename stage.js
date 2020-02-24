@@ -12,6 +12,7 @@ class StageLevel{
     constructor(){
         this.appearance = 0;    // The order of appearance
         this.unique = 0;        // Different levels are assigned to all levels 
+        this.laneID = 0;        // The ID of a lane that this instance belongs
     }
 }
 
@@ -19,6 +20,7 @@ class StageLevelMap{
     constructor(){
         /** @type {Object.<string, Object.<string, StageLevel>>} */
         this.map_ = {};
+        this.laneID_Map = {};
     }
 
     get(laneName, stageName){
@@ -42,10 +44,12 @@ class StageLevelMap{
         else{
             if (!(laneName in this.map_)) {
                 this.map_[laneName] = {};
+                this.laneID_Map[laneName] = Object.keys(this.laneID_Map).length;
             }
             let level = new StageLevel;
             level.appearance = lane.level;
             level.unique = Object.keys(this.map_[laneName]).length;
+            level.laneID = this.laneID_Map[laneName];
             this.map_[laneName][stageName] = level;
         }
     }

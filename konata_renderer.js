@@ -130,11 +130,11 @@ class KonataRenderer{
             let level = self.colorScheme_ == "Auto" ? stageLevel.appearance : stageLevel.unique;
             let color = this.style_.pipelinePane.stageBackgroundColor;
             if (isBegin) {
-                let h = ((250-level*color.hRateBegin)%360);
+                let h = ((250 - level*color.hRateBegin + stageLevel.laneID*120)%360);
                 return `hsl(${h},${color.sBegin},${color.lBegin})`;
             }
             else{
-                let h = ((250-level*color.hRateEnd)%360);
+                let h = ((250 - level*color.hRateEnd + stageLevel.laneID*120)%360);
                 return `hsl(${h},${color.sEnd},${color.lEnd})`;
             }
         }
