@@ -127,14 +127,16 @@ class KonataRenderer{
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
             let stageLevel = self.konata_.stageLevelMap.get(laneName, stageName);
+            let laneID = self.konata_.stageLevelMap.getLaneID(laneName);
+
             let level = self.colorScheme_ == "Auto" ? stageLevel.appearance : stageLevel.unique;
             let color = this.style_.pipelinePane.stageBackgroundColor;
             if (isBegin) {
-                let h = ((250 - level*color.hRateBegin + stageLevel.laneID*120)%360);
+                let h = ((250 - level*color.hRateBegin + laneID*28*8)%360);
                 return `hsl(${h},${color.sBegin},${color.lBegin})`;
             }
             else{
-                let h = ((250 - level*color.hRateEnd + stageLevel.laneID*120)%360);
+                let h = ((250 - level*color.hRateEnd + laneID*28*8)%360);
                 return `hsl(${h},${color.sEnd},${color.lEnd})`;
             }
         }
@@ -860,6 +862,14 @@ class KonataRenderer{
         ctx.fill();
     }
 
+    /**
+     * @param {Op} op 
+     * @param {number} h 
+     * @param {number} startCycle 
+     * @param {number} endCycle 
+     * @param {number} scale 
+     * @param {*} ctx 
+     */
     drawOp_(op, h, startCycle, endCycle, scale, ctx){
         let self = this;
         let top = h * self.opH_ + self.PIXEL_ADJUST;
@@ -877,9 +887,20 @@ class KonataRenderer{
         let left = l * self.opW_ + self.PIXEL_ADJUST;
         let right = r * self.opW_ + self.PIXEL_ADJUST;
 
+        let stageLevelMap = this.konata_.stageLevelMap;
+        let laneNum = stageLevelMap.laneNum;
+
         if (self.canDrawDetailedly) {
             // 枠内に表示の余地がある場合
             ctx.strokeStyle = this.style_.pipelinePane.borderColor;
+
+            for (let laneName in op.lanes) {
+                let laneTop = 
+                self.splitLanes_ ? 
+                    (h + stageLevelMap.getLaneID(laneName) / laneNum) : h;  // logical pos
+                self.drawLane_(op, laneTop, startCycle, endCycle, scale, ctx, laneName);
+            }
+            /*
             let keys = [];
             for (let key in op.lanes) {
                 keys.push(key);
@@ -887,9 +908,10 @@ class KonataRenderer{
             keys = keys.sort();
             for (let i = 0, len = keys.length; i < len; i++) {
                 let key = keys[i];
-                let laneTop = self.splitLanes_ ? (h + i / len) : h;  // logical pos
+                let laneTop = self.splitLanes_ ? (h + i / laneNum) : h;  // logical pos
                 self.drawLane_(op, laneTop, startCycle, endCycle, scale, ctx, key);
             }
+            */
         }
         else{
             // 十分小さい場合は簡略化モード

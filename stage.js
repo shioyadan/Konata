@@ -12,7 +12,6 @@ class StageLevel{
     constructor(){
         this.appearance = 0;    // The order of appearance
         this.unique = 0;        // Different levels are assigned to all levels 
-        this.laneID = 0;        // The ID of a lane that this instance belongs
     }
 }
 
@@ -20,6 +19,7 @@ class StageLevelMap{
     constructor(){
         /** @type {Object.<string, Object.<string, StageLevel>>} */
         this.map_ = {};
+        /** @type {Object.<string, number>} */
         this.laneID_Map = {};
     }
 
@@ -45,13 +45,28 @@ class StageLevelMap{
             if (!(laneName in this.map_)) {
                 this.map_[laneName] = {};
                 this.laneID_Map[laneName] = Object.keys(this.laneID_Map).length;
+
+                // レーンが増えたため，ID を振り直す
+                let i = 0;
+                for (let key in Object.keys(this.laneID_Map).sort()) {
+                    this.laneID_Map[key] = i;
+                    i++;
+                }
             }
             let level = new StageLevel;
             level.appearance = lane.level;
             level.unique = Object.keys(this.map_[laneName]).length;
-            level.laneID = this.laneID_Map[laneName];
             this.map_[laneName][stageName] = level;
+
         }
+    }
+
+    get laneNum(){
+        return Object.keys(this.laneID_Map).length;
+    }
+
+    getLaneID(laneName){
+        return this.laneID_Map[laneName];
     }
 }
 
