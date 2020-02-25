@@ -1,8 +1,10 @@
 let Op = require("./op").Op; // eslint-disable-line
 let zlib = require("zlib"); 
 
-let PAGE_SIZE_BITS = 8;
-let PAGE_SIZE = 1 << PAGE_SIZE_BITS;
+const PAGE_SIZE_BITS = 9;
+const PAGE_SIZE = 1 << PAGE_SIZE_BITS;
+const CACHE_RESOLUTION = 512;
+const UNCOMPRESSED_PAGES = 16;
 
 function idToPageIndex(id){
     return id >> PAGE_SIZE_BITS;
@@ -22,6 +24,7 @@ class OpListPage {
         /** @type {Buffer} */
         this.compressedData_ = null;
         this.isCompressed_ = false;
+
     }
 
     getOp(id) {
@@ -62,6 +65,10 @@ class OpListPage {
             this.isCompressed_ = true;
         }
     }
+
+    get isCompressed(){
+        return this.isCompressed_;
+    }
 }
 
 class OpList {
@@ -81,6 +88,9 @@ class OpList {
         this.parsedLastRID_ = -1;
 
         this.parsingLength_ = 0;
+
+        /** @type {Object<number, Op>} */
+        this.cache_ = {};
     }
 
     close(){
@@ -109,8 +119,19 @@ class OpList {
         //this.opList_[id] = op;
     }
 
-    getParsedOp(id){
+    /**
+     * @param {number} id 
+     * @param {number} resolutionLevel 
+     */
+    getParsedOp(id, resolutionLevel=0){
+        resolutionLevel = Math.floor(resolutionLevel);
+        if (resolutionLevel >= 1) {
+            id -= id & ((2 << resolutionLevel) - 1);
+        }
         if (id <= this.parsedLastID_){
+            if (id in this.cache_) {
+                return this.cache_[id];
+            }
             return this.getParsingOp(id);
         }
         else{
@@ -129,12 +150,20 @@ class OpList {
         }
     }
 
-    getParsedOpFromRID(rid){
+    /**
+     * @param {number} rid 
+     * @param {number} resolutionLevel 
+     */
+    getParsedOpFromRID(rid, resolutionLevel){
         if (rid > this.parsedLastRID_){
             return null;
         }
         else{
             let id = this.retiredOpID_List_[rid];
+            resolutionLevel = Math.floor(resolutionLevel);
+            if (resolutionLevel >= 1) {
+                id -= id & ((2 << resolutionLevel) - 1);
+            }
             return this.getParsedOp(id);
         }
     }
@@ -152,12 +181,16 @@ class OpList {
 
     setParsedLastID(id){
         this.parsedLastID_ = id;
-
-        //let head = PageIndexToID(idToPageIndex(id));
-        //if (id == head + PAGE_SIZE - 1) {
-        //}
-        let pageIndex = idToPageIndex(id - PAGE_SIZE * 16);
+        
+        let pageIndex = idToPageIndex(id - PAGE_SIZE * UNCOMPRESSED_PAGES);
         if (pageIndex >= 0) {
+            // Add an op to the cache
+            if (!this.opPages_[pageIndex].isCompressed) {
+                let head = PageIndexToID(pageIndex);
+                for (let i = 0; i < PAGE_SIZE; i += CACHE_RESOLUTION) {
+                    this.cache_[head + i] = this.getParsedOp(head + i);
+                }
+            }
             this.opPages_[pageIndex].compress();
         }
     }

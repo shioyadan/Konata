@@ -79,12 +79,12 @@ class OnikiriParser{
         );
     }
 
-    getOp(id){
-        return this.opListBody_.getParsedOp(id);
+    getOp(id, resolution=0){
+        return this.opListBody_.getParsedOp(id, resolution);
     }
     
-    getOpFromRID(rid){
-        return this.opListBody_.getParsedOpFromRID(rid);
+    getOpFromRID(rid, resolution=0){
+        return this.opListBody_.getParsedOpFromRID(rid, resolution);
     }
 
     get lastID(){

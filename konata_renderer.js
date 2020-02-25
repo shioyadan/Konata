@@ -295,8 +295,8 @@ class KonataRenderer{
 
     // 論理Y座標に対応する，現在の表示モードの op を返す
     /** @return {Op} */
-    getVisibleOp(y){
-        return this.hideFlushedOps_ ? this.getOpFromRID(y) : this.getOpFromID(y);
+    getVisibleOp(y, resolution=0){
+        return this.hideFlushedOps_ ? this.getOpFromRID(y, resolution) : this.getOpFromID(y, resolution);
     }
     getVisibleBottom(){
         return this.hideFlushedOps_ ? this.konata_.lastRID : this.konata_.lastID;
@@ -337,15 +337,15 @@ class KonataRenderer{
     }
 
     // id に対応する op を返す
-    getOpFromID(id){
+    getOpFromID(id, resolution=0){
         let self = this;
-        return self.konata_.getOp(id);   
+        return self.konata_.getOp(id, resolution);   
     }
 
     // rid に対応する op を返す
-    getOpFromRID(rid){
+    getOpFromRID(rid, resolution=0){
         let self = this;
-        return self.konata_.getOpFromRID(rid);   
+        return self.konata_.getOpFromRID(rid, resolution);   
     }
 
     // ピクセル座標から対応する op を返す
@@ -688,7 +688,7 @@ class KonataRenderer{
             }
             let op = null;
             try {
-                op = self.getVisibleOp(y);
+                op = self.getVisibleOp(y, this.zoomLevel_ - 5);
             } catch(e) {
                 console.log(e);
                 return;

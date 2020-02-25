@@ -2,7 +2,6 @@ let Op = require("./op").Op;
 let OpList = require("./op_list").OpList;
 let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
-let StageLevel = require("./stage").StageLevel;
 let StageLevelMap = require("./stage").StageLevelMap;
 let Lane = require("./stage").Lane;
 
@@ -183,12 +182,12 @@ class Gem5O3PipeViewParser{
         );
     }
 
-    getOp(id){
-        return this.opListBody_.getParsedOp(id);
+    getOp(id, resolution=0){
+        return this.opListBody_.getParsedOp(id, resolution);
     }
     
-    getOpFromRID(rid){
-        return this.opListBody_.getParsedOpFromRID(rid);
+    getOpFromRID(rid, resolution=0){
+        return this.opListBody_.getParsedOpFromRID(rid, resolution);
     }
 
     get lastID(){
