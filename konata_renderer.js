@@ -935,7 +935,10 @@ class KonataRenderer{
         }
         else{
             // 十分小さい場合は簡略化モード
-            if (self.colorScheme_ != "Auto" && self.colorScheme_ != "Unique" && self.colorScheme_ != "Onikiri") {
+            if (self.colorScheme_ != "Auto" && 
+                self.colorScheme_ != "Unique" && 
+                !(self.colorScheme_ in self.config.customColorSchemes)
+            ) {
                 ctx.fillStyle = self.colorScheme_;
             }
             else{
