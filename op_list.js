@@ -34,7 +34,6 @@ class OpListPage {
         /** @type {Buffer} */
         this.compressedData_ = null;
         this.isCompressed_ = false;
-
     }
 
     getOp(id) {
@@ -237,9 +236,14 @@ class OpList {
                 let head = pageIndexToID(pageIndex);
                 for (let i = 0; i < PAGE_SIZE; i += CACHE_RESOLUTION) {
                     let op = this.getParsedOp(head + i);
-                    // 一回 JSON にして戻すとかなり容量が減るため
-                    op = JSON.parse(JSON.stringify(op));
-                    this.cache_[head + i] = op;
+                    if (op) {
+                        // GEM5 の場合，まれに歯抜けになっていることがある
+                        // 中身がからの場合，JSON にできずにエラーになる
+
+                        // 一回 JSON にして戻すとかなり容量が減るため
+                        op = JSON.parse(JSON.stringify(op));
+                        this.cache_[head + i] = op;
+                    }
                 }
             }
             this.opPages_[pageIndex].compress();
