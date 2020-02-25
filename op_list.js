@@ -1,15 +1,25 @@
 let Op = require("./op").Op; // eslint-disable-line
 let zlib = require("zlib"); 
 
+// 圧縮して持つページのサイズ
 const PAGE_SIZE_BITS = 8;
 const PAGE_SIZE = 1 << PAGE_SIZE_BITS;
-const CACHE_RESOLUTION = 64;
-const UNCOMPRESSED_PAGES = 16;
+
+// 非圧縮で持つキャッシュの間隔．
+// CACHE_RESOLUTION命令ごとに1つ，非圧縮で持つ
+const CACHE_RESOLUTION = 32;
+
+// 圧縮を開始するまでのマージン
+const COMPRESS_START_MARGIN = 16;
+
+// 展開済みページの最大数
+const MAX_DECOMPRESSED_PAGES = 128;
+
 
 function idToPageIndex(id){
     return id >> PAGE_SIZE_BITS;
 }
-function PageIndexToID(pageIndex){
+function pageIndexToID(pageIndex){
     return pageIndex << PAGE_SIZE_BITS;
 }
 
@@ -35,25 +45,8 @@ class OpListPage {
         }
         else{
             if (this.isCompressed_) {
-                //let json = zlib.inflateSync(this.compressedData_);
-                let json = zlib.gunzipSync(this.compressedData_).toString();
-                this.opList_ = JSON.parse(json);
-                this.compressedData_ = null;
-                this.isCompressed_ = false;
-                /*
-                zlib.gunzip(this.compressedData_, (error, result) => {
-                    let json = result.toString();
-                    this.opList_ = JSON.parse(json);
-                    this.compressedData_ = null;
-                });
-                this.opList_ = [];
-                for (let i = 0; i < PAGE_SIZE; i++) {
-                    this.opList_[i] = null;
-                }
-                this.isCompressed_ = false;
-                */
+                this.decompress();
             }
-
             return this.opList_[disp];
         }
     }
@@ -76,6 +69,36 @@ class OpListPage {
             this.opList_ = [];
             this.isCompressed_ = true;
         }
+    }
+
+    decompress(){
+        if (this.isCompressed_) {
+            //let json = zlib.inflateSync(this.compressedData_);
+            let json = zlib.gunzipSync(this.compressedData_).toString();
+            this.opList_ = JSON.parse(json);
+            //this.compressedData_ = null;
+            this.isCompressed_ = false;
+            /*
+            zlib.gunzip(this.compressedData_, (error, result) => {
+                let json = result.toString();
+                this.opList_ = JSON.parse(json);
+                this.compressedData_ = null;
+            });
+            this.opList_ = [];
+            for (let i = 0; i < PAGE_SIZE; i++) {
+                this.opList_[i] = null;
+            }
+            this.isCompressed_ = false;
+            */
+        }
+    }
+
+    purgeDecompressedData(){
+        if (!this.compressedData_) {
+            this.compress();
+        }
+        this.opList_ = [];
+        this.isCompressed_ = true;
     }
 
     get isCompressed(){
@@ -103,6 +126,9 @@ class OpList {
 
         /** @type {Object<number, Op>} */
         this.cache_ = {};
+
+        // FIFO 置き換えで非圧縮ページを管理
+        this.decompressedList_ = [];
     }
 
     close(){
@@ -120,7 +146,7 @@ class OpList {
     setOp(id, op){
         let pageIndex = idToPageIndex(id);
         if (!(pageIndex in this.opPages_)) {
-            let pageHead = PageIndexToID(pageIndex);
+            let pageHead = pageIndexToID(pageIndex);
             this.opPages_[pageIndex] = new OpListPage(pageHead);
         }
         this.opPages_[pageIndex].setOp(id, op);
@@ -155,7 +181,17 @@ class OpList {
         if (0 <= id && id < this.parsingLength_) {
             //return this.opList_[id];
             let pageIndex = idToPageIndex(id);
-            return this.opPages_[pageIndex].getOp(id);
+            let page = this.opPages_[pageIndex];
+
+            if (page.isCompressed) {
+                this.decompressedList_.push(pageIndex);
+                if (this.decompressedList_.length >= MAX_DECOMPRESSED_PAGES) {
+                    let compress = this.decompressedList_.shift();
+                    this.opPages_[compress].purgeDecompressedData();
+                }
+            }
+
+            return page.getOp(id);
         }
         else {
             return null;
@@ -194,11 +230,11 @@ class OpList {
     setParsedLastID(id){
         this.parsedLastID_ = id;
         
-        let pageIndex = idToPageIndex(id - PAGE_SIZE * UNCOMPRESSED_PAGES);
+        let pageIndex = idToPageIndex(id - PAGE_SIZE * COMPRESS_START_MARGIN);
         if (pageIndex >= 0) {
             // Add an op to the cache
             if (!this.opPages_[pageIndex].isCompressed) {
-                let head = PageIndexToID(pageIndex);
+                let head = pageIndexToID(pageIndex);
                 for (let i = 0; i < PAGE_SIZE; i += CACHE_RESOLUTION) {
                     let op = this.getParsedOp(head + i);
                     // 一回 JSON にして戻すとかなり容量が減るため
