@@ -69,34 +69,15 @@ class Config{
         this.maxCommandHistoryNum = 20;
 
         this.customColorSchemes = {
-            "Example": {
-                "enable": 0,
+            "Custom": {
+                "enable": 1,
                 "defaultColor": {"h": "100", "s": "auto", "l": "auto"},
                 "0": {
                     "F":    {"h": "0", "s": "auto", "l": "auto"},
                     "Rn":   {"h": "60", "s": "auto", "l": "auto"},
-                    "D":    {"h": "120", "s": "auto", "l": "auto"},
-    
-                    "rs":   {"h": "180", "s": "auto", "l": "auto"},
-    
-                    "Wku":  {"h": "180", "s": "auto", "l": "auto"},
-                    "Slc":  {"h": "180", "s": "auto", "l": "auto"},
-    
-                    "rsc":  {"h": "180", "s": "auto", "l": "auto"},
-    
-                    "Ip":   {"h": "240", "s": "auto", "l": "auto"},
-    
-                    "I":    {"h": "240", "s": "auto", "l": "auto"},
-                    "X":    {"h": "300", "s": "auto", "l": "auto"},
-    
-                    "Xam":  {"h": "300", "s": "auto", "l": "auto"},
-                    "Xbm":  {"h": "300", "s": "auto", "l": "auto"},
-                    "Xlu":  {"h": "300", "s": "auto", "l": "auto"},
-                    "Xlm":  {"h": "300", "s": "auto", "l": "auto"},
-    
-                    "Wb":   {"h": "0", "s": "auto", "l": "auto"},
-                    "Cm":   {"h": "60", "s": "auto", "l": "auto"},
-    
+                    "Dc":   {"h": "120", "s": "auto", "l": "auto"},
+                    "Is":   {"h": "180", "s": "auto", "l": "auto"},
+                    "Cm":   {"h": "240", "s": "auto", "l": "auto"},
                     "f":    {"h": "0", "s": "0", "l": "auto"},
                 },
                 "1":  {
