@@ -89,7 +89,7 @@ Simply extract an archive and launch an executable file (konata.exe or konata).
 
 ## License
 
-Copyright (C) 2016-2019 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
+Copyright (C) 2016-2020 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
 
 This application is released under the 3-Clause BSD License, see LICENSE.md.
 This application bundles ELECTRON and many third-party packages in accordance with 
