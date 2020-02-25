@@ -1,9 +1,9 @@
 let Op = require("./op").Op; // eslint-disable-line
 let zlib = require("zlib"); 
 
-const PAGE_SIZE_BITS = 9;
+const PAGE_SIZE_BITS = 8;
 const PAGE_SIZE = 1 << PAGE_SIZE_BITS;
-const CACHE_RESOLUTION = 512;
+const CACHE_RESOLUTION = 64;
 const UNCOMPRESSED_PAGES = 16;
 
 function idToPageIndex(id){
@@ -40,6 +40,18 @@ class OpListPage {
                 this.opList_ = JSON.parse(json);
                 this.compressedData_ = null;
                 this.isCompressed_ = false;
+                /*
+                zlib.gunzip(this.compressedData_, (error, result) => {
+                    let json = result.toString();
+                    this.opList_ = JSON.parse(json);
+                    this.compressedData_ = null;
+                });
+                this.opList_ = [];
+                for (let i = 0; i < PAGE_SIZE; i++) {
+                    this.opList_[i] = null;
+                }
+                this.isCompressed_ = false;
+                */
             }
 
             return this.opList_[disp];
@@ -188,7 +200,10 @@ class OpList {
             if (!this.opPages_[pageIndex].isCompressed) {
                 let head = PageIndexToID(pageIndex);
                 for (let i = 0; i < PAGE_SIZE; i += CACHE_RESOLUTION) {
-                    this.cache_[head + i] = this.getParsedOp(head + i);
+                    let op = this.getParsedOp(head + i);
+                    // 一回 JSON にして戻すとかなり容量が減るため
+                    op = JSON.parse(JSON.stringify(op));
+                    this.cache_[head + i] = op;
                 }
             }
             this.opPages_[pageIndex].compress();
