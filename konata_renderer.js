@@ -42,6 +42,7 @@ class KonataRenderer{
         this.OP_H = 24; // スケール1のときの1命令の高さ
 
         // 拡大率レベル
+        this.MAX_ZOOM_LEVEL_ = 20;
         this.zoomLevel_ = 0;       
         this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
         this.laneNum_ = 1;
@@ -559,7 +560,7 @@ class KonataRenderer{
         self.zoomLevel_ = zoomLevel;
 
         // 最大最小ズーム率に補正
-        self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, 16), -1);
+        self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, self.MAX_ZOOM_LEVEL_), -1);
 
         let oldScale = self.zoomScale_;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
