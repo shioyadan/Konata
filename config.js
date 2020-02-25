@@ -28,50 +28,6 @@ class Config{
             "Auto", "Unique"
         ];*/
 
-        this.customColorSchemes = {
-            "Example": {
-                "enable": 0,
-                "defaultColor": "#aaffaa",
-                "0": {
-                    "F":    "#b9a5e8",
-                    "Rn":   "#a0c0ff",
-                    "D":    "#8cdddf",
-    
-                    "Sr":   "#9bed88",
-                    "Sw":   "#83d2ab",
-    
-                    "rs":   "#73d29b",
-    
-                    "Wku":  "#abed88",
-                    "Slc":  "#e6d990",
-    
-                    "rsc":  "#83e2ab",
-    
-                    "Ip":   "#eebb77",
-    
-                    "I":    "#eeaa88",
-                    "X":    "#ee7777",
-    
-                    "Xam":  "#ee7777",
-                    "Xbm":  "#ee7777",
-                    "Xlu":  "#ee7777",
-                    "Xlm":  "#ee7777",
-    
-                    "Wb":   "#dd8899",
-                    "Cm":   "#cca5c8",
-    
-                    "f":    "#aaaaaa",
-    
-                    "iXlR0": "#ee7777",
-                    "iXlR1": "#ee7777",
-                    "iXlR2": "#ee7777"
-                },
-                "1":  {
-                    "stl":  "#aaaaaa"
-                }
-            }
-        };
-
         // Window/Splitter position
         this.windowBounds = {
             x: 100,
@@ -111,6 +67,43 @@ class Config{
          * @type {string[]} */
         this.commandHistory = [];
         this.maxCommandHistoryNum = 20;
+
+        this.customColorSchemes = {
+            "Example": {
+                "enable": 0,
+                "defaultColor": {"h": "100", "s": "auto", "l": "auto"},
+                "0": {
+                    "F":    {"h": "0", "s": "auto", "l": "auto"},
+                    "Rn":   {"h": "60", "s": "auto", "l": "auto"},
+                    "D":    {"h": "120", "s": "auto", "l": "auto"},
+    
+                    "rs":   {"h": "180", "s": "auto", "l": "auto"},
+    
+                    "Wku":  {"h": "180", "s": "auto", "l": "auto"},
+                    "Slc":  {"h": "180", "s": "auto", "l": "auto"},
+    
+                    "rsc":  {"h": "180", "s": "auto", "l": "auto"},
+    
+                    "Ip":   {"h": "240", "s": "auto", "l": "auto"},
+    
+                    "I":    {"h": "240", "s": "auto", "l": "auto"},
+                    "X":    {"h": "300", "s": "auto", "l": "auto"},
+    
+                    "Xam":  {"h": "300", "s": "auto", "l": "auto"},
+                    "Xbm":  {"h": "300", "s": "auto", "l": "auto"},
+                    "Xlu":  {"h": "300", "s": "auto", "l": "auto"},
+                    "Xlm":  {"h": "300", "s": "auto", "l": "auto"},
+    
+                    "Wb":   {"h": "0", "s": "auto", "l": "auto"},
+                    "Cm":   {"h": "60", "s": "auto", "l": "auto"},
+    
+                    "f":    {"h": "0", "s": "0", "l": "auto"},
+                },
+                "1":  {
+                    "stl":    {"h": "0", "s": "0", "l": "auto"},
+                }
+            }
+        };
 
         // 設定読み込み
         this.load();
@@ -192,12 +185,15 @@ class Config{
         try {
 
             // 大文字のメンバは保存/読み込みを行わない
-            let replacer = (key, value) => {
-                return key.match(/^[A-Z_]+$/) ? undefined : value;
-            };
+            let saved = {};
+            for (let key of Object.keys(this)) {
+                if (!key.match(/^[A-Z_]+$/)) {
+                    saved[key] = this[key];
+                }
+            }
 
             // スペース４つでインデントする
-            fs.writeFileSync(this.FILE_NAME_, JSON.stringify(this, replacer, "    "));
+            fs.writeFileSync(this.FILE_NAME_, JSON.stringify(saved, null, "    "));
             console.log(`Successfully wrote configuration data to ${this.FILE_NAME_}`);
         }
         catch (e) {

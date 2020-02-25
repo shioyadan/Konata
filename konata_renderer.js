@@ -141,19 +141,32 @@ class KonataRenderer{
                 return `hsl(${h},${color.sEnd},${color.lEnd})`;
             }
         }
-        else {
-            if (self.colorScheme_ in self.config.customColorSchemes) {
-                let style = self.config.customColorSchemes[self.colorScheme_];
-                if (laneName in style) {
-                    if (stageName in style[laneName]) {
-                        return style[laneName][stageName];
-                    }
+        else if (self.colorScheme_ in self.config.customColorSchemes) {
+            let style = self.config.customColorSchemes[self.colorScheme_];
+            let colorDef = style["defaultColor"];
+            if (laneName in style) {
+                if (stageName in style[laneName]) {
+                    colorDef = style[laneName][stageName];
                 }
-                return style["defaultColor"];
             }
-    
-            return self.colorScheme_;
+            let baseColor = this.style_.pipelinePane.stageBackgroundColor;
+            let h = colorDef.h;
+            let s = colorDef.s;
+            let l = colorDef.l;
+            if (s.match(/^\d+$/)) { s += "%"; }
+            if (l.match(/^\d+$/)) { l += "%"; }
+            if (isBegin) {
+                l = (l == "auto") ? baseColor.lBegin : l;
+                s = (s == "auto") ? baseColor.sBegin : s;
+                return `hsl(${h},${s},${l})`;
+            }
+            else{
+                l = (l == "auto") ? baseColor.lEnd : l;
+                s = (s == "auto") ? baseColor.sEnd : s;
+                return `hsl(${h},${s},${l})`;
+            }
         }
+        return self.colorScheme_;
     }
 
     /**
