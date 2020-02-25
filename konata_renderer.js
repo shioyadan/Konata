@@ -692,7 +692,7 @@ class KonataRenderer{
         // タイルの描画
         for (let y = Math.floor(top); 
             y < top + height; 
-            y += (scale < 0.02) ? self.drawingInterval_ : 1
+            y += (this.opH_ < 0.25) ? self.drawingInterval_ : 1
         ) {
             let op = null;
             try {
