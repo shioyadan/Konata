@@ -1,7 +1,7 @@
 let Op = require("./op").Op;
+let OpList = require("./op_list").OpList;
 let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
-let StageLevel = require("./stage").StageLevel;
 let StageLevelMap = require("./stage").StageLevelMap;
 let Lane = require("./stage").Lane;
 
@@ -23,15 +23,9 @@ class OnikiriParser{
         // 現在読み出し中のサイクル
         this.curCycle_ = 0;
 
-        // 最後に読み出された命令の ID
-        this.lastID_ = -1;
-        this.lastRID_ = -1;
-        
-        // op 情報
-        /** @type {Op[]} */
-        this.opList_ = [];
-        /** @type {Op[]} */
-        this.retiredOpList_ = [];
+        // Op のリスト 
+        /** @type {OpList} */
+        this.opListBody_ = new OpList();
     
         // パース完了
         this.complete_ = false;
@@ -60,7 +54,7 @@ class OnikiriParser{
     // 閉じる
     close(){
         this.closed_ = true;
-        this.opList_ = null;   // パージ
+        this.opListBody_.close();
     }
 
     /**
@@ -85,43 +79,20 @@ class OnikiriParser{
         );
     }
 
-    getOps(start, end){
-        let ops = [];
-        for (let i = start; i < end; i++) {
-            let op = this.getOp(i);
-            ops.push(op);
-            if (op == null) {
-                // opがnullなら、それ以上の命令はない
-                break;
-            }
-        }
-        return ops;
-    }
-
-    getOp(id){
-        if (id > this.lastID_){
-            return null;
-        }
-        else{
-            return this.opList_[id];
-        }
+    getOp(id, resolution=0){
+        return this.opListBody_.getParsedOp(id, resolution);
     }
     
-    getOpFromRID(rid){
-        if (rid > this.lastRID_){
-            return null;
-        }
-        else{
-            return this.retiredOpList_[rid];
-        }
+    getOpFromRID(rid, resolution=0){
+        return this.opListBody_.getParsedOpFromRID(rid, resolution);
     }
 
     get lastID(){
-        return this.lastID_;
+        return this.opListBody_.parsedLastID;
     }
 
     get lastRID(){
-        return this.lastRID_;
+        return this.opListBody_.parsedLastRID;
     }
 
     get laneMap(){
@@ -179,9 +150,9 @@ class OnikiriParser{
         }
         
         // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
-        let i = this.opList_.length - 1;
+        let i = this.opListBody_.parsingLength - 1;
         while (i >= 0) {
-            let op = this.opList_[i];
+            let op = this.opListBody_.getParsingOp(i);
             if (op.retired && !op.flush) {
                 break; // コミットされた命令がきたら終了
             }
@@ -193,7 +164,7 @@ class OnikiriParser{
             op.eof = true;
             this.unescapeLabels(op);
         }
-        this.lastID_ = this.opList_.length - 1;
+        this.opListBody_.setParsedLastID(this.opListBody_.parsingLength - 1);
         this.complete_ = true;
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
@@ -240,7 +211,7 @@ class OnikiriParser{
         op.tid = Number(args[3]);
         op.fetchedCycle = this.curCycle_;
         op.line = this.curLine_;
-        this.opList_[id] = op;
+        this.opListBody_.setOp(id, op);
     }
 
     /** 
@@ -352,16 +323,13 @@ class OnikiriParser{
             op.flush = false;
             op.retired = true;
         }
-        if (this.lastID_ < id) {
-            this.lastID_ = id;
+        if (this.opListBody_.parsedLastID < id) {
+            this.opListBody_.setParsedLastID(id);
         }
         this.unescapeLabels(op);
 
         if (!op.flush) {
-            this.retiredOpList_[op.rid] = op;
-            if (this.lastRID_ < op.rid) {
-                this.lastRID_ = op.rid;
-            }
+            this.opListBody_.setParsedRetiredOp(op.rid, op);
         }
 
         // 閉じていないステージがあった場合はここで閉じる
@@ -395,7 +363,7 @@ class OnikiriParser{
         //      コンシューマーが生きている期間のみ使用可能
 
         let prodId = Number(args[2]);
-        let prod = this.opList_[prodId];
+        let prod = this.opListBody_.getParsingOp(prodId);
         let type = Number(args[3]);
         op.prods.push(new Dependency(prod.id, type, this.curCycle_));
         prod.cons.push(new Dependency(op.id, type, this.curCycle_));
@@ -404,12 +372,7 @@ class OnikiriParser{
     parseCommand(args){
 
         let id = Number(args[1]);
-
-        let op = null;
-        if (id in this.opList_) {
-            op = this.opList_[id];
-        }
-        
+        let op = this.opListBody_.getParsingOp(id);
         let cmd = args[0];
         /*
         if (cmd.match(/^(L|S|E|R|W)$/) && op == null) {

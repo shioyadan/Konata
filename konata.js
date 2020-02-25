@@ -96,12 +96,12 @@ class Konata{
     /**
      * @return {Op} id に対応した op を返す
      */
-    getOp(id){
-        return this.parser_ ? this.parser_.getOp(id) : null;
+    getOp(id, resolution=0){
+        return this.parser_ ? this.parser_.getOp(id, resolution) : null;
     }
 
-    getOpFromRID(rid){
-        return this.parser_ ? this.parser_.getOpFromRID(rid) : null;
+    getOpFromRID(rid, resolution=0){
+        return this.parser_ ? this.parser_.getOpFromRID(rid, resolution) : null;
     }
 
     get lastID(){

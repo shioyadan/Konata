@@ -42,6 +42,7 @@ class KonataRenderer{
         this.OP_H = 24; // スケール1のときの1命令の高さ
 
         // 拡大率レベル
+        this.MAX_ZOOM_LEVEL_ = 24;
         this.zoomLevel_ = 0;       
         this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
         this.laneNum_ = 1;
@@ -83,6 +84,12 @@ class KonataRenderer{
      */
     get viewPos(){
         return [this.viewPos_.left, this.viewPos_.top];
+    }
+
+    // getOp で使用する解像度
+    get opResolution(){
+        // 縦方向が 24 ピクセルなので，2^5 = 32 から解像度を落としても大丈夫
+        return this.zoomLevel_ - 5;
     }
 
     /**
@@ -226,12 +233,12 @@ class KonataRenderer{
 
         // 画面に表示されているものの中で最も上にあるものを基準に
         let oldOp = null;
-        oldOp = self.getVisibleOp(y);
+        oldOp = self.getVisibleOp(y, this.opResolution);
 
         // 水平方向の補正を行う
         let newTop = y + diffY;
         let newY = Math.floor(newTop);
-        let newOp = self.getVisibleOp(newY);
+        let newOp = self.getVisibleOp(newY, this.opResolution);
 
         if (!newOp) {
             return 0;
@@ -257,14 +264,14 @@ class KonataRenderer{
 
         let y = Math.floor(posY);
         let op = null;
-        op = self.getVisibleOp(y);
+        op = self.getVisibleOp(y, this.opResolution);
 
         let oldTop = self.viewPos_.top;
         self.viewPos_.top = posY;
 
         if (adjust && op) {
             // 水平方向の補正を行う
-            let oldOp = self.getVisibleOp(Math.floor(oldTop));
+            let oldOp = self.getVisibleOp(Math.floor(oldTop), this.opResolution);
             if (!oldOp) {
                 self.viewPos_.left = op.fetchedCycle;
             }
@@ -295,8 +302,8 @@ class KonataRenderer{
 
     // 論理Y座標に対応する，現在の表示モードの op を返す
     /** @return {Op} */
-    getVisibleOp(y){
-        return this.hideFlushedOps_ ? this.getOpFromRID(y) : this.getOpFromID(y);
+    getVisibleOp(y, resolution=0){
+        return this.hideFlushedOps_ ? this.getOpFromRID(y, resolution) : this.getOpFromID(y, resolution);
     }
     getVisibleBottom(){
         return this.hideFlushedOps_ ? this.konata_.lastRID : this.konata_.lastID;
@@ -324,7 +331,7 @@ class KonataRenderer{
     getPosY_FromOp(baseOP){
         if (this.hideFlushedOps_) {
             for (let i = baseOP.id; i >= 0; i--) {
-                let op = this.konata_.getOp(i);   
+                let op = this.getOpFromID(i);   
                 if (!op.flush) {
                     return op.rid;
                 }
@@ -337,23 +344,23 @@ class KonataRenderer{
     }
 
     // id に対応する op を返す
-    getOpFromID(id){
+    getOpFromID(id, resolution=0){
         let self = this;
-        return self.konata_.getOp(id);   
+        return self.konata_.getOp(id, resolution);   
     }
 
     // rid に対応する op を返す
-    getOpFromRID(rid){
+    getOpFromRID(rid, resolution=0){
         let self = this;
-        return self.konata_.getOpFromRID(rid);   
+        return self.konata_.getOpFromRID(rid, resolution);   
     }
 
     // ピクセル座標から対応する op を返す
     /** @returns {Op} */
-    getOpFromPixelPosY(y){
+    getOpFromPixelPosY(y, resolution=0){
         let self = this;
         let logY = Math.floor(self.viewPos_.top + y / self.opH_);
-        return self.getVisibleOp(logY);   
+        return self.getVisibleOp(logY, resolution);   
     }
 
     getPixelPosYFromOp(op){
@@ -370,7 +377,7 @@ class KonataRenderer{
     // ピクセル座標に対応するツールチップのテキストを作る
     getLabelToolTipText(y){
         let self = this;
-        let op = self.getOpFromPixelPosY(y);
+        let op = self.getOpFromPixelPosY(y, this.opResolution);
         if (!op) {
             return null;
         }
@@ -392,7 +399,7 @@ class KonataRenderer{
         let self = this;
 
         // Y 座標に対応した op を取得
-        let op = self.getOpFromPixelPosY(y);
+        let op = self.getOpFromPixelPosY(y, this.opResolution);
         if (!op) {
             return null;
         }
@@ -481,7 +488,8 @@ class KonataRenderer{
             self.opH_ = self.laneH_ * laneNum;
         }
         self.lane_height_margin_ = self.canDrawFrame ? self.LANE_HEIGHT_MARGIN * zoomScale : 0;
-        self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+        //self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+        self.drawingInterval_ = Math.floor(1 / self.OP_H / zoomScale / 2);
 
         // フォント
         let fontFamily = self.style_["fontFamily"];
@@ -559,7 +567,7 @@ class KonataRenderer{
         self.zoomLevel_ = zoomLevel;
 
         // 最大最小ズーム率に補正
-        self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, 16), -1);
+        self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, self.MAX_ZOOM_LEVEL_), -1);
 
         let oldScale = self.zoomScale_;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
@@ -682,13 +690,13 @@ class KonataRenderer{
         }
 
         // タイルの描画
-        for (let y = Math.floor(top); y < top + height; y++) {
-            if (scale < 0.005 && y % self.drawingInterval_  != 0) {
-                continue;
-            }
+        for (let y = Math.floor(top); 
+            y < top + height; 
+            y += (this.opH_ < 0.25) ? self.drawingInterval_ : 1
+        ) {
             let op = null;
             try {
-                op = self.getVisibleOp(y);
+                op = self.getVisibleOp(y, this.opResolution);
             } catch(e) {
                 console.log(e);
                 return;
@@ -750,7 +758,7 @@ class KonataRenderer{
 
             for (let dep of op.prods) {
 
-                let prod = this.konata_.getOp(dep.opID);    // ここは getVisibleOp ではない
+                let prod = this.getOpFromID(dep.opID);    // ここは getVisibleOp ではない
                 if (!prod) {
                     continue;
                 }
@@ -940,8 +948,8 @@ class KonataRenderer{
 
             // 縮小率が高すぎると表示が小さくなりすぎて何も見えなくなるので，
             // 最低1ピクセルは表示するように補正
-            if (right - left < 0.5) {
-                right = left + 0.5;
+            if (right - left < 1) {
+                right = left + 1;
             }
             if (laneHeight < 0.5) {
                 laneHeight = 0.5;
