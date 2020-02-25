@@ -42,7 +42,7 @@ class KonataRenderer{
         this.OP_H = 24; // スケール1のときの1命令の高さ
 
         // 拡大率レベル
-        this.MAX_ZOOM_LEVEL_ = 20;
+        this.MAX_ZOOM_LEVEL_ = 24;
         this.zoomLevel_ = 0;       
         this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
         this.laneNum_ = 1;
@@ -482,7 +482,8 @@ class KonataRenderer{
             self.opH_ = self.laneH_ * laneNum;
         }
         self.lane_height_margin_ = self.canDrawFrame ? self.LANE_HEIGHT_MARGIN * zoomScale : 0;
-        self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+        //self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+        self.drawingInterval_ = Math.floor(1 / self.OP_H / zoomScale / 2);
 
         // フォント
         let fontFamily = self.style_["fontFamily"];
@@ -683,10 +684,10 @@ class KonataRenderer{
         }
 
         // タイルの描画
-        for (let y = Math.floor(top); y < top + height; y++) {
-            if (scale < 0.005 && y % self.drawingInterval_  != 0) {
-                continue;
-            }
+        for (let y = Math.floor(top); 
+            y < top + height; 
+            y += (scale < 0.02) ? self.drawingInterval_ : 1
+        ) {
             let op = null;
             try {
                 op = self.getVisibleOp(y, this.zoomLevel_ - 5);
@@ -941,8 +942,8 @@ class KonataRenderer{
 
             // 縮小率が高すぎると表示が小さくなりすぎて何も見えなくなるので，
             // 最低1ピクセルは表示するように補正
-            if (right - left < 0.5) {
-                right = left + 0.5;
+            if (right - left < 1) {
+                right = left + 1;
             }
             if (laneHeight < 0.5) {
                 laneHeight = 0.5;
