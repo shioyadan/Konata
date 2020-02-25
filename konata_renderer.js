@@ -86,6 +86,12 @@ class KonataRenderer{
         return [this.viewPos_.left, this.viewPos_.top];
     }
 
+    // getOp で使用する解像度
+    get opResolution(){
+        // 縦方向が 24 ピクセルなので，2^5 = 32 から解像度を落としても大丈夫
+        return this.zoomLevel_ - 5;
+    }
+
     /**
      * 初期化
      * @param {Konata} konata - Konata オブジェクトへの参照
@@ -227,12 +233,12 @@ class KonataRenderer{
 
         // 画面に表示されているものの中で最も上にあるものを基準に
         let oldOp = null;
-        oldOp = self.getVisibleOp(y);
+        oldOp = self.getVisibleOp(y, this.opResolution);
 
         // 水平方向の補正を行う
         let newTop = y + diffY;
         let newY = Math.floor(newTop);
-        let newOp = self.getVisibleOp(newY);
+        let newOp = self.getVisibleOp(newY, this.opResolution);
 
         if (!newOp) {
             return 0;
@@ -258,14 +264,14 @@ class KonataRenderer{
 
         let y = Math.floor(posY);
         let op = null;
-        op = self.getVisibleOp(y);
+        op = self.getVisibleOp(y, this.opResolution);
 
         let oldTop = self.viewPos_.top;
         self.viewPos_.top = posY;
 
         if (adjust && op) {
             // 水平方向の補正を行う
-            let oldOp = self.getVisibleOp(Math.floor(oldTop));
+            let oldOp = self.getVisibleOp(Math.floor(oldTop), this.opResolution);
             if (!oldOp) {
                 self.viewPos_.left = op.fetchedCycle;
             }
@@ -351,10 +357,10 @@ class KonataRenderer{
 
     // ピクセル座標から対応する op を返す
     /** @returns {Op} */
-    getOpFromPixelPosY(y){
+    getOpFromPixelPosY(y, resolution=0){
         let self = this;
         let logY = Math.floor(self.viewPos_.top + y / self.opH_);
-        return self.getVisibleOp(logY);   
+        return self.getVisibleOp(logY, resolution);   
     }
 
     getPixelPosYFromOp(op){
@@ -371,7 +377,7 @@ class KonataRenderer{
     // ピクセル座標に対応するツールチップのテキストを作る
     getLabelToolTipText(y){
         let self = this;
-        let op = self.getOpFromPixelPosY(y);
+        let op = self.getOpFromPixelPosY(y, this.opResolution);
         if (!op) {
             return null;
         }
@@ -393,7 +399,7 @@ class KonataRenderer{
         let self = this;
 
         // Y 座標に対応した op を取得
-        let op = self.getOpFromPixelPosY(y);
+        let op = self.getOpFromPixelPosY(y, this.opResolution);
         if (!op) {
             return null;
         }
@@ -690,7 +696,7 @@ class KonataRenderer{
         ) {
             let op = null;
             try {
-                op = self.getVisibleOp(y, this.zoomLevel_ - 5);
+                op = self.getVisibleOp(y, this.opResolution);
             } catch(e) {
                 console.log(e);
                 return;
