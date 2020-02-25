@@ -2,7 +2,6 @@ let Op = require("./op").Op;
 let OpList = require("./op_list").OpList;
 let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
-let StageLevel = require("./stage").StageLevel;
 let StageLevelMap = require("./stage").StageLevelMap;
 let Lane = require("./stage").Lane;
 
