@@ -131,7 +131,7 @@
         rc.on(CHANGE.DIALOG_FILE_OPEN, function () {
             const dialog = remote.dialog;
             dialog.showOpenDialog(
-                null, {
+                remote.getCurrentWindow(), {
                     properties: ["openFile"],
                     filters: [
                         {
@@ -140,16 +140,15 @@
                         }
                     ],
                     defaultPath: "."
-                },
-                function (fileNames) {
-                    if (!fileNames) {
-                        return;
-                    }
-
-                    // Store にファイルを開いて貰う
-                    rc.trigger(ACTION.FILE_OPEN, fileNames[0]);
                 }
-            );
+            ).then((result) => {
+                if (!result.filePaths || result.canceled) {
+                    return;
+                }
+
+                // Store にファイルを開いて貰う
+                rc.trigger(ACTION.FILE_OPEN, result.filePaths[0]);
+            });
         });
     </script>
 </app_file_open_dialog>
