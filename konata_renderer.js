@@ -690,10 +690,25 @@ class KonataRenderer{
         }
 
         // タイルの描画
+        let skipRendering = false;
         for (let y = Math.floor(top); 
             y < top + height; 
             y += (this.opH_ < 0.25) ? self.drawingInterval_ : 1
         ) {
+
+            // 背景をストライプに
+            let pixelY = y - top + offsetY;
+            if (self.canDrawFrame) {
+                if (y % 2 == 0) {
+                    let fillTop = pixelY * this.opH_ + self.PIXEL_ADJUST;
+                    ctx.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
+                    ctx.fillRect(0, fillTop, tile.clientWidth, this.opH_);
+                }
+            }
+            if (skipRendering) {
+                continue;
+            }
+
             let op = null;
             try {
                 op = self.getVisibleOp(y, this.opResolution);
@@ -706,8 +721,9 @@ class KonataRenderer{
                 // after null.
                 continue;   
             }
+
             if (!self.drawOp_(op, y - top + offsetY, left, left + width, scale, ctx)) {
-                break;
+                skipRendering = true;
             }
         }
 

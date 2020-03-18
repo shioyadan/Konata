@@ -11,6 +11,8 @@
     },
     "pipelinePane": {
         "backgroundColor": "#ffffff",
+        "backgroundColorStripeOverlay": "#00000010",
+
         "fontColor": "#444444",
         "borderColor": "#444444",
         "borderWeight": "1",
