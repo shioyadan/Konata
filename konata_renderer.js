@@ -49,7 +49,7 @@ class KonataRenderer{
         this.laneW_ = this.OP_W * this.zoomScale_;
         this.laneH_ = this.OP_H * this.zoomScale_;
         this.opW_ = this.laneW_ * this.laneNum_; 
-        this.opH_ = this.laneW_ * this.laneNum_; 
+        this.opH_ = this.laneH_ * this.laneNum_; 
 
         this.LANE_HEIGHT_MARGIN = 2;
         this.lane_height_margin_ = this.LANE_HEIGHT_MARGIN; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
