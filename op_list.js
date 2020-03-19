@@ -33,7 +33,14 @@ class OpListPage {
 
         /** @type {Buffer} */
         this.compressedData_ = null;
-        this.isCompressed_ = false;
+
+        this.markedCompressed_ = false;
+
+        this.isCompressing_ = false;
+        this.compressingTaskID = -1;
+        this.nextTaskID = -1;
+
+        this.dirty_ = false;
     }
 
     getOp(id) {
@@ -43,7 +50,7 @@ class OpListPage {
             return null;
         }
         else{
-            if (this.isCompressed_) {
+            if (this.markedCompressed_) {
                 this.decompress();
             }
             return this.opList_[disp];
@@ -57,51 +64,68 @@ class OpListPage {
         }
         else{
             this.opList_[disp] = op;
+            this.dirty_ = true;
         }
     }
 
     compress(){
-        if (!this.isCompressed_) {
+        if (!this.markedCompressed_ || this.dirty_) {
+            //console.log(`compress: ${this.headID_}`);
+            this.markedCompressed_ = true;
+            this.isCompressing_ = true;
+
+            let taskID = this.nextTaskID;
+            this.nextTaskID++;
+            this.compressingTaskID = taskID;
             let json = JSON.stringify(this.opList_);
-            //this.compressedData_ = zlib.deflateSync(json);
-            this.compressedData_ = zlib.gzipSync(json);
-            this.opList_ = [];
-            this.isCompressed_ = true;
+            zlib.gzip(json, (error, data) => {
+                if (taskID == this.compressingTaskID) {
+                    this.compressedData_ = data;
+                    this.opList_ = [];
+                    this.isCompressing_ = false;
+                    this.dirty_ = false;
+                }
+            });
         }
     }
 
     decompress(){
-        if (this.isCompressed_) {
-            //let json = zlib.inflateSync(this.compressedData_);
-            let json = zlib.gunzipSync(this.compressedData_).toString();
-            this.opList_ = JSON.parse(json);
-            //this.compressedData_ = null;
-            this.isCompressed_ = false;
-            /*
-            zlib.gunzip(this.compressedData_, (error, result) => {
-                let json = result.toString();
-                this.opList_ = JSON.parse(json);
-                this.compressedData_ = null;
-            });
-            this.opList_ = [];
-            for (let i = 0; i < PAGE_SIZE; i++) {
-                this.opList_[i] = null;
+        if (this.markedCompressed_) {
+            //console.log(`decompress: ${this.headID_}`);
+            this.markedCompressed_ = false;
+            if (this.isCompressing_) {
+                // 中止
+                this.compressingTaskID = -1;
+                this.isCompressing_ = false;
             }
-            this.isCompressed_ = false;
-            */
+            else{
+                let json = zlib.gunzipSync(this.compressedData_).toString();
+                this.opList_ = JSON.parse(json);
+                // op にロードしないとプロパティが使えない
+                /*
+                for (let i = 0; i < this.opList_.length; i++) {
+                    let op = new Op();
+                    op.load(this.opList_[i]);
+                    this.opList_[i] = op;
+                }*/
+            }
         }
     }
 
     purgeDecompressedData(){
-        if (!this.compressedData_) {
+        if (!this.compressedData_ || this.dirty_) {
             this.compress();
         }
-        this.opList_ = [];
-        this.isCompressed_ = true;
+        else if (!this.isCompressing_){
+            // 非 dirty で既に圧縮済み，圧縮中でないなら即時パージ
+            this.opList_ = [];
+            this.markedCompressed_ = true;
+        }
+        //console.log(`purge: ${this.headID_}`);
     }
 
     get isCompressed(){
-        return this.isCompressed_;
+        return this.markedCompressed_;
     }
 }
 
@@ -125,6 +149,9 @@ class OpList {
 
         /** @type {Object<number, Op>} */
         this.cache_ = {};
+
+        // キャッシュのセットアップが最後に行われたページ
+        this.nextCachedPageIndex = 0;
 
         // FIFO 置き換えで非圧縮ページを管理
         this.decompressedList_ = [];
@@ -176,20 +203,27 @@ class OpList {
         }
     }
     
+    // タッチしたときに呼ばれる
+    updateReplacement_(pageIndex, initialTouch){
+        let page = this.opPages_[pageIndex];
+        if (page.isCompressed || initialTouch) {
+            if (page.isCompressed) {
+                page.decompress();
+            }
+            this.decompressedList_.push(pageIndex);
+            if (this.decompressedList_.length >= MAX_DECOMPRESSED_PAGES) {
+                let compress = this.decompressedList_.shift();
+                this.opPages_[compress].purgeDecompressedData();
+            }
+        }
+    }
+
     getParsingOp(id){
         if (0 <= id && id < this.parsingLength_) {
             //return this.opList_[id];
             let pageIndex = idToPageIndex(id);
             let page = this.opPages_[pageIndex];
-
-            if (page.isCompressed) {
-                this.decompressedList_.push(pageIndex);
-                if (this.decompressedList_.length >= MAX_DECOMPRESSED_PAGES) {
-                    let compress = this.decompressedList_.shift();
-                    this.opPages_[compress].purgeDecompressedData();
-                }
-            }
-
+            this.updateReplacement_(pageIndex, false);
             return page.getOp(id);
         }
         else {
@@ -230,23 +264,23 @@ class OpList {
         this.parsedLastID_ = id;
         
         let pageIndex = idToPageIndex(id - PAGE_SIZE * COMPRESS_START_MARGIN);
-        if (pageIndex >= 0) {
-            // Add an op to the cache
-            if (!this.opPages_[pageIndex].isCompressed) {
-                let head = pageIndexToID(pageIndex);
-                for (let i = 0; i < PAGE_SIZE; i += CACHE_RESOLUTION) {
-                    let op = this.getParsedOp(head + i);
-                    if (op) {
-                        // GEM5 の場合，まれに歯抜けになっていることがある
-                        // 中身がからの場合，JSON にできずにエラーになる
+        // Add an op to the cache
+        while (this.nextCachedPageIndex < pageIndex) {
+            let head = pageIndexToID(this.nextCachedPageIndex);
+            for (let i = 0; i < PAGE_SIZE; i += CACHE_RESOLUTION) {
+                let op = this.getParsedOp(head + i);
+                // GEM5 の場合，まれに歯抜けになっていることがある
+                // 中身がからの場合，JSON にできずにエラーになる
 
-                        // 一回 JSON にして戻すとかなり容量が減るため
-                        op = JSON.parse(JSON.stringify(op));
-                        this.cache_[head + i] = op;
-                    }
+                // 一回 JSON にして戻すとかなり容量が減るため
+                if (op) {
+                    // Deep copy しとくほうがいい
+                    op = JSON.parse(JSON.stringify(op));
+                    this.cache_[head + i] = op;
                 }
             }
-            this.opPages_[pageIndex].compress();
+            this.updateReplacement_(this.nextCachedPageIndex, true);
+            this.nextCachedPageIndex++;
         }
     }
 
