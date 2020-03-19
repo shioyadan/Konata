@@ -1,19 +1,23 @@
+let path = require('path');
+let fs = require("fs");
+let readline = require("readline");
+let zlib = require("zlib");
+
 class FileReader{
     constructor(){
-        this.path_ = require("path");
         this.filePath_ = "";
         this.readStream_ = null;
         this.readIF_ = null;
         this.fileSize_ = 0;
+        this.complete_ = false;
     }
+
 
     /**
      * Open a file
      * @param {string} filePath - a file path
      */
     open(filePath){
-
-        let fs = require("fs");
 
         let stat = fs.statSync(filePath);
         if (!stat) {
@@ -25,14 +29,12 @@ class FileReader{
 
         this.filePath_ = filePath;
 
-        //let zlib = require("zlib");
-        let readline = require("readline");
-        let rs = fs.createReadStream(filePath);
+        // GZip の chunk size と合わせて，少し増やすと２割ぐらい速くなる
+        let rs = fs.createReadStream(filePath, {highWaterMark: 1024*64*4});
         this.readStream_ = rs;  // 読み出し量はファイルサイズ基準なので，こっちをセット
 
         if (this.getExtension() == ".gz") {
-            let zlib = require("zlib");
-            let gzipRS = rs.pipe(zlib.createGunzip());
+            let gzipRS = rs.pipe(zlib.createGunzip({chunkSize: 1024*64*4}));
             this.readIF_ = readline.createInterface({"input": gzipRS});
         }
         else {
@@ -74,9 +76,10 @@ class FileReader{
     }
 
     getExtension(){
-        let ext = this.path_.extname(this.filePath_);
+        let ext = path.extname(this.filePath_);
         return ext;
     }
 }
+
 
 module.exports.FileReader = FileReader;
