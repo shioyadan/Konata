@@ -989,11 +989,25 @@
                 if (!store.isCommandPaletteOpened) {
                     // These keys are valid when a command palette is not opened.
                     if (key == "ArrowUp") {
-                        // ctrl 時は水平方向補正なし
-                        dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.ctrlKey);
+                        if (e.ctrlKey) {
+                            let w = self.refs.app_sheet_list.root.offsetWidth - store.activeTab.splitterPos;
+                            let h = self.refs.app_sheet_list.root.offsetHeight;
+                            dispatcher.trigger(ACTION.KONATA_ZOOM, -1, w / 2, h / 2);
+                        }
+                        else{
+                            // shift 時は水平方向補正なし
+                            dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.shiftKey);
+                        }
                     }
                     else if (key == "ArrowDown") {
-                        dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, !e.ctrlKey);
+                        if (e.ctrlKey) {
+                            let w = self.refs.app_sheet_list.root.offsetWidth - store.activeTab.splitterPos;
+                            let h = self.refs.app_sheet_list.root.offsetHeight;
+                            dispatcher.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
+                        }
+                        else{
+                            dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, !e.shiftKey);
+                        }
                     }
                     else if (key == "PageUp") {
                         dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -10, !e.ctrlKey);

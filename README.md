@@ -41,8 +41,8 @@ Simply extract an archive and launch an executable file (konata.exe or konata).
 
 * mouse wheel up, key up: scroll up
 * mouse wheel down, key down: scroll down
-* ctrl + mouse wheel up, key "+": zoom in
-* ctrl + mouse wheel down, key "-": zoom out
+* ctrl + mouse wheel up, key "+", ctrl+key up: zoom in
+* ctrl + mouse wheel down, key "-", ctrl+key down: zoom out
 * ctrl + f, F3, shift+F3: find a string 
 * F1, ctrl+shift+p: open a command palette
 
