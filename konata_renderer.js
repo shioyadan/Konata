@@ -79,6 +79,9 @@ class KonataRenderer{
         this.style_ = null;
     }
 
+    get opW(){ return this.opW_; }
+    get opH(){ return this.opH_; }
+
     /**
      * viewPos_ の getter
      */

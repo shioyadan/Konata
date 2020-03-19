@@ -435,7 +435,7 @@
                 find_result_tip.left = "0px";
 
                 let renderer = store.tabs[self.id].renderer;
-                find_result_tip.top = Math.floor(renderer.getPixelPosYFromOp(findCtx.op)) + 25 + "px";
+                find_result_tip.top = Math.floor(renderer.getPixelPosYFromOp(findCtx.op)) + renderer.opH + "px";
 
                 // パターンにヒットした行を表示する
                 self.findResultTipText = "";
