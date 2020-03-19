@@ -38,7 +38,7 @@ class OpListPage {
 
         this.isCompressing_ = false;
         this.compressingTaskID = -1;
-        this.nextTaskID = -1;
+        this.nextTaskID = 0;
 
         this.dirty_ = false;
     }
