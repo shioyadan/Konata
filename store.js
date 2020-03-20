@@ -1004,7 +1004,16 @@ class Store{
                         else{ // 横位置を変えない
                             hOpPos = 0;
                         }
-                        self.startScroll([hOpPos, moveTo - viewPos[1]]);
+                        let vOpPos = moveTo;
+                        if (vOpPos < viewPos[1] || 
+                            vOpPos > viewPos[1] + 400 / renderer.opH
+                        ) { // 表示範囲内になかった場合は，位置も移動
+                            vOpPos = vOpPos + (-100 / renderer.opH) - viewPos[1];
+                        }
+                        else{ // 位置を変えない
+                            vOpPos = 0;
+                        }
+                        self.startScroll([hOpPos, vOpPos]);
                     }
                     //console.log(`Found: ${target}@${foundPos}`);
                 }
@@ -1045,7 +1054,7 @@ class Store{
             }
 
             let findContext = self.activeTab.findContext;
-            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            let pos = self.activeTab.renderer.getPosY_FromOp(findContext.op);
             self.findString(findContext.targetPattern, pos + 1, false, function(hit, canceled){
                 if (!hit && !canceled) {
                     self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
@@ -1061,7 +1070,7 @@ class Store{
             }
 
             let findContext = self.activeTab.findContext;
-            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
+            let pos = self.activeTab.renderer.getPosY_FromOp(findContext.op);
             self.findString(findContext.targetPattern, pos - 1, true, function(hit, canceled){
                 if (!hit && !canceled) {
                     self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
