@@ -43,6 +43,8 @@ class Config{
         this.drawFrameThreshold = 2 + 2;
         this.drawTextThreshold = 8 + 2; // 
 
+        this.drawZoomFactor = 1; // ズーム時の拡大変化率
+
 
         // 
         this.depArrowType = "insideLine";
@@ -105,6 +107,10 @@ class Config{
         if (!found) {
             this[name] = validList[0];
         }
+    }
+
+    get configDir(){
+        return this.DIR_;
     }
 
     /** @param {string} fileName */
@@ -180,6 +186,31 @@ class Config{
         catch (e) {
             console.log(`Could not write ${this.FILE_NAME_}`);
         }
+    }
+
+    get configItems(){
+        return {
+            drawTextThreshold: {
+                comment: "If you set a smaller value, texts are drawn when you zoom out more. " +
+                    "[Default: 10 CSS pixel]"
+            },
+            drawDetailedlyThreshold: {
+                comment: "If you set a smaller value, colors are applied when you zoom out more. " +
+                    "[Default: 1 CSS pixel]"
+            },
+            drawDependencyThreshold: {
+                comment: "If you set a smaller value, dependency arrows are drawn when you zoom out more. " + 
+                    "[Default: 4 CSS pixel]"
+            },
+            drawFrameThreshold: {
+                comment: "If you set a smaller value, frames are drawn when you zoom out more. " +
+                    "[Default: 4 CSS pixel]"
+            },
+            drawZoomFactor: {
+                comment: "If you set a greater value (e.g., \"1.5\"), zoom in/out is performed at a finer granularity. " + 
+                    "[Default: 1]"
+            }
+        };
     }
 }
 

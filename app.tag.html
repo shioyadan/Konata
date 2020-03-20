@@ -986,7 +986,7 @@
             document.onkeydown = function(e) {
                 let key = e.key;
 
-                if (!store.isCommandPaletteOpened) {
+                if (!store.isAnyDialogOpened()) {
                     // These keys are valid when a command palette is not opened.
                     if (key == "ArrowUp") {
                         if (e.ctrlKey) {

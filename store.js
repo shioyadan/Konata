@@ -21,6 +21,9 @@ const ACTION = {
     FILE_RELOAD: 21,
     FILE_CHECK_RELOAD: 22,
     FILE_SHOW_STATS: 23,
+    FILE_CLOSE_STATS: 24,
+    FILE_SHOW_SETTINGS: 25,
+    FILE_CLOSE_SETTINGS: 26,
 
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
@@ -35,6 +38,7 @@ const ACTION = {
     KONATA_EMPHASIZE_IN_TRANSPARENT: 62, // 透過モード時にアルファ値を下げる
     KONATA_SYNC_SCROLL: 63,             // 同期スクロール
     KONATA_CHANGE_UI_COLOR_THEME: 64,   // UI のカラーテーマの変更
+    KONATA_CHANGE_SETTINGS: 65,         // 設定の変更
 
     KONATA_ZOOM: 73,        // 拡大/縮小
 
@@ -78,9 +82,10 @@ const CHANGE = {
     DIALOG_MODAL_ERROR: 112,
     DIALOG_CHECK_RELOAD: 113,
     DIALOG_SHOW_STATS: 114,
+    DIALOG_SHOW_SETTINGS: 115,
     
-    COMMAND_PALETTE_OPEN: 115,
-    COMMAND_PALETTE_CLOSE: 116,
+    COMMAND_PALETTE_OPEN: 116,
+    COMMAND_PALETTE_CLOSE: 117,
 
     MENU_UPDATE: 120,   // メニュー内容の更新
 
@@ -207,8 +212,14 @@ class Store{
         this.scrollSpeed = 1.0;
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
-        // Command palette
+        // Any dialog is opened or not
         this.isCommandPaletteOpened = false;
+        this.isStatsDialogOpened = false;
+        this.isSettingsDialogOpened = false;
+        this.isAnyDialogOpened = () => {
+            return this.isCommandPaletteOpened || this.isStatsDialogOpened || this.isSettingsDialogOpened;
+        };
+
 
         // Dummy functions for a type-script checker
         // The actual handlers are set in riot.observable.
@@ -395,9 +406,25 @@ class Store{
                 (stats) => {  // 読み出し終了ハンドラ
                     self.trigger(CHANGE.PROGRESS_BAR_FINISH, tabID, "stats");
                     self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+
+                    self.isStatsDialogOpened = true;
                     self.trigger(CHANGE.DIALOG_SHOW_STATS, stats);
                 },
             );
+        });
+
+        self.on(ACTION.FILE_CLOSE_STATS, function(){
+            self.isStatsDialogOpened = false;
+        });
+
+        // Show statistics
+        self.on(ACTION.FILE_SHOW_SETTINGS, function(){
+            self.isSettingsDialogOpened = true;
+            self.trigger(CHANGE.DIALOG_SHOW_SETTINGS);
+        });
+
+        self.on(ACTION.FILE_CLOSE_SETTINGS, function(){
+            self.isSettingsDialogOpened = false;
         });
 
         // アクティブなタブの変更
@@ -569,7 +596,7 @@ class Store{
             if (!self.activeTab){
                 return;
             }
-            self.startZoom(zoomLevelDiff, posX, posY, speed, true);
+            self.startZoom(zoomLevelDiff / self.config.drawZoomFactor, posX, posY, speed, true);
         });
 
         // スクロール同期対象のタブに，渡された関数を適用する
@@ -787,6 +814,16 @@ class Store{
             self.config.theme = theme;
             for (let tabID in self.tabs) {
                 self.tabs[tabID].renderer.loadStyle();
+            }
+            self.trigger(CHANGE.WINDOW_CSS_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // Change settings
+        self.on(ACTION.KONATA_CHANGE_SETTINGS, function(key, value){
+            if (key in self.config.configItems) {
+                self.config[key] = value;
             }
             self.trigger(CHANGE.WINDOW_CSS_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);

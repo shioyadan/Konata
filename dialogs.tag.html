@@ -54,10 +54,17 @@
             );
         });
 
-        self.modal = function (opts) {
+        self.modal = function (opts, handlers=null) {
             self.opts = opts;
             self.update();
             let top = $(self.refs["top_div"]);
+
+            if (handlers) {
+                // shown.bs.modal 等の Bootstrap のハンドラを登録
+                for (h in handlers) {
+                    top.on(h, handlers[h]);
+                }
+            }
 
             // キーボードハンドラを登録
             window.addEventListener("keydown", self.onKeyDown);
@@ -186,11 +193,23 @@
 
         rc.on(CHANGE.DIALOG_SHOW_STATS, function(stats){
             self.stats = stats;
-            self.refs.dialog.modal({
-                "title": "Stats",
-                "buttonOK": "OK",
-                "stats": self.getFilteredStats()
-            });
+            let dialog = self.refs.dialog;
+            self.refs.dialog.modal(
+                {
+                    "title": "Stats",
+                    "buttonOK": "OK",
+                    "stats": self.getFilteredStats()
+                },
+                { // Bootstrap のダイアログのハンドラ
+                    "shown.bs.modal": () => {
+                        let filter = dialog.refs.filter;
+                        filter.focus();
+                    },
+                    "hidden.bs.modal": () => { // closeHandler
+                        rc.trigger(ACTION.FILE_CLOSE_STATS);
+                    }
+                }
+            );
 
             // input 内で何か入力があった時のイベントハンドラ
             // 入れ子の内側のものは，refs の参照も入れ子になる
@@ -225,9 +244,119 @@
     </script>
 </app_stats_dialog>
 
+<!-- Settings -->
+<app_settings_dialog>
+    
+    <app_modal_dialog_module ref="dialog">
+        <!-- "form-group" "form-control" は bootstrap のもの -->
+        <div class="form-group">
+            <input 
+                ref="filter" 
+                class="form-control" 
+                type="text"
+                placeholder="Search configuration" 
+            >
+        </div>
+
+        <table class="table table-striped table-sm table-hover">
+            <tr each="{data, key in opts.settings}">
+                <td>
+                    <strong>{key}</strong><br>
+                    <small>{data.comment}</small>
+                </td>
+                <td>
+                    <br>
+                    <input
+                        class="form-control" 
+                        ref="{key}"
+                        value="{data.value}"
+                    >
+                </td>
+            </tr>
+        </table>
+    </app_modal_dialog_module>
+
+    <script>
+        /* global dispatcher ACTION */
+        let rc = dispatcher;
+        let self = this;
+
+        rc.on(CHANGE.DIALOG_SHOW_SETTINGS, function(){
+            let dialog = self.refs.dialog;
+            self.refs.dialog.modal(
+                {
+                    "title": "Settings",
+                    "buttonOK": "OK",
+                    "settings": self.getFilteredSettings()
+                },
+                { // Bootstrap のダイアログのハンドラ
+                    "shown.bs.modal": () => {
+                        let filter = dialog.refs.filter;
+                        filter.focus();
+                    },
+                    "hidden.bs.modal": () => { // closeHandler
+                        rc.trigger(ACTION.FILE_CLOSE_SETTINGS);
+                    }
+                }
+            );
+
+            // input 内で何か入力があった時のイベントハンドラ
+            // 入れ子の内側のものは，refs の参照も入れ子になる
+            let filter = self.refs.dialog.refs.filter;
+            filter.oninput = function(){
+                // 内部でもっている dialog 内の opts を強制的に書き換えて更新
+                self.refs.dialog.opts.settings = self.getFilteredSettings();
+                self.update();
+                self.setInputHandler();
+            };
+            self.setInputHandler();
+            filter.focus();
+        });
+
+        self.setInputHandler = function(){
+            let onFormInput = function(){
+                let config = store.config.configItems;
+                for (let key in config) {
+                    if (key in self.refs.dialog.refs) {
+                        let value = self.refs.dialog.refs[key].value;
+                        if (store.config[key] != value && value.match(/\d+(\.?\d+)*/)) {
+                            rc.trigger(ACTION.KONATA_CHANGE_SETTINGS, key, value);
+                        }
+                    }
+                }
+                self.refs.dialog.opts.settings = self.getFilteredSettings();
+                self.update();
+            };
+            let config = store.config.configItems;
+            for (let key in config) {
+                if (key in self.refs.dialog.refs) {
+                    self.refs.dialog.refs[key].oninput = onFormInput;
+                }
+            }
+        }
+
+        // config の中身をフィルタして返す
+        self.getFilteredSettings = function(){
+            let filter = new RegExp(self.refs.dialog.refs.filter.value, "i");
+            let settings = {};
+            let config = store.config.configItems;
+            for (let key in config) {
+                if (key.match(filter) || config[key].comment.match(filter)) {
+                    settings[key] = {
+                        comment: config[key].comment,
+                        value: store.config[key]
+                    }
+                }
+            }
+            return settings;
+        };
+    </script>
+</app_settings_dialog>
+
 <app_dialogs>
     <app_modal_dialog_launcher></app_modal_dialog_launcher>
     <app_file_open_dialog></app_file_open_dialog>
     <app_reload_dialog></app_reload_dialog>
     <app_stats_dialog></app_stats_dialog>
+    <app_settings_dialog></app_settings_dialog>
 </app_dialogs>
