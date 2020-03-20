@@ -596,7 +596,7 @@ class Store{
             if (!self.activeTab){
                 return;
             }
-            self.startZoom(zoomLevelDiff, posX, posY, speed, true);
+            self.startZoom(zoomLevelDiff / self.config.drawZoomFactor, posX, posY, speed, true);
         });
 
         // スクロール同期対象のタブに，渡された関数を適用する
