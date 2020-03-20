@@ -54,10 +54,17 @@
             );
         });
 
-        self.modal = function (opts) {
+        self.modal = function (opts, handlers=null) {
             self.opts = opts;
             self.update();
             let top = $(self.refs["top_div"]);
+
+            if (handlers) {
+                // shown.bs.modal 等の Bootstrap のハンドラを登録
+                for (h in handlers) {
+                    top.on(h, handlers[h]);
+                }
+            }
 
             // キーボードハンドラを登録
             window.addEventListener("keydown", self.onKeyDown);
@@ -186,11 +193,23 @@
 
         rc.on(CHANGE.DIALOG_SHOW_STATS, function(stats){
             self.stats = stats;
-            self.refs.dialog.modal({
-                "title": "Stats",
-                "buttonOK": "OK",
-                "stats": self.getFilteredStats()
-            });
+            let dialog = self.refs.dialog;
+            self.refs.dialog.modal(
+                {
+                    "title": "Stats",
+                    "buttonOK": "OK",
+                    "stats": self.getFilteredStats()
+                },
+                { // Bootstrap のダイアログのハンドラ
+                    "shown.bs.modal": () => {
+                        let filter = dialog.refs.filter;
+                        filter.focus();
+                    },
+                    "hidden.bs.modal": () => { // closeHandler
+                        rc.trigger(ACTION.FILE_CLOSE_STATS);
+                    }
+                }
+            );
 
             // input 内で何か入力があった時のイベントハンドラ
             // 入れ子の内側のものは，refs の参照も入れ子になる
@@ -263,11 +282,23 @@
         let self = this;
 
         rc.on(CHANGE.DIALOG_SHOW_SETTINGS, function(){
-            self.refs.dialog.modal({
-                "title": "Settings",
-                "buttonOK": "OK",
-                "settings": self.getFilteredSettings()
-            });
+            let dialog = self.refs.dialog;
+            self.refs.dialog.modal(
+                {
+                    "title": "Settings",
+                    "buttonOK": "OK",
+                    "settings": self.getFilteredSettings()
+                },
+                { // Bootstrap のダイアログのハンドラ
+                    "shown.bs.modal": () => {
+                        let filter = dialog.refs.filter;
+                        filter.focus();
+                    },
+                    "hidden.bs.modal": () => { // closeHandler
+                        rc.trigger(ACTION.FILE_CLOSE_SETTINGS);
+                    }
+                }
+            );
 
             // input 内で何か入力があった時のイベントハンドラ
             // 入れ子の内側のものは，refs の参照も入れ子になる

@@ -140,7 +140,7 @@ function installMainMenu(store, dispatcher){
                             return {
                                 label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
                                 click: function(){
-                                    if (!store.isCommandPaletteOpened){
+                                    if (!store.isAnyDialogOpened()){
                                         rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);
                                     }
                                 },
@@ -155,7 +155,7 @@ function installMainMenu(store, dispatcher){
                             return {
                                 label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
                                 click: function(){
-                                    if (!store.isCommandPaletteOpened){
+                                    if (!store.isAnyDialogOpened()){
                                         rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);
                                     }
                                 },
@@ -434,7 +434,7 @@ function popupPipelineMenu(store, dispatcher, pos){
                 return {
                     label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
                     click: function(){
-                        if (!store.isCommandPaletteOpened){
+                        if (!store.isAnyDialogOpened()){
                             rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);
                         }
                     },
@@ -448,7 +448,7 @@ function popupPipelineMenu(store, dispatcher, pos){
                 return {
                     label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
                     click: function(){
-                        if (!store.isCommandPaletteOpened){
+                        if (!store.isAnyDialogOpened()){
                             rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);
                         }
                     },

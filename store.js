@@ -21,7 +21,9 @@ const ACTION = {
     FILE_RELOAD: 21,
     FILE_CHECK_RELOAD: 22,
     FILE_SHOW_STATS: 23,
-    FILE_SHOW_SETTINGS: 24,
+    FILE_CLOSE_STATS: 24,
+    FILE_SHOW_SETTINGS: 25,
+    FILE_CLOSE_SETTINGS: 26,
 
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
@@ -210,8 +212,14 @@ class Store{
         this.scrollSpeed = 1.0;
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
-        // Command palette
+        // Any dialog is opened or not
         this.isCommandPaletteOpened = false;
+        this.isStatsDialogOpened = false;
+        this.isSettingsDialogOpened = false;
+        this.isAnyDialogOpened = () => {
+            return this.isCommandPaletteOpened || this.isStatsDialogOpened || this.isSettingsDialogOpened;
+        };
+
 
         // Dummy functions for a type-script checker
         // The actual handlers are set in riot.observable.
@@ -398,14 +406,25 @@ class Store{
                 (stats) => {  // 読み出し終了ハンドラ
                     self.trigger(CHANGE.PROGRESS_BAR_FINISH, tabID, "stats");
                     self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+
+                    self.isStatsDialogOpened = true;
                     self.trigger(CHANGE.DIALOG_SHOW_STATS, stats);
                 },
             );
         });
 
+        self.on(ACTION.FILE_CLOSE_STATS, function(){
+            self.isStatsDialogOpened = false;
+        });
+
         // Show statistics
         self.on(ACTION.FILE_SHOW_SETTINGS, function(){
+            self.isSettingsDialogOpened = true;
             self.trigger(CHANGE.DIALOG_SHOW_SETTINGS);
+        });
+
+        self.on(ACTION.FILE_CLOSE_SETTINGS, function(){
+            self.isSettingsDialogOpened = false;
         });
 
         // アクティブなタブの変更
