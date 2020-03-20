@@ -38,6 +38,10 @@ function installMainMenu(store, dispatcher){
                         type: "separator"
                     },
                     {
+                        label: "Settings",
+                        click: function(){rc.trigger(ACTION.FILE_SHOW_SETTINGS);}
+                    },
+                    {
                         label: "UI color theme",
                         submenu: [
                             {

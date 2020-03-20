@@ -181,6 +181,23 @@ class Config{
             console.log(`Could not write ${this.FILE_NAME_}`);
         }
     }
+
+    get configItems(){
+        return {
+            drawDetailedlyThreshold: {
+                comment: "[px] If the pipeline height is greater than this value, pipelines are drawn in detail (e.g. by using colors and texts)."
+            },
+            drawFrameThreshold: {
+                comment: "[px] If the pipeline height is greater than this value, frames are drawn."
+            },
+            drawTextThreshold: {
+                comment: "[px] If the pipeline height is greater than this value, texts are drawn."
+            },
+            drawDependencyThreshold: {
+                comment: "[px] If the pipeline height is greater than this value, dependency arrows are drawn."
+            },
+        };
+    }
 }
 
 module.exports.Config = Config;

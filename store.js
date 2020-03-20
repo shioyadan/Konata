@@ -21,6 +21,7 @@ const ACTION = {
     FILE_RELOAD: 21,
     FILE_CHECK_RELOAD: 22,
     FILE_SHOW_STATS: 23,
+    FILE_SHOW_SETTINGS: 24,
 
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
@@ -35,6 +36,7 @@ const ACTION = {
     KONATA_EMPHASIZE_IN_TRANSPARENT: 62, // 透過モード時にアルファ値を下げる
     KONATA_SYNC_SCROLL: 63,             // 同期スクロール
     KONATA_CHANGE_UI_COLOR_THEME: 64,   // UI のカラーテーマの変更
+    KONATA_CHANGE_SETTINGS: 65,         // 設定の変更
 
     KONATA_ZOOM: 73,        // 拡大/縮小
 
@@ -78,9 +80,10 @@ const CHANGE = {
     DIALOG_MODAL_ERROR: 112,
     DIALOG_CHECK_RELOAD: 113,
     DIALOG_SHOW_STATS: 114,
+    DIALOG_SHOW_SETTINGS: 115,
     
-    COMMAND_PALETTE_OPEN: 115,
-    COMMAND_PALETTE_CLOSE: 116,
+    COMMAND_PALETTE_OPEN: 116,
+    COMMAND_PALETTE_CLOSE: 117,
 
     MENU_UPDATE: 120,   // メニュー内容の更新
 
@@ -398,6 +401,11 @@ class Store{
                     self.trigger(CHANGE.DIALOG_SHOW_STATS, stats);
                 },
             );
+        });
+
+        // Show statistics
+        self.on(ACTION.FILE_SHOW_SETTINGS, function(){
+            self.trigger(CHANGE.DIALOG_SHOW_SETTINGS);
         });
 
         // アクティブなタブの変更
@@ -787,6 +795,16 @@ class Store{
             self.config.theme = theme;
             for (let tabID in self.tabs) {
                 self.tabs[tabID].renderer.loadStyle();
+            }
+            self.trigger(CHANGE.WINDOW_CSS_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // Change settings
+        self.on(ACTION.KONATA_CHANGE_SETTINGS, function(key, value){
+            if (key in self.config.configItems) {
+                self.config[key] = value;
             }
             self.trigger(CHANGE.WINDOW_CSS_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
