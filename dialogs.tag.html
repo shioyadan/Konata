@@ -320,7 +320,7 @@
                     if (key in self.refs.dialog.refs) {
                         let value = self.refs.dialog.refs[key].value;
                         if (store.config[key] != value && value.match(/\d+(\.?\d+)*/)) {
-                            rc.trigger(ACTION.KONATA_CHANGE_SETTINGS, key, value);
+                            rc.trigger(ACTION.KONATA_CHANGE_SETTINGS, key, Number(value));
                         }
                     }
                 }
