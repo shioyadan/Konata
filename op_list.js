@@ -13,7 +13,7 @@ const CACHE_RESOLUTION = 32;
 const COMPRESS_START_MARGIN = 16;
 
 // 展開済みページの最大数
-const MAX_DECOMPRESSED_PAGES = 128;
+const MAX_DECOMPRESSED_PAGES = 128*64;
 
 
 function idToPageIndex(id){
