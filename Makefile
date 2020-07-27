@@ -1,20 +1,16 @@
-PACKAGER = electron-packager
-#PACKAGER = ./node_modules/electron-packager/cli.js 
-
 run:
-	electron --debug=5858 . 
+	npx electron --debug=5858 . 
 
 init:
 	npm install
-	chmod 755 ./node_modules/license-checker/bin/license-checker
 
 build: clean
-	./node_modules/license-checker/bin/license-checker --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
-	$(PACKAGER) . konata \
+	npx license-checker --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
+	npx electron-packager . konata \
 		--out=packaging-work \
 		--platform=darwin,win32,linux \
 		--arch=x64  \
-		--electron-version=6.1.7 \
+		--electron-version=9.1.1 \
 		--ignore work \
 		--ignore packaging-work \
 		--ignore .vscode \

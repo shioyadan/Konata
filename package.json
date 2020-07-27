@@ -21,6 +21,8 @@
     "riotcontrol": "0.0.3"
   },
   "devDependencies": {
+    "electron": "^9.1.1",
+    "electron-packager": "^15.0.0",
     "license-checker": "^15.0.0"
   },
   "dummy": {
