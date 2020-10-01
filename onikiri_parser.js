@@ -129,7 +129,7 @@ class OnikiriParser{
             }
         }
 
-        let args = line.split("\t");
+        let args = line.split(/\t/);
         this.parseCommand(args);
         this.curLine_++;
         
