@@ -1052,6 +1052,9 @@
 
             // Now all initialization is finished and show window.
             electronWindow.show();
+
+            // Notify the app has been initialized
+            dispatcher.trigger(ACTION.APP_INITIALIZED);
         };
 
         // エントリポイント

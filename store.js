@@ -8,6 +8,7 @@
 // view -> store 
 const ACTION = {
     APP_QUIT: 0,
+    APP_INITIALIZED: 1, // 初期化完了通知
 
     DIALOG_FILE_OPEN: 10,
     DIALOG_MODAL_MESSAGE: 11,
@@ -519,6 +520,16 @@ class Store{
             electron.remote.app.quit();
         });
 
+        // アプリケーション初期化完了
+        self.on(ACTION.APP_INITIALIZED, function(){
+            // Load files passed by command line arguments
+            let argv = electron.remote.process.argv;
+            for (let i = 1; i < argv.length; i++) {
+                if (!argv[i].match(/^[-]/) && argv[i] != ".") {
+                    self.trigger(ACTION.FILE_OPEN, argv[i]);
+                }
+            }
+        });
 
         // ズームのスタート
         this.startZoom = function(zoomLevelDiff, offsetX, offsetY, speed=1.0, compensatePos=false){
