@@ -37,6 +37,7 @@ app.on("ready", function() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
+            enableRemoteModule: true
         }
     });
     m_window.setMenu(null);
