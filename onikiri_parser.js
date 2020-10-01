@@ -207,8 +207,8 @@ class OnikiriParser{
         // * 4列目はTID（スレッド識別子）
         op = new Op();
         op.id = id;
-        op.gid = Number(args[2]);
-        op.tid = Number(args[3]);
+        op.gid = this.parseInt_(args[2]);
+        op.tid = this.parseInt_(args[3]);
         op.fetchedCycle = this.curCycle_;
         op.line = this.curLine_;
         this.opListBody_.setOp(id, op);
@@ -232,7 +232,7 @@ class OnikiriParser{
         //      1: マウスオーバー時に表示される詳細．実行時のレジスタの値や使用した演算器など
         //      2: 現在のステージにつけられるラベル
         // <Label Data>: 任意のテキスト
-        let type = Number(args[2]);
+        let type = this.parseInt_(args[2]);
 
         let str = args[3];
 
@@ -313,9 +313,9 @@ class OnikiriParser{
     }
 
     parseRetireCommand(id, op, args){
-        op.rid = Number(args[2]);
+        op.rid = this.parseInt_(args[2]);
         op.retiredCycle = this.curCycle_;
-        if (Number(args[3]) == 1) {
+        if (this.parseInt_(args[3]) == 1) {
             op.flush = true;
             op.retired = false;
         }
@@ -362,16 +362,16 @@ class OnikiriParser{
         //      0ならウェイクアップ, 1以降は今のところ予約
         //      コンシューマーが生きている期間のみ使用可能
 
-        let prodId = Number(args[2]);
+        let prodId = this.parseInt_(args[2]);
         let prod = this.opListBody_.getParsingOp(prodId);
-        let type = Number(args[3]);
+        let type = this.parseInt_(args[3]);
         op.prods.push(new Dependency(prod.id, type, this.curCycle_));
         prod.cons.push(new Dependency(op.id, type, this.curCycle_));
     }
 
     parseCommand(args){
 
-        let id = Number(args[1]);
+        let id = this.parseInt_(args[1]);
         let op = this.opListBody_.getParsingOp(id);
         let cmd = args[0];
         /*
@@ -386,7 +386,7 @@ class OnikiriParser{
             // フォーマット
             //      C	<CYCLE>
             // <CYCLE>: 経過サイクル数
-            this.curCycle_ += Number(args[1]);
+            this.curCycle_ += this.parseInt_(args[1]);
             break;
         
         case "I": 
@@ -413,6 +413,11 @@ class OnikiriParser{
             this.parseDependencyCommand(id, op, args);
             break;
         }  // switch end
+    }
+
+    /** @param {string} str*/
+    parseInt_(str) {
+        return Number(str.trim());
     }
 }
 
