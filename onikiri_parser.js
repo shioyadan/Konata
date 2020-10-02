@@ -255,8 +255,8 @@ class OnikiriParser{
      * @param {string[]} args
      * */
     parseStartCommand(id, op, args){
-        let laneName = args[2];
-        let stageName = args[3];
+        let laneName = this.parseStageAndLaneName_(args[2]);
+        let stageName = this.parseStageAndLaneName_(args[3]);
         let stage = new Stage();
         stage.name = stageName;
         stage.startCycle = this.curCycle_;
@@ -283,8 +283,8 @@ class OnikiriParser{
     }
 
     parseEndCommand(id, op, args){
-        let laneName = args[2];
-        let stageName = args[3];
+        let laneName = this.parseStageAndLaneName_(args[2]);
+        let stageName = this.parseStageAndLaneName_(args[3]);
         let stage = null;
         let laneInfo = op.lanes[laneName];
         let lane = laneInfo.stages;
@@ -312,6 +312,10 @@ class OnikiriParser{
         }
     }
 
+    /** @param {number} id 
+     *  @param {Op} op
+     *  @param {string[]} args 
+    */
     parseRetireCommand(id, op, args){
         op.rid = this.parseInt_(args[2]);
         op.retiredCycle = this.curCycle_;
@@ -418,6 +422,11 @@ class OnikiriParser{
     /** @param {string} str*/
     parseInt_(str) {
         return Number(str.trim());
+    }
+
+    /** @param {string} str*/
+    parseStageAndLaneName_(str) {
+        return str.trim();
     }
 }
 
