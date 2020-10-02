@@ -1,7 +1,6 @@
 #!/bin/sh
-if [ -e ./node_modules ]; then
-    npx electron . $1
+if [ -e $(dirname $0)/node_modules ]; then
+    npx electron $(dirname $0) $1
 else
-    echo "'node_modules' does not exit. Please install node.js and type 'node install' in this directory." 
-fi
-
+    echo "'node_modules' does not exit. Please install node.js and type 'node install' in this directory."-
+fi 
