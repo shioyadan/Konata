@@ -165,6 +165,19 @@ class OpList {
         this.parsedLastRID_ = -1;
     }
 
+    // ファイルを閉じる時の retire されていない命令等の補正で
+    // 本来キャッシュに乗るはずのない命令が乗ってしまうことがある
+    // その手の命令を書き換える時は一旦キャッシュを無効化する
+    invalidateCache(id) {
+        if (id in this.cache_) {
+            delete this.cache_[id];
+            return true;
+        }
+        else{
+            return false;
+        }
+    }
+
     /** 
      * @param {number} id
      * @param {Op} op
@@ -260,6 +273,7 @@ class OpList {
         }
     }
 
+    // このメソッドを呼ばれた後は基本的に op は書き換わらないものとして扱われる
     setParsedLastID(id){
         this.parsedLastID_ = id;
         

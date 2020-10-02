@@ -160,6 +160,10 @@ class OnikiriParser{
             if (op.flush) {
                 continue; // フラッシュされた命令には特になにもしない
             }
+
+            // setParsedLastID をした後なのでキャッシュにのってしまっている可能性がある
+            // コンシステンシを保つため一旦無効化しておく
+            this.opListBody_.invalidateCache(i);
             op.retiredCycle = this.curCycle_;
             op.eof = true;
             this.unescapeLabels(op);
