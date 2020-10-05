@@ -3,10 +3,11 @@
 ## Introduction
 
 * Kanata is a log format to record the behavior of processor pipelines.  
-* This format is based on a plain text.
-* A command and its argument are tab-separated for each line.
-* Records events (fetches, renames, dispatches, etc.) that occur in the processor at each cycle.
-* The time in the log file goes in one direction from the beginning to the end.
+    * It records events (fetch, rename, dispatch, etc.) that occur in a processor.
+    * This file format is generic one and is basically independent from specific ISA and microarchitecture.
+* This format is based on a tab-separated plain text.
+    * Each line is tab-separated and it represents a command and its arguments.
+* The cycle time in the log file goes in one direction from the beginning to the end.
     * Once a future event has been output, it is not possible to add past events.
 
 
@@ -19,9 +20,10 @@ The first line of a file stores a header indicating a Kanata format and its vers
 	Kanata	0004
 	...
 
+
 ### Log Body
 
-After the header is the body of a log, and each line stores a command that represents an operation of a single instruction. The basic format of each line is as follows.
+The remaining part after the header is the body of a log, and each line stores a command that represents an operation (e.g., fetch) for a single instruction. The basic format of each line is as follows.
 
 * Each line consists of multiple columns separated by tabs.
 * The first column is a command name.
@@ -35,26 +37,28 @@ For example,
 
 Typically，the first parameter (param0) is the ID of an instruction.
 
+
 ### Instruction ID
 
-Each command uses a unique ID in a file to specify the target of the command. This ID is specified by the second argument of the "L" command described later.
+Each command uses a unique ID in a file to specify the target of the command. The ID of each instruction is set by the second argument of the "L" command described later.
+
 
 ### Lane
 
 Each instruction can have multiple pipeline states, which can be overlaid in a viewer. For example, you can overlay a stall state on top of the normal pipeline stages.
 
-A overlaid layer is called a "lane", and is specified by the second argument of the "S" or "E" command. By default, lane 0 outputs normal pipelines and lane 1 outputs stall.
+An overlaid layer is called a "lane", and is specified by the second argument of the "S" or "E" command. By default, the lane zero outputs normal pipelines and the lane one outputs stall.
 
 
 ## Command Reference
 
 ## C= 
     
-    C=	<Cycle>
+    C=	CYCLE
 
 * Specify the number of cycles since simulation start.
-* <Cycle> is the number of cycles elapsed from the start of simulation to the start of log.
-* Usually appears after the header line.
+* CYCLE is the number of cycles elapsed from the start of simulation to the start of a log.
+* Usually it appears after the header line.
 
 
 Example: This log output starts from the cycle　7　
@@ -63,14 +67,15 @@ Example: This log output starts from the cycle　7　
 
 
 ## C 
-    C	<Cycle>
+    C	CYCLE
 
-* 前回ログ出力時からの経過サイクル数を指定
-* <Cycle>: 経過サイクル数
-* 次のC行が現れるまでのコマンドは全てこのタイムドメインに属する
-* 大体毎サイクル何かしらコマンドが出力されるので、C	1ばかりになる
+* Specifies the number of elapsed cycles since the last log output.
+* CYCLE: the number of elapsed cycles
+* All commands that appear until the next C command belong to this time domain.
+* Since commands are typically output almost every cycle, "C 1" is very common.
 
-使用例: 1サイクルが経過 
+Example: 1 cycle has elapsed. 
+
     C	1
 
 
