@@ -13,6 +13,7 @@
         "linebreak",
         "parsing",
         "readlines",
-        "srcs"
+        "srcs",
+        "submenu"
     ]
 }

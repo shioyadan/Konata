@@ -73,6 +73,7 @@ function installMainMenu(store, dispatcher){
                     },
                     {
                         label: "Quit",
+                        accelerator: "Alt+F4",
                         click: function(){rc.trigger(ACTION.APP_QUIT);}
                     },
                     {
