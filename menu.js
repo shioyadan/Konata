@@ -185,7 +185,7 @@ function installMainMenu(store, dispatcher){
                     },
                     {
                         label: "Pipeline color scheme",
-                        submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].
+                        submenu: ["Auto", "Unique", "ThreadID", "Orange", "RoyalBlue"/*, "Onikiri"*/].
                             concat(
                                 Object.keys(store.config.customColorSchemes).filter(function(color){
                                     return store.config.customColorSchemes[color].enable;
@@ -346,7 +346,7 @@ function makePopupTabMenuTemplate(store, dispatcher, tabID){
         },
         {
             label: "Pipeline color scheme",
-            submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].
+            submenu: ["Auto", "Unique", "ThreadID", "Orange", "RoyalBlue"/*, "Onikiri"*/].
                 concat(
                     Object.keys(store.config.customColorSchemes).filter(function(color){
                         return store.config.customColorSchemes[color].enable;

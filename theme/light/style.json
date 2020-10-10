@@ -19,12 +19,12 @@
 
         "stageBackgroundColor": {
             "hRateBegin": "55",
-            "sBegin": "95%",
-            "lBegin": "95%",
+            "sBegin": "95",
+            "lBegin": "95",
 
             "hRateEnd": "55",
-            "sEnd": "70%",
-            "lEnd": "80%"
+            "sEnd": "70",
+            "lEnd": "80"
         },
         "stallBackgroundColor": "#aaaaaa",
         "invalidBackgroundColor": "rgb(128,128,128)",

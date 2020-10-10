@@ -125,12 +125,21 @@ class KonataRenderer{
         // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
         // 変わった場合に読み込めなくなるので，require で読む
         this.style_ = require(fileName);
+
+        let colorStyle = this.style_.pipelinePane.stageBackgroundColor;
+        for (let i of ["lBegin", "sBegin", "lEnd", "sEnd"]) {
+            colorStyle[i] = Number(colorStyle[i]);
+        }
     }
 
     /**
-     * ステージ関係のスタイル読込
+     * 
+     * @param {string} laneName 
+     * @param {string} stageName 
+     * @param {boolean} isBegin 
+     * @param {Op} op 
      */
-    getStageColor_(laneName, stageName, isBegin){
+    getStageColor_(laneName, stageName, isBegin, op){
         let self = this;
 
         if (self.colorScheme_ == "Auto" || self.colorScheme_ == "Unique") {
@@ -144,11 +153,30 @@ class KonataRenderer{
             let color = this.style_.pipelinePane.stageBackgroundColor;
             if (isBegin) {
                 let h = ((250 - level*color.hRateBegin + laneID*28*8)%360);
-                return `hsl(${h},${color.sBegin},${color.lBegin})`;
+                return `hsl(${h},${color.sBegin}%,${color.lBegin}%)`;
             }
             else{
                 let h = ((250 - level*color.hRateEnd + laneID*28*8)%360);
-                return `hsl(${h},${color.sEnd},${color.lEnd})`;
+                return `hsl(${h},${color.sEnd}%,${color.lEnd}%)`;
+            }
+        }
+        else if (self.colorScheme_ == "ThreadID") {
+            let stageLevel = self.konata_.stageLevelMap.get(laneName, stageName);
+            let level = op.tid;
+            let color = this.style_.pipelinePane.stageBackgroundColor;
+            if (isBegin) {
+                let h = ((250 - level*color.hRateBegin)%360);
+                let s = color.sBegin;// - stageLevel.appearance*10;
+                // A gradation direction is changed depending on the light/dark mode.
+                // if color.lBegin > 50, it is assumed the light mode
+                let l = (1000 + color.lBegin + (color.lBegin > 50 ? -1 : 1) * stageLevel.appearance*4) % 100;
+                return `hsl(${h},${s}%,${l}%)`;
+            }
+            else{
+                let h = ((250 - level*color.hRateEnd)%360);
+                let s = color.sEnd;// - stageLevel.appearance*10;
+                let l = (1000 + color.lEnd + (color.lEnd > 50 ? -1 : 1) * stageLevel.appearance*4) % 100;
+                return `hsl(${h},${s}%,${l}%)`;
             }
         }
         else if (self.colorScheme_ in self.config.customColorSchemes) {
@@ -163,18 +191,17 @@ class KonataRenderer{
             let h = colorDef.h;
             let s = colorDef.s;
             let l = colorDef.l;
-            if (s.match(/^\d+$/)) { s += "%"; }
-            if (l.match(/^\d+$/)) { l += "%"; }
             if (isBegin) {
                 l = (l == "auto") ? baseColor.lBegin : l;
                 s = (s == "auto") ? baseColor.sBegin : s;
-                return `hsl(${h},${s},${l})`;
             }
             else{
                 l = (l == "auto") ? baseColor.lEnd : l;
                 s = (s == "auto") ? baseColor.sEnd : s;
-                return `hsl(${h},${s},${l})`;
             }
+            if (s.match(/^\d+$/)) { s += "%"; }
+            if (l.match(/^\d+$/)) { l += "%"; }
+            return `hsl(${h},${s},${l})`;
         }
         return self.colorScheme_;
     }
@@ -956,7 +983,8 @@ class KonataRenderer{
             // 十分小さい場合は簡略化モード
             if (self.colorScheme_ != "Auto" && 
                 self.colorScheme_ != "Unique" && 
-                !(self.colorScheme_ in self.config.customColorSchemes)
+                self.colorScheme_ != "ThreadID" && 
+            !(self.colorScheme_ in self.config.customColorSchemes)
             ) {
                 ctx.fillStyle = self.colorScheme_;
             }
@@ -1025,8 +1053,8 @@ class KonataRenderer{
             ];
 
             let grad = ctx.createLinearGradient(0, top, 0, top + self.laneH_);
-            grad.addColorStop(0, self.getStageColor_(laneName, stage.name, true));
-            grad.addColorStop(1, self.getStageColor_(laneName, stage.name, false));
+            grad.addColorStop(0, self.getStageColor_(laneName, stage.name, true, op));
+            grad.addColorStop(1, self.getStageColor_(laneName, stage.name, false, op));
             //grad.addColorStop(0, color);
 
             ctx.fillStyle = grad;
