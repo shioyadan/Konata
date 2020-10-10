@@ -524,7 +524,12 @@ class Store{
         self.on(ACTION.APP_INITIALIZED, function(){
             // Load files passed by command line arguments
             let argv = electron.remote.process.argv;
-            for (let i = 1; i < argv.length; i++) {
+            let start = 1;
+            console.log(argv[0]);
+            if (argv[0].match(/[/\\]electron/)) {
+                start = 2;  // Command line argument starts at the second when launched from electron.
+            }
+            for (let i = start; i < argv.length; i++) {
                 if (!argv[i].match(/^[-]/) && argv[i] != ".") {
                     self.trigger(ACTION.FILE_OPEN, argv[i]);
                 }
