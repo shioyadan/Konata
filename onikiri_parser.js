@@ -425,11 +425,17 @@ class OnikiriParser{
 
     /** @param {string} str*/
     parseInt_(str) {
+        if (str == undefined) {
+            return 0;
+        }
         return Number(str.trim());
     }
 
     /** @param {string} str*/
     parseStageAndLaneName_(str) {
+        if (str == undefined) {
+            return "";
+        }
         return str.trim();
     }
 }
