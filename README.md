@@ -1,7 +1,6 @@
 # Konata
 
 * Konata is an instruction pipeline visualizer for Onikiri2-Kanata/Gem5-O3PipeView formats.
-* Pre-built binaries are available from [here](https://github.com/shioyadan/Konata/releases).
 * ASPLOS 2018 learning gem5 tutorial presentation is [here](http://learning.gem5.org/tutorial/presentations/vis-o3-gem5.pdf
 )
 
@@ -10,7 +9,16 @@
 
 ## Installation
 
-Simply extract an archive and launch an executable file (konata.exe or konata).
+There are two ways to launch Konata.
+If you fail to launch a pre-built binary, please try the second way.
+
+1. Extract an archive and launch an executable file (konata.exe or konata).
+    * Pre-built binaries are available from [here](https://github.com/shioyadan/Konata/releases).
+2. Launch from this repository.
+    1. Install node.js from https://nodejs.org
+    2. Clone this repository.
+    3. Launch install.bat (Windows) or install.sh (Linux/MacOS).
+    4. Launch Konata from konata.vbs (Windows) or konata.sh (Linux/MacOS).
 
 
 ## Usage
