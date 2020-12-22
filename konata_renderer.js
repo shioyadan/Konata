@@ -199,8 +199,8 @@ class KonataRenderer{
                 l = (l == "auto") ? baseColor.lEnd : l;
                 s = (s == "auto") ? baseColor.sEnd : s;
             }
-            if (s.match(/^\d+$/)) { s += "%"; }
-            if (l.match(/^\d+$/)) { l += "%"; }
+            if (typeof(s) == "number" || (typeof(s) == "string" && s.match(/^\d+$/))) { s += "%"; }
+            if (typeof(l) == "number" || (typeof(l) == "string" && l.match(/^\d+$/))) { l += "%"; }
             return `hsl(${h},${s},${l})`;
         }
         return self.colorScheme_;
