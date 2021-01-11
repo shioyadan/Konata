@@ -978,8 +978,9 @@
 
             document.ondrop = function(e) {
                 e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
-                let file = e.dataTransfer.files[0];
-                rc.trigger(ACTION.FILE_OPEN, file.path);
+                for (let file of e.dataTransfer.files) {
+                    rc.trigger(ACTION.FILE_OPEN, file.path);
+                }
             };
 
             // キーボード
