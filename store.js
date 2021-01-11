@@ -722,6 +722,13 @@ class Store{
                 // 同期が有効の場合，左上の命令の RID が一致するようにスクロールさせる
                 let sync = self.activeTab.syncScroll;   
                 if (sync) {
+                    // Synchronize the splitter positions.
+                    // If the splitter positions are different, the left edge of 
+                    // each pipeline pane will be different and you will not be 
+                    // able to synchronize the panes well, so synchronize the 
+                    // splitter positions.
+                    self.trigger(ACTION.PANE_SPLITTER_MOVE, self.activeTab.splitterPos);
+
                     for (let id in self.tabs) {
                         let tab = self.tabs[id];
                         let renderer = tab.renderer;
