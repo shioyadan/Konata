@@ -65,6 +65,7 @@ class Konata{
         this.close();
         this.file_ = new this.FileReader_();
         this.file_.open(this.filePath_);
+        this.closed_ = false;
 
         this.parser_ = parsers.shift();
         console.log(`Open (${this.parser_.name}): ${this.filePath_}`);
