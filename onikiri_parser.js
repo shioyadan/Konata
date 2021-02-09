@@ -226,6 +226,9 @@ class OnikiriParser{
             this.setError_(`${id} is re-defined in the "I" command.`);
             return;
         }
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "I" command must be 4, but it is ${args.length}.`);
+        }
         op = new Op();
         op.id = id;
         op.gid = this.parseInt_(args[2]);
@@ -257,6 +260,9 @@ class OnikiriParser{
             this.setError_(`Undefined id:${id} is referred in the "L" command.`);
             return;
         }
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "L" command must be 4, but it is ${args.length}.`);
+        }
         let type = this.parseInt_(args[2]);
         let str = args[3];
 
@@ -282,6 +288,11 @@ class OnikiriParser{
         if (op == null) {
             this.setError_(`Undefined id:${id} is referred in the "S" command.`);
             return;
+        }
+        if (args.length < 4) {
+            // Some log generators generate log data including tabs or spaces after the commands.
+            // In this case, args.length is larger than 4 and (args.length < 4) accepts this case.
+            this.setError_(`The number of the arguments for the "S" command must be 4, but it is ${args.length}.`);
         }
 
         let laneName = this.parseStageAndLaneName_(args[2]);
@@ -311,16 +322,28 @@ class OnikiriParser{
         this.stageLevelMap_.update(laneName, stageName, laneInfo);
     }
 
+    /**
+     * @param {number} id 
+     * @param {Op} op 
+     * @param {string[]} args 
+     */
     parseEndCommand(id, op, args){
         if (op == null) {
             this.setError_(`Undefined id:${id} is referred in the "E" command.`);
             return;
+        }
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "E" command must be 4, but it is ${args.length}.`);
         }
 
         let laneName = this.parseStageAndLaneName_(args[2]);
         let stageName = this.parseStageAndLaneName_(args[3]);
         let stage = null;
         let laneInfo = op.lanes[laneName];
+        if (!laneInfo) {
+            this.setError_(`Lane name "${laneName}" is not defined at id:${id}.`);
+            return;
+        }
         let lane = laneInfo.stages;
         for (let i = lane.length - 1; i >= 0; i--) {
             if (lane[i].name == stageName) {
@@ -346,7 +369,8 @@ class OnikiriParser{
         }
     }
 
-    /** @param {number} id 
+    /** 
+     *  @param {number} id 
      *  @param {Op} op
      *  @param {string[]} args 
     */
@@ -354,6 +378,9 @@ class OnikiriParser{
         if (op == null) {
             this.setError_(`Undefined id:${id} is referred in the "R" command.`);
             return;
+        }
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "R" command must be 4, but it is ${args.length}.`);
         }
 
         op.rid = this.parseInt_(args[2]);
@@ -405,6 +432,9 @@ class OnikiriParser{
         //      0ならウェイクアップ, 1以降は今のところ予約
         //      コンシューマーが生きている期間のみ使用可能
 
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "W" command must be 4, but it is ${args.length}.`);
+        }
         let prodId = this.parseInt_(args[2]);
         let prod = this.opListBody_.getParsingOp(prodId);
         let type = this.parseInt_(args[3]);
@@ -433,7 +463,7 @@ class OnikiriParser{
             if (args.length != 2 || args[1] == "") {
                 this.setError_("Invalid 'C' command.");
                 break;
-            };
+            }
             this.curCycle_ += this.parseInt_(args[1]);
             break;
         
