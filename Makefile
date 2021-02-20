@@ -14,6 +14,7 @@ build: clean
 		--ignore work \
 		--ignore packaging-work \
 		--ignore .vscode \
+		--asar \
 		--prune=true	# Exclude devDependencies
 
 DOCUMENTS = README.md LICENSE.md THIRD-PARTY-LICENSES.md
