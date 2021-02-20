@@ -10,7 +10,7 @@ build: clean
 		--out=packaging-work \
 		--platform=darwin,win32,linux \
 		--arch=x64  \
-		--electron-version=9.1.1 \
+		--electron-version=10.1.3 \
 		--ignore work \
 		--ignore packaging-work \
 		--ignore .vscode \
