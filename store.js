@@ -158,7 +158,7 @@ class Store{
     constructor(){
         
         // この書式じゃないと IntelliSense が効かない
-        let electron = require("electron");
+        let remote = require("@electron/remote");
         let fs = require("fs");
 
         let KonataRenderer = require("./konata_renderer");
@@ -517,13 +517,13 @@ class Store{
             // store.config が生きている間 = ウィンドウの生存期間内に処理をしないといけない
             // app.quit ではウィンドウの close イベントが呼ばれないため，手動で保存する
             self.config.save(); 
-            electron.remote.app.quit();
+            remote.app.quit();
         });
 
         // アプリケーション初期化完了
         self.on(ACTION.APP_INITIALIZED, function(){
             // Load files passed by command line arguments
-            let argv = electron.remote.process.argv;
+            let argv = remote.process.argv;
             let start = 1;
             console.log(argv[0]);
             if (argv[0].match(/[/\\]electron/)) {

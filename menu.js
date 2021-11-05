@@ -1,7 +1,7 @@
 function installMainMenu(store, dispatcher){
 
     let rc = dispatcher;
-    let remote = require("electron").remote;
+    let remote = require("@electron/remote");
     let DEP_ARROW_TYPE = require("./konata_renderer").DEP_ARROW_TYPE;
 
     let Store = require("./store");
@@ -398,7 +398,7 @@ function popupTabMenu(store, dispatcher, tabID){
 
     let menuTemplate = makePopupTabMenuTemplate(store, dispatcher, tabID);
 
-    let remote = require("electron").remote;
+    let remote = require("@electron/remote");
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);
     menu.popup({});
@@ -407,7 +407,7 @@ function popupTabMenu(store, dispatcher, tabID){
 function popupPipelineMenu(store, dispatcher, pos){
 
     let rc = dispatcher;
-    let remote = require("electron").remote;
+    let remote = require("@electron/remote");
     let Store = require("./store");
     let ACTION = Store.ACTION;
 

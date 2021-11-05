@@ -132,7 +132,7 @@
     <script>
         /* global dispatcher ACTION CHANGE*/
         let rc = dispatcher;
-        let remote = require("electron").remote;
+        let remote = require("@electron/remote");
 
         // 読み込みダイアログ
         rc.on(CHANGE.DIALOG_FILE_OPEN, function () {

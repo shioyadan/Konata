@@ -13,8 +13,10 @@ const CACHE_RESOLUTION = 32;
 const COMPRESS_START_MARGIN = 16;
 
 // 展開済みページの最大数
-const MAX_DECOMPRESSED_PAGES = 128*64;
-
+// Op はおおよそ１つで 1KB を消費するが，圧縮すると 1/10 になる
+// PAGE_SIZE * MAX_DECOMPRESSED_PAGES * 1KB ぐらいのメモリが非圧縮で保持される
+// 現在の設定では 256 * 64 * 1KB = 16MB 
+const MAX_DECOMPRESSED_PAGES = 1*64;
 
 function idToPageIndex(id){
     return id >> PAGE_SIZE_BITS;

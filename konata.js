@@ -122,8 +122,7 @@ class Konata{
     }
 
     // パイプライン中の統計を計算し，終わったら finish に渡す
-    async statsBody_(update, finish, statsList){
-        let lastID = this.lastID;
+    async statsBody_(lastID, update, finish, statsList){
 
         let sleepTimer = 0;
         let SLEEP_INTERVAL = 50000;
@@ -140,7 +139,7 @@ class Konata{
 
             if (!stats.isDetected &&  i > GIVE_UP_TIME) {
                 console.log(`Gave up analyzing this file (${stats.name})`);
-                this.statsBody_(update, finish, statsList);
+                this.statsBody_(lastID, update, finish, statsList);
                 return;
             }
 
@@ -158,7 +157,7 @@ class Konata{
 
         if (!stats.isDetected) {
             console.log(`Gave up analyzing this file (${stats.name})`);
-            this.statsBody_(update, finish, statsList);
+            this.statsBody_(lastID, update, finish, statsList);
             return;
         }
 
@@ -167,8 +166,8 @@ class Konata{
         finish(stats.stats);
     }
     async stats(update, finish){
-        let statsList = CreateStats(this);
-        this.statsBody_(update, finish, statsList);
+        let statsList = CreateStats(this.lastID, this.lastRID, this.parser_.lastCycle);
+        this.statsBody_(this.lastID, update, finish, statsList);
     }
 
 }

@@ -4,6 +4,9 @@ const electron = require("electron");
 const {app} = electron;
 const {BrowserWindow} = electron;
 
+// Remote モジュールを有効化
+require("@electron/remote/main").initialize();
+
 // __dirname には現在のファイルの場所が入る
 let currentURL = "file://" + __dirname + "/index.html";
 
@@ -36,10 +39,11 @@ app.on("ready", function() {
         
         webPreferences: {
             nodeIntegration: true,
-            contextIsolation: false,
-            enableRemoteModule: true
+            contextIsolation: false
         }
     });
+
+    require("@electron/remote/main").enable(m_window.webContents);
     m_window.setMenu(null);
 
     m_window.loadURL(currentURL);

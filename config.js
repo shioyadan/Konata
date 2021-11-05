@@ -1,10 +1,10 @@
 let fs = require("fs");
-let electron = require("electron");
+let remote = require("@electron/remote");
 
 class Config{
     constructor(){
         // 最後が _ で終わってるメンバは保存/読み込みを行わない
-        this.DIR_ = electron.remote.app.getPath("userData") + "/konata";
+        this.DIR_ = remote.app.getPath("userData") + "/konata";
         this.FILE_NAME_ = this.DIR_ + "/config.json";
 
 
