@@ -893,7 +893,7 @@
         /* global dispatcher ACTION CHANGE store */
         let rc = dispatcher;
 
-        self.remote = require("electron").remote;
+        self.remote = require("@electron/remote");
 
         // 新規タブのオープン
         dispatcher.on(CHANGE.TAB_OPEN,
