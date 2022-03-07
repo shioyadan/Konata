@@ -22,7 +22,7 @@
     "@electron/remote": "2.0.1"
   },
   "devDependencies": {
-    "electron": "^15.0.0",
+    "electron": "^17.0.0",
     "electron-packager": "^15.4.0",
     "license-checker": "^25.0.1"
   }
