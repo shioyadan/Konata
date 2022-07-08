@@ -764,8 +764,9 @@ class KonataRenderer{
 
 
         // 下側にはみ出ていた場合，暗く描画
-        if (top - offsetY + height > self.getVisibleBottom()) {
-            let begin = tile.height - (top - offsetY + height - self.getVisibleBottom()) * self.opH_ + self.PIXEL_ADJUST;
+        let bottomOuterHeight = top - offsetY + height - 1 - self.getVisibleBottom();
+        if (bottomOuterHeight > 0) {
+            let begin = tile.height - bottomOuterHeight * self.opH_ + self.PIXEL_ADJUST;
             begin = Math.max(0, begin);
             ctx.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
             ctx.fillRect(0, begin, tile.width, tile.height);
