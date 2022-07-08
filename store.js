@@ -1115,7 +1115,7 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             let pos = self.activeTab.renderer.getPosY_FromOp(findContext.op);
-            self.findString(findContext.targetPattern, pos + 1, false, function(hit, canceled){
+            self.findString(findContext.targetPattern, pos, false, function(hit, canceled){
                 if (!hit && !canceled) {
                     self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
                 }
@@ -1131,7 +1131,7 @@ class Store{
 
             let findContext = self.activeTab.findContext;
             let pos = self.activeTab.renderer.getPosY_FromOp(findContext.op);
-            self.findString(findContext.targetPattern, pos - 1, true, function(hit, canceled){
+            self.findString(findContext.targetPattern, pos, true, function(hit, canceled){
                 if (!hit && !canceled) {
                     self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
                 }
