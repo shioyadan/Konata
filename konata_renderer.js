@@ -506,7 +506,7 @@ class KonataRenderer{
         self.laneW_ = self.OP_W * zoomScale;
         self.opW_ = self.laneW_;
 
-        if (!splitLanes) {
+        if (!splitLanes || laneNum == 0) {
             laneNum = 1;
         }
         if (fixOpHeight){
