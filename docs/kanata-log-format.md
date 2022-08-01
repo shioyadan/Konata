@@ -215,20 +215,20 @@ This folder includes some kanata log samples.
 
 ```
 Kanata	0004    // File header and a version number
-C=	216	        // Start at cycle 216
+C=	216                     // Start at cycle 216
 I	0	0	0	// Start an instruction 0
-L	0	0	12000d918 iBC(r17)	    // Add label comment for the  instruction 0
-S	0	0	F	// Start F stage for the instruction 0
-C	1		    // Proceed 1 cycle
-S	0	0	X	// Start X stage for the instruction 0
-I	1	1	0	// Start an instruction 1
-L	1	0	12000d91c r4 = iALU(r3, r2)	// Add label comment for the  instruction 1
-S	1	0	F	// Start F stage in the instruction 0
-C	1	        // Proceed one cycle
-R	0	0	0	// Retire the instruction 0
-S	1	0	X	// Start X stage in the instruction 1
-C	1	        // Proceed one cycle
-R	1	1	1	// Flush the instruction 1
+L	0	0	12000d918 iBC(r17)              // Add label comment for the  instruction 0
+S	0	0	F       // Start F stage for the instruction 0
+C	1                       // Proceed 1 cycle
+S	0	0	X       // Start X stage for the instruction 0
+I	1	1	0       // Start an instruction 1
+L	1	0	12000d91c r4 = iALU(r3, r2)     // Add label comment for the  instruction 1
+S	1	0	F       // Start F stage in the instruction 0
+C	1                       // Proceed one cycle
+R	0	0	0       // Retire the instruction 0
+S	1	0	X       // Start X stage in the instruction 1
+C	1                       // Proceed one cycle
+R	1	1	1       // Flush the instruction 1
 ```
 ![kanata-sample-1](kanata-sample-1.png)
 
