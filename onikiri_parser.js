@@ -305,6 +305,15 @@ class OnikiriParser{
         }
 
         let laneInfo = op.lanes[laneName];
+
+        // そのレーンの最後のステージが閉じられていない場合，自動で閉じる
+        if (laneInfo.stages.length > 0) {
+            let lastStage = laneInfo.stages[laneInfo.stages.length - 1];
+            if (lastStage.endCycle == 0) {  
+                this.parseEndCommand(id, op, ["E", args[1], laneName, lastStage.name]);
+            }
+        }
+
         laneInfo.stages.push(stage);
         op.lastParsedStage = stage;
 
