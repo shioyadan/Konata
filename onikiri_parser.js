@@ -417,7 +417,10 @@ class OnikiriParser{
             if (stages.length > 0) {
                 let stage = stages[stages.length - 1];
                 if (stage.endCycle == 0) {
-                    stage.endCycle = this.curCycle_;
+                    // フラッシュ時は即座に閉じておく
+                    stage.endCycle = this.curCycle_ + (op.flush ? 0 : 1);
+                    // 閉じていないステージを表示するために op.retiredCycle をフラッシュ時以外は延長する
+                    op.retiredCycle = this.curCycle_ + (op.flush ? 0 : 1);   
                 }
             }
         }
