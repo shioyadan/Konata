@@ -508,8 +508,9 @@ class KonataRenderer{
 
         if (!splitLanes || laneNum == 0) {
             // When first called after starting to read the file, 
-            // the lane map is empty and laneNum (and self.opH_) will be assigned 0
-            // But if self.opH_ is 0, an infinite loop occurs in drawLabelTile_()
+            // the lane map is empty and laneNum will be assigned 0.
+            // self.opH_ is calculated using laneNum and thus it is also set 0.
+            // In this case, an infinite loop occurs in drawLabelTile_().
             // To avoid this, set laneNum to 1
             laneNum = 1;
         }
