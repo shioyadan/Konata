@@ -1,7 +1,6 @@
 # Konata
 
 * Konata is an instruction pipeline visualizer for Onikiri2-Kanata/Gem5-O3PipeView formats.
-* Pre-built binaries are available from [here](https://github.com/shioyadan/Konata/releases).
 * ASPLOS 2018 learning gem5 tutorial presentation is [here](http://learning.gem5.org/tutorial/presentations/vis-o3-gem5.pdf
 )
 
@@ -10,7 +9,16 @@
 
 ## Installation
 
-Simply extract an archive and launch an executable file (konata.exe or konata).
+There are two ways to launch Konata.
+If you fail to launch a pre-built binary, please try the second way.
+
+1. Extract an archive and launch an executable file (konata.exe or konata).
+    * Pre-built binaries are available from [here](https://github.com/shioyadan/Konata/releases).
+2. Launch from this repository.
+    1. Install node.js from https://nodejs.org
+    2. Clone this repository.
+    3. Launch install.bat (Windows) or install.sh (Linux/MacOS).
+    4. Launch Konata from konata.vbs (Windows) or konata.sh (Linux/MacOS).
 
 
 ## Usage
@@ -41,8 +49,8 @@ Simply extract an archive and launch an executable file (konata.exe or konata).
 
 * mouse wheel up, key up: scroll up
 * mouse wheel down, key down: scroll down
-* ctrl + mouse wheel up, key "+": zoom in
-* ctrl + mouse wheel down, key "-": zoom out
+* ctrl + mouse wheel up, key "+", ctrl+key up: zoom in
+* ctrl + mouse wheel down, key "-", ctrl+key down: zoom out
 * ctrl + f, F3, shift+F3: find a string 
 * F1, ctrl+shift+p: open a command palette
 
@@ -89,7 +97,7 @@ Simply extract an archive and launch an executable file (konata.exe or konata).
 
 ## License
 
-Copyright (C) 2016-2019 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
+Copyright (C) 2016-2020 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
 
 This application is released under the 3-Clause BSD License, see LICENSE.md.
 This application bundles ELECTRON and many third-party packages in accordance with 

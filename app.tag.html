@@ -435,7 +435,7 @@
                 find_result_tip.left = "0px";
 
                 let renderer = store.tabs[self.id].renderer;
-                find_result_tip.top = Math.floor(renderer.getPixelPosYFromOp(findCtx.op)) + 25 + "px";
+                find_result_tip.top = Math.floor(renderer.getPixelPosYFromOp(findCtx.op)) + renderer.opH + "px";
 
                 // パターンにヒットした行を表示する
                 self.findResultTipText = "";
@@ -688,12 +688,14 @@
     </div>
 
     <script>
-        /* globals dispatcher ACTION CHANGE */
+        /* globals dispatcher ACTION CHANGE store */
         let self = this;
+        self.historyIndex = -1;
         self.hintList = {
             0: {"text": "Jump to #line",                "cmd": "j  <#line>"},
             1: {"text": "Jump to an op with rid",       "cmd": "jr <rid>"},
             2: {"text": "Find a string ('F3' key finds next)",  "cmd": "f  <string>"},
+            3: {"text": "Load a file",                  "cmd": "l  <file name>"},
         };
         self.init = function(){
             // フォーカスが外れたら消す
@@ -718,6 +720,16 @@
                 dispatcher.trigger(ACTION.COMMAND_PALETTE_EXECUTE, input.value);
                 dispatcher.trigger(ACTION.COMMAND_PALETTE_CLOSE);
             }
+            else if (key == "ArrowUp" || key == "ArrowDown") {
+                let input = self.refs.input;
+                self.historyIndex += key == "ArrowUp" ? 1 : -1;
+                self.historyIndex = Math.min(store.config.commandHistory.length - 1, Math.max(-1, self.historyIndex));
+                let cmd = self.historyIndex == -1 ? "" : store.config.commandHistory[self.historyIndex];
+                input.value = cmd;
+                input.selectionStart = cmd.length;
+                input.selectionEnd = cmd.length;
+                e.preventDefault(); // ArrowUp/ArrowDown may change a caret position.
+            }
         };
 
         // オープン
@@ -730,6 +742,8 @@
                 // visibility は 0 に
                 //cp.transition = "visibility 0s, top 0.05s ease-out";
                 //cp.top = "0px";
+
+                self.historyIndex = -1;
 
                 // フォーカスを合わせる
                 let input = self.refs.input;
@@ -879,7 +893,7 @@
         /* global dispatcher ACTION CHANGE store */
         let rc = dispatcher;
 
-        self.remote = require("electron").remote;
+        self.remote = require("@electron/remote");
 
         // 新規タブのオープン
         dispatcher.on(CHANGE.TAB_OPEN,
@@ -895,13 +909,14 @@
         // リサイズハンドラ
         self.onResize = function(){
             // シートのサイズを計算
-            /*
-            let width = document.body.offsetWidth;
-            let height = 
-                document.body.offsetHeight - 
-                self.tags.app_tabbar.getHeight();
-            */
-            rc.trigger(ACTION.SHEET_RESIZE);
+            let win = self.remote.getCurrentWindow();
+            let bounds = win.getBounds();   // {x, y, width, height}
+            rc.trigger(ACTION.SHEET_RESIZE, bounds);
+        };
+
+        // Window move handler
+        self.onMove = function(){
+            self.onResize();    // Redirect to onResize
         };
 
         // フォーカスハンドラ
@@ -931,6 +946,12 @@
         // 初期化
         // マウント時に呼ばれる
         self.init = function(){
+            // Get the current window
+            let electronWindow = self.remote.getCurrentWindow();
+
+            // Must set window bounds before resize/move handlers are set
+            // to avoid overwriting config.windowBounds
+            electronWindow.setBounds(store.config.windowBounds);
 
             // CSS の設定
             self.onCSS_Update();
@@ -946,6 +967,9 @@
             window.addEventListener("resize", self.onResize, false);
             self.onResize();    // サイズを適用しておくために1回呼んでおく
 
+            // Window move handler
+            electronWindow.on("move", self.onMove);
+
             // ドラッグアンドドロップ
             document.ondragover = function(e) {
                 e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
@@ -954,22 +978,37 @@
 
             document.ondrop = function(e) {
                 e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
-                let file = e.dataTransfer.files[0];
-                rc.trigger(ACTION.FILE_OPEN, file.path);
+                for (let file of e.dataTransfer.files) {
+                    rc.trigger(ACTION.FILE_OPEN, file.path);
+                }
             };
 
             // キーボード
             document.onkeydown = function(e) {
                 let key = e.key;
 
-                if (!store.isCommandPaletteOpened) {
+                if (!store.isAnyDialogOpened()) {
                     // These keys are valid when a command palette is not opened.
                     if (key == "ArrowUp") {
-                        // ctrl 時は水平方向補正なし
-                        dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.ctrlKey);
+                        if (e.ctrlKey) {
+                            let w = self.refs.app_sheet_list.root.offsetWidth - store.activeTab.splitterPos;
+                            let h = self.refs.app_sheet_list.root.offsetHeight;
+                            dispatcher.trigger(ACTION.KONATA_ZOOM, -1, w / 2, h / 2);
+                        }
+                        else{
+                            // shift 時は水平方向補正なし
+                            dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -1, !e.shiftKey);
+                        }
                     }
                     else if (key == "ArrowDown") {
-                        dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, !e.ctrlKey);
+                        if (e.ctrlKey) {
+                            let w = self.refs.app_sheet_list.root.offsetWidth - store.activeTab.splitterPos;
+                            let h = self.refs.app_sheet_list.root.offsetHeight;
+                            dispatcher.trigger(ACTION.KONATA_ZOOM, 1, w / 2, h / 2);
+                        }
+                        else{
+                            dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, 1, !e.shiftKey);
+                        }
                     }
                     else if (key == "PageUp") {
                         dispatcher.trigger(ACTION.KONATA_MOVE_WHEEL_VERTICAL, -10, !e.ctrlKey);
@@ -1012,11 +1051,15 @@
                 //console.log(key);
             };
 
+            // Now all initialization is finished and show window.
+            electronWindow.show();
+
+            // Notify the app has been initialized
+            dispatcher.trigger(ACTION.APP_INITIALIZED);
         };
 
         // エントリポイント
         self.on("mount", self.init);
-
     </script>
 </app>
 

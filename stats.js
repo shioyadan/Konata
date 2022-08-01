@@ -1,16 +1,13 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Op = require("./op").Op; // eslint-disable-line
-let Konata = require("./konata").Konata; // eslint-disable-line
 
 class GenericStats{
-    /** @param {Konata} konata */
-    constructor(konata){
-        let lastID = konata.lastID;
+    constructor(lastID, lastRID, lastCycle){
 
         this.stats_ = {
             numFetchedOps: lastID,
-            numCommittedOps: konata.lastRID,
-            numCycles: konata.parser_.lastCycle,
+            numCommittedOps: lastRID,
+            numCycles: lastCycle,
 
             numFlush: 0,
             numFlushedOps: 0,
@@ -37,7 +34,7 @@ class GenericStats{
             rateSpeculativeMemMiss: 0,
             mpkiSpeculativeMemMiss: 0,
             
-            ipc: konata.lastRID / konata.parser_.lastCycle
+            ipc: lastRID / lastCycle
         };
 
         this.prevBr_ = false;
@@ -164,9 +161,8 @@ class GenericStats{
 }
 
 class X86_Gem5_Stats extends GenericStats{
-    /** @param {Konata} konata */
-    constructor(konata){
-        super(konata);
+    constructor(lastID, lastRID, lastCycle){
+        super(lastID, lastRID, lastCycle);
         this.isDetected_ = false;
     }
 
@@ -209,12 +205,11 @@ class X86_Gem5_Stats extends GenericStats{
 }
 
 /** 
- * @param {Konata} konata
  * @returns {GenericStats[]} */
-function CreateStats(konata){
+function CreateStats(lastID, lastRID, lastCycle){
     return [
-        new X86_Gem5_Stats(konata),
-        new GenericStats(konata),
+        new X86_Gem5_Stats(lastID, lastRID, lastCycle),
+        new GenericStats(lastID, lastRID, lastCycle),
     ];
 }
 

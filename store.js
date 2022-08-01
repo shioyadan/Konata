@@ -8,6 +8,7 @@
 // view -> store 
 const ACTION = {
     APP_QUIT: 0,
+    APP_INITIALIZED: 1, // 初期化完了通知
 
     DIALOG_FILE_OPEN: 10,
     DIALOG_MODAL_MESSAGE: 11,
@@ -21,6 +22,9 @@ const ACTION = {
     FILE_RELOAD: 21,
     FILE_CHECK_RELOAD: 22,
     FILE_SHOW_STATS: 23,
+    FILE_CLOSE_STATS: 24,
+    FILE_SHOW_SETTINGS: 25,
+    FILE_CLOSE_SETTINGS: 26,
 
     TAB_CLOSE: 32,
     TAB_ACTIVATE: 33,
@@ -35,6 +39,7 @@ const ACTION = {
     KONATA_EMPHASIZE_IN_TRANSPARENT: 62, // 透過モード時にアルファ値を下げる
     KONATA_SYNC_SCROLL: 63,             // 同期スクロール
     KONATA_CHANGE_UI_COLOR_THEME: 64,   // UI のカラーテーマの変更
+    KONATA_CHANGE_SETTINGS: 65,         // 設定の変更
 
     KONATA_ZOOM: 73,        // 拡大/縮小
 
@@ -78,9 +83,10 @@ const CHANGE = {
     DIALOG_MODAL_ERROR: 112,
     DIALOG_CHECK_RELOAD: 113,
     DIALOG_SHOW_STATS: 114,
+    DIALOG_SHOW_SETTINGS: 115,
     
-    COMMAND_PALETTE_OPEN: 115,
-    COMMAND_PALETTE_CLOSE: 116,
+    COMMAND_PALETTE_OPEN: 116,
+    COMMAND_PALETTE_CLOSE: 117,
 
     MENU_UPDATE: 120,   // メニュー内容の更新
 
@@ -99,12 +105,14 @@ class Tab{
      * @param {string} fileName
      * @param {Konata} konata
      * @param {KonataRenderer} renderer
+     * @param {Config} config
      * */
-    constructor(id, fileName, konata, renderer){
+    constructor(id, fileName, konata, renderer, config){
         let fs = require("fs");
-        let KonataRenderer = require("./konata_renderer").KonataRenderer;
-        let Konata = require("./konata").Konata;
+        let KonataRenderer = require("./konata_renderer").KonataRenderer; // eslint-disable-line
+        let Konata = require("./konata").Konata; // eslint-disable-line
         let Op = require("./op").Op;   // eslint-disable-line
+        let Config = require("./config").Config;   // eslint-disable-line
 
         // ファイル更新時間
         let mtime = fs.statSync(fileName).mtime;
@@ -114,11 +122,11 @@ class Tab{
         this.lastFileCheckedTime = mtime;
         this.konata = konata;
         this.renderer = renderer;
-        this.splitterPos = 450;
+        this.splitterPos = config.splitterPosition;
         this.transparent = false; // 透明化の有効無効
         this.hideFlushedOps = false;  // フラッシュされた命令を隠すか
         this.emphasize_in_transparent = false; // 透明化の際に表示を強調するかどうか
-        this.colorScheme = "Auto";  // カラースキーム
+        this.colorScheme = config.colorScheme;  // カラースキーム
         this.syncScroll =  false;  // スクロールを同期 
         
         this.scrollEndPos =  [0, 0];   // スクロール終了位置
@@ -138,7 +146,7 @@ class Tab{
                 this.findID = 0;
                 this.flushed = false;   // フラッシュされたかどうか
             }
-        }
+        };
         this.findContext = new this.FindContext;
     }
 }
@@ -150,7 +158,7 @@ class Store{
     constructor(){
         
         // この書式じゃないと IntelliSense が効かない
-        let electron = require("electron");
+        let remote = require("@electron/remote");
         let fs = require("fs");
 
         let KonataRenderer = require("./konata_renderer");
@@ -205,8 +213,14 @@ class Store{
         this.scrollSpeed = 1.0;
         let SCROLL_ANIMATION_PERIOD = 100;  // ミリ秒
 
-        // Command palette
+        // Any dialog is opened or not
         this.isCommandPaletteOpened = false;
+        this.isStatsDialogOpened = false;
+        this.isSettingsDialogOpened = false;
+        this.isAnyDialogOpened = () => {
+            return this.isCommandPaletteOpened || this.isStatsDialogOpened || this.isSettingsDialogOpened;
+        };
+
 
         // Dummy functions for a type-script checker
         // The actual handlers are set in riot.observable.
@@ -241,38 +255,54 @@ class Store{
             self.trigger(CHANGE.COMMAND_PALETTE_CLOSE);
         });
         self.on(ACTION.COMMAND_PALETTE_EXECUTE, function(cmd){
-            if (!self.activeTab) {
-                return;
-            }
+            let accept = false;
 
-            
             if (cmd.match(/j[\s]+(\d+)/)) { // js #line
-                let id = Number(RegExp.$1);
-                let renderer = self.activeTab.renderer;
-                let pos = renderer.viewPos;
-                let op = renderer.getVisibleOp(id);
-                if (op) {
-                    self.startScroll([op.fetchedCycle - pos[0], id - pos[1]]);
+                if (self.activeTab) {
+                    let id = Number(RegExp.$1);
+                    let renderer = self.activeTab.renderer;
+                    let pos = renderer.viewPos;
+                    let op = renderer.getVisibleOp(id);
+                    if (op) {
+                        self.startScroll([op.fetchedCycle - pos[0], id - pos[1]]);
+                    }
+                    accept = true;
                 }
             }
             else if (cmd.match(/jr[\s](\d+)/)) { // jr #rid
-                let rid = Number(RegExp.$1);
-                let renderer = self.activeTab.renderer;
-                let pos = renderer.viewPos;
-                let op = renderer.getOpFromRID(rid);
-                let y = renderer.getPosY_FromRID(rid);
-                if (op) {
-                    self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
+                if (self.activeTab) {
+                    let rid = Number(RegExp.$1);
+                    let renderer = self.activeTab.renderer;
+                    let pos = renderer.viewPos;
+                    let op = renderer.getOpFromRID(rid);
+                    let y = renderer.getPosY_FromRID(rid);
+                    if (op) {
+                        self.startScroll([op.fetchedCycle - pos[0], y - pos[1]]);
+                    }
+                    accept = true;
                 }
             }
             else if (cmd.match(/^f[\s]+(.+)$/)) {   // find #
+                if (self.activeTab) {
+                    let target = RegExp.$1;
+                    self.trigger(ACTION.KONATA_FIND_STRING, target);
+                    accept = true;
+                }
+            }
+            else if (cmd.match(/^l[\s]+(.+)$/)) {   // load #
                 let target = RegExp.$1;
-                self.trigger(ACTION.KONATA_FIND_STRING, target);
+                self.trigger(ACTION.FILE_OPEN, target);
+                accept = true;
             }
             else {
                 self.trigger(CHANGE.DIALOG_MODAL_ERROR, `Failed to parse: ${cmd}`);
             }
-
+            if (accept) {
+                self.config.commandHistory.unshift(cmd);
+                if (self.config.commandHistory.length > self.config.maxCommandHistoryNum) {
+                    self.config.commandHistory.pop();
+                }
+            }
             /*
             else if (cmd.match(/^o[\s]+(.+)$/)) {   // find #
                 let target = RegExp.$1;
@@ -322,7 +352,7 @@ class Store{
             let renderer = new KonataRenderer.KonataRenderer();
             renderer.init(konata, self.config);
 
-            let tab = new Tab(self.nextOpenedTabID, fileName, konata, renderer);
+            let tab = new Tab(self.nextOpenedTabID, fileName, konata, renderer, self.config);
 
             self.tabs[self.nextOpenedTabID] = tab;
             self.activeTabID = self.nextOpenedTabID;
@@ -377,9 +407,25 @@ class Store{
                 (stats) => {  // 読み出し終了ハンドラ
                     self.trigger(CHANGE.PROGRESS_BAR_FINISH, tabID, "stats");
                     self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+
+                    self.isStatsDialogOpened = true;
                     self.trigger(CHANGE.DIALOG_SHOW_STATS, stats);
                 },
             );
+        });
+
+        self.on(ACTION.FILE_CLOSE_STATS, function(){
+            self.isStatsDialogOpened = false;
+        });
+
+        // Show statistics
+        self.on(ACTION.FILE_SHOW_SETTINGS, function(){
+            self.isSettingsDialogOpened = true;
+            self.trigger(CHANGE.DIALOG_SHOW_SETTINGS);
+        });
+
+        self.on(ACTION.FILE_CLOSE_SETTINGS, function(){
+            self.isSettingsDialogOpened = false;
         });
 
         // アクティブなタブの変更
@@ -438,7 +484,13 @@ class Store{
         });
 
         // ウィンドウのサイズ変更
-        self.on(ACTION.SHEET_RESIZE, function(){
+        self.on(ACTION.SHEET_RESIZE, function(bounds){
+            if ("x" in bounds && "y" in bounds && 
+                "width" in bounds && "height" in bounds
+            ) {
+                self.config.windowBounds = bounds;
+                //console.log(bounds);
+            }
             self.trigger(CHANGE.PANE_SIZE_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
@@ -455,6 +507,7 @@ class Store{
                     tab.splitterPos = position;
                 }
             }
+            self.config.splitterPosition = position;
             self.trigger(CHANGE.PANE_SIZE_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
         });
@@ -464,9 +517,24 @@ class Store{
             // store.config が生きている間 = ウィンドウの生存期間内に処理をしないといけない
             // app.quit ではウィンドウの close イベントが呼ばれないため，手動で保存する
             self.config.save(); 
-            electron.remote.app.quit();
+            remote.app.quit();
         });
 
+        // アプリケーション初期化完了
+        self.on(ACTION.APP_INITIALIZED, function(){
+            // Load files passed by command line arguments
+            let argv = remote.process.argv;
+            let start = 1;
+            console.log(argv[0]);
+            if (argv[0].match(/[/\\]electron/)) {
+                start = 2;  // Command line argument starts at the second when launched from electron.
+            }
+            for (let i = start; i < argv.length; i++) {
+                if (!argv[i].match(/^[-]/) && argv[i] != ".") {
+                    self.trigger(ACTION.FILE_OPEN, argv[i]);
+                }
+            }
+        });
 
         // ズームのスタート
         this.startZoom = function(zoomLevelDiff, offsetX, offsetY, speed=1.0, compensatePos=false){
@@ -544,7 +612,7 @@ class Store{
             if (!self.activeTab){
                 return;
             }
-            self.startZoom(zoomLevelDiff, posX, posY, speed, true);
+            self.startZoom(zoomLevelDiff / self.config.drawZoomFactor, posX, posY, speed, true);
         });
 
         // スクロール同期対象のタブに，渡された関数を適用する
@@ -627,6 +695,9 @@ class Store{
             if (self.inScrollAnimation) {
                 self.finishScroll();
             }
+            if (self.zoom.inAnimation) {
+                self.finishZoom();
+            }
 
             let activeRenderer = self.activeTab.renderer;
             let op = null;
@@ -641,18 +712,30 @@ class Store{
                 op = activeRenderer.getOpFromPixelPosY(0);
             }
             if (op) {
+                let retiredOp = activeRenderer.getOpFromRID(op.rid);
+                if (retiredOp) {
+                    op = retiredOp;
+                }
                 let activeY = self.activeTab.hideFlushedOps ? op.rid : op.id;
                 activeRenderer.moveLogicalPos([op.fetchedCycle, activeY]);
                 
                 // 同期が有効の場合，左上の命令の RID が一致するようにスクロールさせる
                 let sync = self.activeTab.syncScroll;   
                 if (sync) {
+                    // Synchronize the splitter positions.
+                    // If the splitter positions are different, the left edge of 
+                    // each pipeline pane will be different and you will not be 
+                    // able to synchronize the panes well, so synchronize the 
+                    // splitter positions.
+                    self.trigger(ACTION.PANE_SPLITTER_MOVE, self.activeTab.splitterPos);
+
                     for (let id in self.tabs) {
                         let tab = self.tabs[id];
                         let renderer = tab.renderer;
                         let synchedOp = renderer.getOpFromRID(op.rid);
                         if (synchedOp && self.activeTab.id != tab.id) {
                             let y = tab.hideFlushedOps ? synchedOp.rid : synchedOp.id;
+                            renderer.zoomAbs(activeRenderer.zoomLevel, 0, 0, false);
                             renderer.moveLogicalPos([synchedOp.fetchedCycle, y]);
                         }
                     }
@@ -742,6 +825,7 @@ class Store{
                 return;
             }
             let tab = self.tabs[tabID];
+            self.config.colorScheme = scheme;
             tab.colorScheme = scheme;
             tab.renderer.changeColorScheme(scheme);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
@@ -753,6 +837,16 @@ class Store{
             self.config.theme = theme;
             for (let tabID in self.tabs) {
                 self.tabs[tabID].renderer.loadStyle();
+            }
+            self.trigger(CHANGE.WINDOW_CSS_UPDATE);
+            self.trigger(CHANGE.PANE_CONTENT_UPDATE);
+            self.trigger(CHANGE.MENU_UPDATE);
+        });
+
+        // Change settings
+        self.on(ACTION.KONATA_CHANGE_SETTINGS, function(key, value){
+            if (key in self.config.configItems) {
+                self.config[key] = value;
             }
             self.trigger(CHANGE.WINDOW_CSS_UPDATE);
             self.trigger(CHANGE.PANE_CONTENT_UPDATE);
@@ -970,7 +1064,16 @@ class Store{
                         else{ // 横位置を変えない
                             hOpPos = 0;
                         }
-                        self.startScroll([hOpPos, moveTo - viewPos[1]]);
+                        let vOpPos = moveTo;
+                        if (vOpPos < viewPos[1] || 
+                            vOpPos > viewPos[1] + 400 / renderer.opH
+                        ) { // 表示範囲内になかった場合は，位置も移動
+                            vOpPos = vOpPos + (-100 / renderer.opH) - viewPos[1];
+                        }
+                        else{ // 位置を変えない
+                            vOpPos = 0;
+                        }
+                        self.startScroll([hOpPos, vOpPos]);
                     }
                     //console.log(`Found: ${target}@${foundPos}`);
                 }
@@ -1011,8 +1114,8 @@ class Store{
             }
 
             let findContext = self.activeTab.findContext;
-            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            self.findString(findContext.targetPattern, pos + 1, false, function(hit, canceled){
+            let pos = self.activeTab.renderer.getPosY_FromOp(findContext.op);
+            self.findString(findContext.targetPattern, pos, false, function(hit, canceled){
                 if (!hit && !canceled) {
                     self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
                 }
@@ -1027,8 +1130,8 @@ class Store{
             }
 
             let findContext = self.activeTab.findContext;
-            let pos = Math.floor(self.activeTab.renderer.viewPos[1]);
-            self.findString(findContext.targetPattern, pos - 1, true, function(hit, canceled){
+            let pos = self.activeTab.renderer.getPosY_FromOp(findContext.op);
+            self.findString(findContext.targetPattern, pos, true, function(hit, canceled){
                 if (!hit && !canceled) {
                     self.trigger(CHANGE.DIALOG_MODAL_ERROR, `"${findContext.targetPattern}" is not found.`);
                 }

@@ -11,18 +11,20 @@
     },
     "pipelinePane": {
         "backgroundColor": "#ffffff",
+        "backgroundColorStripeOverlay": "#00000010",
+
         "fontColor": "#444444",
         "borderColor": "#444444",
         "borderWeight": "1",
 
         "stageBackgroundColor": {
             "hRateBegin": "55",
-            "sBegin": "95%",
-            "lBegin": "95%",
+            "sBegin": "95",
+            "lBegin": "95",
 
             "hRateEnd": "55",
-            "sEnd": "70%",
-            "lEnd": "80%"
+            "sEnd": "70",
+            "lEnd": "80"
         },
         "stallBackgroundColor": "#aaaaaa",
         "invalidBackgroundColor": "rgb(128,128,128)",

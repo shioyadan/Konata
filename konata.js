@@ -2,14 +2,15 @@
 let Op = require("./op").Op; // eslint-disable-line
 let CreateStats = require("./stats").CreateStats; // eslint-disable-line
 let StageLevel = require("./stage").StageLevel; // eslint-disable-line
+let OnikiriParser = require("./onikiri_parser").OnikiriParser;
+let Gem5O3PipeViewParser = require("./gem5_o3_pipe_view_parser").Gem5O3PipeViewParser;
 
 class Konata{
     constructor(){
         this.name = "Konata";
+        /** @type {OnikiriParser|Gem5O3PipeViewParser} */
         this.parser_ = null;
         this.FileReader_ = require("./file_reader").FileReader;
-        this.OnikiriParser_ = require("./onikiri_parser").OnikiriParser;
-        this.Gem5O3PipeViewParser_ = require("./gem5_o3_pipe_view_parser").Gem5O3PipeViewParser;
 
         this.file_ = null;
         this.filePath_ = ""; 
@@ -50,8 +51,8 @@ class Konata{
 
     reload(){
         let parsers = [
-            new this.OnikiriParser_(),
-            new this.Gem5O3PipeViewParser_()
+            new OnikiriParser(),
+            new Gem5O3PipeViewParser()
         ];
         this.load_(parsers);
     }
@@ -64,6 +65,7 @@ class Konata{
         this.close();
         this.file_ = new this.FileReader_();
         this.file_.open(this.filePath_);
+        this.closed_ = false;
 
         this.parser_ = parsers.shift();
         console.log(`Open (${this.parser_.name}): ${this.filePath_}`);
@@ -95,12 +97,12 @@ class Konata{
     /**
      * @return {Op} id に対応した op を返す
      */
-    getOp(id){
-        return this.parser_ ? this.parser_.getOp(id) : null;
+    getOp(id, resolution=0){
+        return this.parser_ ? this.parser_.getOp(id, resolution) : null;
     }
 
-    getOpFromRID(rid){
-        return this.parser_ ? this.parser_.getOpFromRID(rid) : null;
+    getOpFromRID(rid, resolution=0){
+        return this.parser_ ? this.parser_.getOpFromRID(rid, resolution) : null;
     }
 
     get lastID(){
@@ -115,14 +117,12 @@ class Konata{
         return this.parser_ ? this.parser_.laneMap : {};
     }
 
-    /** @return {Object.<string,StageLevel>} */
     get stageLevelMap(){
-        return this.parser_ ? this.parser_.stageLevelMap : {};
+        return this.parser_ ? this.parser_.stageLevelMap : null;
     }
 
     // パイプライン中の統計を計算し，終わったら finish に渡す
-    async statsBody_(update, finish, statsList){
-        let lastID = this.lastID;
+    async statsBody_(lastID, update, finish, statsList){
 
         let sleepTimer = 0;
         let SLEEP_INTERVAL = 50000;
@@ -139,7 +139,7 @@ class Konata{
 
             if (!stats.isDetected &&  i > GIVE_UP_TIME) {
                 console.log(`Gave up analyzing this file (${stats.name})`);
-                this.statsBody_(update, finish, statsList);
+                this.statsBody_(lastID, update, finish, statsList);
                 return;
             }
 
@@ -157,7 +157,7 @@ class Konata{
 
         if (!stats.isDetected) {
             console.log(`Gave up analyzing this file (${stats.name})`);
-            this.statsBody_(update, finish, statsList);
+            this.statsBody_(lastID, update, finish, statsList);
             return;
         }
 
@@ -166,8 +166,8 @@ class Konata{
         finish(stats.stats);
     }
     async stats(update, finish){
-        let statsList = CreateStats(this);
-        this.statsBody_(update, finish, statsList);
+        let statsList = CreateStats(this.lastID, this.lastRID, this.parser_.lastCycle);
+        this.statsBody_(this.lastID, update, finish, statsList);
     }
 
 }

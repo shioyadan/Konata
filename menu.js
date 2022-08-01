@@ -1,7 +1,7 @@
 function installMainMenu(store, dispatcher){
 
     let rc = dispatcher;
-    let remote = require("electron").remote;
+    let remote = require("@electron/remote");
     let DEP_ARROW_TYPE = require("./konata_renderer").DEP_ARROW_TYPE;
 
     let Store = require("./store");
@@ -38,6 +38,10 @@ function installMainMenu(store, dispatcher){
                         type: "separator"
                     },
                     {
+                        label: "Settings",
+                        click: function(){rc.trigger(ACTION.FILE_SHOW_SETTINGS);}
+                    },
+                    {
                         label: "UI color theme",
                         submenu: [
                             {
@@ -69,6 +73,7 @@ function installMainMenu(store, dispatcher){
                     },
                     {
                         label: "Quit",
+                        accelerator: "Alt+F4",
                         click: function(){rc.trigger(ACTION.APP_QUIT);}
                     },
                     {
@@ -136,7 +141,7 @@ function installMainMenu(store, dispatcher){
                             return {
                                 label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
                                 click: function(){
-                                    if (!store.isCommandPaletteOpened){
+                                    if (!store.isAnyDialogOpened()){
                                         rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);
                                     }
                                 },
@@ -151,7 +156,7 @@ function installMainMenu(store, dispatcher){
                             return {
                                 label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
                                 click: function(){
-                                    if (!store.isCommandPaletteOpened){
+                                    if (!store.isAnyDialogOpened()){
                                         rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);
                                     }
                                 },
@@ -180,14 +185,20 @@ function installMainMenu(store, dispatcher){
                     },
                     {
                         label: "Pipeline color scheme",
-                        submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].map(function(color){
-                            return {
-                                label: color,
-                                type: "checkbox",
-                                checked: tab ? tab.colorScheme == color : true, 
-                                click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
-                            };
-                        }),
+                        submenu: ["Auto", "Unique", "ThreadID", "Orange", "RoyalBlue"/*, "Onikiri"*/].
+                            concat(
+                                Object.keys(store.config.customColorSchemes).filter(function(color){
+                                    return store.config.customColorSchemes[color].enable;
+                                })
+                            ).
+                            map(function(color){
+                                return {
+                                    label: color,
+                                    type: "checkbox",
+                                    checked: tab ? tab.colorScheme == color : true, 
+                                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
+                                };
+                            }),
                     },
                     {
                         label: "Lane",
@@ -201,7 +212,8 @@ function installMainMenu(store, dispatcher){
                                         ACTION.KONATA_SPLIT_LANES,
                                         e.checked
                                     );
-                                }
+                                },
+                                accelerator: "N"
                             },
                             {
                                 label: "Fix op height",
@@ -334,14 +346,49 @@ function makePopupTabMenuTemplate(store, dispatcher, tabID){
         },
         {
             label: "Pipeline color scheme",
-            submenu: ["Auto", "Unique", "Orange", "RoyalBlue"/*, "Onikiri"*/].map(function(color){
-                return {
-                    label: color,
+            submenu: ["Auto", "Unique", "ThreadID", "Orange", "RoyalBlue"/*, "Onikiri"*/].
+                concat(
+                    Object.keys(store.config.customColorSchemes).filter(function(color){
+                        return store.config.customColorSchemes[color].enable;
+                    })
+                ).
+                map(function(color){
+                    return {
+                        label: color,
+                        type: "checkbox",
+                        checked: tab ? tab.colorScheme == color : true, 
+                        click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
+                    };
+                }),
+        },
+        {
+            label: "Lane",
+            submenu: [
+                {
+                    label: "Split lanes",
                     type: "checkbox",
-                    checked: tab ? tab.colorScheme == color : true, 
-                    click: function(){rc.trigger(ACTION.KONATA_CHANGE_COLOR_SCHEME, tabID, color);}
-                };
-            }),
+                    checked: store.splitLanes, 
+                    click: function(e){
+                        rc.trigger(
+                            ACTION.KONATA_SPLIT_LANES,
+                            e.checked
+                        );
+                    },
+                    accelerator: "N"
+                },
+                {
+                    label: "Fix op height",
+                    type: "checkbox",
+                    checked: store.fixOpHeight, 
+                    enabled: store.splitLanes,
+                    click: function(e){
+                        rc.trigger(
+                            ACTION.KONATA_FIX_OP_HEIGHT,
+                            e.checked
+                        );
+                    }
+                },
+            ]
         },
     ];
     return menuTemplate;    
@@ -351,7 +398,7 @@ function popupTabMenu(store, dispatcher, tabID){
 
     let menuTemplate = makePopupTabMenuTemplate(store, dispatcher, tabID);
 
-    let remote = require("electron").remote;
+    let remote = require("@electron/remote");
     let Menu = remote.Menu;
     let menu = Menu.buildFromTemplate(menuTemplate);
     menu.popup({});
@@ -360,7 +407,7 @@ function popupTabMenu(store, dispatcher, tabID){
 function popupPipelineMenu(store, dispatcher, pos){
 
     let rc = dispatcher;
-    let remote = require("electron").remote;
+    let remote = require("@electron/remote");
     let Store = require("./store");
     let ACTION = Store.ACTION;
 
@@ -388,7 +435,7 @@ function popupPipelineMenu(store, dispatcher, pos){
                 return {
                     label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
                     click: function(){
-                        if (!store.isCommandPaletteOpened){
+                        if (!store.isAnyDialogOpened()){
                             rc.trigger(ACTION.KONATA_GO_TO_BOOKMARK, index);
                         }
                     },
@@ -402,7 +449,7 @@ function popupPipelineMenu(store, dispatcher, pos){
                 return {
                     label: `${index}: x:${bkm.x}, y:${bkm.y}, zoom:${bkm.zoom}`,
                     click: function(){
-                        if (!store.isCommandPaletteOpened){
+                        if (!store.isAnyDialogOpened()){
                             rc.trigger(ACTION.KONATA_SET_BOOKMARK, index);
                         }
                     },

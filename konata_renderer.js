@@ -42,13 +42,14 @@ class KonataRenderer{
         this.OP_H = 24; // スケール1のときの1命令の高さ
 
         // 拡大率レベル
+        this.MAX_ZOOM_LEVEL_ = 24;
         this.zoomLevel_ = 0;       
         this.zoomScale_ = 1;       // 拡大率 (zoomLevel に同期)
         this.laneNum_ = 1;
         this.laneW_ = this.OP_W * this.zoomScale_;
         this.laneH_ = this.OP_H * this.zoomScale_;
         this.opW_ = this.laneW_ * this.laneNum_; 
-        this.opH_ = this.laneW_ * this.laneNum_; 
+        this.opH_ = this.laneH_ * this.laneNum_; 
 
         this.LANE_HEIGHT_MARGIN = 2;
         this.lane_height_margin_ = this.LANE_HEIGHT_MARGIN; // スケール1のときの高さ方向のマージン（命令の間隔）[px]
@@ -78,11 +79,20 @@ class KonataRenderer{
         this.style_ = null;
     }
 
+    get opW(){ return this.opW_; }
+    get opH(){ return this.opH_; }
+
     /**
      * viewPos_ の getter
      */
     get viewPos(){
         return [this.viewPos_.left, this.viewPos_.top];
+    }
+
+    // getOp で使用する解像度
+    get opResolution(){
+        // 縦方向が 24 ピクセルなので，2^5 = 32 から解像度を落としても大丈夫
+        return this.zoomLevel_ - 5;
     }
 
     /**
@@ -102,6 +112,7 @@ class KonataRenderer{
 
         this.depArrowType = config.depArrowType;
 
+        this.changeColorScheme(config.colorScheme);
         this.updateScaleParameter();
     }
 
@@ -114,45 +125,85 @@ class KonataRenderer{
         // fs 等で読み込むと，パッケージ後などで起動時のカレントディレクトリが
         // 変わった場合に読み込めなくなるので，require で読む
         this.style_ = require(fileName);
+
+        let colorStyle = this.style_.pipelinePane.stageBackgroundColor;
+        for (let i of ["lBegin", "sBegin", "lEnd", "sEnd"]) {
+            colorStyle[i] = Number(colorStyle[i]);
+        }
     }
 
     /**
-     * ステージ関係のスタイル読込
+     * 
+     * @param {string} laneName 
+     * @param {string} stageName 
+     * @param {boolean} isBegin 
+     * @param {Op} op 
      */
-    getStageColor_(lane, stage, isBegin){
+    getStageColor_(laneName, stageName, isBegin, op){
         let self = this;
 
         if (self.colorScheme_ == "Auto" || self.colorScheme_ == "Unique") {
-            if (stage == "f" || stage == "stl") {
+            if (stageName == "f" || stageName == "stl") {
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
-            let stageLevel = self.konata_.stageLevelMap[stage];
+            let stageLevel = self.konata_.stageLevelMap.get(laneName, stageName);
+            let laneID = self.konata_.stageLevelMap.getLaneID(laneName);
+
             let level = self.colorScheme_ == "Auto" ? stageLevel.appearance : stageLevel.unique;
             let color = this.style_.pipelinePane.stageBackgroundColor;
             if (isBegin) {
-                let h = ((250-level*color.hRateBegin)%360);
-                return `hsl(${h},${color.sBegin},${color.lBegin})`;
+                let h = ((250 - level*color.hRateBegin + laneID*28*8)%360);
+                return `hsl(${h},${color.sBegin}%,${color.lBegin}%)`;
             }
             else{
-                let h = ((250-level*color.hRateEnd)%360);
-                return `hsl(${h},${color.sEnd},${color.lEnd})`;
+                let h = ((250 - level*color.hRateEnd + laneID*28*8)%360);
+                return `hsl(${h},${color.sEnd}%,${color.lEnd}%)`;
             }
         }
-        else {
-            if ("colorScheme" in self.style_) {
-                if (self.colorScheme_ in self.style_.colorScheme) {
-                    let style = self.style_.colorScheme[self.colorScheme_];
-                    if (lane in style) {
-                        if (stage in style[lane]) {
-                            return style[lane][stage];
-                        }
-                    }
-                    return style["defaultColor"];
+        else if (self.colorScheme_ == "ThreadID") {
+            let stageLevel = self.konata_.stageLevelMap.get(laneName, stageName);
+            let level = op.tid;
+            let color = this.style_.pipelinePane.stageBackgroundColor;
+            if (isBegin) {
+                let h = ((250 - level*color.hRateBegin)%360);
+                let s = color.sBegin;// - stageLevel.appearance*10;
+                // A gradation direction is changed depending on the light/dark mode.
+                // if color.lBegin > 50, it is assumed the light mode
+                let l = (1000 + color.lBegin + (color.lBegin > 50 ? -1 : 1) * stageLevel.appearance*4) % 100;
+                return `hsl(${h},${s}%,${l}%)`;
+            }
+            else{
+                let h = ((250 - level*color.hRateEnd)%360);
+                let s = color.sEnd;// - stageLevel.appearance*10;
+                let l = (1000 + color.lEnd + (color.lEnd > 50 ? -1 : 1) * stageLevel.appearance*4) % 100;
+                return `hsl(${h},${s}%,${l}%)`;
+            }
+        }
+        else if (self.colorScheme_ in self.config.customColorSchemes) {
+            let style = self.config.customColorSchemes[self.colorScheme_];
+            let colorDef = style["defaultColor"];
+            if (laneName in style) {
+                if (stageName in style[laneName]) {
+                    colorDef = style[laneName][stageName];
                 }
             }
-    
-            return self.colorScheme_;
+            let baseColor = this.style_.pipelinePane.stageBackgroundColor;
+            let h = colorDef.h;
+            let s = colorDef.s;
+            let l = colorDef.l;
+            if (isBegin) {
+                l = (l == "auto") ? baseColor.lBegin : l;
+                s = (s == "auto") ? baseColor.sBegin : s;
+            }
+            else{
+                l = (l == "auto") ? baseColor.lEnd : l;
+                s = (s == "auto") ? baseColor.sEnd : s;
+            }
+            if (typeof(s) == "number" || (typeof(s) == "string" && s.match(/^\d+$/))) { s += "%"; }
+            if (typeof(l) == "number" || (typeof(l) == "string" && l.match(/^\d+$/))) { l += "%"; }
+            return `hsl(${h},${s},${l})`;
         }
+        return self.colorScheme_;
     }
 
     /**
@@ -212,28 +263,12 @@ class KonataRenderer{
 
         // 画面に表示されているものの中で最も上にあるものを基準に
         let oldOp = null;
-        oldOp = self.getVisibleOp(y);
-        while (!oldOp || oldOp.retiredCycle < self.viewPos_.left) {
-            y++;
-            oldOp = self.getVisibleOp(y);
-            if (y > self.getVisibleBottom()){
-                // 画面に表示されている op が一切無かった場合は帰る
-                return 0;
-            }
-        }
+        oldOp = self.getVisibleOp(y, this.opResolution);
 
         // 水平方向の補正を行う
         let newTop = y + diffY;
         let newY = Math.floor(newTop);
-        let newOp = self.getVisibleOp(newY);
-        while (!newOp || newOp.retiredCycle < self.viewPos_.left) {
-            newY++;
-            newOp = self.getVisibleOp(newY);
-            if (newY > self.getVisibleBottom()){
-                // 画面に表示されている op が一切無かった場合は帰る
-                return 0;
-            }
-        }
+        let newOp = self.getVisibleOp(newY, this.opResolution);
 
         if (!newOp) {
             return 0;
@@ -259,14 +294,14 @@ class KonataRenderer{
 
         let y = Math.floor(posY);
         let op = null;
-        op = self.getVisibleOp(y);
+        op = self.getVisibleOp(y, this.opResolution);
 
         let oldTop = self.viewPos_.top;
         self.viewPos_.top = posY;
 
         if (adjust && op) {
             // 水平方向の補正を行う
-            let oldOp = self.getVisibleOp(Math.floor(oldTop));
+            let oldOp = self.getVisibleOp(Math.floor(oldTop), this.opResolution);
             if (!oldOp) {
                 self.viewPos_.left = op.fetchedCycle;
             }
@@ -297,8 +332,8 @@ class KonataRenderer{
 
     // 論理Y座標に対応する，現在の表示モードの op を返す
     /** @return {Op} */
-    getVisibleOp(y){
-        return this.hideFlushedOps_ ? this.getOpFromRID(y) : this.getOpFromID(y);
+    getVisibleOp(y, resolution=0){
+        return this.hideFlushedOps_ ? this.getOpFromRID(y, resolution) : this.getOpFromID(y, resolution);
     }
     getVisibleBottom(){
         return this.hideFlushedOps_ ? this.konata_.lastRID : this.konata_.lastID;
@@ -326,7 +361,7 @@ class KonataRenderer{
     getPosY_FromOp(baseOP){
         if (this.hideFlushedOps_) {
             for (let i = baseOP.id; i >= 0; i--) {
-                let op = this.konata_.getOp(i);   
+                let op = this.getOpFromID(i);   
                 if (!op.flush) {
                     return op.rid;
                 }
@@ -339,23 +374,23 @@ class KonataRenderer{
     }
 
     // id に対応する op を返す
-    getOpFromID(id){
+    getOpFromID(id, resolution=0){
         let self = this;
-        return self.konata_.getOp(id);   
+        return self.konata_.getOp(id, resolution);   
     }
 
     // rid に対応する op を返す
-    getOpFromRID(rid){
+    getOpFromRID(rid, resolution=0){
         let self = this;
-        return self.konata_.getOpFromRID(rid);   
+        return self.konata_.getOpFromRID(rid, resolution);   
     }
 
     // ピクセル座標から対応する op を返す
     /** @returns {Op} */
-    getOpFromPixelPosY(y){
+    getOpFromPixelPosY(y, resolution=0){
         let self = this;
         let logY = Math.floor(self.viewPos_.top + y / self.opH_);
-        return self.getVisibleOp(logY);   
+        return self.getVisibleOp(logY, resolution);   
     }
 
     getPixelPosYFromOp(op){
@@ -372,7 +407,7 @@ class KonataRenderer{
     // ピクセル座標に対応するツールチップのテキストを作る
     getLabelToolTipText(y){
         let self = this;
-        let op = self.getOpFromPixelPosY(y);
+        let op = self.getOpFromPixelPosY(y, this.opResolution);
         if (!op) {
             return null;
         }
@@ -394,7 +429,7 @@ class KonataRenderer{
         let self = this;
 
         // Y 座標に対応した op を取得
-        let op = self.getOpFromPixelPosY(y);
+        let op = self.getOpFromPixelPosY(y, this.opResolution);
         if (!op) {
             return null;
         }
@@ -471,7 +506,12 @@ class KonataRenderer{
         self.laneW_ = self.OP_W * zoomScale;
         self.opW_ = self.laneW_;
 
-        if (!splitLanes) {
+        if (!splitLanes || laneNum == 0) {
+            // When first called after starting to read the file, 
+            // the lane map is empty and laneNum will be assigned 0.
+            // self.opH_ is calculated using laneNum and thus it is also set 0.
+            // In this case, an infinite loop occurs in drawLabelTile_().
+            // To avoid this, set laneNum to 1
             laneNum = 1;
         }
         if (fixOpHeight){
@@ -483,15 +523,16 @@ class KonataRenderer{
             self.opH_ = self.laneH_ * laneNum;
         }
         self.lane_height_margin_ = self.canDrawFrame ? self.LANE_HEIGHT_MARGIN * zoomScale : 0;
-        self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+        //self.drawingInterval_ = Math.floor(20/(zoomScale * Math.log(zoomScale)/0.005));
+        self.drawingInterval_ = Math.floor(1 / self.OP_H / zoomScale / 2);
 
         // フォント
         let fontFamily = self.style_["fontFamily"];
         let fontStyle = self.style_["fontStyle"];
         let fontSize = parseInt(self.style_["fontSize"]);
-        self.labelFont_ = `${fontStyle} ${fontSize}px ${fontFamily}`;
+        self.labelFont_ = `${fontStyle} ${fontSize*Math.min(1.0, zoomScale)}px ${fontFamily}`;
         self.stageFont_ = `${fontStyle} ${fontSize*zoomScale}px ${fontFamily}`;
-        self.labelFontSize_ = fontSize;
+        self.labelFontSize_ = fontSize * Math.min(1.0, zoomScale);
         self.stageFontSize_ = fontSize * zoomScale;
     }
 
@@ -527,19 +568,19 @@ class KonataRenderer{
     // 拡大率によって決定
     get canDrawDetailedly(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight > 1;   // 1 以上あるかどうか
+        return laneHeight > this.config.drawDetailedlyThreshold;     // 閾値以上の高さがあるかどうか
     }
     get canDrawDependency(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight - 2 > 2;  // 枠1ピクセルを除いて内部があるかどうか
+        return laneHeight > this.config.drawDependencyThreshold;
     }
     get canDrawFrame(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight - 2 > 2;  // 枠1ピクセルを除いて内部があるかどうか
+        return laneHeight > this.config.drawFrameThreshold;
     }
     get canDrawText(){
         let laneHeight = this.laneH_ - this.lane_height_margin_ * 2;
-        return laneHeight - 2 > 8;  // 枠1ピクセルを除いて内部があるかどうか
+        return laneHeight > this.config.drawTextThreshold;
     }
 
     get zoomLevel(){
@@ -561,7 +602,7 @@ class KonataRenderer{
         self.zoomLevel_ = zoomLevel;
 
         // 最大最小ズーム率に補正
-        self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, 16), -1);
+        self.zoomLevel_ = Math.max(Math.min(self.zoomLevel_, self.MAX_ZOOM_LEVEL_), -1);
 
         let oldScale = self.zoomScale_;
         self.zoomScale_ = self.calcScale_(self.zoomLevel_);
@@ -684,13 +725,28 @@ class KonataRenderer{
         }
 
         // タイルの描画
-        for (let y = Math.floor(top); y < top + height; y++) {
-            if (scale < 0.005 && y % self.drawingInterval_  != 0) {
+        let skipRendering = false;
+        for (let y = Math.floor(top); 
+            y < top + height; 
+            y += (this.opH_ < 0.25) ? self.drawingInterval_ : 1
+        ) {
+
+            // 背景をストライプに
+            let pixelY = y - top + offsetY;
+            if (self.canDrawFrame) {
+                if (y % 2 == 0) {
+                    let fillTop = pixelY * this.opH_ + self.PIXEL_ADJUST;
+                    ctx.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
+                    ctx.fillRect(0, fillTop, tile.clientWidth, this.opH_);
+                }
+            }
+            if (skipRendering) {
                 continue;
             }
+
             let op = null;
             try {
-                op = self.getVisibleOp(y);
+                op = self.getVisibleOp(y, this.opResolution);
             } catch(e) {
                 console.log(e);
                 return;
@@ -700,8 +756,9 @@ class KonataRenderer{
                 // after null.
                 continue;   
             }
+
             if (!self.drawOp_(op, y - top + offsetY, left, left + width, scale, ctx)) {
-                break;
+                skipRendering = true;
             }
         }
 
@@ -712,8 +769,9 @@ class KonataRenderer{
 
 
         // 下側にはみ出ていた場合，暗く描画
-        if (top - offsetY + height > self.getVisibleBottom()) {
-            let begin = tile.height - (top - offsetY + height - self.getVisibleBottom()) * self.opH_ + self.PIXEL_ADJUST;
+        let bottomOuterHeight = top - offsetY + height - 1 - self.getVisibleBottom();
+        if (bottomOuterHeight > 0) {
+            let begin = tile.height - bottomOuterHeight * self.opH_ + self.PIXEL_ADJUST;
             begin = Math.max(0, begin);
             ctx.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
             ctx.fillRect(0, begin, tile.width, tile.height);
@@ -752,7 +810,7 @@ class KonataRenderer{
 
             for (let dep of op.prods) {
 
-                let prod = dep.op;    // ここは getVisibleOp ではない
+                let prod = this.getOpFromID(dep.opID);    // ここは getVisibleOp ではない
                 if (!prod) {
                     continue;
                 }
@@ -876,6 +934,14 @@ class KonataRenderer{
         ctx.fill();
     }
 
+    /**
+     * @param {Op} op 
+     * @param {number} h 
+     * @param {number} startCycle 
+     * @param {number} endCycle 
+     * @param {number} scale 
+     * @param {*} ctx 
+     */
     drawOp_(op, h, startCycle, endCycle, scale, ctx){
         let self = this;
         let top = h * self.opH_ + self.PIXEL_ADJUST;
@@ -893,9 +959,20 @@ class KonataRenderer{
         let left = l * self.opW_ + self.PIXEL_ADJUST;
         let right = r * self.opW_ + self.PIXEL_ADJUST;
 
+        let stageLevelMap = this.konata_.stageLevelMap;
+        let laneNum = stageLevelMap.laneNum;
+
         if (self.canDrawDetailedly) {
             // 枠内に表示の余地がある場合
             ctx.strokeStyle = this.style_.pipelinePane.borderColor;
+
+            for (let laneName in op.lanes) {
+                let laneTop = 
+                self.splitLanes_ ? 
+                    (h + stageLevelMap.getLaneID(laneName) / laneNum) : h;  // logical pos
+                self.drawLane_(op, laneTop, startCycle, endCycle, scale, ctx, laneName);
+            }
+            /*
             let keys = [];
             for (let key in op.lanes) {
                 keys.push(key);
@@ -903,13 +980,18 @@ class KonataRenderer{
             keys = keys.sort();
             for (let i = 0, len = keys.length; i < len; i++) {
                 let key = keys[i];
-                let laneTop = self.splitLanes_ ? (h + i / len) : h;  // logical pos
+                let laneTop = self.splitLanes_ ? (h + i / laneNum) : h;  // logical pos
                 self.drawLane_(op, laneTop, startCycle, endCycle, scale, ctx, key);
             }
+            */
         }
         else{
             // 十分小さい場合は簡略化モード
-            if (self.colorScheme_ != "Auto" && self.colorScheme_ != "Unique" && self.colorScheme_ != "Onikiri") {
+            if (self.colorScheme_ != "Auto" && 
+                self.colorScheme_ != "Unique" && 
+                self.colorScheme_ != "ThreadID" && 
+            !(self.colorScheme_ in self.config.customColorSchemes)
+            ) {
                 ctx.fillStyle = self.colorScheme_;
             }
             else{
@@ -922,8 +1004,8 @@ class KonataRenderer{
 
             // 縮小率が高すぎると表示が小さくなりすぎて何も見えなくなるので，
             // 最低1ピクセルは表示するように補正
-            if (right - left < 0.5) {
-                right = left + 0.5;
+            if (right - left < 1) {
+                right = left + 1;
             }
             if (laneHeight < 0.5) {
                 laneHeight = 0.5;
@@ -977,8 +1059,8 @@ class KonataRenderer{
             ];
 
             let grad = ctx.createLinearGradient(0, top, 0, top + self.laneH_);
-            grad.addColorStop(0, self.getStageColor_(laneName, stage.name, true));
-            grad.addColorStop(1, self.getStageColor_(laneName, stage.name, false));
+            grad.addColorStop(0, self.getStageColor_(laneName, stage.name, true, op));
+            grad.addColorStop(1, self.getStageColor_(laneName, stage.name, false, op));
             //grad.addColorStop(0, color);
 
             ctx.fillStyle = grad;

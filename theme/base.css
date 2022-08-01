@@ -60,7 +60,7 @@ html, body {
 /* コマンドパレット */
 .command_palette {
     padding: 5px;
-    width: 300px; 
+    width: 500px; 
 
     /*line-height: 1.4em;*/
     font-size: 12px;
@@ -117,13 +117,13 @@ html, body {
 .progress_bar_active {
     width: 0%;
     height: 3px;
-    transition: width 50ms linear;  /* アニメーション */
+    /*transition: width 50ms linear;*/  /* アニメーション */
 }
 
 /* バックグラウンドでファイルを読んでるタブのプログレスバー */
 .progress_bar_background {
     width: 0%;
     height: 3px;
-    transition: width 50ms linear;  /* アニメーション */
+    /*transition: width 50ms linear;*/  /* アニメーション */
 }
 

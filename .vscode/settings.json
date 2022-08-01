@@ -4,6 +4,7 @@
         "cur",
         "detailedly",
         "disasm",
+        "disp",
         "dsts",
         "flushed",
         "insn",
@@ -12,6 +13,7 @@
         "linebreak",
         "parsing",
         "readlines",
-        "srcs"
+        "srcs",
+        "submenu"
     ]
 }

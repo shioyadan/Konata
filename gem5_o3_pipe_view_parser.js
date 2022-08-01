@@ -1,7 +1,8 @@
 let Op = require("./op").Op;
+let OpList = require("./op_list").OpList;
 let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
-let StageLevel = require("./stage").StageLevel;
+let StageLevelMap = require("./stage").StageLevelMap;
 let Lane = require("./stage").Lane;
 
 // To enable JSDoc type check, load FileReader.
@@ -37,21 +38,18 @@ class Gem5O3PipeViewParser{
         // 現在読み出し中の ID/サイクル
         this.curCycle_ = 0;
 
+        // Op のリスト 
+        /** @type {OpList} */
+        this.opListBody_ = new OpList();
+
         /** @type {number} - 最後に読み出された命令の ID*/
-        this.lastID_ = -1;
         this.lastGID_ = -1;  // seqNum
-        this.lastRID_ = -1;
+        this.lastNotFlushedID = -1; // 最後に正常にリタイアした命令の id
 
         // seq_num, flush flag, and tick for a currently parsed instruction
         this.curParsingSeqNum_ = 0;
         this.curParsingInsnFlushed_ = false;   // seq_num 
         this.curParsingInsnCycle_ = -1;         // This is used when instruction is flushed
-        
-        /** @type {Op[]} - パースが終了した op のリスト */
-        this.opList_ = [];
-
-        /** @type {Op[]} */
-        this.retiredOpList_ = [];
 
         // パース中の op のリスト
         // ファイル内の op の順序はほぼランダムなため，一回ここに貯めたあと
@@ -78,7 +76,7 @@ class Gem5O3PipeViewParser{
         this.laneMap_ = {};
 
         // ステージの出現順序を記録するマップ
-        this.stageLevelMap_ = {};
+        this.stageLevelMap_ = new StageLevelMap();
 
         // 読み出し開始時間
         this.startTime_ = 0;
@@ -148,14 +146,12 @@ class Gem5O3PipeViewParser{
     // 閉じる
     close(){
         this.closed_ = true;
+        this.opListBody_.close();
         // パージ
-        this.opList_ = [];   
-        this.retiredOpList_ = [];
         this.parsingOpList_ = {};
         this.parsingExLog_ = {};
         this.depTable_ = {};
         this.laneMap_ = {};
-        this.stageLevelMap_ = {};
     }
 
     /**
@@ -186,48 +182,20 @@ class Gem5O3PipeViewParser{
         );
     }
 
-    /** @returns {Op[]} */
-    getOps(start, end){
-        let ops = [];
-        for (let i = start; i < end; i++) {
-            let op = this.getOp(i);
-            ops.push(op);
-            if (op == null) {
-                // opがnullなら、それ以上の命令はない
-                break;
-            }
-        }
-        return ops;
-    }
-
-    /** @returns {Op} */
-    getOp(id){
-        if (id > this.lastID_ || this.lastID_ == -1){
-            return null;
-        }
-        else{
-            return this.opList_[id];
-        }
+    getOp(id, resolution=0){
+        return this.opListBody_.getParsedOp(id, resolution);
     }
     
-    /** @returns {Op} */
-    getOpFromRID(rid){
-        if (rid > this.lastRID_){
-            return null;
-        }
-        else{
-            return this.retiredOpList_[rid];
-        }
+    getOpFromRID(rid, resolution=0){
+        return this.opListBody_.getParsedOpFromRID(rid, resolution);
     }
 
-    /** @returns {number} */
     get lastID(){
-        return this.lastID_;
+        return this.opListBody_.parsedLastID;
     }
 
-    /** @returns {number} */
     get lastRID(){
-        return this.lastRID_;
+        return this.opListBody_.parsedLastRID;
     }
 
     /** @returns {Object.<string, number>} */
@@ -235,7 +203,6 @@ class Gem5O3PipeViewParser{
         return this.laneMap_;
     }
 
-    /** @returns {Object.<string, number>} */
     get stageLevelMap(){
         return this.stageLevelMap_;
     }
@@ -277,7 +244,7 @@ class Gem5O3PipeViewParser{
                 sn = Number(matched[1]);
                 this.parsingExLogLastGID_ = sn;
             }
-            if (this.parsingExLogLastGID_ == -1 || sn <= this.lastID_) {   // 既にドレインされたものは諦める
+            if (this.parsingExLogLastGID_ == -1 || sn <= this.opListBody_.parsedLastID) {   // 既にドレインされたものは諦める
                 //console.log("Drop a drained op");
             }
             else {
@@ -409,7 +376,7 @@ class Gem5O3PipeViewParser{
 
             // Add an op to opList and remove it from parsingOpList.
             // At this time, op.id is not determined.
-            this.opList_[seqNum - this.gidBegin_] = op;
+            this.opListBody_.setOp(seqNum - this.gidBegin_, op);
             delete this.parsingOpList_[seqNumStr];
 
             if (this.lastGID_ > seqNum) {
@@ -439,8 +406,8 @@ class Gem5O3PipeViewParser{
                     if (s in this.depTable_) {
                         let prod = this.depTable_[s];
                         if (prod.prodCycle < op.consCycle) {
-                            op.prods.push(new Dependency(prod, type, op.prodCycle));
-                            prod.cons.push(new Dependency(op, type, op.consCycle));
+                            op.prods.push(new Dependency(prod.id, type, op.prodCycle));
+                            prod.cons.push(new Dependency(op.id, type, op.consCycle));
                         }
                     }
                 }
@@ -454,26 +421,27 @@ class Gem5O3PipeViewParser{
 
         // GEM5 の O3PipeView はたまに out-of-order で出力されるので，
         // ある程度バッファしておく
-        for (let i = this.lastID_ + 1; i < this.opList_.length; i++) {
-            let op = this.opList_[i];
+        for (let i = this.opListBody_.parsedLastID + 1; i < this.opListBody_.parsingLength; i++) {
+            let op = this.opListBody_.getParsingOp(i);
             if (op == null) {
                 continue;
             }
             // op.id is determined
             op.id = i;
-            this.lastID_ = i;
+            this.opListBody_.setParsedLastID(i);
             this.lastGID_ = op.gid;
             if (op.retiredCycle > this.curCycle_) {
                 this.curCycle_ = op.retiredCycle;
             }
 
             if (!op.flush) {
-                this.lastRID_++;
-                op.rid = this.lastRID_;
-                this.retiredOpList_[op.rid] = op;
+                op.rid = this.opListBody_.parsedLastRID + 1;
+                this.opListBody_.setParsedRetiredOp(op.rid, op);
+                this.lastNotFlushedID = this.opListBody_.parsedLastID;
             }
             else { // in a flushing phase
-                op.rid = -1;
+                // Dummy RID
+                op.rid = this.opListBody_.parsedLastRID + this.lastID - this.lastNotFlushedID;
             }
         }
     }
@@ -491,9 +459,9 @@ class Gem5O3PipeViewParser{
         this.drainParsingOps_(true);
         
         // リタイア処理が行われなかった終端部分の後処理
-        let i = this.opList_.length - 1;
+        let i = this.opListBody_.parsingLength - 1;
         while (i >= 0) {
-            let op = this.opList_[i];
+            let op = this.opListBody_.getParsingOp(i);
             i--;
             if (op == null) {
                 continue;
@@ -508,7 +476,7 @@ class Gem5O3PipeViewParser{
             op.eof = true;
             this.unescapeLabels(op);
         }
-        this.lastID_ = this.opList_.length - 1;
+        this.opListBody_.setParsedLastID(this.opListBody_.parsingLength - 1);
         this.complete_ = true;
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
@@ -630,18 +598,7 @@ class Gem5O3PipeViewParser{
         }
 
         // ステージのマップに登録
-        let map = this.stageLevelMap_;
-        if (stageName in map) {
-            if (map[stageName].appearance > laneInfo.level) {
-                map[stageName].appearance = laneInfo.level;
-            }
-        }
-        else{
-            let level = new StageLevel;
-            level.appearance = laneInfo.level;
-            level.unique = Object.keys(map).length;
-            map[stageName] = level;
-        }
+        this.stageLevelMap_.update(laneName, stageName, laneInfo);
     }
 
     parseEndCommand(seqNum, op, args){

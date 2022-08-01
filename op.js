@@ -45,12 +45,12 @@ class Op{
 
 class Dependency{
     /** 
-     * @param {Op} op 
+     * @param {number} opID 
      * @param {number} type
      * @param {number} cycle
      * */
-    constructor(op, type, cycle) {
-        this.op = op;
+    constructor(opID, type, cycle) {
+        this.opID = opID;
         this.type = type;
         this.cycle = cycle;
     }

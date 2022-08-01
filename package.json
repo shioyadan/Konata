@@ -1,6 +1,6 @@
 {
   "name": "konata",
-  "version": "0.32.0",
+  "version": "0.36.0",
   "description": "Konata: a instruction pipeline visualizer for Onikiri2 and gem5",
   "main": "main.js",
   "scripts": {
@@ -15,15 +15,15 @@
   },
   "license": "BSD-3-Clause",
   "dependencies": {
-    "bootstrap": "^4.3.1",
-    "jquery": "^3.4.1",
+    "bootstrap": "^4.6.0",
+    "jquery": "^3.6.0",
     "riot": "^3.13.2",
-    "riotcontrol": "0.0.3"
+    "riotcontrol": "^0.0.3",
+    "@electron/remote": "2.0.1"
   },
   "devDependencies": {
-    "license-checker": "^15.0.0"
-  },
-  "dummy": {
-    "electron": "^6.1.7"
+    "electron": "^17.0.0",
+    "electron-packager": "^15.4.0",
+    "license-checker": "^25.0.1"
   }
 }

@@ -1,7 +1,8 @@
 let Op = require("./op").Op;
+let OpList = require("./op_list").OpList;
 let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
-let StageLevel = require("./stage").StageLevel;
+let StageLevelMap = require("./stage").StageLevelMap;
 let Lane = require("./stage").Lane;
 
 class OnikiriParser{
@@ -22,13 +23,9 @@ class OnikiriParser{
         // 現在読み出し中のサイクル
         this.curCycle_ = 0;
 
-        // 最後に読み出された命令の ID
-        this.lastID_ = -1;
-        this.lastRID_ = -1;
-        
-        // op 情報
-        this.opList_ = [];
-        this.retiredOpList_ = [];
+        // Op のリスト 
+        /** @type {OpList} */
+        this.opListBody_ = new OpList();
     
         // パース完了
         this.complete_ = false;
@@ -37,8 +34,7 @@ class OnikiriParser{
         this.laneMap_ = {};
 
         // ステージの出現順序を記録するマップ
-        /** @type {Object.<string, StageLevel>} */
-        this.stageLevelMap_ = {};
+        this.stageLevelMap_ = new StageLevelMap();
 
         // 読み出し開始時間
         this.startTime_ = 0;
@@ -51,6 +47,9 @@ class OnikiriParser{
 
         // 強制終了
         this.closed_ = false;
+
+        // Error
+        this.error_ = false;
     }
     
     // Public methods
@@ -58,7 +57,14 @@ class OnikiriParser{
     // 閉じる
     close(){
         this.closed_ = true;
-        this.opList_ = null;   // パージ
+        this.opListBody_.close();
+    }
+
+    // Error handling
+    /** @param {string} msg */
+    setError_(msg) {
+        this.error_ = true;
+        console.log(`Error (line:${this.curLine_}): ${msg}`);
     }
 
     /**
@@ -83,43 +89,20 @@ class OnikiriParser{
         );
     }
 
-    getOps(start, end){
-        let ops = [];
-        for (let i = start; i < end; i++) {
-            let op = this.getOp(i);
-            ops.push(op);
-            if (op == null) {
-                // opがnullなら、それ以上の命令はない
-                break;
-            }
-        }
-        return ops;
-    }
-
-    getOp(id){
-        if (id > this.lastID_){
-            return null;
-        }
-        else{
-            return this.opList_[id];
-        }
+    getOp(id, resolution=0){
+        return this.opListBody_.getParsedOp(id, resolution);
     }
     
-    getOpFromRID(rid){
-        if (rid > this.lastRID_){
-            return null;
-        }
-        else{
-            return this.retiredOpList_[rid];
-        }
+    getOpFromRID(rid, resolution=0){
+        return this.opListBody_.getParsedOpFromRID(rid, resolution);
     }
 
     get lastID(){
-        return this.lastID_;
+        return this.opListBody_.parsedLastID;
     }
 
     get lastRID(){
-        return this.lastRID_;
+        return this.opListBody_.parsedLastRID;
     }
 
     get laneMap(){
@@ -149,6 +132,9 @@ class OnikiriParser{
             // きちんと無視する必要がある
             return;
         }
+        if (this.error_) {
+            return;
+        }
         if (this.curLine_ == 1) {
             if (!line.match(/^Kanata/)) {   // This file is not Kanata log.
                 this.errorCallback_();
@@ -156,7 +142,7 @@ class OnikiriParser{
             }
         }
 
-        let args = line.split("\t");
+        let args = line.split(/\t/);
         this.parseCommand(args);
         this.curLine_++;
         
@@ -177,9 +163,9 @@ class OnikiriParser{
         }
         
         // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
-        let i = this.opList_.length - 1;
+        let i = this.opListBody_.parsingLength - 1;
         while (i >= 0) {
-            let op = this.opList_[i];
+            let op = this.opListBody_.getParsingOp(i);
             if (op.retired && !op.flush) {
                 break; // コミットされた命令がきたら終了
             }
@@ -187,11 +173,15 @@ class OnikiriParser{
             if (op.flush) {
                 continue; // フラッシュされた命令には特になにもしない
             }
-            op.retiredCycle = this.curCycle_;
+
+            // setParsedLastID をした後なのでキャッシュにのってしまっている可能性がある
+            // コンシステンシを保つため一旦無効化しておく
+            this.opListBody_.invalidateCache(i);
+            op.retiredCycle = this.curCycle_ + 1;   // 最後のステージを表示するために +1
             op.eof = true;
             this.unescapeLabels(op);
         }
-        this.lastID_ = this.opList_.length - 1;
+        this.opListBody_.setParsedLastID(this.opListBody_.parsingLength - 1);
         this.complete_ = true;
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
@@ -232,13 +222,20 @@ class OnikiriParser{
         // * 3列目は命令のID
         //      シミュレータ内で命令に振られているID．任意のIDが使える
         // * 4列目はTID（スレッド識別子）
+        if (op != null) {
+            this.setError_(`${id} is re-defined in the "I" command.`);
+            return;
+        }
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "I" command must be 4, but it is ${args.length}.`);
+        }
         op = new Op();
         op.id = id;
-        op.gid = Number(args[2]);
-        op.tid = Number(args[3]);
+        op.gid = this.parseInt_(args[2]);
+        op.tid = this.parseInt_(args[3]);
         op.fetchedCycle = this.curCycle_;
         op.line = this.curLine_;
-        this.opList_[id] = op;
+        this.opListBody_.setOp(id, op);
     }
 
     /** 
@@ -259,8 +256,14 @@ class OnikiriParser{
         //      1: マウスオーバー時に表示される詳細．実行時のレジスタの値や使用した演算器など
         //      2: 現在のステージにつけられるラベル
         // <Label Data>: 任意のテキスト
-        let type = Number(args[2]);
-
+        if (op == null) {
+            this.setError_(`Undefined id:${id} is referred in the "L" command.`);
+            return;
+        }
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "L" command must be 4, but it is ${args.length}.`);
+        }
+        let type = this.parseInt_(args[2]);
         let str = args[3];
 
         if (type == 0) {
@@ -282,8 +285,18 @@ class OnikiriParser{
      * @param {string[]} args
      * */
     parseStartCommand(id, op, args){
-        let laneName = args[2];
-        let stageName = args[3];
+        if (op == null) {
+            this.setError_(`Undefined id:${id} is referred in the "S" command.`);
+            return;
+        }
+        if (args.length < 4) {
+            // Some log generators generate log data including tabs or spaces after the commands.
+            // In this case, args.length is larger than 4 and (args.length < 4) accepts this case.
+            this.setError_(`The number of the arguments for the "S" command must be 4, but it is ${args.length}.`);
+        }
+
+        let laneName = this.parseStageAndLaneName_(args[2]);
+        let stageName = this.parseStageAndLaneName_(args[3]);
         let stage = new Stage();
         stage.name = stageName;
         stage.startCycle = this.curCycle_;
@@ -292,6 +305,15 @@ class OnikiriParser{
         }
 
         let laneInfo = op.lanes[laneName];
+
+        // そのレーンの最後のステージが閉じられていない場合，自動で閉じる
+        if (laneInfo.stages.length > 0) {
+            let lastStage = laneInfo.stages[laneInfo.stages.length - 1];
+            if (lastStage.endCycle == 0) {  
+                this.parseEndCommand(id, op, ["E", args[1], laneName, lastStage.name]);
+            }
+        }
+
         laneInfo.stages.push(stage);
         op.lastParsedStage = stage;
 
@@ -306,25 +328,31 @@ class OnikiriParser{
         }
 
         // ステージのマップに登録
-        let map = this.stageLevelMap_;
-        if (stageName in map) {
-            if (map[stageName].appearance > laneInfo.level) {
-                map[stageName].appearance = laneInfo.level;
-            }
-        }
-        else{
-            let level = new StageLevel;
-            level.appearance = laneInfo.level;
-            level.unique = Object.keys(map).length;
-            map[stageName] = level;
-        }
+        this.stageLevelMap_.update(laneName, stageName, laneInfo);
     }
 
+    /**
+     * @param {number} id 
+     * @param {Op} op 
+     * @param {string[]} args 
+     */
     parseEndCommand(id, op, args){
-        let laneName = args[2];
-        let stageName = args[3];
+        if (op == null) {
+            this.setError_(`Undefined id:${id} is referred in the "E" command.`);
+            return;
+        }
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "E" command must be 4, but it is ${args.length}.`);
+        }
+
+        let laneName = this.parseStageAndLaneName_(args[2]);
+        let stageName = this.parseStageAndLaneName_(args[3]);
         let stage = null;
         let laneInfo = op.lanes[laneName];
+        if (!laneInfo) {
+            this.setError_(`Lane name "${laneName}" is not defined at id:${id}.`);
+            return;
+        }
         let lane = laneInfo.stages;
         for (let i = lane.length - 1; i >= 0; i--) {
             if (lane[i].name == stageName) {
@@ -350,10 +378,23 @@ class OnikiriParser{
         }
     }
 
+    /** 
+     *  @param {number} id 
+     *  @param {Op} op
+     *  @param {string[]} args 
+    */
     parseRetireCommand(id, op, args){
-        op.rid = Number(args[2]);
+        if (op == null) {
+            this.setError_(`Undefined id:${id} is referred in the "R" command.`);
+            return;
+        }
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "R" command must be 4, but it is ${args.length}.`);
+        }
+
+        op.rid = this.parseInt_(args[2]);
         op.retiredCycle = this.curCycle_;
-        if (Number(args[3]) == 1) {
+        if (this.parseInt_(args[3]) == 1) {
             op.flush = true;
             op.retired = false;
         }
@@ -361,16 +402,13 @@ class OnikiriParser{
             op.flush = false;
             op.retired = true;
         }
-        if (this.lastID_ < id) {
-            this.lastID_ = id;
+        if (this.opListBody_.parsedLastID < id) {
+            this.opListBody_.setParsedLastID(id);
         }
         this.unescapeLabels(op);
 
         if (!op.flush) {
-            this.retiredOpList_[op.rid] = op;
-            if (this.lastRID_ < op.rid) {
-                this.lastRID_ = op.rid;
-            }
+            this.opListBody_.setParsedRetiredOp(op.rid, op);
         }
 
         // 閉じていないステージがあった場合はここで閉じる
@@ -379,7 +417,10 @@ class OnikiriParser{
             if (stages.length > 0) {
                 let stage = stages[stages.length - 1];
                 if (stage.endCycle == 0) {
-                    stage.endCycle = this.curCycle_;
+                    // フラッシュ時は即座に閉じておく
+                    stage.endCycle = this.curCycle_ + (op.flush ? 0 : 1);
+                    // 閉じていないステージを表示するために op.retiredCycle をフラッシュ時以外は延長する
+                    op.retiredCycle = this.curCycle_ + (op.flush ? 0 : 1);   
                 }
             }
         }
@@ -403,22 +444,21 @@ class OnikiriParser{
         //      0ならウェイクアップ, 1以降は今のところ予約
         //      コンシューマーが生きている期間のみ使用可能
 
-        let prodId = Number(args[2]);
-        let prod = this.opList_[prodId];
-        let type = Number(args[3]);
-        op.prods.push(new Dependency(prod, type, this.curCycle_));
-        prod.cons.push(new Dependency(op, type, this.curCycle_));
+        if (args.length < 4) {
+            this.setError_(`The number of the arguments for the "W" command must be 4, but it is ${args.length}.`);
+        }
+        let prodId = this.parseInt_(args[2]);
+        let prod = this.opListBody_.getParsingOp(prodId);
+        let type = this.parseInt_(args[3]);
+        op.prods.push(new Dependency(prod.id, type, this.curCycle_));
+        prod.cons.push(new Dependency(op.id, type, this.curCycle_));
     }
 
+    /** @param {string[]} args */
     parseCommand(args){
 
-        let id = Number(args[1]);
-
-        let op = null;
-        if (id in this.opList_) {
-            op = this.opList_[id];
-        }
-        
+        let id = this.parseInt_(args[1]);
+        let op = this.opListBody_.getParsingOp(id);
         let cmd = args[0];
         /*
         if (cmd.match(/^(L|S|E|R|W)$/) && op == null) {
@@ -432,7 +472,11 @@ class OnikiriParser{
             // フォーマット
             //      C	<CYCLE>
             // <CYCLE>: 経過サイクル数
-            this.curCycle_ += Number(args[1]);
+            if (args.length < 2 || args[1] == "") {
+                this.setError_("'C' command has invalid arguments.");
+                break;
+            }
+            this.curCycle_ += this.parseInt_(args[1]);
             break;
         
         case "I": 
@@ -459,6 +503,22 @@ class OnikiriParser{
             this.parseDependencyCommand(id, op, args);
             break;
         }  // switch end
+    }
+
+    /** @param {string} str*/
+    parseInt_(str) {
+        if (str == undefined) {
+            return 0;
+        }
+        return Number(str.trim());
+    }
+
+    /** @param {string} str*/
+    parseStageAndLaneName_(str) {
+        if (str == undefined) {
+            return "";
+        }
+        return str.trim();
     }
 }
 
