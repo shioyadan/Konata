@@ -506,7 +506,12 @@ class KonataRenderer{
         self.laneW_ = self.OP_W * zoomScale;
         self.opW_ = self.laneW_;
 
-        if (!splitLanes) {
+        if (!splitLanes || laneNum == 0) {
+            // When first called after starting to read the file, 
+            // the lane map is empty and laneNum will be assigned 0.
+            // self.opH_ is calculated using laneNum and thus it is also set 0.
+            // In this case, an infinite loop occurs in drawLabelTile_().
+            // To avoid this, set laneNum to 1
             laneNum = 1;
         }
         if (fixOpHeight){
