@@ -460,8 +460,8 @@ class OnikiriParser{
             // フォーマット
             //      C	<CYCLE>
             // <CYCLE>: 経過サイクル数
-            if (args.length != 2 || args[1] == "") {
-                this.setError_("Invalid 'C' command.");
+            if (args.length < 2 || args[1] == "") {
+                this.setError_("'C' command has invalid arguments.");
                 break;
             }
             this.curCycle_ += this.parseInt_(args[1]);
