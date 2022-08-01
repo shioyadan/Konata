@@ -177,7 +177,7 @@ class OnikiriParser{
             // setParsedLastID をした後なのでキャッシュにのってしまっている可能性がある
             // コンシステンシを保つため一旦無効化しておく
             this.opListBody_.invalidateCache(i);
-            op.retiredCycle = this.curCycle_;
+            op.retiredCycle = this.curCycle_ + 1;   // 最後のステージを表示するために +1
             op.eof = true;
             this.unescapeLabels(op);
         }
