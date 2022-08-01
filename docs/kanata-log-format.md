@@ -203,8 +203,9 @@ An overlaid layer is called a "lane" and is specified by the second argument of 
         * others: (reserved)
 
 * Example:
+    ```
     W	1	0	0
-
+    ```
 
 # Output examples
 
