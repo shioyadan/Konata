@@ -1114,6 +1114,10 @@ class Store{
             }
 
             let findContext = self.activeTab.findContext;
+            if (!findContext.found) {
+                return;
+            }
+
             let pos = self.activeTab.renderer.getPosY_FromOp(findContext.op);
             self.findString(findContext.targetPattern, pos, false, function(hit, canceled){
                 if (!hit && !canceled) {
@@ -1130,6 +1134,10 @@ class Store{
             }
 
             let findContext = self.activeTab.findContext;
+            if (!findContext.found) {
+                return;
+            }
+
             let pos = self.activeTab.renderer.getPosY_FromOp(findContext.op);
             self.findString(findContext.targetPattern, pos, true, function(hit, canceled){
                 if (!hit && !canceled) {
