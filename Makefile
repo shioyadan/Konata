@@ -1,5 +1,5 @@
 run:
-	npx electron --debug=5858 . 
+	npx electron . 
 
 init:
 	npm install

@@ -19,10 +19,10 @@
     "jquery": "^3.6.0",
     "riot": "^3.13.2",
     "riotcontrol": "^0.0.3",
-    "@electron/remote": "2.0.1"
+    "@electron/remote": "^2.0.8"
   },
   "devDependencies": {
-    "electron": "^17.0.0",
+    "electron": "^19.0.0",
     "electron-packager": "^15.4.0",
     "license-checker": "^25.0.1"
   }
