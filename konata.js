@@ -1,17 +1,19 @@
 // JSDoc のタイプチェックに型を認識させるため
 let Op = require("./op").Op; // eslint-disable-line
 let CreateStats = require("./stats").CreateStats; // eslint-disable-line
-let StageLevel = require("./stage").StageLevel; // eslint-disable-line
 let OnikiriParser = require("./onikiri_parser").OnikiriParser;
 let Gem5O3PipeViewParser = require("./gem5_o3_pipe_view_parser").Gem5O3PipeViewParser;
+
+// To avoid conflicts with node.js internal FileReader, use a different name.
+let InternalFileReader = require("./file_reader").FileReader; // eslint-disable-line
 
 class Konata{
     constructor(){
         this.name = "Konata";
         /** @type {OnikiriParser|Gem5O3PipeViewParser} */
         this.parser_ = null;
-        this.FileReader_ = require("./file_reader").FileReader;
 
+        /** @type {InternalFileReader} */
         this.file_ = null;
         this.filePath_ = ""; 
         // Callback handlers
@@ -63,7 +65,7 @@ class Konata{
      */
     load_(parsers){
         this.close();
-        this.file_ = new this.FileReader_();
+        this.file_ = new InternalFileReader();
         this.file_.open(this.filePath_);
         this.closed_ = false;
 

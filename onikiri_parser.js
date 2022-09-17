@@ -1,15 +1,20 @@
 let Op = require("./op").Op;
 let OpList = require("./op_list").OpList;
+let {ParsingOpList} = require("./op_list");
 let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
 let StageLevelMap = require("./stage").StageLevelMap;
 let Lane = require("./stage").Lane;
+
+// To avoid conflicts with node.js internal FileReader, use a different name.
+let InternalFileReader = require("./file_reader").FileReader; // eslint-disable-line
 
 class OnikiriParser{
 
     constructor(){
 
         // ファイルリーダ
+        /** @type {InternalFileReader} */
         this.file_ = null; 
 
         // Callback handlers on update, finish, and error
@@ -26,7 +31,10 @@ class OnikiriParser{
         // Op のリスト 
         /** @type {OpList} */
         this.opListBody_ = new OpList();
-    
+
+        /** @type {ParsingOpList} */
+        this.parsingOpList_ = new ParsingOpList();
+
         // パース完了
         this.complete_ = false;
 
@@ -50,7 +58,11 @@ class OnikiriParser{
 
         // Error
         this.error_ = false;
+
+        // 警告数
+        this.numWarning_ = 0;
     }
+
     
     // Public methods
 
@@ -58,6 +70,8 @@ class OnikiriParser{
     close(){
         this.closed_ = true;
         this.opListBody_.close();
+        this.parsingOpList_.close();
+        this.numWarning_ = 0;
     }
 
     // Error handling
@@ -65,6 +79,16 @@ class OnikiriParser{
     setError_(msg) {
         this.error_ = true;
         console.log(`Error (line:${this.curLine_}): ${msg}`);
+    }
+
+    warning_(msg) {
+        this.numWarning_++;
+        if (this.numWarning_ < 10) {
+            console.log(`Warning (line:${this.curLine_}): ${msg}`);
+        }
+        else if (this.numWarning_ == 10) {
+            console.log(`Too many warnings. Now warning messages are omitted to output.`);
+        }
     }
 
     /**
@@ -75,6 +99,9 @@ class OnikiriParser{
     }
 
     // updateCallback(percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
+    /**
+     * @param {InternalFileReader} file 
+     */
     setFile(file, updateCallback, finishCallback, errorCallback){
         this.file_ = file;
         this.updateCallback_ = updateCallback;
@@ -163,25 +190,29 @@ class OnikiriParser{
         }
         
         // 鬼斬側でリタイア処理が行われなかった終端部分の後処理
-        let i = this.opListBody_.parsingLength - 1;
-        while (i >= 0) {
-            let op = this.opListBody_.getParsingOp(i);
-            if (op.retired && !op.flush) {
-                break; // コミットされた命令がきたら終了
+        for (let parsingID_Str of this.parsingOpList_.parsingID_List) {
+            // 既にその ID がパース完了されていたら終了
+            let parsingID = Number(parsingID_Str);
+            let op = this.opListBody_.getParsedOp(parsingID);
+            if (op) {
+                break;
             }
-            i--;
-            if (op.flush) {
-                continue; // フラッシュされた命令には特になにもしない
+            
+            let parsingOp = this.parsingOpList_.getParsingOp(parsingID);
+            if (!parsingOp) {
+                this.warning_(`Incorrect parsing op appears ${parsingID}`)
+                break;  // パース中命令がなければ終了だが，ここにくることはないはず
             }
 
-            // setParsedLastID をした後なのでキャッシュにのってしまっている可能性がある
-            // コンシステンシを保つため一旦無効化しておく
-            this.opListBody_.invalidateCache(i);
-            op.retiredCycle = this.curCycle_ + 1;   // 最後のステージを表示するために +1
-            op.eof = true;
-            this.unescapeLabels(op);
+            parsingOp.retiredCycle = this.curCycle_ + 1;   // 最後のステージを表示するために +1
+            parsingOp.eof = true;
+            this.unescapeLabels(parsingOp);
+            this.parsingOpList_.purge(parsingID);
+            this.opListBody_.setOp(parsingID, parsingOp);
         }
-        this.opListBody_.setParsedLastID(this.opListBody_.parsingLength - 1);
+
+        this.opListBody_.setParsedLastID(this.parsingOpList_.parsingLastID);
+
         this.complete_ = true;
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
@@ -235,7 +266,7 @@ class OnikiriParser{
         op.tid = this.parseInt_(args[3]);
         op.fetchedCycle = this.curCycle_;
         op.line = this.curLine_;
-        this.opListBody_.setOp(id, op);
+        this.parsingOpList_.setOp(id, op);
     }
 
     /** 
@@ -402,15 +433,6 @@ class OnikiriParser{
             op.flush = false;
             op.retired = true;
         }
-        if (this.opListBody_.parsedLastID < id) {
-            this.opListBody_.setParsedLastID(id);
-        }
-        this.unescapeLabels(op);
-
-        if (!op.flush) {
-            this.opListBody_.setParsedRetiredOp(op.rid, op);
-        }
-
         // 閉じていないステージがあった場合はここで閉じる
         for (let laneName in op.lanes) {
             let stages = op.lanes[laneName].stages;
@@ -421,6 +443,21 @@ class OnikiriParser{
                 }
             }
         }
+        this.unescapeLabels(op);
+
+
+        // パース完了により，parsingOpList_ から opListBody_ に移す
+        this.parsingOpList_.purge(id);
+        this.opListBody_.setOp(id, op);
+
+        if (this.opListBody_.parsedLastID < id) {
+            this.opListBody_.setParsedLastID(id);
+        }
+
+        if (!op.flush) {
+            this.opListBody_.setParsedRetiredOp(op.rid, op);
+        }
+
     }
 
     /** 
@@ -445,7 +482,7 @@ class OnikiriParser{
             this.setError_(`The number of the arguments for the "W" command must be 4, but it is ${args.length}.`);
         }
         let prodId = this.parseInt_(args[2]);
-        let prod = this.opListBody_.getParsingOp(prodId);
+        let prod = this.parsingOpList_.getParsingOp(prodId);
         let type = this.parseInt_(args[3]);
         op.prods.push(new Dependency(prod.id, type, this.curCycle_));
         prod.cons.push(new Dependency(op.id, type, this.curCycle_));
@@ -454,27 +491,38 @@ class OnikiriParser{
     /** @param {string[]} args */
     parseCommand(args){
 
-        let id = this.parseInt_(args[1]);
-        let op = this.opListBody_.getParsingOp(id);
         let cmd = args[0];
-        /*
-        if (cmd.match(/^(L|S|E|R|W)$/) && op == null) {
-            // error
-        }*/
-
-        switch(cmd) {
-
-        case "C": 
+        switch (cmd) {
+        case "C":
             // 前回ログ出力時からの経過サイクル数を指定
             // フォーマット
             //      C	<CYCLE>
             // <CYCLE>: 経過サイクル数
             if (args.length < 2 || args[1] == "") {
                 this.setError_("'C' command has invalid arguments.");
-                break;
+                return;
             }
             this.curCycle_ += this.parseInt_(args[1]);
-            break;
+            return;
+        case "Kanata":
+            return;
+        case "C=":
+            return;
+        }
+
+
+        let id = this.parseInt_(args[1]);
+        let op = this.parsingOpList_.getParsingOp(id);
+        let parsedOpUsed = false;
+        if (cmd != "I" && !op) {
+            op = this.opListBody_.getParsedOp(id);
+            if (op) {
+                parsedOpUsed = true;
+                this.warning_(`Command appears after op:(${id}) is retired or flushed`);
+            }
+        }
+
+        switch(cmd) {
         
         case "I": 
             this.parseInitialCommand(id, op, args);
@@ -499,7 +547,16 @@ class OnikiriParser{
         case "W": 
             this.parseDependencyCommand(id, op, args);
             break;
-        }  // switch end
+
+        default:
+            this.warning_(`Unknown command:${cmd}`);
+            break;
+        }
+
+        // opListBody から得た場合は再反映させる
+        if (parsedOpUsed) {
+            this.opListBody_.setOp(id, op);
+        }
     }
 
     /** @param {string} str*/

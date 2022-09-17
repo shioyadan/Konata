@@ -1,11 +1,11 @@
 let Op = require("./op").Op;
 let OpList = require("./op_list").OpList;
+let {ParsingOpList} = require("./op_list");
 let Dependency = require("./op").Dependency;
 let Stage = require("./stage").Stage;
 let StageLevelMap = require("./stage").StageLevelMap;
 let Lane = require("./stage").Lane;
 
-// To enable JSDoc type check, load FileReader.
 // To avoid conflicts with node.js internal FileReader, use a different name.
 let InternalFileReader = require("./file_reader").FileReader; // eslint-disable-line
 
@@ -41,6 +41,9 @@ class Gem5O3PipeViewParser{
         // Op のリスト 
         /** @type {OpList} */
         this.opListBody_ = new OpList();
+
+        /** @type {ParsingOpList} */
+        this.secondParsingOpList_ = new ParsingOpList();
 
         /** @type {number} - 最後に読み出された命令の ID*/
         this.lastGID_ = -1;  // seqNum
@@ -374,14 +377,6 @@ class Gem5O3PipeViewParser{
 
             let seqNum = Number(seqNumStr); // Object 型からは文字列のみがでてくる
 
-            // Add an op to opList and remove it from parsingOpList.
-            // At this time, op.id is not determined.
-            this.opListBody_.setOp(seqNum - this.gidBegin_, op);
-            delete this.parsingOpList_[seqNumStr];
-
-            if (this.lastGID_ > seqNum) {
-                console.log(`Miss parsed op: seqNum: ${seqNum} lastGID: ${this.lastGID_}. BUFFERED_SIZE must be bigger.`);
-            }
     
             // Update clock cycles
             op.fetchedCycle = op.fetchedCycle / this.ticks_per_clock_ - this.cycle_begin_;
@@ -396,6 +391,15 @@ class Gem5O3PipeViewParser{
                     stage.startCycle = stage.startCycle / this.ticks_per_clock_ - this.cycle_begin_;
                     stage.endCycle = stage.endCycle / this.ticks_per_clock_ - this.cycle_begin_;
                 }
+            }
+
+            // Add an op to opList and remove it from parsingOpList.
+            // At this time, op.id is not determined.
+            this.secondParsingOpList_.setOp(seqNum - this.gidBegin_, op);
+            delete this.parsingOpList_[seqNumStr];
+
+            if (this.lastGID_ > seqNum) {
+                console.log(`Miss parsed op: seqNum: ${seqNum} lastGID: ${this.lastGID_}. BUFFERED_SIZE must be bigger.`);
             }
 
             // ExLog post process
@@ -421,13 +425,16 @@ class Gem5O3PipeViewParser{
 
         // GEM5 の O3PipeView はたまに out-of-order で出力されるので，
         // ある程度バッファしておく
-        for (let i = this.opListBody_.parsedLastID + 1; i < this.opListBody_.parsingLength; i++) {
-            let op = this.opListBody_.getParsingOp(i);
+        for (let i = this.opListBody_.parsedLastID + 1; i <= this.secondParsingOpList_.parsingLastID; i++) {
+            let op = this.secondParsingOpList_.getParsingOp(i);
             if (op == null) {
                 continue;
             }
+
             // op.id is determined
             op.id = i;
+            this.secondParsingOpList_.purge(i);
+            this.opListBody_.setOp(i, op);
             this.opListBody_.setParsedLastID(i);
             this.lastGID_ = op.gid;
             if (op.retiredCycle > this.curCycle_) {
@@ -443,6 +450,7 @@ class Gem5O3PipeViewParser{
                 // Dummy RID
                 op.rid = this.opListBody_.parsedLastRID + this.lastID - this.lastNotFlushedID;
             }
+            this.opListBody_.setOp(i, op);
         }
     }
 
@@ -459,9 +467,9 @@ class Gem5O3PipeViewParser{
         this.drainParsingOps_(true);
         
         // リタイア処理が行われなかった終端部分の後処理
-        let i = this.opListBody_.parsingLength - 1;
+        let i = this.secondParsingOpList_.parsingLastID;
         while (i >= 0) {
-            let op = this.opListBody_.getParsingOp(i);
+            let op = this.secondParsingOpList_.getParsingOp(i);
             i--;
             if (op == null) {
                 continue;
@@ -475,8 +483,10 @@ class Gem5O3PipeViewParser{
             op.retiredCycle = this.curParsingInsnCycle_ / this.ticks_per_clock_;
             op.eof = true;
             this.unescapeLabels(op);
+            this.secondParsingOpList_.purge(i);
+            this.opListBody_.setOp(i, op);
         }
-        this.opListBody_.setParsedLastID(this.opListBody_.parsingLength - 1);
+        this.opListBody_.setParsedLastID(this.secondParsingOpList_.parsingLastID);
         this.complete_ = true;
 
         let elapsed = ((new Date()).getTime() - this.startTime_);
