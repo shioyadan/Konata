@@ -381,15 +381,30 @@ class Gem5O3PipeViewParser{
             // Update clock cycles
             op.fetchedCycle = op.fetchedCycle / this.ticks_per_clock_ - this.cycle_begin_;
             op.retiredCycle = op.retiredCycle / this.ticks_per_clock_ - this.cycle_begin_;
+            // フェッチステージのみを実行したあとにフラッシュされると，
+            // リタイアのサイクルが 0 → fetchedCycle と同じに設定されるため，
+            // その場合に fetch を表示するために１つ遅らせる
+            if (op.flush && op.fetchedCycle == op.retiredCycle) {
+                op.retiredCycle++;
+            }
             if (op.prodCycle != -1)
                 op.prodCycle = op.prodCycle / this.ticks_per_clock_ - this.cycle_begin_;
             if (op.consCycle != -1)
                 op.consCycle = op.consCycle / this.ticks_per_clock_ - this.cycle_begin_;
+
             for (let laneID in op.lanes) {
                 let lane = op.lanes[laneID];
                 for (let stage of lane.stages) {
                     stage.startCycle = stage.startCycle / this.ticks_per_clock_ - this.cycle_begin_;
                     stage.endCycle = stage.endCycle / this.ticks_per_clock_ - this.cycle_begin_;
+                    // 特定のステージが開始されたあとにフラッシュされると，
+                    // そのステージの終わりが 0 → startCycle と同じに設定されるため，
+                    // その場合にそのステージを最低ひとつ表示するために１つ遅らせる
+                    // つまりｓたとえば fetch:1000, decode:0 ときたときに，
+                    // fetch が 1000->1000 となるので，これを 1000->1001 に書き換える
+                    if (op.flush && stage.startCycle == stage.endCycle) {
+                        stage.endCycle++;
+                    }
                 }
             }
 
@@ -573,6 +588,8 @@ class Gem5O3PipeViewParser{
         if (tick == 0) {
             this.curParsingInsnFlushed_ = true;
             tick = this.curParsingInsnCycle_; // Set a last valid tick
+            // Stages after flush are skipped.
+            return;
         }
         else {
             this.curParsingInsnCycle_ = tick;
@@ -611,8 +628,19 @@ class Gem5O3PipeViewParser{
         this.stageLevelMap_.update(laneName, stageName, laneInfo);
     }
 
+    /**
+     * @param {number} seqNum 
+     * @param {Op} op 
+     * @param {string[]} args 
+     */
     parseEndCommand(seqNum, op, args){
         let tick = Number(args[2]);
+        if (tick == 0 && this.curParsingInsnFlushed_) {
+            // Stages after flush are skipped.
+            // If curParsingInsnFlushed_ is not set, this stage has not been closed and should be closed.
+            return;
+        }
+
         let laneName = "0"; // Default lane
         let stageName = op.lastParsedStage.name;
         op.lastParsedCycle = tick;
