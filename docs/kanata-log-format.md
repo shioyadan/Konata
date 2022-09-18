@@ -192,8 +192,13 @@ An overlaid layer is called a "lane" and is specified by the second argument of 
 
 * Specify any dependencies
      * Typically this is used for wake up.
-     * A viewer is expected to display arrows between the producer and the consumer in a different color depending on the type.
+     * A viewer is expected to display arrows between the producer and the consumer in a different color depending on the "TYPE".
     * Available only while the consumer is alive (not retired)
+
+
+* Dependency arrows are shown between stages with "X" in the stage name (e.g., "aX" or "Xmiss" is OK). 
+    * Note that, when an instruction does not include "X" in the stage name, a dependency arrow is not shown.
+
 
 * Arguments:
     * CONSUMER_ID is the ID of a consumer
