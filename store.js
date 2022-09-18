@@ -1005,7 +1005,8 @@ class Store{
             if (cur < 0 || cur >= lastOpID) cur = 0;  // 開始位置の座標が外の場合
             self.trigger(CHANGE.PROGRESS_BAR_START, tab.id, "search");
 
-            for (let i = 0; i < lastOpID; i++) {
+            // lastOpID 個の op を cur の次から探す
+            for (let i = 0; i <= lastOpID; i++) {
                 cur += reverse ? -1 : 1;
                 // ラップアラウンド
                 if (cur < 0) cur += lastOpID;
