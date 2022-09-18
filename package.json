@@ -1,6 +1,6 @@
 {
   "name": "konata",
-  "version": "0.37.0",
+  "version": "0.38.0",
   "description": "Konata: a instruction pipeline visualizer for Onikiri2 and gem5",
   "main": "main.js",
   "scripts": {
