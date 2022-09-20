@@ -47,7 +47,9 @@ Each command uses a unique ID in a file to specify the target of the command. Th
 
 Each instruction can have multiple pipeline states, which can be overlaid in a viewer. For example, you can overlay a stall state on top of the normal pipeline stages.
 
-An overlaid layer is called a "lane" and is specified by the second argument of the "S" or "E" command. By default, the lane zero outputs normal pipelines, and the lane one outputs stall.
+An overlaid layer is called a "lane" and is specified by the second argument of the "S" or "E" command. Typically, a lane with id-zero represents normal pipelines, and a lane with id-one represents pipeline stall.
+
+An example of the lane feature can be seen by opening "docs/kanata-sample-2.log.gz" and doing "right click -> Lane -> Split lanes". There you will see that the "stl" representing pipeline stall with lane-id one is progressing in parallel with normal pipeline stages with lane-id zero.
 
 
 ## Command Reference
@@ -138,6 +140,7 @@ An overlaid layer is called a "lane" and is specified by the second argument of 
 * Arguments:
     * ID is the serial id in the log file.
     * LANE_ID is the lane id.
+        * See the description of the lane feature in the Structure section.
     * STAGE_NAME is the name of the pipeline stage.
         * An arbitrary stage name can be used.
 
@@ -198,7 +201,7 @@ An overlaid layer is called a "lane" and is specified by the second argument of 
 
 * Dependency arrows are shown between stages with "X" in the stage name (e.g., "aX" or "Xmiss" is OK). 
     * Note that, when an instruction does not include "X" in the stage name, a dependency arrow is not shown.
-
+    * Also, the "X" stage must be explicitly closed by an "E" command or implicitly closed by another stage following.
 
 * Arguments:
     * CONSUMER_ID is the ID of a consumer
