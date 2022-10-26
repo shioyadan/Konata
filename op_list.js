@@ -146,7 +146,7 @@ class LinkedListMap {
 
 class OpCache {
     /**
-     * @param {*} size
+     * @param {number} size
      */
     constructor(size) {
         this.size_ = size;
@@ -494,7 +494,7 @@ class BigKeyValueStore {
             this.page_.push(new OpPageStore(`lv${i}`, this.config_.PAGE_SIZE_BITS_MAP[i], PAGE_SIZE_MAP[i], this.config_.MAX_DECOMPRESSED_PAGES));
         }
 
-        this.cache_ = new OpCache();
+        this.cache_ = new OpCache(this.config_.CACHE_SIZE);
     }
 
     close(){
