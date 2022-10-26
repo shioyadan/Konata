@@ -252,7 +252,8 @@ class OpListPage {
         /** @type {Buffer} */
         this.compressedData_ = null;
 
-        this.markedCompressed_ = false;
+        // 非圧縮データが存在するかどうか
+        this.decompressedDataExists_ = true;
         this.isCompressing_ = false;
 
         this.compressingTaskID = -1;
@@ -270,11 +271,11 @@ class OpListPage {
     getOp(id) {
         let disp = id - this.headID_;
         if (disp < 0 || disp >= this.pageSize_) {
-            console.log(`Out of range id:${id} head:${this.headID_}`);
+            console.log(`Error: Out of range id:${id} head:${this.headID_}`);
             return null;
         }
         else{
-            if (this.markedCompressed_) {
+            if (!this.decompressedDataExists_) {
                 this.decompress();
             }
             return this.opList_[disp];
@@ -288,22 +289,23 @@ class OpListPage {
     setOp(id, op) {
         let disp = id - this.headID_;
         if (disp < 0 || disp >= this.pageSize_) {
-            console.log(`Out of range id:${id} head:${this.headID_}`);
+            console.log(`Error: Out of range id:${id} head:${this.headID_}`);
         }
         else{
+            this.decompress();  // 圧縮中の場合，内部で必要に応じて圧縮中止の処理をしている
             this.opList_[disp] = op;
             this.dirty_ = true;
         }
 
         if (this.isCompressing_) {
-            console.log("Compressing data is updated");
+            console.log("Error: Compressing data is updated");
         }
     }
 
     compress_(){
-        if (!this.markedCompressed_ || this.dirty_) {
+        if (!this.compressedData_ || this.dirty_) {
             //console.log(`compress: ${this.headID_}`);
-            this.markedCompressed_ = true;
+            // this.markedCompressed_ = true;
             this.isCompressing_ = true;
 
             let taskID = this.nextTaskID;
@@ -316,6 +318,7 @@ class OpListPage {
                 if (taskID == this.compressingTaskID) {
                     this.compressedData_ = data;
                     this.opList_ = [];
+                    this.decompressedDataExists_ = false;
                     this.isCompressing_ = false;
                     this.dirty_ = false;
                 }
@@ -324,17 +327,21 @@ class OpListPage {
     }
 
     decompress(){
-        if (this.markedCompressed_) {
-            //console.log(`decompress: ${this.headID_}`);
-            this.markedCompressed_ = false;
-            if (this.isCompressing_) {
-                // 中止
-                this.compressingTaskID = -1;
-                this.isCompressing_ = false;
+        if (this.isCompressing_) {
+            // 中止
+            this.compressingTaskID = -1;    // タスク ID を無効にすることで，圧縮が完了した際の結果を破棄するようにする
+            this.isCompressing_ = false;
+            if (!this.decompressedDataExists_) {
+                console.log("Error: Decompressed data does not exist while compressing.");
             }
-            else{
+        }
+        else {
+            if (!this.decompressedDataExists_) {
+                //console.log(`decompress: ${this.headID_}`);
                 let json = zlib.gunzipSync(this.compressedData_).toString();
                 this.opList_ = JSON.parse(json);
+                this.decompressedDataExists_ = true;
+                this.dirty_ = false;
                 // op にロードしないとプロパティが使えない
                 /*
                 for (let i = 0; i < this.opList_.length; i++) {
@@ -353,13 +360,13 @@ class OpListPage {
         else if (!this.isCompressing_){
             // 非 dirty で既に圧縮済み，圧縮中でないなら即時パージ
             this.opList_ = [];
-            this.markedCompressed_ = true;
+            this.decompressedDataExists_ = false;
         }
         //console.log(`purge: ${this.headID_}`);
     }
 
     get isCompressed(){
-        return this.markedCompressed_;
+        return !this.decompressedDataExists_;
     }
 }
 
