@@ -1,3 +1,12 @@
+// 全体の構造
+// OpList:                      BigKeyValueStore を使って id->op のマップを実装
+//   BigKeyValueStore           キャッシュとページレベルでの圧縮をサポートしたマップ
+//     OpCache                  キャッシュ
+//       LinkedListMap          LRU のための linked list
+//         LinkedListMapNode
+//     OpPageStore              ページレベルでの圧縮
+//       OpListPage
+
 let Op = require("./op").Op; // eslint-disable-line
 let zlib = require("zlib"); 
 
@@ -22,6 +31,14 @@ class BigKeyValueStoreConfigDefault {
     }
 }
 
+class BigKeyValueStoreConfigTest {  // テスト用
+    constructor() {
+        this.PAGE_SIZE_BITS_MAP = [8];          // 圧縮して持つページのサイズ
+        this.PAGE_LEVEL_MAP = [1];  // ページレベルごとの間引いて保持する命令の単位
+        this.MAX_DECOMPRESSED_PAGES = 4;
+        this.CACHE_SIZE = 16;   // キャッシュ最大量
+    }
+}
 
 
 
@@ -469,7 +486,7 @@ class OpPageStore {
 
 class BigKeyValueStore {
     /**
-     * @param {BigKeyValueStoreConfigDefault|BigKeyValueStoreConfigLarge} config 
+     * @param {BigKeyValueStoreConfigDefault|BigKeyValueStoreConfigLarge|BigKeyValueStoreConfigTest} config 
      */
     constructor(config) {
         this.config_ = config;
@@ -598,6 +615,54 @@ class BigKeyValueStore {
 
 }
 
+
+class RawKeyValueStore {
+    /**
+     * @param {BigKeyValueStoreConfigDefault|BigKeyValueStoreConfigLarge|BigKeyValueStoreConfigTest} config 
+     */
+    constructor(config) {
+        this.store_ = [];
+    }
+
+    close(){
+        this.store_ = [];
+    }
+
+    /** 
+     * @param {number} id
+     * @param {Op} op
+     */
+    set(id, op){
+        if (id < 0) {
+            return;
+        }
+        this.store_[id] = op;
+    }
+
+    /**
+     * @param {number} id 
+     * @param {number} resolutionLevel 
+     * @param {boolean} updateCache
+     */
+     get(id, resolutionLevel=0, updateCache=false){
+        if (id < 0) {
+            return null;
+        }
+        // BigKeyValueStore とあわせる
+        if (resolutionLevel < 0) {
+            resolutionLevel=resolutionLevel;
+        }
+        resolutionLevel = Math.floor(resolutionLevel);
+        if (resolutionLevel >= 1) {
+            id -= id & ((2 << resolutionLevel) - 1);
+        }
+        return this.store_[id];
+    }
+
+}
+
+
+
 // パース完了した op を保持する
 // OpList から取得した op は複製なため，update で再設定しないと反映されない
 class OpList {
@@ -613,22 +678,21 @@ class OpList {
         // 実際のストア
         // let config = new BigKeyValueStoreConfigSmall();
         let config = new BigKeyValueStoreConfigDefault();
-        this.store = new BigKeyValueStore(config);
 
-        this.DATA_SCALE_SMALL = 0;
-        this.DATA_SCALE_LARGE = 1;
+        /** @type {BigKeyValueStore|RawKeyValueStore} */
+        this.store = new BigKeyValueStore(config);
     }
 
     // このメソッドを呼ぶとデータはクリアされるので注意
-    setDataScale(scale) {
+    setCompressionLevel(level) {
         let config = null;
-        if (scale == this.DATA_SCALE_LARGE) {
-            config = new BigKeyValueStoreConfigLarge();
+        if (level <= 0) {
+            this.store = new RawKeyValueStore(config);
         }
         else {
             config = new BigKeyValueStoreConfigDefault();
+            this.store = new BigKeyValueStore(config);
         }
-        this.store = new BigKeyValueStore(config);
     }
 
     close(){
