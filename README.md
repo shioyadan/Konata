@@ -1,7 +1,7 @@
 # Konata
 
 * Konata is an instruction pipeline visualizer for Onikiri2-Kanata/Gem5-O3PipeView formats.
-* ASPLOS 2018 learning gem5 tutorial presentation is [here](http://learning.gem5.org/tutorial/presentations/vis-o3-gem5.pdf
+* ASPLOS 2018 learning gem5 tutorial presentation is [here](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf
 )
 * The Onikiri2-Kanata format is described in [here](docs/kanata-log-format.md). It can represent a more detailed pipeline behavior than Gem5-O3PipeView.
 
