@@ -759,7 +759,7 @@ class Gem5O3PipeViewParser{
         let opExLog = this.parsingExLog_[seqNum];
         let logList = opExLog.logList;
         while (logList.length) {
-            let args = logList[0];
+            let args = logList[0];  // args にはコロンで split されたトークンが入る
             let tick = args[0];
             if (Number(tick) >= parseCycleRange) {
                 break;
@@ -782,21 +782,29 @@ class Gem5O3PipeViewParser{
                 this.parseEndCommand(seqNum, op, dummyArgs);
                 this.parseStartCommand(seqNum, op, dummyArgs);
             }
-            else if (args[1].match(/\.rename/) && 
-                args.length > 4 && args[4].match(/ (Renaming)|(Looking)/)
-            ) {
-                // Rename
-                // 3271000: system.cpu.rename: [tid:0]: Renaming arch reg 1 (IntRegClass) to physical reg 152 (152).
-                // 2340100: system.cpu.rename: [tid:0]: Looking up IntRegClass arch reg 43, got phys reg 72 (IntRegClass)
-                op.labelDetail += "\n " + args[4];
-                let dst = args[4].match(/\(([a-zA-Z]+)\) to physical reg (\d+) \(\d+\)/);
-                if (dst) {
-                    opExLog.dsts.push(dst[1] + dst[2]);
+            else if (args[1].match(/\.rename/)) {
+                // コロンの入る個数がたまに変わるので，ループでリネーム関係の文字列を探す
+                for (let i = 2; i < args.length; i++) {
+                    // Renaming: dst をリネーム
+                    // Looking: src をリネーム
+                    if (args[i].match(/ (Renaming)|(Looking)/)) {
+                        op.labelDetail += "\n " + args[i];
+
+                        // 3271000: system.cpu.rename: [tid:0]: Renaming arch reg 1 (IntRegClass) to physical reg 152 (152).
+                        // 157067000: system.cpu.rename: [tid:0] Renaming arch reg 0 (invalid) to physical reg 65535 (65535).
+                        let dst = args[i].match(/\(([a-zA-Z]+)\) to physical reg (\d+) \(\d+\)/);
+                        if (dst && dst[2] != "invalid") {
+                            opExLog.dsts.push(String(dst[1]) + dst[2]);
+                        }
+                        // 157067000: system.cpu.rename: [tid:0] Looking up integer arch reg 17, got phys reg 220 (integer)
+                        // 2340100: system.cpu.rename: [tid:0]: Looking up IntRegClass arch reg 43, got phys reg 72 (IntRegClass)
+                        let src = args[i].match(/got phys reg (\d+) \(([a-zA-Z]+)\)/);
+                        if (src && src[2] != "invalid") {
+                            opExLog.srcs.push(String(src[2]) + src[1]);
+                        }
+                    }
                 }
-                let src = args[4].match(/got phys reg (\d+) \(([a-zA-Z]+)\)/);
-                if (src) {
-                    opExLog.srcs.push(src[2] + src[1]);
-                }
+
             }
             else if (
                 args[1].match(/\.iew.lsq.thread/) && 
