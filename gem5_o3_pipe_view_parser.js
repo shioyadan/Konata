@@ -417,25 +417,6 @@ class Gem5O3PipeViewParser{
                 console.log(`Miss parsed op: seqNum: ${seqNum} lastGID: ${this.lastGID_}. BUFFERED_SIZE must be bigger.`);
             }
 
-            // ExLog post process
-            if (seqNum in this.parsingExLog_) {
-                let exLog = this.parsingExLog_[seqNum];
-                for (let s of exLog.srcs) {
-                    let type = 0; // default
-                    if (s in this.depTable_) {
-                        let prod = this.depTable_[s];
-                        if (prod.prodCycle < op.consCycle) {
-                            op.prods.push(new Dependency(prod.id, type, op.prodCycle));
-                            prod.cons.push(new Dependency(op.id, type, op.consCycle));
-                        }
-                    }
-                }
-                //if (!op.flush) {
-                for (let d of exLog.dsts) {
-                    this.depTable_[d] = op;
-                }
-                delete this.parsingExLog_[seqNum];
-            }
         } 
 
         // GEM5 の O3PipeView はたまに out-of-order で出力されるので，
@@ -465,6 +446,29 @@ class Gem5O3PipeViewParser{
                 // Dummy RID
                 op.rid = this.opListBody_.parsedLastRID + this.lastID - this.lastNotFlushedID;
             }
+
+            // ExLog post process
+            let seqNum = op.id + this.gidBegin_;
+            if (seqNum in this.parsingExLog_) {
+                let exLog = this.parsingExLog_[seqNum];
+                for (let s of exLog.srcs) {
+                    let type = 0; // default
+                    if (s in this.depTable_) {
+                        let prod = this.depTable_[s];
+                        if (prod.prodCycle < op.consCycle) {
+                            op.prods.push(new Dependency(prod.id, type, op.prodCycle));
+                            prod.cons.push(new Dependency(op.id, type, op.consCycle));
+                        }
+                    }
+                }
+                //if (!op.flush) {
+                for (let d of exLog.dsts) {
+                    this.depTable_[d] = op;
+                }
+                delete this.parsingExLog_[seqNum];
+            }
+
+
             this.opListBody_.setOp(i, op);
         }
     }
