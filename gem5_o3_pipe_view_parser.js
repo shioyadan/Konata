@@ -224,6 +224,18 @@ class Gem5O3PipeViewParser{
      * @param {string} line 
      */
     parseLine(line){
+        try {
+            this.parseLineBody_(line);
+        }
+        catch (e) {
+            // fileNotSupport, exception
+            this.errorCallback_(false, e);
+        }
+    }
+    /**
+     * @param {string} line 
+     */
+    parseLineBody_(line){
         if (this.closed_) {
             // Node.js はファイル読み出しが中断されクローズされた後も，
             // バッファにたまっている分はコールバック読み出しを行うため，
@@ -237,7 +249,8 @@ class Gem5O3PipeViewParser{
         if (args[0] != "O3PipeView") {
             this.curLine_++;
             if (!this.isGem5O3PipeView && this.curLine_ > this.GIVING_UP_LINE) {
-                this.errorCallback_();
+                // fileNotSupport, exception
+                this.errorCallback_(true);
             }
 
             // O3PipeView 以外のログで sn:数字 の形式を持っている行は一旦 parsingLog_ に保持
@@ -478,7 +491,8 @@ class Gem5O3PipeViewParser{
             return;
         }
         if (!this.isGem5O3PipeView) {
-            this.errorCallback_();
+            // fileNotSupport, exception
+            this.errorCallback_(true);
             return;
         }
 

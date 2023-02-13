@@ -153,6 +153,17 @@ class OnikiriParser{
      * @param {string} line 
      */
     parseLine(line){
+        try {
+            this.parseLineBody_(line);
+        }
+        catch (e) {
+            this.errorCallback_(false, e);
+        }
+    }
+    /**
+     * @param {string} line 
+     */
+    parseLineBody_(line){
         if (this.closed_) {
             // Node.js はファイル読み出しが中断されクローズされた後も，
             // バッファにたまっている分はコールバック読み出しを行うため，
@@ -164,7 +175,7 @@ class OnikiriParser{
         }
         if (this.curLine_ == 1) {
             if (!line.match(/^Kanata/)) {   // This file is not Kanata log.
-                this.errorCallback_();
+                this.errorCallback_(true);
                 return;
             }
         }

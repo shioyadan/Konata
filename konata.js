@@ -82,15 +82,21 @@ class Konata{
                 }
                 self.finishCallback_();
             },
-            function(){ // Error handler
+            function(fileNotSupport, error){ // Error handler
                 console.log("Filed to load by:", self.parser_.name);
                 self.close();
-                // 読み出し試行に失敗したの次のパーサーに
-                if (parsers.length > 0) {
-                    self.load_(parsers);
+
+                if (fileNotSupport) {
+                    // 読み出し試行に失敗したの次のパーサーに
+                    if (parsers.length > 0) {
+                        self.load_(parsers);
+                    }
+                    else if (parsers.length == 0) {
+                        self.errorCallback_("Unsupported file format.");
+                    }
                 }
-                else if (parsers.length == 0) {
-                    self.errorCallback_("Unsupported file format.");
+                else {
+                    self.errorCallback_(error);
                 }
             }
         );
