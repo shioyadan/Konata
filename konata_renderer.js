@@ -1076,6 +1076,11 @@ class KonataRenderer{
                 let textTop = top + (self.laneH_ - self.lane_height_margin_*2 - fontSizeRaw) / 2 + fontSizeRaw;
                 let textLeft = (stage.startCycle - startCycle) * self.opW_;
                 for (let j = 1, len_in = stage.endCycle - stage.startCycle; j < len_in; j++) {
+                    if (j + stage.startCycle > endCycle) {
+                        // プロセッサのバグなどが原因で非常に長いステージが生成された場合に 
+                        // fillText が呼ばれ続けて重くなるため描画を打ち切る
+                        break;  
+                    }
                     let margin = Math.max(0, (self.opW_ - String(j).length*fontSizeRaw/2)/2);
                     ctx.fillText(j, textLeft + j * self.opW_ + margin, textTop);
                 }
