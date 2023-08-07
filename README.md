@@ -66,14 +66,14 @@ If you fail to launch a pre-built binary, please try the second way.
 * If you cannot launch Konata, try to install the following runtimes (or try to install the latest Google Chrome, because it uses the same runtimes).
     ```
     sudo apt install \
-        libgconf2-4
+        libgconf-2-4 \
         libgtk-3-0 \
         libxss1 \
-        libgconf2-4 \
         libnss3 \
         libasound2 \
-        libX11-xcb1 \
-        libcanberra-gtk3-module
+        libx11-xcb1 \
+        libcanberra-gtk3-module \
+        libgbm-dev
     ```
 * In ```O3CPUAll``` mode, Konata associates each line in trace.out with each instruction by tracking ```[sn:<serial number>]```. If you output custom log with the above serial information, Konata shows your custom log.
 
