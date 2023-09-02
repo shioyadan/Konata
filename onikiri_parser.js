@@ -452,6 +452,10 @@ class OnikiriParser{
                 if (stage.endCycle == 0) {
                     stage.endCycle = this.curCycle_;
                 }
+                // X を名前に含むステージは実行ステージと見なす
+                if (stage.name.match(/X/)){
+                    op.prodCycle = this.curCycle_ - 1;
+                }
             }
         }
         this.unescapeLabels(op);
