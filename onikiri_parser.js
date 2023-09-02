@@ -494,6 +494,13 @@ class OnikiriParser{
         }
         let prodId = this.parseInt_(args[2]);
         let prod = this.parsingOpList_.getParsingOp(prodId);
+        if (!prod) {
+            prod = this.opListBody_.getParsedOp(prodId);
+        }
+        if (!prod) {
+            this.setError_(`An invalid producer id (${prodId}) is specified for the "W" command.`);
+            return;
+        }
         let type = this.parseInt_(args[3]);
         op.prods.push(new Dependency(prod.id, type, this.curCycle_));
         prod.cons.push(new Dependency(op.id, type, this.curCycle_));
