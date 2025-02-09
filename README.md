@@ -55,6 +55,82 @@ If you fail to launch a pre-built binary, please try the second way.
 * ctrl + f, F3, shift+F3: find a string 
 * F1, ctrl+shift+p: open a command palette
 
+### Annotate pipelines with function names
+
+
+1. Prepare the input file:
+
+```sh
+# Extract used addresses:
+cat m5out/trace.out | grep -oe '^O3PipeView:fetch:[0-9]\+:0x[0-9a-f]\+:' | grep -oe '0x[0-9a-f]\+' | uniq | sort | uniq > instructions.log
+
+
+# Extract address info
+addr2line -e <PROGRAM WITH DEBUG INFO> -f -C -i -f -p -a @instructions.log > addrinfo.log
+
+# (Optionally), include source lines too:
+awk -f - <<'EOF' addrinfo.log | awk '{ print gensub(/( at )(.*\/)([^/]+)$/, "\\1\\3", "g", $0) }' > addrinfo.withcode.log
+    BEGIN { 
+        RS="\n"; 
+    }
+    {
+        if (match($0, /^(0x[0-9a-fA-F]+:)(.*) at ([^ ]+):([0-9]+)$/, arr)) {
+            line=strtonum(arr[4])
+            codeline=false
+            if (line>0) {
+                file=arr[3];
+                file=gensub(/\/rustc\/1e9b0177da38e3f421a3b9b1942f1777d166e06a\//, "/home/sarunas/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/", "g", file);
+                if (linecache[file":"line]) {
+                    codeline = linecache[file":"line];
+                } else {
+                    "sed -n '"line"p' "file | getline codeline;
+                    gsub(/^[ \t]+|[ \t]+$/, "", codeline);
+                    linecache[file":"line] = codeline;
+                }
+                print arr[1] " " codeline " @ " arr[2]
+                print arr[2] " at " arr[3] ":" arr[4]
+            } else {
+                print $0
+            }
+        } else {
+            print $0
+        }
+    }
+EOF
+
+# Annotate the trace file
+awk -f - <<'EOF' addrinfo.log m5out/trace.out > processed.trace.out
+    BEGIN { 
+        RS="\n"; 
+        F=0;
+    }
+    F==0 {
+        if (match($0, /^(0x[0-9a-fA-F]+):(.*)$/, arr)) {
+            k=strtonum(arr[1]);
+            addrs[k]=arr[2];
+        } else {
+            addrs[k]=addrs[k] "\n" $0
+        }
+    }
+    NR>1 && FNR==1 { 
+        RS="\n"; 
+        FS=":";
+        F=1;
+    }
+    F==1 && $1=="O3PipeView" && $2=="fetch" {
+        print "<ADDRESSINFO>\n"addrs[strtonum($4)]"\n</ADDRESSINFO>";
+        print $0;
+        next;
+    }
+    F==1 {
+        print $0;
+    }
+EOF
+```
+
+
+2. Load the processed trace in Konata
+
 ### Tips
 
 * If you miss pipelines in a right pane, you can move to pipelines by click "Adjust position" in a right-click menu.

@@ -6,15 +6,15 @@ class Op{
     constructor(){
         // ファイル内での ID
         // Konata 内の識別はこの ID によって行う
-        this.id = -1; 
+        this.id = -1;
 
         this.gid = -1; // シミュレータ上のグローバル ID
         this.rid = -1; // シミュレータ上のリタイア ID
         this.tid = -1; // シミュレータ上のスレッド ID
-        
+
         this.retired = false; // リタイアしてるかどうか
         this.flush = false; // Flushであるかどうか
-        
+
         this.eof = false; // ファイル終端による終了
         /** @type {Object<string, Lane>} */
         this.lanes = {}; // レーン情報の連想配列
@@ -22,17 +22,19 @@ class Op{
         this.retiredCycle = -1;
 
         this.line = 0;  // 行番号
-        
+
+        this.addressInfo = "";
+        this.addressDetail = "";
         this.labelName = "";    // 逆アセンブルのペーンに出すコメント
         this.labelDetail = "";  // パイプラインのペーンに出すコメント
         //this.labelStage = {};   // ステージごとのラベル
-        
+
         /** @type {Stage} */
         this.lastParsedStage = null;
         this.lastParsedCycle = -1;
 
         /** @type {Array<Dependency>} prods - プロデューサ命令のIDの配列 */
-        this.prods = []; 
+        this.prods = [];
 
         /** @type {Array<Dependency>} cons - コンシューマ命令のIDの配列 */
         this.cons = [];
@@ -44,8 +46,8 @@ class Op{
 }
 
 class Dependency{
-    /** 
-     * @param {number} opID 
+    /**
+     * @param {number} opID
      * @param {number} type
      * @param {number} cycle
      * */

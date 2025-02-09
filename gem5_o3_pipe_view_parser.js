@@ -25,7 +25,7 @@ class Gem5O3PipeViewParser{
 
         // ファイルリーダ
         /** @type {InternalFileReader} */
-        this.file_ = null; 
+        this.file_ = null;
 
         // Callback handlers on update, finish, and error
         this.updateCallback_ = null;
@@ -38,7 +38,7 @@ class Gem5O3PipeViewParser{
         // 現在読み出し中の ID/サイクル
         this.curCycle_ = 0;
 
-        // Op のリスト 
+        // Op のリスト
         /** @type {OpList} */
         this.opListBody_ = new OpList();
 
@@ -51,7 +51,7 @@ class Gem5O3PipeViewParser{
 
         // seq_num, flush flag, and tick for a currently parsed instruction
         this.curParsingSeqNum_ = 0;
-        this.curParsingInsnFlushed_ = false;   // seq_num 
+        this.curParsingInsnFlushed_ = false;   // seq_num
         this.curParsingInsnCycle_ = -1;         // This is used when instruction is flushed
 
         // パース中の op のリスト
@@ -71,7 +71,7 @@ class Gem5O3PipeViewParser{
         // A table for dependency tracking
         /** @type {Object.<string, Op>} */
         this.depTable_ = {};
-        
+
         // パース完了
         this.complete_ = false;
 
@@ -88,12 +88,12 @@ class Gem5O3PipeViewParser{
         this.updateTimer_ = 100;    // 初回は100行読んだら1回表示するようにしとく
 
         // 更新ハンドラの呼び出し回数
-        this.updateCount_ = 0;    
+        this.updateCount_ = 0;
 
         // 強制終了
         this.closed_ = false;
 
-        // ticks(ps) per clock in GEM5. 
+        // ticks(ps) per clock in GEM5.
         // The default value is 1000 (1000 ps = 1 clock in 1GHz)
         this.ticks_per_clock_ = -1;
 
@@ -143,7 +143,7 @@ class Gem5O3PipeViewParser{
 
         this.SERIAL_NUMBER_PATTERN = new RegExp("sn:(\\d+)");
     }
-    
+
     // Public methods
 
     // 閉じる
@@ -166,7 +166,7 @@ class Gem5O3PipeViewParser{
 
     /**
      * @param {InternalFileReader} file - ファイルリーダ
-     * @param {function} updateCallback - 
+     * @param {function} updateCallback -
      *      (percent, count): 読み出し状況を 0 から 1.0 で渡す．count は呼び出し回数
      * @param {function} finishCallback - 終了時に呼び出される
      * @param {function} errorCallback - エラー時に呼び出される
@@ -180,7 +180,7 @@ class Gem5O3PipeViewParser{
 
         this.startParsing();
         file.readlines(
-            this.parseLine.bind(this), 
+            this.parseLine.bind(this),
             this.finishParsing.bind(this)
         );
     }
@@ -188,7 +188,7 @@ class Gem5O3PipeViewParser{
     getOp(id, resolution=0){
         return this.opListBody_.getParsedOp(id, resolution);
     }
-    
+
     getOpFromRID(rid, resolution=0){
         return this.opListBody_.getParsedOpFromRID(rid, resolution);
     }
@@ -221,11 +221,32 @@ class Gem5O3PipeViewParser{
     }
 
     /**
-     * @param {string} line 
+     * @param {string} line
      */
     parseLine(line){
         try {
-            this.parseLineBody_(line);
+            if (line == "<ADDRESSINFO>") {
+                this.parsingAddress = true;
+                this.addressInfo = "";
+            } else if (line == "</ADDRESSINFO>") {
+                this.parsingAddress = false;
+            } else if (this.parsingAddress) {
+                if (this.addressInfo == "") {
+                    this.addressInfo = line;
+                    this.addressDetail = line;
+                } else {
+                    if (this.addressDetail != "") {
+                        this.addressDetail += "\n";
+                    }
+                    this.addressDetail += line;
+                }
+            } else {
+                this.parseLineBody_(line);
+                if (this.addressInfo != "") {
+                    this.addressInfo = "";
+                    this.addressDetail = "";
+                }
+            }
         }
         catch (e) {
             // fileNotSupport, exception
@@ -233,7 +254,7 @@ class Gem5O3PipeViewParser{
         }
     }
     /**
-     * @param {string} line 
+     * @param {string} line
      */
     parseLineBody_(line){
         if (this.closed_) {
@@ -285,7 +306,7 @@ class Gem5O3PipeViewParser{
         if (this.updateTimer_ < 0) {
             this.updateTimer_ = 1024*16;
 
-            // Call update callback, which updates progress bars 
+            // Call update callback, which updates progress bars
             this.updateCallback_(
                 1.0 * this.file_.bytesRead / this.file_.fileSize,
                 this.updateCount_
@@ -305,7 +326,7 @@ class Gem5O3PipeViewParser{
 
         // Collect all outputted ticks
         let ticks = {};
-        let minSeqNum = -1; 
+        let minSeqNum = -1;
         for (let seqNumStr in this.parsingOpList_) {
             let seqNum = Number(seqNumStr);
             let op = this.parsingOpList_[seqNum];
@@ -343,7 +364,7 @@ class Gem5O3PipeViewParser{
 
         // Detect minimum delta
         let minDelta = 0;
-        let prevTick = sortedTicks[0]; 
+        let prevTick = sortedTicks[0];
         for (let i of sortedTicks) {
             let delta = i - prevTick;
             if (minDelta == 0 || (delta > 0 && delta < minDelta)) {
@@ -390,7 +411,7 @@ class Gem5O3PipeViewParser{
 
             let seqNum = Number(seqNumStr); // Object 型からは文字列のみがでてくる
 
-    
+
             // Update clock cycles
             op.fetchedCycle = op.fetchedCycle / this.ticks_per_clock_ - this.cycle_begin_;
             op.retiredCycle = op.retiredCycle / this.ticks_per_clock_ - this.cycle_begin_;
@@ -430,7 +451,7 @@ class Gem5O3PipeViewParser{
                 console.log(`Miss parsed op: seqNum: ${seqNum} lastGID: ${this.lastGID_}. BUFFERED_SIZE must be bigger.`);
             }
 
-        } 
+        }
 
         // GEM5 の O3PipeView はたまに out-of-order で出力されるので，
         // ある程度バッファしておく
@@ -498,7 +519,7 @@ class Gem5O3PipeViewParser{
 
         // 未処理の命令を強制処理
         this.drainParsingOps_(true);
-        
+
         // リタイア処理が行われなかった終端部分の後処理
         let i = this.secondParsingOpList_.parsingLastID;
         while (i >= 0) {
@@ -551,8 +572,8 @@ class Gem5O3PipeViewParser{
         }
     }
 
-    /** 
-     * @param {string[]} args 
+    /**
+     * @param {string[]} args
      * @return {Op}
     */
     parseInitialCommand(args){
@@ -578,6 +599,10 @@ class Gem5O3PipeViewParser{
         op.line = this.curLine_;
         op.labelName += `${insnAddr}: ${disasm}`;
         op.labelDetail += `Fetched Tick: ${tick}`;
+        if (this.addressInfo) {
+            op.addressInfo = this.addressInfo;
+            op.addressDetail = this.addressDetail;
+        }
         this.parsingOpList_[seqNum] = op;
 
         // Reset the current context
@@ -647,9 +672,9 @@ class Gem5O3PipeViewParser{
     }
 
     /**
-     * @param {number} seqNum 
-     * @param {Op} op 
-     * @param {string[]} args 
+     * @param {number} seqNum
+     * @param {Op} op
+     * @param {string[]} args
      */
     parseEndCommand(seqNum, op, args){
         let tick = Number(args[2]);
@@ -731,24 +756,24 @@ class Gem5O3PipeViewParser{
         if (seqNum in this.parsingOpList_) {
             op = this.parsingOpList_[seqNum];
         }
-        
+
         let cmd = args[1];
         let tick = Number(args[2]);
 
         switch(cmd) {
-        case "fetch": 
+        case "fetch":
             op = this.parseInitialCommand(args);
             break;
-        case "decode": 
-        case "rename": 
-        case "dispatch": 
-        case "issue": 
-        case "complete": 
+        case "decode":
+        case "rename":
+        case "dispatch":
+        case "issue":
+        case "complete":
             this.parseExLog(op, tick);
             this.parseEndCommand(seqNum, op, args);
             this.parseStartCommand(seqNum, op, args);
             break;
-        case "retire": 
+        case "retire":
             this.parseExLog(op, tick);
             this.parseRetireCommand(seqNum, op, args);
             break;
@@ -756,11 +781,11 @@ class Gem5O3PipeViewParser{
 
     }
 
-    /** 
+    /**
      * parseCycleRange までの追加ログをパースして op に追加
      * 追加ログのパース中にステージの追加が行われることがあるため，
      * parseCommand と同期して処理する必要がある．
-     * @param {Op} op 
+     * @param {Op} op
      * @param {number} parseCycleRange
      */
     parseExLog(op, parseCycleRange){
@@ -780,7 +805,7 @@ class Gem5O3PipeViewParser{
             }
 
             if (args[1] == " user") {
-                // 3260000: user: 
+                // 3260000: user:
                 // register values
                 op.labelDetail += "\n " + args.join(":");
             }
@@ -821,14 +846,14 @@ class Gem5O3PipeViewParser{
 
             }
             else if (
-                args[1].match(/\.iew.lsq.thread/) && 
+                args[1].match(/\.iew.lsq.thread/) &&
                 args[2].match(/ (Read called)|(Doing write)/)
             ) {
                 // Load/store addr
                 // 3757000: system.cpu.iew.lsq.thread0: Read called, load idx: 14, store idx: -1, storeHead: 24 addr: 0x1efed0
                 op.labelDetail += "\n " + args.slice(2, 7).join(":");
             }
-            
+
 
             // Add log to each stage
             if (op.lastParsedStage.labels != "")
