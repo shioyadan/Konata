@@ -2,7 +2,7 @@
 <!-- タブバー -->
 <app_tabbar>
     <ul class="nav nav-tabs" ref="app_tabbar" role="tablist">
-        <li each="{tab, i in tabs}" class="nav-item">
+        <li each="{tab, i in tabs}" class="nav-item" title={tab.fileName}>
             
             <!-- onClickProxy を介することで，どのタブが押されたかを識別する -->
             <a href={"#" + tab.id} 
