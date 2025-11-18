@@ -265,18 +265,21 @@ class KonataRenderer{
     computeDiffXMinimizingMargin(left, top, width, height)
     {
         const right = left + width;
-        const bottom = top + height - 1;
-        const topOpPos = Math.max(Math.floor(top), 0);
-        const topOp = this.getVisibleOp(topOpPos, this.opResolution);
-        const bottomOpPos = Math.min(Math.floor(bottom), this.getVisibleBottom());
-        const bottomOp = this.getVisibleOp(bottomOpPos, this.opResolution);
+        let min = Infinity;
+        let max = -Infinity;
 
-        if (!topOp || !bottomOp) {
-            return 0;
+        for (let y = Math.floor(top); y < top + height; y++) {
+            const op = this.getVisibleOp(y, this.opResolution);
+            if (!op) {
+                continue;
+            }
+
+            min = Math.min(min, op.fetchedCycle);
+            max = Math.max(max, op.retiredCycle);
         }
 
-        const leftOffset = topOp.fetchedCycle - left;
-        const rightOffset = bottomOp.retiredCycle - right;
+        const leftOffset = min - left;
+        const rightOffset = max - right;
 
         // Constrain the direction; scroll only if both leftOffset and
         // rightOffset have the same direction.
@@ -787,9 +790,7 @@ class KonataRenderer{
                 continue;   
             }
 
-            if (!self.drawOp_(op, y - top + offsetY, left, left + self.viewWidth_, scale, ctx)) {
-                skipRendering = true;
-            }
+            self.drawOp_(op, y - top + offsetY, left, left + self.viewWidth_, scale, ctx);
         }
 
         // 依存関係
@@ -976,13 +977,10 @@ class KonataRenderer{
         let self = this;
         let top = h * self.opH_ + self.PIXEL_ADJUST;
         
-        if (op.retiredCycle < startCycle) {
-            return true;
-        } else if (endCycle < op.fetchedCycle) {
-            return false;
-        }
-        if (op.retiredCycle == op.fetchedCycle) {
-            return true;
+        if (op.retiredCycle < startCycle ||
+            endCycle < op.fetchedCycle ||
+            op.retiredCycle == op.fetchedCycle) {
+            return;
         }
         let l = startCycle > op.fetchedCycle ? (startCycle - 1) : op.fetchedCycle; l -= startCycle;
         let r = endCycle >= op.retiredCycle ? op.retiredCycle : (endCycle + 1); r -= startCycle;
@@ -1050,7 +1048,6 @@ class KonataRenderer{
             }
 
         }
-        return true;
     }
 
     drawLane_(op, h, startCycle, endCycle, scale, ctx, laneName){
