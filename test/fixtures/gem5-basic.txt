@@ -1,0 +1,7 @@
+O3PipeView:fetch:1000:0x00001000:0:10: add r1, r2
+O3PipeView:decode:2000
+O3PipeView:rename:3000
+O3PipeView:dispatch:4000
+O3PipeView:issue:5000
+O3PipeView:complete:6000
+O3PipeView:retire:7000

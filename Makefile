@@ -1,8 +1,17 @@
+.PHONY: run init test build pack clean distclean
+
 run:
 	npx electron . 
 
 init:
 	npm install
+
+# Node 18でも個々のテスト失敗の詳細をTAPへ出すため、ファイル単位で直接実行する。
+test:
+	@set -e; \
+	for test_file in test/*.test.js; do \
+		node "$$test_file"; \
+	done
 
 build: clean
 	npx license-checker --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
