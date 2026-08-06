@@ -894,6 +894,8 @@
         let rc = dispatcher;
 
         self.remote = require("@electron/remote");
+        // Electron 32でFile.pathが削除されたため、標準Fileから明示的にローカルパスを得る。
+        self.webUtils = require("electron").webUtils;
 
         // 新規タブのオープン
         dispatcher.on(CHANGE.TAB_OPEN,
@@ -928,10 +930,10 @@
         dispatcher.on(CHANGE.SHEET_UPDATE_DEV_TOOL, function(show){
             let win = self.remote.getCurrentWindow();
             if (show) {
-                win.openDevTools();
+                win.webContents.openDevTools();
             }
             else {
-                win.closeDevTools();
+                win.webContents.closeDevTools();
             }
         });
 
@@ -979,7 +981,7 @@
             document.ondrop = function(e) {
                 e.preventDefault(); // イベントの伝搬を止めて、アプリケーションのHTMLとファイルが差し替わらないようにする
                 for (let file of e.dataTransfer.files) {
-                    rc.trigger(ACTION.FILE_OPEN, file.path);
+                    rc.trigger(ACTION.FILE_OPEN, self.webUtils.getPathForFile(file));
                 }
             };
 
@@ -1062,5 +1064,4 @@
         self.on("mount", self.init);
     </script>
 </app>
-
 

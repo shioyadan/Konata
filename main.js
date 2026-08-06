@@ -4,6 +4,9 @@ const electron = require("electron");
 const {app} = electron;
 const {BrowserWindow} = electron;
 
+// 通常起動へ影響を与えず、Docker/Xvfb上でRenderer初期化まで検証するためのフラグ。
+const isElectronSmokeTest = process.env.KONATA_ELECTRON_SMOKE_TEST === "1";
+
 // Remote モジュールを有効化
 require("@electron/remote/main").initialize();
 
@@ -44,7 +47,35 @@ app.on("ready", function() {
     });
 
     require("@electron/remote/main").enable(m_window.webContents);
-    m_window.setMenu(null);
+    m_window.removeMenu();
+
+    if (isElectronSmokeTest) {
+        m_window.webContents.once("did-fail-load", (_event, errorCode, errorDescription) => {
+            console.error(`Electron smoke test failed to load: ${errorCode} ${errorDescription}`);
+            app.exit(1);
+        });
+        m_window.webContents.once("did-finish-load", async () => {
+            try {
+                // Riotのmountが完了し、Storeと主要DOMが同時に存在するところまでを起動成功とする。
+                const rendererState = await m_window.webContents.executeJavaScript(`({
+                    hasStore: typeof store !== "undefined",
+                    hasTabBar: document.querySelector(".nav-tabs") !== null,
+                    hasDialogs: document.querySelector("app_dialogs") !== null,
+                    hasFilePathAPI: typeof require("electron").webUtils.getPathForFile === "function"
+                })`);
+                if (!rendererState.hasStore || !rendererState.hasTabBar || !rendererState.hasDialogs ||
+                    !rendererState.hasFilePathAPI || !m_window.isVisible()) {
+                    throw new Error(`Renderer initialization is incomplete: ${JSON.stringify(rendererState)}`);
+                }
+                console.log(`Electron smoke test passed: ${JSON.stringify(rendererState)}`);
+                app.exit(0);
+            }
+            catch (error) {
+                console.error("Electron smoke test failed:", error);
+                app.exit(1);
+            }
+        });
+    }
 
     m_window.loadURL(currentURL);
     //m_window.toggleDevTools();
@@ -60,4 +91,3 @@ app.on("ready", function() {
         m_window = null;
     });
 });
-

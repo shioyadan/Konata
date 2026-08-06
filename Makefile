@@ -1,7 +1,34 @@
-.PHONY: run init test build pack clean distclean
+.DEFAULT_GOAL := run
+
+ELECTRON_VERSION := 43.2.0
+ELECTRON := ./node_modules/.bin/electron
+ELECTRON_PACKAGER := ./node_modules/.bin/electron-packager
+LICENSE_CHECKER := ./node_modules/.bin/license-checker
+
+DOCKER_IMAGE := konata-devel:node22
+DOCKER_RUN := docker run --rm --init \
+	--env KONATA_HOST_UID=$(shell id -u) \
+	--env KONATA_HOST_GID=$(shell id -g) \
+	--env npm_config_cache=/tmp/konata-npm-cache \
+	--env XDG_CACHE_HOME=/tmp/konata-cache \
+	--env XDG_CONFIG_HOME=/tmp/konata-config \
+	--env XDG_DATA_HOME=/tmp/konata-data \
+	--volume $(CURDIR):/workspace \
+	--workdir /workspace \
+	$(DOCKER_IMAGE)
+
+.PHONY: versions run init test electron-smoke electron-package-smoke build pack clean distclean \
+	docker-build docker-init docker-test docker-electron-smoke \
+	docker-electron-package-smoke docker-versions docker-shell
+
+# Electron実行ファイルを起動せず、開発環境と依存パッケージの固定値を確認する。
+versions:
+	node --version
+	npm --version
+	node -p '"Electron " + require("electron/package.json").version'
 
 run:
-	npx electron . 
+	$(ELECTRON) .
 
 init:
 	npm install
@@ -13,13 +40,36 @@ test:
 		node "$$test_file"; \
 	done
 
+# DISPLAYのないCIでも、Electronの初期画面とRiotのmountまでをXvfb上で確認する。
+electron-smoke:
+	KONATA_ELECTRON_SMOKE_TEST=1 ELECTRON_ENABLE_LOGGING=1 \
+		dbus-run-session -- xvfb-run -a timeout 30s \
+		$(ELECTRON) . --no-sandbox --disable-gpu
+
+# 配布用の全OSビルドより軽いLinux限定パッケージで、Packagerとの互換性を確認する。
+electron-package-smoke:
+	@set -e; \
+	package_dir=$$(mktemp -d /tmp/konata-package.XXXXXX); \
+	trap 'rm -rf "$$package_dir"' EXIT; \
+	$(ELECTRON_PACKAGER) . konata \
+		--out="$$package_dir" \
+		--platform=linux \
+		--arch=x64 \
+		--electron-version=$(ELECTRON_VERSION) \
+		--ignore='^/work($$|/)' \
+		--ignore='^/packaging-work($$|/)' \
+		--ignore='^/.vscode($$|/)' \
+		--asar \
+		--prune=true; \
+	test -x "$$package_dir/konata-linux-x64/konata"
+
 build: clean
-	npx license-checker --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
-	npx electron-packager . konata \
+	$(LICENSE_CHECKER) --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
+	$(ELECTRON_PACKAGER) . konata \
 		--out=packaging-work \
 		--platform=darwin,win32,linux \
 		--arch=x64  \
-		--electron-version=23.0.0 \
+		--electron-version=$(ELECTRON_VERSION) \
 		--ignore work \
 		--ignore packaging-work \
 		--ignore .vscode \
@@ -38,3 +88,35 @@ clean:
 
 distclean: clean
 	rm node_modules -r -f
+
+# ホストのNode.jsやnpmを更新せず、固定したNode.js 22環境を利用する。
+docker-build:
+	docker build --file docker/Dockerfile --tag $(DOCKER_IMAGE) .
+
+docker-init:
+	$(DOCKER_RUN) npm install
+	$(DOCKER_RUN) npm rebuild electron
+
+docker-test:
+	$(DOCKER_RUN) make test
+
+docker-electron-smoke:
+	$(DOCKER_RUN) make electron-smoke
+
+docker-electron-package-smoke:
+	$(DOCKER_RUN) make electron-package-smoke
+
+docker-versions:
+	$(DOCKER_RUN) make versions
+
+docker-shell:
+	docker run --rm --init -it \
+		--env KONATA_HOST_UID=$(shell id -u) \
+		--env KONATA_HOST_GID=$(shell id -g) \
+		--env npm_config_cache=/tmp/konata-npm-cache \
+		--env XDG_CACHE_HOME=/tmp/konata-cache \
+		--env XDG_CONFIG_HOME=/tmp/konata-config \
+		--env XDG_DATA_HOME=/tmp/konata-data \
+		--volume $(CURDIR):/workspace \
+		--workdir /workspace \
+		$(DOCKER_IMAGE)

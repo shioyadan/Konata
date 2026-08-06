@@ -1,0 +1,11 @@
+.git
+node_modules
+packaging-work
+dist-web
+work
+
+# ローカルの巨大ログや生成物をDocker build contextへ送らない。
+*.log
+*.log.gz
+*.zip
+*.tar.gz
