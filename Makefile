@@ -1,12 +1,14 @@
-.DEFAULT_GOAL := run
+.DEFAULT_GOAL := all
 
 ELECTRON_VERSION := 43.2.0
 ELECTRON := ./node_modules/.bin/electron
 ELECTRON_PACKAGER := ./node_modules/.bin/electron-packager
 LICENSE_CHECKER := ./node_modules/.bin/license-checker
+WEBPACK := ./node_modules/.bin/webpack
+TSC := ./node_modules/.bin/tsc
 
 DOCKER_IMAGE := konata-devel:node22
-DOCKER_RUN := docker run --rm --init \
+DOCKER_ARGS := --rm --init \
 	--env KONATA_HOST_UID=$(shell id -u) \
 	--env KONATA_HOST_GID=$(shell id -g) \
 	--env npm_config_cache=/tmp/konata-npm-cache \
@@ -14,12 +16,18 @@ DOCKER_RUN := docker run --rm --init \
 	--env XDG_CONFIG_HOME=/tmp/konata-config \
 	--env XDG_DATA_HOME=/tmp/konata-data \
 	--volume $(CURDIR):/workspace \
-	--workdir /workspace \
-	$(DOCKER_IMAGE)
+	--workdir /workspace
+DOCKER_RUN := docker run $(DOCKER_ARGS) $(DOCKER_IMAGE)
+DOCKER_RUN_WEB := docker run $(DOCKER_ARGS) --publish 127.0.0.1:8080:8080 $(DOCKER_IMAGE)
 
-.PHONY: versions run init test electron-smoke electron-package-smoke build pack clean distclean \
-	docker-build docker-init docker-test docker-electron-smoke \
-	docker-electron-package-smoke docker-versions docker-shell
+.PHONY: all versions run init test typecheck serve electron-smoke electron-package-smoke \
+	build pack clean distclean docker-build docker-init docker-all docker-test \
+	docker-typecheck docker-serve docker-electron-smoke docker-electron-package-smoke \
+	docker-versions docker-shell
+
+# Web版とElectron版を分離し、移行中もmake runで現行版を起動できるようにする。
+all:
+	$(WEBPACK) --mode development
 
 # Electron実行ファイルを起動せず、開発環境と依存パッケージの固定値を確認する。
 versions:
@@ -63,6 +71,12 @@ electron-package-smoke:
 		--prune=true; \
 	test -x "$$package_dir/konata-linux-x64/konata"
 
+typecheck:
+	$(TSC) --project tsconfig.json --noEmit
+
+serve:
+	$(WEBPACK) serve --mode development
+
 build: clean
 	$(LICENSE_CHECKER) --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
 	$(ELECTRON_PACKAGER) . konata \
@@ -84,7 +98,7 @@ pack: build
 	cd packaging-work/; tar -cvzf konata-darwin-x64.tar.gz konata-darwin-x64 $(DOCUMENTS)
 
 clean:
-	rm packaging-work -r -f
+	rm packaging-work dist-web -r -f
 
 distclean: clean
 	rm node_modules -r -f
@@ -97,8 +111,18 @@ docker-init:
 	$(DOCKER_RUN) npm install
 	$(DOCKER_RUN) npm rebuild electron
 
+docker-all:
+	$(DOCKER_RUN) make all
+
 docker-test:
 	$(DOCKER_RUN) make test
+
+docker-typecheck:
+	$(DOCKER_RUN) make typecheck
+
+# コンテナ内では外部接続を受け、Dockerの公開設定でホストのlocalhostだけへ限定する。
+docker-serve:
+	$(DOCKER_RUN_WEB) make serve
 
 docker-electron-smoke:
 	$(DOCKER_RUN) make electron-smoke
@@ -110,13 +134,4 @@ docker-versions:
 	$(DOCKER_RUN) make versions
 
 docker-shell:
-	docker run --rm --init -it \
-		--env KONATA_HOST_UID=$(shell id -u) \
-		--env KONATA_HOST_GID=$(shell id -g) \
-		--env npm_config_cache=/tmp/konata-npm-cache \
-		--env XDG_CACHE_HOME=/tmp/konata-cache \
-		--env XDG_CONFIG_HOME=/tmp/konata-config \
-		--env XDG_DATA_HOME=/tmp/konata-data \
-		--volume $(CURDIR):/workspace \
-		--workdir /workspace \
-		$(DOCKER_IMAGE)
+	docker run $(DOCKER_ARGS) -it $(DOCKER_IMAGE)

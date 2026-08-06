@@ -1,0 +1,32 @@
+:root {
+    color-scheme: dark;
+    font-family: system-ui, sans-serif;
+    background: #16181d;
+    color: #f2f3f5;
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+}
+
+.app-shell {
+    box-sizing: border-box;
+    max-width: 48rem;
+    margin: 0 auto;
+    padding: 4rem 2rem;
+}
+
+.app-shell h1 {
+    margin: 0 0 2rem;
+    color: #ff6b35;
+    font-size: 2.5rem;
+}
+
+.status {
+    font-size: 1.25rem;
+}
+
+.note {
+    color: #aeb4c0;
+}
