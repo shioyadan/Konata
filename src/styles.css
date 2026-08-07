@@ -1,32 +1,252 @@
 :root {
     color-scheme: dark;
-    font-family: system-ui, sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: #16181d;
     color: #f2f3f5;
 }
 
-body {
-    min-height: 100vh;
-    margin: 0;
-}
-
-.app-shell {
+* {
     box-sizing: border-box;
-    max-width: 48rem;
-    margin: 0 auto;
-    padding: 4rem 2rem;
 }
 
-.app-shell h1 {
-    margin: 0 0 2rem;
+html,
+body,
+#konata-root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+button {
+    border: 1px solid #535866;
+    border-radius: 0.35rem;
+    padding: 0.42rem 0.72rem;
+    background: #303440;
+    color: #f2f3f5;
+    font: inherit;
+    cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+    border-color: #ff8a5f;
+    background: #3b404d;
+}
+
+button:focus-visible {
+    outline: 2px solid #ff8a5f;
+    outline-offset: 2px;
+}
+
+button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.trace-app {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    background: #1d2026;
+}
+
+.app-toolbar {
+    z-index: 2;
+    display: flex;
+    min-height: 3.6rem;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid #464b58;
+    background: #242730;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
+}
+
+.app-toolbar h1 {
+    margin: 0 0.5rem 0 0;
     color: #ff6b35;
-    font-size: 2.5rem;
+    font-size: 1.25rem;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+}
+
+.file-input {
+    display: none;
+}
+
+.primary-button {
+    border-color: #c85228;
+    background: #a8401d;
+    font-weight: 650;
+}
+
+.primary-button:hover:not(:disabled) {
+    background: #bd4a22;
+}
+
+.zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.zoom-controls button {
+    min-width: 2rem;
+    padding-right: 0.55rem;
+    padding-left: 0.55rem;
+}
+
+.zoom-controls output {
+    min-width: 3.6rem;
+    color: #c9cdd5;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
 }
 
 .status {
-    font-size: 1.25rem;
+    min-width: 0;
+    margin: 0 0 0 auto;
+    overflow: hidden;
+    color: #b8bec9;
+    font-size: 0.88rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.note {
+.status-error {
+    color: #ff9a91;
+}
+
+.viewer {
+    position: relative;
+    display: grid;
+    min-height: 0;
+    flex: 1;
+    grid-template-columns: minmax(18rem, 34%) minmax(0, 1fr);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.viewer.is-panning {
+    cursor: grabbing;
+}
+
+.viewer-pane {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    padding-top: 1.75rem;
+    overflow: hidden;
+}
+
+.label-pane {
+    border-right: 1px solid #555b68;
+    background: #303340;
+}
+
+.pipeline-pane {
+    background: #262930;
+}
+
+.pane-title {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 1.75rem;
+    padding: 0.3rem 0.55rem;
+    border-bottom: 1px solid #4b505d;
+    background: #292c35;
     color: #aeb4c0;
+    font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.viewer canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.empty-state,
+.loading-state {
+    position: absolute;
+    z-index: 2;
+    top: 1.75rem;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.empty-state {
+    flex-direction: column;
+    gap: 0.45rem;
+    background: rgb(22 24 29 / 65%);
+    color: #eef0f4;
+    text-align: center;
+}
+
+.empty-state span {
+    color: #aeb4c0;
+    font-size: 0.9rem;
+}
+
+.loading-state {
+    align-items: flex-end;
+    padding: 1.2rem;
+}
+
+.progress-track {
+    width: min(30rem, 70%);
+    height: 0.35rem;
+    overflow: hidden;
+    border-radius: 1rem;
+    background: #474c58;
+}
+
+.progress-track div {
+    height: 100%;
+    background: #ff6b35;
+    transition: width 120ms linear;
+}
+
+.trace-app.is-dragging-file::after {
+    position: fixed;
+    z-index: 20;
+    inset: 0.75rem;
+    display: grid;
+    border: 2px dashed #ff8a5f;
+    border-radius: 0.75rem;
+    background: rgb(27 29 35 / 82%);
+    color: #fff;
+    content: "Drop the trace to open it";
+    font-size: 1.2rem;
+    font-weight: 650;
+    place-items: center;
+    pointer-events: none;
+}
+
+@media (max-width: 720px) {
+    .app-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .status {
+        width: 100%;
+        margin-left: 0;
+        order: 2;
+    }
+
+    .viewer {
+        grid-template-columns: minmax(12rem, 44%) minmax(0, 1fr);
+    }
 }

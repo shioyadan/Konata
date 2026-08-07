@@ -6,6 +6,7 @@ ELECTRON_PACKAGER := ./node_modules/.bin/electron-packager
 LICENSE_CHECKER := ./node_modules/.bin/license-checker
 WEBPACK := ./node_modules/.bin/webpack
 TSC := ./node_modules/.bin/tsc
+TSX := ./node_modules/.bin/tsx
 
 .PHONY: all production check versions run init test typecheck serve web-render-smoke \
 	web-smoke production-smoke electron-smoke electron-package-smoke build pack clean distclean
@@ -43,7 +44,8 @@ test:
 	@set -e; \
 	for test_file in test/*.test.js; do \
 		node "$$test_file"; \
-	done
+	done; \
+	$(TSX) --test test/*.test.ts
 
 # DISPLAYのないCIでも、Electronの初期画面とRiotのmountまでをXvfb上で確認する。
 electron-smoke:
