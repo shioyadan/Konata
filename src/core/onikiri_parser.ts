@@ -1,21 +1,20 @@
 import { FileLineReader, type ProgressCallback } from "./file_line_reader";
 import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "./model";
+import { ArrayOpStore, type MutableOpStore } from "./op_store";
 
 export class OnikiriParser {
     readonly name = "OnikiriParser";
     // Rをまだ受け取っていない命令と、表示対象として確定した命令を分けて保持する。
     private readonly activeOps_ = new Map<number, Op>();
-    private readonly ops_: Array<Op | undefined> = [];
-    private readonly retiredOps_: Array<Op | undefined> = [];
     private readonly laneNames_ = new Set<string>();
     private readonly stageLevelMap_ = new StageLevelMap();
     // 現在の行番号と、現在読み出し中のcycle。
     private currentLine_ = 1;
     private currentCycle_ = 0;
-    private lastID_ = -1;
-    private lastRID_ = -1;
     // 壊れた入力でconsoleを埋めないよう、警告表示は先頭だけに制限する。
     private warningCount_ = 0;
+
+    constructor(private readonly opStore_: MutableOpStore = new ArrayOpStore()) {}
 
     async parse(file: File, onProgress?: ProgressCallback): Promise<ParsedTrace> {
         const reader = new FileLineReader(file);
@@ -33,12 +32,9 @@ export class OnikiriParser {
         this.finish_();
         return new ParsedTrace(
             file.name,
-            this.ops_,
-            this.retiredOps_,
+            this.opStore_,
             new Set(this.laneNames_),
             this.stageLevelMap_,
-            this.lastID_,
-            this.lastRID_,
             this.currentCycle_,
         );
     }
@@ -66,8 +62,12 @@ export class OnikiriParser {
 
         this.requireArguments_(args, 2, command);
         const id = this.parseInteger_(args[1], command);
-        let op = this.activeOps_.get(id) ?? this.ops_[id];
-        if (op !== undefined && !this.activeOps_.has(id) && command !== "I") {
+        const activeOp = this.activeOps_.get(id);
+        // Iの再定義検出にも必要なため、command種別によらず完了済みstoreを確認する。
+        const storedOp = activeOp === undefined ? this.opStore_.getOp(id) : undefined;
+        const op = activeOp ?? storedOp;
+        const parsedOpUsed = storedOp !== undefined && command !== "I";
+        if (op !== undefined && parsedOpUsed) {
             // 現行版はretire後の追加ラベルを警告しつつ保持する。
             this.warning_(`Command appears after op ${id} was retired or flushed.`);
         }
@@ -95,6 +95,11 @@ export class OnikiriParser {
             this.warning_(`Unknown command: ${command}`);
             break;
         }
+
+        // 将来の圧縮storeは複製を返し得るため、retire後のOpを変更した場合は再設定する。
+        if (parsedOpUsed && op !== undefined) {
+            this.opStore_.setOp(id, op);
+        }
     }
 
     private parseInitialCommand_(id: number, op: Op | undefined, args: string[]): void {
@@ -113,7 +118,6 @@ export class OnikiriParser {
         created.fetchedCycle = this.currentCycle_;
         created.line = this.currentLine_;
         this.activeOps_.set(id, created);
-        this.lastID_ = Math.max(this.lastID_, id);
     }
 
     private parseLabelCommand_(id: number, op: Op | undefined, args: string[]): void {
@@ -230,11 +234,9 @@ export class OnikiriParser {
         this.unescapeLabels_(target);
         // パース完了によりactive側から表示対象の配列へ移す。
         this.activeOps_.delete(id);
-        this.ops_[id] = target;
-        this.lastID_ = Math.max(this.lastID_, id);
+        this.opStore_.setOp(id, target);
         if (!target.flush) {
-            this.retiredOps_[target.rid] = target;
-            this.lastRID_ = Math.max(this.lastRID_, target.rid);
+            this.opStore_.setRetiredOp(target.rid, target);
         }
     }
 
@@ -245,13 +247,18 @@ export class OnikiriParser {
         this.requireArguments_(args, 4, "W");
         const consumer = this.requireOp_(id, op, "W");
         const producerID = this.parseInteger_(args[2], "W");
-        const producer = this.activeOps_.get(producerID) ?? this.ops_[producerID];
+        const activeProducer = this.activeOps_.get(producerID);
+        const producer = activeProducer ?? this.opStore_.getOp(producerID);
         if (producer === undefined) {
             this.fail_(`The W command refers to undefined producer ${producerID}.`);
         }
         const type = this.parseInteger_(args[3], "W");
         consumer.prods.push(new Dependency(producer.id, type, this.currentCycle_));
         producer.cons.push(new Dependency(consumer.id, type, this.currentCycle_));
+        if (activeProducer === undefined) {
+            // producerが圧縮storeから復元された複製でもconsumer索引を失わないよう書き戻す。
+            this.opStore_.setOp(producer.id, producer);
+        }
     }
 
     private finish_(): void {
@@ -260,8 +267,7 @@ export class OnikiriParser {
             op.retiredCycle = this.currentCycle_ + 1;
             op.eof = true;
             this.unescapeLabels_(op);
-            this.ops_[id] = op;
-            this.lastID_ = Math.max(this.lastID_, id);
+            this.opStore_.setOp(id, op);
         }
         this.activeOps_.clear();
     }

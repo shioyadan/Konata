@@ -4,6 +4,7 @@ import {
     type PointerEvent,
     type WheelEvent,
     useCallback,
+    useEffect,
     useLayoutEffect,
     useRef,
     useState,
@@ -26,6 +27,7 @@ export function TraceViewer() {
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
     const rendererRef = useRef(new KonataRenderer());
+    const traceRef = useRef<ParsedTrace | null>(null);
     // 複数ファイルが続けて選ばれた場合、遅く完了した旧requestで表示を上書きしない。
     const loadRequestRef = useRef(0);
     const dragPositionRef = useRef<DragPosition | null>(null);
@@ -46,6 +48,19 @@ export function TraceViewer() {
         if (labelCanvas !== null && pipelineCanvas !== null) {
             rendererRef.current.draw(labelCanvas, pipelineCanvas);
         }
+    }, []);
+
+    const replaceTrace = useCallback((nextTrace: ParsedTrace | null) => {
+        // 将来の圧縮pageやWorkerもtab切替時に解放できるよう、storeのcloseをここへ集約する。
+        traceRef.current?.close();
+        traceRef.current = nextTrace;
+        setTrace(nextTrace);
+    }, []);
+
+    useEffect(() => () => {
+        // StrictModeの初回cleanup時点ではまだtraceがなく、実際のunmountでは最新traceを閉じる。
+        traceRef.current?.close();
+        traceRef.current = null;
     }, []);
 
     useLayoutEffect(() => {
@@ -83,9 +98,10 @@ export function TraceViewer() {
                 }
             });
             if (loadRequestRef.current !== requestID) {
+                parsedTrace.close();
                 return;
             }
-            setTrace(parsedTrace);
+            replaceTrace(parsedTrace);
             setProgress(1);
             setLoadState("ready");
         }
@@ -93,11 +109,11 @@ export function TraceViewer() {
             if (loadRequestRef.current !== requestID) {
                 return;
             }
-            setTrace(null);
+            replaceTrace(null);
             setLoadState("error");
             setErrorMessage(error instanceof Error ? error.message : String(error));
         }
-    }, []);
+    }, [replaceTrace]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];

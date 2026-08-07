@@ -57,7 +57,7 @@ test("Web Onikiri parser preserves core commands for a plain-text trace", async 
     ]);
     assert.equal(consumer.flush, true);
     assert.equal(consumer.retired, false);
-    assert.equal(trace.retiredOps[1], undefined);
+    assert.equal(trace.getOpFromRID(1), undefined);
     assert.equal(trace.getOpFromRID(0), producer);
 });
 
@@ -87,4 +87,19 @@ test("Web Onikiri parser streams the bundled gzip sample", async () => {
     // サンプル末尾にはRがないため、終端処理で命令を捨てずeofとして残す。
     assert.equal(last.id, 4040);
     assert.equal(last.eof, true);
+});
+
+test("Web Onikiri parser rejects an ID redefined after retirement", async () => {
+    // 完了済みOpをstore境界の背後へ移しても、同じIDのIを新規命令として受理してはならない。
+    const contents = [
+        "Kanata\t0004",
+        "I\t0\t10\t0",
+        "R\t0\t0\t0",
+        "I\t0\t11\t0",
+    ].join("\n");
+    const file = new File([contents], "redefined.log", { type: "text/plain" });
+    await assert.rejects(
+        new OnikiriParser().parse(file),
+        /0 is redefined by an I command/,
+    );
 });

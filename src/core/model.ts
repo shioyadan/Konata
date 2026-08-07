@@ -1,3 +1,5 @@
+import type { OpStore } from "./op_store";
+
 export class Stage {
     name = "";
     labels = "";
@@ -107,30 +109,33 @@ export class StageLevelMap {
 export class ParsedTrace {
     constructor(
         readonly fileName: string,
-        readonly ops: Array<Op | undefined>,
-        readonly retiredOps: Array<Op | undefined>,
+        readonly opStore: OpStore,
         readonly laneNames: ReadonlySet<string>,
         readonly stageLevelMap: StageLevelMap,
-        readonly lastID: number,
-        readonly lastRID: number,
         readonly lastCycle: number,
     ) {}
 
-    getOp(id: number): Op | undefined {
-        return this.ops[id];
+    get lastID(): number {
+        return this.opStore.lastID;
     }
 
-    getOpFromRID(rid: number): Op | undefined {
-        return this.retiredOps[rid];
+    get lastRID(): number {
+        return this.opStore.lastRID;
+    }
+
+    getOp(id: number, resolutionLevel = 0): Op | undefined {
+        return this.opStore.getOp(id, resolutionLevel);
+    }
+
+    getOpFromRID(rid: number, resolutionLevel = 0): Op | undefined {
+        return this.opStore.getOpFromRID(rid, resolutionLevel);
     }
 
     get opCount(): number {
-        let count = 0;
-        for (const op of this.ops) {
-            if (op !== undefined) {
-                count++;
-            }
-        }
-        return count;
+        return this.opStore.opCount;
+    }
+
+    close(): void {
+        this.opStore.close();
     }
 }
