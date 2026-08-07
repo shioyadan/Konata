@@ -127,7 +127,7 @@ async function run() {
         }));
     })`);
     if (initialState.heading !== "Konata Web" ||
-        initialState.status !== "Open or drop a Kanata trace (.log or .log.gz)." ||
+        initialState.status !== "Open or drop a Kanata or gem5 O3PipeView trace." ||
         initialState.headingColor !== "rgb(255, 107, 53)" ||
         initialState.rootChildCount !== 1 ||
         initialState.canvasCount !== 2) {
@@ -143,6 +143,18 @@ async function run() {
         plainState.laneCount !== 2 ||
         plainState.nonBackgroundPixels < 100) {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
+    }
+
+    // Kanataとして不一致になった入力をgem5 Parserで開き直し、同じCanvasへ表示できることを確認する。
+    const gem5Fixture = path.join(__dirname, "fixtures", "gem5-basic.txt");
+    await dropFixture(window, gem5Fixture, "text/plain");
+    const gem5State = await readRenderedState(window);
+    if (gem5State.loadState !== "ready" ||
+        gem5State.fileName !== "gem5-basic.txt" ||
+        gem5State.opCount !== 1 ||
+        gem5State.laneCount !== 1 ||
+        gem5State.nonBackgroundPixels < 100) {
+        throw new Error(`gem5 trace rendering is incomplete: ${JSON.stringify(gem5State)}`);
     }
 
     const gzipFixture = path.join(__dirname, "..", "docs", "kanata-sample-2.log.gz");

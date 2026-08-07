@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import type { ParsedTrace } from "../core/model";
+import { Gem5O3PipeViewParser } from "../core/gem5_o3_pipe_view_parser";
 import { OnikiriParser } from "../core/onikiri_parser";
 import { KonataRenderer } from "../renderer/konata_renderer";
 
@@ -92,11 +93,22 @@ export function TraceViewer() {
         setErrorMessage("");
 
         try {
-            const parsedTrace = await new OnikiriParser().parse(file, (value) => {
+            const updateProgress = (value: number) => {
                 if (loadRequestRef.current === requestID) {
                     setProgress(value);
                 }
-            });
+            };
+            let parsedTrace: ParsedTrace;
+            try {
+                parsedTrace = await new OnikiriParser().parse(file, updateProgress);
+            }
+            catch (error) {
+                // 現行版と同じ順序で試し、Kanataとして不正な入力だけをgem5へ渡す。
+                if (!(error instanceof Error) || error.message !== "The selected file is not a Kanata trace.") {
+                    throw error;
+                }
+                parsedTrace = await new Gem5O3PipeViewParser().parse(file, updateProgress);
+            }
             if (loadRequestRef.current !== requestID) {
                 parsedTrace.close();
                 return;
@@ -193,7 +205,7 @@ export function TraceViewer() {
         }
     };
 
-    let statusMessage = "Open or drop a Kanata trace (.log or .log.gz).";
+    let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
     if (loadState === "loading") {
         statusMessage = `Loading ${fileName}… ${Math.round(progress * 100)}%`;
     }
@@ -278,7 +290,7 @@ export function TraceViewer() {
                 {trace === null && loadState !== "loading" && (
                     <div className="empty-state">
                         <strong>{loadState === "error" ? "The trace could not be opened." : "Drop a trace anywhere in this window."}</strong>
-                        <span>{loadState === "error" ? "Choose another Kanata file to try again." : "Plain text and gzip files are supported."}</span>
+                        <span>{loadState === "error" ? "Choose another trace to try again." : "Plain text and gzip files are supported."}</span>
                     </div>
                 )}
                 {loadState === "loading" && (
