@@ -97,6 +97,9 @@ the image when its Docker definition changes and runs the given command at the r
 # Build the single-HTML production application.
 ./docker/launch.sh make production
 
+# Measure the current Web OpStore without using large work/ traces.
+./docker/launch.sh make benchmark-op-store
+
 # Open an interactive shell in the development container.
 ./docker/launch.sh
 ```

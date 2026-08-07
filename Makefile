@@ -7,9 +7,11 @@ LICENSE_CHECKER := ./node_modules/.bin/license-checker
 WEBPACK := ./node_modules/.bin/webpack
 TSC := ./node_modules/.bin/tsc
 TSX := ./node_modules/.bin/tsx
+BENCHMARK_OPS ?= 100000
 
 .PHONY: all production check versions run init test typecheck serve web-render-smoke \
-	web-smoke production-smoke electron-smoke electron-package-smoke build pack clean distclean
+	web-smoke production-smoke electron-smoke electron-package-smoke benchmark-op-store \
+	build pack clean distclean
 
 # Web版とElectron版を分離し、移行中もmake runで現行版を起動できるようにする。
 all:
@@ -72,6 +74,10 @@ electron-package-smoke:
 
 typecheck:
 	$(TSC) --project tsconfig.json --noEmit
+
+# 通常checkから分離し、store方式を同じ入力・同じ指標で比較するためにだけ実行する。
+benchmark-op-store:
+	node --expose-gc --import tsx tools/benchmark_op_store.ts --ops $(BENCHMARK_OPS)
 
 serve:
 	$(WEBPACK) serve --mode development
