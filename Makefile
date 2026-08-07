@@ -20,9 +20,9 @@ DOCKER_ARGS := --rm --init \
 DOCKER_RUN := docker run $(DOCKER_ARGS) $(DOCKER_IMAGE)
 DOCKER_RUN_WEB := docker run $(DOCKER_ARGS) --publish 127.0.0.1:8080:8080 $(DOCKER_IMAGE)
 
-.PHONY: all versions run init test typecheck serve electron-smoke electron-package-smoke \
+.PHONY: all versions run init test typecheck serve web-smoke electron-smoke electron-package-smoke \
 	build pack clean distclean docker-build docker-init docker-all docker-test \
-	docker-typecheck docker-serve docker-electron-smoke docker-electron-package-smoke \
+	docker-typecheck docker-serve docker-web-smoke docker-electron-smoke docker-electron-package-smoke \
 	docker-versions docker-shell
 
 # Web版とElectron版を分離し、移行中もmake runで現行版を起動できるようにする。
@@ -77,6 +77,12 @@ typecheck:
 serve:
 	$(WEBPACK) serve --mode development
 
+# Web版をNode integrationなしで読み込み、ReactのmountとCSS適用までを検証する。
+web-smoke: all
+	ELECTRON_ENABLE_LOGGING=1 \
+		dbus-run-session -- xvfb-run -a timeout 30s \
+		$(ELECTRON) test/web_app_smoke.js --no-sandbox --disable-gpu
+
 build: clean
 	$(LICENSE_CHECKER) --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
 	$(ELECTRON_PACKAGER) . konata \
@@ -123,6 +129,9 @@ docker-typecheck:
 # コンテナ内では外部接続を受け、Dockerの公開設定でホストのlocalhostだけへ限定する。
 docker-serve:
 	$(DOCKER_RUN_WEB) make serve
+
+docker-web-smoke:
+	$(DOCKER_RUN) make web-smoke
 
 docker-electron-smoke:
 	$(DOCKER_RUN) make electron-smoke

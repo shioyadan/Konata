@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2020", "DOM"],
+    "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

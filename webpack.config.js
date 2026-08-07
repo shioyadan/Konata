@@ -9,7 +9,7 @@ module.exports = (_env, argv) => {
     return {
         mode: isProduction ? "production" : "development",
         devtool: isProduction ? false : "inline-source-map",
-        entry: "./src/index.ts",
+        entry: "./src/index.tsx",
         output: {
             // Electronのpackaging-workと混在させず、双方を独立して検証できるようにする。
             path: path.resolve(__dirname, "dist-web"),
