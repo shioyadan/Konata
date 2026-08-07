@@ -33,7 +33,7 @@ async function run() {
     })`);
 
     if (state.heading !== "Konata Web" ||
-        state.status !== "React版の最小画面を準備しました。" ||
+        state.status !== "The React web shell is ready." ||
         state.headingColor !== "rgb(255, 107, 53)" ||
         state.rootChildCount !== 1) {
         throw new Error(`React initialization is incomplete: ${JSON.stringify(state)}`);

@@ -20,14 +20,25 @@ DOCKER_ARGS := --rm --init \
 DOCKER_RUN := docker run $(DOCKER_ARGS) $(DOCKER_IMAGE)
 DOCKER_RUN_WEB := docker run $(DOCKER_ARGS) --publish 127.0.0.1:8080:8080 $(DOCKER_IMAGE)
 
-.PHONY: all versions run init test typecheck serve web-smoke electron-smoke electron-package-smoke \
-	build pack clean distclean docker-build docker-init docker-all docker-test \
+.PHONY: all production check versions run init test typecheck serve web-render-smoke \
+	web-smoke production-smoke electron-smoke electron-package-smoke build pack clean distclean \
+	docker-build docker-init docker-all docker-production docker-check docker-test \
 	docker-typecheck docker-serve docker-web-smoke docker-electron-smoke docker-electron-package-smoke \
 	docker-versions docker-shell
 
 # Web版とElectron版を分離し、移行中もmake runで現行版を起動できるようにする。
 all:
 	$(WEBPACK) --mode development
+
+production:
+	$(WEBPACK) --mode production
+
+# 型・Parser・単一HTML・Web描画・Electron参照版を順番に検証する正式な確認入口。
+check:
+	$(MAKE) typecheck
+	$(MAKE) test
+	$(MAKE) production-smoke
+	$(MAKE) electron-smoke
 
 # Electron実行ファイルを起動せず、開発環境と依存パッケージの固定値を確認する。
 versions:
@@ -41,7 +52,7 @@ run:
 init:
 	npm install
 
-# Node 18でも個々のテスト失敗の詳細をTAPへ出すため、ファイル単位で直接実行する。
+# 個々のテスト失敗の詳細をTAPへ出すため、ファイル単位で直接実行する。
 test:
 	@set -e; \
 	for test_file in test/*.test.js; do \
@@ -77,11 +88,19 @@ typecheck:
 serve:
 	$(WEBPACK) serve --mode development
 
-# Web版をNode integrationなしで読み込み、ReactのmountとCSS適用までを検証する。
-web-smoke: all
+# ビルド方式に依存しないRenderer検証を共通化し、developmentとproductionの両方で使う。
+web-render-smoke:
 	ELECTRON_ENABLE_LOGGING=1 \
 		dbus-run-session -- xvfb-run -a timeout 30s \
 		$(ELECTRON) test/web_app_smoke.js --no-sandbox --disable-gpu
+
+# Web版をNode integrationなしで読み込み、ReactのmountとCSS適用までを検証する。
+web-smoke: all
+	$(MAKE) web-render-smoke
+
+production-smoke: production
+	node test/single_html_smoke.js
+	$(MAKE) web-render-smoke
 
 build: clean
 	$(LICENSE_CHECKER) --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
@@ -119,6 +138,12 @@ docker-init:
 
 docker-all:
 	$(DOCKER_RUN) make all
+
+docker-production:
+	$(DOCKER_RUN) make production
+
+docker-check:
+	$(DOCKER_RUN) make check
 
 docker-test:
 	$(DOCKER_RUN) make test
