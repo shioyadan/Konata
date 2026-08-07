@@ -73,5 +73,42 @@ storage. It is an experiment, not yet the selected production design.
 - Worker storage with OPFS or IndexedDB backing;
 - retaining the uncompressed store for traces below a measured threshold.
 
-No alternative is selected yet. The first prototype should be chosen from measured memory and
-latency rather than by directly porting the existing gzip-page implementation.
+No production alternative is selected yet. Prototypes are chosen from measured memory and latency
+rather than by directly porting the existing gzip-page implementation.
+
+## Serialized page experiment
+
+`SerializedPageOpStore` is the first isolated experiment. It uses 256 operations per page, stores
+evicted pages as uncompressed JSON strings, and retains four decoded pages in LRU order. Compact
+field names and tuple representations reduce repeated JSON keys. All `Op`, lane, stage, dependency,
+flag, label, and `lastParsedStage` relationships are restored when a page is decoded.
+
+The comparison was measured twice with the same command and environment as the baseline. “Warm”
+repeats 100,000 lookups in the first 256 IDs. “Sequential” performs 100,000 lookups across the
+whole ID range and therefore includes page decoding.
+
+| Input and store | Parse (ms) | Warm 100k (ms) | Sequential 100k (ms) | Retained heap (MiB) | Peak after lookup (MiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| bundled / Array | 127.85–148.24 | 2.07–2.08 | 1.11–1.47 | 14.91 | 35.34–36.08 |
+| bundled / Serialized page | 102.93–124.85 | 7.90–8.84 | 362.71–464.00 | 5.75–5.76 | 42.05–81.38 |
+| synthetic / Array | 346.93–376.24 | 2.96–3.34 | 1.49–1.54 | 70.03 | 102.38–103.92 |
+| synthetic / Serialized page | 401.70–429.08 | 6.59–6.71 | 129.08–133.09 | 19.13–19.14 | 112.49 |
+
+After parsing the synthetic input, 387 serialized pages contained 18,419,459 JSON characters and
+four pages remained decoded. After the sequential lookup, all 391 pages had serialized backing
+and four remained decoded. The retained heap reduction versus the Array store is approximately
+73% for the synthetic input and 61% for the bundled sample.
+
+The experiment validates page serialization as a useful steady-state representation. Warm Canvas
+lookups remain fast enough for further testing, but the store is not ready to become the default:
+
+- a full synchronous scan is much slower because every operation is reconstructed;
+- temporary decoded objects can make the scan peak higher than the Array baseline;
+- synchronous JSON serialization adds parse latency for the synthetic input;
+- search and statistics need a page-oriented traversal path instead of repeated `getOp()` calls;
+- compression and browser-main-thread responsiveness have not been measured yet.
+
+The next experiment should add a page-oriented traversal API and measure one decode per page with
+periodic event-loop yields. The Canvas-facing `getOp()` API should remain synchronous for decoded
+visible pages. Compression or Worker storage should be evaluated only after this traversal path
+separates background scans from interactive rendering.

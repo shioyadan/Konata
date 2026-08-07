@@ -5,7 +5,8 @@ import { performance } from "node:perf_hooks";
 
 import type { ParsedTrace } from "../src/core/model";
 import { OnikiriParser } from "../src/core/onikiri_parser";
-import { ArrayOpStore } from "../src/core/op_store";
+import { ArrayOpStore, type MutableOpStore } from "../src/core/op_store";
+import { SerializedPageOpStore } from "../src/core/serialized_page_op_store";
 
 interface MemorySnapshot {
     heapUsed: number;
@@ -22,11 +23,14 @@ interface BenchmarkResult {
     lastRID: number;
     lastCycle: number;
     parseMilliseconds: number;
+    warmLookupMilliseconds: number;
     lookupMilliseconds: number;
     lookupCount: number;
     lookupHits: number;
     progressCallbacks: number;
     parserWarnings: number;
+    storeMetricsAfterParse?: StoreMetrics;
+    storeMetricsAfterLookup?: StoreMetrics;
     memoryMiB: {
         heapBefore: number;
         heapPeakSampled: number;
@@ -39,6 +43,17 @@ interface BenchmarkResult {
         rssAfterParse: number;
         rssAfterClose: number;
     };
+}
+
+interface StoreMetrics {
+    serializedPages: number;
+    decodedPages: number;
+    serializedCharacters: number;
+}
+
+interface StoreCase {
+    readonly name: string;
+    create(): MutableOpStore;
 }
 
 const garbageCollector = (globalThis as typeof globalThis & { gc?: () => void }).gc;
@@ -82,13 +97,25 @@ function createSyntheticTrace(opCount: number): File {
     return new File([lines.join("\n")], `synthetic-${opCount}.log`, { type: "text/plain" });
 }
 
-async function benchmark(name: string, file: File): Promise<BenchmarkResult> {
+function storeMetrics(store: MutableOpStore): StoreMetrics | undefined {
+    if (!(store instanceof SerializedPageOpStore)) {
+        return undefined;
+    }
+    return {
+        serializedPages: store.serializedPageCount,
+        decodedPages: store.decodedPageCount,
+        serializedCharacters: store.serializedCharacterCount,
+    };
+}
+
+async function benchmark(name: string, file: File, storeCase: StoreCase): Promise<BenchmarkResult> {
     collectGarbage();
     const before = memorySnapshot();
     let peak = before;
     let progressCallbacks = 0;
     let parserWarnings = 0;
     let trace: ParsedTrace | undefined;
+    const store = storeCase.create();
 
     // 既知の互換警告は件数だけ記録し、benchmarkのJSON出力を機械処理しやすく保つ。
     const originalWarn = console.warn;
@@ -98,7 +125,7 @@ async function benchmark(name: string, file: File): Promise<BenchmarkResult> {
 
     const start = performance.now();
     try {
-        trace = await new OnikiriParser(new ArrayOpStore()).parse(file, () => {
+        trace = await new OnikiriParser(store).parse(file, () => {
             progressCallbacks++;
             const current = memorySnapshot();
             peak = {
@@ -121,11 +148,23 @@ async function benchmark(name: string, file: File): Promise<BenchmarkResult> {
         heapUsed: Math.max(peak.heapUsed, afterParse.heapUsed),
         rss: Math.max(peak.rss, afterParse.rss),
     };
+    const storeMetricsAfterParse = storeMetrics(store);
 
-    // 同期getOp()はCanvas描画のhot pathなので、parse/memoryと同じ入力で基準値を残す。
+    // 同一page内の繰り返し取得で、Canvas表示範囲がcacheへ載った後のlatencyを測る。
     const lookupCount = 100000;
     const idSpan = Math.max(1, trace.lastID + 1);
+    const warmIDSpan = Math.min(256, idSpan);
     let lookupHits = 0;
+    const warmLookupStart = performance.now();
+    for (let index = 0; index < lookupCount; index++) {
+        if (trace.getOp(index % warmIDSpan) !== undefined) {
+            lookupHits++;
+        }
+    }
+    const warmLookupMilliseconds = performance.now() - warmLookupStart;
+
+    // 全IDを順に走査し、page missと復元を含む検索・統計処理側のcostも分離して残す。
+    lookupHits = 0;
     const lookupStart = performance.now();
     for (let index = 0; index < lookupCount; index++) {
         if (trace.getOp(index % idSpan) !== undefined) {
@@ -138,6 +177,7 @@ async function benchmark(name: string, file: File): Promise<BenchmarkResult> {
         heapUsed: Math.max(peak.heapUsed, afterLookup.heapUsed),
         rss: Math.max(peak.rss, afterLookup.rss),
     };
+    const storeMetricsAfterLookup = storeMetrics(store);
 
     const summary = {
         opCount: trace.opCount,
@@ -152,16 +192,19 @@ async function benchmark(name: string, file: File): Promise<BenchmarkResult> {
 
     return {
         benchmark: name,
-        store: "ArrayOpStore",
+        store: storeCase.name,
         runtime: process.version,
         inputBytes: file.size,
         ...summary,
         parseMilliseconds: Math.round(parseMilliseconds * 100) / 100,
+        warmLookupMilliseconds: Math.round(warmLookupMilliseconds * 100) / 100,
         lookupMilliseconds: Math.round(lookupMilliseconds * 100) / 100,
         lookupCount,
         lookupHits,
         progressCallbacks,
         parserWarnings,
+        storeMetricsAfterParse,
+        storeMetricsAfterLookup,
         memoryMiB: {
             heapBefore: toMiB(before.heapUsed),
             heapPeakSampled: toMiB(peak.heapUsed),
@@ -193,15 +236,27 @@ async function main(): Promise<void> {
     }
     const opCount = parseOpCount(process.argv.slice(2));
     const samplePath = path.resolve(import.meta.dirname, "..", "docs", "kanata-sample-2.log.gz");
-    // 前の入力Fileを次のbaselineへ持ち越さないよう、caseごとに生成して直ちに測る。
-    console.log(JSON.stringify(await benchmark(
-        "bundled-gzip",
-        fileFromPath(samplePath, "application/gzip"),
-    )));
-    console.log(JSON.stringify(await benchmark(
-        `synthetic-${opCount}`,
-        createSyntheticTrace(opCount),
-    )));
+    const stores: StoreCase[] = [
+        { name: "ArrayOpStore", create: () => new ArrayOpStore() },
+        { name: "SerializedPageOpStore", create: () => new SerializedPageOpStore() },
+    ];
+    const inputs = [
+        {
+            name: "bundled-gzip",
+            create: () => fileFromPath(samplePath, "application/gzip"),
+        },
+        {
+            name: `synthetic-${opCount}`,
+            create: () => createSyntheticTrace(opCount),
+        },
+    ];
+
+    for (const input of inputs) {
+        for (const store of stores) {
+            // 前の入力Fileを次のbaselineへ持ち越さないよう、組み合わせごとに生成する。
+            console.log(JSON.stringify(await benchmark(input.name, input.create(), store)));
+        }
+    }
 }
 
 main().catch((error) => {

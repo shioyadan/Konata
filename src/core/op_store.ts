@@ -1,5 +1,17 @@
 import type { Op } from "./model";
 
+// 旧BigKeyValueStoreは縮小表示時にIDをblock先頭へ丸め、cache汚染を抑えていた。
+// bit演算の32-bit制限を避け、同じ2^(level+1)単位の丸めを算術で表す。
+export function resolveOpID(id: number, resolutionLevel: number): number {
+    const normalizedLevel = Number.isFinite(resolutionLevel) ? Math.floor(resolutionLevel) : 0;
+    const level = Math.max(0, normalizedLevel);
+    if (level < 1) {
+        return id;
+    }
+    const blockSize = 2 ** (level + 1);
+    return Math.floor(id / blockSize) * blockSize;
+}
+
 // Rendererや検索処理は同期取得だけに依存させ、背後の圧縮・先読み方式を隠す。
 export interface OpStore {
     readonly lastID: number;
@@ -57,7 +69,7 @@ export class ArrayOpStore implements MutableOpStore {
         if (id < 0 || id > this.lastID_) {
             return undefined;
         }
-        return this.ops_[this.resolveID_(id, resolutionLevel)];
+        return this.ops_[resolveOpID(id, resolutionLevel)];
     }
 
     setRetiredOp(rid: number, op: Op): void {
@@ -83,16 +95,5 @@ export class ArrayOpStore implements MutableOpStore {
         this.lastID_ = -1;
         this.lastRID_ = -1;
         this.opCount_ = 0;
-    }
-
-    private resolveID_(id: number, resolutionLevel: number): number {
-        // 旧BigKeyValueStoreは縮小表示時にIDをblock先頭へ丸め、cache汚染を抑えていた。
-        // bit演算の32-bit制限を避け、同じ2^(level+1)単位の丸めを算術で表す。
-        const level = Math.max(0, Math.floor(resolutionLevel));
-        if (level < 1) {
-            return id;
-        }
-        const blockSize = 2 ** (level + 1);
-        return Math.floor(id / blockSize) * blockSize;
     }
 }
