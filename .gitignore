@@ -4,3 +4,4 @@ dist-web
 work
 node_modules
 THIRD-PARTY-LICENSES.md
+docker/.image-*.stamp

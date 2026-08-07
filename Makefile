@@ -7,24 +7,8 @@ LICENSE_CHECKER := ./node_modules/.bin/license-checker
 WEBPACK := ./node_modules/.bin/webpack
 TSC := ./node_modules/.bin/tsc
 
-DOCKER_IMAGE := konata-devel:node22
-DOCKER_ARGS := --rm --init \
-	--env KONATA_HOST_UID=$(shell id -u) \
-	--env KONATA_HOST_GID=$(shell id -g) \
-	--env npm_config_cache=/tmp/konata-npm-cache \
-	--env XDG_CACHE_HOME=/tmp/konata-cache \
-	--env XDG_CONFIG_HOME=/tmp/konata-config \
-	--env XDG_DATA_HOME=/tmp/konata-data \
-	--volume $(CURDIR):/workspace \
-	--workdir /workspace
-DOCKER_RUN := docker run $(DOCKER_ARGS) $(DOCKER_IMAGE)
-DOCKER_RUN_WEB := docker run $(DOCKER_ARGS) --publish 127.0.0.1:8080:8080 $(DOCKER_IMAGE)
-
 .PHONY: all production check versions run init test typecheck serve web-render-smoke \
-	web-smoke production-smoke electron-smoke electron-package-smoke build pack clean distclean \
-	docker-build docker-init docker-all docker-production docker-check docker-test \
-	docker-typecheck docker-serve docker-web-smoke docker-electron-smoke docker-electron-package-smoke \
-	docker-versions docker-shell
+	web-smoke production-smoke electron-smoke electron-package-smoke build pack clean distclean
 
 # Web版とElectron版を分離し、移行中もmake runで現行版を起動できるようにする。
 all:
@@ -49,8 +33,10 @@ versions:
 run:
 	$(ELECTRON) .
 
+# bind mountに残る実行ファイルを、現在の環境に合うElectronへ確実に更新する。
 init:
 	npm install
+	npm rebuild electron
 
 # 個々のテスト失敗の詳細をTAPへ出すため、ファイル単位で直接実行する。
 test:
@@ -127,45 +113,3 @@ clean:
 
 distclean: clean
 	rm node_modules -r -f
-
-# ホストのNode.jsやnpmを更新せず、固定したNode.js 22環境を利用する。
-docker-build:
-	docker build --file docker/Dockerfile --tag $(DOCKER_IMAGE) .
-
-docker-init:
-	$(DOCKER_RUN) npm install
-	$(DOCKER_RUN) npm rebuild electron
-
-docker-all:
-	$(DOCKER_RUN) make all
-
-docker-production:
-	$(DOCKER_RUN) make production
-
-docker-check:
-	$(DOCKER_RUN) make check
-
-docker-test:
-	$(DOCKER_RUN) make test
-
-docker-typecheck:
-	$(DOCKER_RUN) make typecheck
-
-# コンテナ内では外部接続を受け、Dockerの公開設定でホストのlocalhostだけへ限定する。
-docker-serve:
-	$(DOCKER_RUN_WEB) make serve
-
-docker-web-smoke:
-	$(DOCKER_RUN) make web-smoke
-
-docker-electron-smoke:
-	$(DOCKER_RUN) make electron-smoke
-
-docker-electron-package-smoke:
-	$(DOCKER_RUN) make electron-package-smoke
-
-docker-versions:
-	$(DOCKER_RUN) make versions
-
-docker-shell:
-	docker run $(DOCKER_ARGS) -it $(DOCKER_IMAGE)

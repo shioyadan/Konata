@@ -3,6 +3,7 @@ node_modules
 packaging-work
 dist-web
 work
+docker/.image-*.stamp
 
 # ローカルの巨大ログや生成物をDocker build contextへ送らない。
 *.log

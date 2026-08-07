@@ -80,21 +80,39 @@ If you fail to launch a pre-built binary, please try the second way.
 
 ## Development
 
-* Install dependent runtimes as follows or use Dockerfile included in a source tree
-    ```
-    # Install node.js/npm
-    sudo apt install nodejs
+The Docker environment is the recommended development environment. The launcher rebuilds
+the image when its Docker definition changes and runs the given command at the repository root.
 
-    # Install electron/electron-packager
-    # Since electron is huge, they are installed globally.
-    npm -g install electron
-    npm -g install electron-packager
+```bash
+# Install dependencies.
+./docker/launch.sh make init
 
-    # Run and build
-    make init   # Setup libraries
-    make        # Run Konata
-    make pack   # Build & pack Konata for Windows/Linux/Mac
-    ```
+# Run all type checks, parser tests, web smoke tests, and Electron smoke tests.
+./docker/launch.sh make check
+
+# Build the development web application or start its server.
+./docker/launch.sh make
+./docker/launch.sh make serve
+
+# Build the single-HTML production application.
+./docker/launch.sh make production
+
+# Open an interactive shell in the development container.
+./docker/launch.sh
+```
+
+`make serve` publishes the development server only at `http://127.0.0.1:8080`.
+All build and test operations are Make targets; npm scripts are not used.
+
+To work without Docker, install Node.js 22.12 or later and run the same Make targets directly:
+
+```
+make init          # Install dependencies
+make               # Build the development web application
+make serve         # Start the web development server
+make production    # Build the single-HTML production application
+make run           # Run the reference Electron application
+```
 
 ## License
 
