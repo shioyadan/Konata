@@ -1,6 +1,7 @@
 import {
     type ChangeEvent,
     type DragEvent,
+    type MouseEvent as ReactMouseEvent,
     type PointerEvent,
     type WheelEvent,
     useCallback,
@@ -13,13 +14,23 @@ import {
 import type { ParsedTrace } from "../core/model";
 import { Gem5O3PipeViewParser } from "../core/gem5_o3_pipe_view_parser";
 import { OnikiriParser } from "../core/onikiri_parser";
-import { KonataRenderer } from "../renderer/konata_renderer";
+import {
+    DEP_ARROW_TYPE,
+    KonataRenderer,
+    type DependencyArrowType,
+} from "../renderer/konata_renderer";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
 interface DragPosition {
     x: number;
     y: number;
+}
+
+interface CanvasToolTip {
+    left: number;
+    top: number;
+    text: string;
 }
 
 export function TraceViewer() {
@@ -40,6 +51,7 @@ export function TraceViewer() {
     const [errorMessage, setErrorMessage] = useState("");
     const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
+    const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
 
@@ -147,6 +159,7 @@ export function TraceViewer() {
 
     const mutateView = (mutation: (renderer: KonataRenderer) => void) => {
         mutation(rendererRef.current);
+        setToolTip(null);
         setRenderVersion((version) => version + 1);
     };
 
@@ -163,7 +176,6 @@ export function TraceViewer() {
             return;
         }
         event.preventDefault();
-        const lineScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1;
         if (event.ctrlKey || event.metaKey) {
             const rect = pipelineCanvasRef.current?.getBoundingClientRect();
             const x = rect === undefined ? 0 : Math.max(0, event.clientX - rect.left);
@@ -172,10 +184,22 @@ export function TraceViewer() {
             return;
         }
 
-        // 通常wheelは縦、Shift+wheelは横へ送る。trackpadのdeltaXはそのまま使う。
-        const horizontal = event.deltaX + (event.shiftKey ? event.deltaY : 0);
-        const vertical = event.shiftKey ? 0 : event.deltaY;
-        mutateView((renderer) => renderer.panPixels(horizontal * lineScale, vertical * lineScale));
+        const renderer = rendererRef.current;
+        if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+            // trackpadの横移動は、旧キーボード横移動と同じ6cycle単位へ対応させる。
+            const direction = event.deltaX > 0 ? 1 : -1;
+            mutateView((target) => target.moveLogicalDifference([
+                direction * 6 / target.zoomScale,
+                0,
+            ], false));
+            return;
+        }
+
+        // 旧wheel操作と同じ3命令単位で移動し、左端を命令のfetch位置へ追従させる。
+        const direction = event.deltaY > 0 ? 1 : -1;
+        const differenceY = direction * 3 / renderer.zoomScale;
+        const differenceX = renderer.adjustScrollDifferenceX(differenceY);
+        mutateView((target) => target.moveLogicalDifference([differenceX, differenceY], false));
     };
 
     const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -203,6 +227,56 @@ export function TraceViewer() {
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
         }
+    };
+
+    const handleDoubleClick = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+        if (trace === null) {
+            return;
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        mutateView((renderer) => renderer.zoomAt(
+            event.shiftKey ? 1 / 2 : 2,
+            event.clientX - rect.left,
+            event.clientY - rect.top,
+        ));
+    };
+
+    const updateToolTip = (
+        pane: "label" | "pipeline",
+        event: ReactMouseEvent<HTMLCanvasElement>,
+    ) => {
+        if (trace === null || dragPositionRef.current !== null) {
+            setToolTip(null);
+            return;
+        }
+        const canvasRect = event.currentTarget.getBoundingClientRect();
+        const viewerRect = viewerRef.current?.getBoundingClientRect();
+        if (viewerRect === undefined) {
+            return;
+        }
+        const x = event.clientX - canvasRect.left;
+        const y = event.clientY - canvasRect.top;
+        const text = pane === "label"
+            ? rendererRef.current.getLabelToolTipText(y)
+            : rendererRef.current.getPipelineToolTipText(x, y);
+        setToolTip(text === null ? null : {
+            left: event.clientX - viewerRect.left,
+            top: event.clientY - viewerRect.top + 20,
+            text,
+        });
+    };
+
+    const toggleHideFlushedOps = (enabled: boolean) => {
+        mutateView((renderer) => {
+            // 表示方式を変えても、現在の先頭命令とそのfetch位置を維持する。
+            const current = renderer.getOpFromPixelPositionY(0);
+            const rid = current?.rid ?? 0;
+            renderer.hideFlushedOps = enabled;
+            const op = renderer.getOpFromRID(rid);
+            if (op !== undefined) {
+                renderer.moveLogicalPosition([op.fetchedCycle, enabled ? rid : op.id]);
+            }
+        });
     };
 
     let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
@@ -263,6 +337,77 @@ export function TraceViewer() {
                         Reset
                     </button>
                 </div>
+                <details className="view-controls">
+                    <summary>View</summary>
+                    <div className="view-controls-panel">
+                        <label>
+                            <input
+                                type="checkbox"
+                                aria-label="Hide flushed ops"
+                                checked={rendererRef.current.hideFlushedOps}
+                                disabled={trace === null}
+                                onChange={(event) => toggleHideFlushedOps(event.target.checked)}
+                            />
+                            Hide flushed ops
+                        </label>
+                        <label>
+                            <input
+                                type="checkbox"
+                                aria-label="Split lanes"
+                                checked={rendererRef.current.splitLanes}
+                                disabled={trace === null}
+                                onChange={(event) => mutateView((renderer) => {
+                                    renderer.splitLanes = event.target.checked;
+                                })}
+                            />
+                            Split lanes
+                        </label>
+                        <label>
+                            <input
+                                type="checkbox"
+                                aria-label="Fix op height"
+                                checked={rendererRef.current.fixOpHeight}
+                                disabled={trace === null || !rendererRef.current.splitLanes}
+                                onChange={(event) => mutateView((renderer) => {
+                                    renderer.fixOpHeight = event.target.checked;
+                                })}
+                            />
+                            Fix op height
+                        </label>
+                        <label>
+                            Color
+                            <select
+                                aria-label="Pipeline color scheme"
+                                value={rendererRef.current.colorScheme}
+                                disabled={trace === null}
+                                onChange={(event) => mutateView((renderer) => {
+                                    renderer.changeColorScheme(event.target.value);
+                                })}
+                            >
+                                <option>Auto</option>
+                                <option>Unique</option>
+                                <option>ThreadID</option>
+                                <option>Orange</option>
+                                <option>RoyalBlue</option>
+                            </select>
+                        </label>
+                        <label>
+                            Dependency arrows
+                            <select
+                                aria-label="Dependency arrow type"
+                                value={rendererRef.current.dependencyArrowType}
+                                disabled={trace === null}
+                                onChange={(event) => mutateView((renderer) => {
+                                    renderer.dependencyArrowType = event.target.value as DependencyArrowType;
+                                })}
+                            >
+                                <option value={DEP_ARROW_TYPE.INSIDE_LINE}>Inside-line</option>
+                                <option value={DEP_ARROW_TYPE.LEFT_SIDE_CURVE}>Leftside-curve</option>
+                                <option value={DEP_ARROW_TYPE.NOT_SHOW}>Not show</option>
+                            </select>
+                        </label>
+                    </div>
+                </details>
                 <p className={`status status-${loadState}`} role="status">{statusMessage}</p>
             </header>
 
@@ -277,13 +422,25 @@ export function TraceViewer() {
             >
                 <section className="viewer-pane label-pane" aria-label="Instruction labels">
                     <div className="pane-title">Instructions</div>
-                    <canvas ref={labelCanvasRef} aria-label="Instruction labels canvas">
+                    <canvas
+                        ref={labelCanvasRef}
+                        aria-label="Instruction labels canvas"
+                        onDoubleClick={handleDoubleClick}
+                        onMouseMove={(event) => updateToolTip("label", event)}
+                        onMouseLeave={() => setToolTip(null)}
+                    >
                         Instruction labels require canvas support.
                     </canvas>
                 </section>
                 <section className="viewer-pane pipeline-pane" aria-label="Pipeline chart">
                     <div className="pane-title">Pipeline</div>
-                    <canvas ref={pipelineCanvasRef} aria-label="Pipeline canvas">
+                    <canvas
+                        ref={pipelineCanvasRef}
+                        aria-label="Pipeline canvas"
+                        onDoubleClick={handleDoubleClick}
+                        onMouseMove={(event) => updateToolTip("pipeline", event)}
+                        onMouseLeave={() => setToolTip(null)}
+                    >
                         The pipeline chart requires canvas support.
                     </canvas>
                 </section>
@@ -297,6 +454,15 @@ export function TraceViewer() {
                     <div className="loading-state" aria-hidden="true">
                         <div className="progress-track"><div style={{ width: `${Math.round(progress * 100)}%` }} /></div>
                     </div>
+                )}
+                {toolTip !== null && (
+                    <pre
+                        className="canvas-tooltip"
+                        role="tooltip"
+                        style={{ left: toolTip.left, top: toolTip.top }}
+                    >
+                        {toolTip.text}
+                    </pre>
                 )}
             </div>
         </main>

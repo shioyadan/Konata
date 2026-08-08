@@ -145,6 +145,47 @@ async function run() {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
 
+    // 実Canvas上のpointer位置をRendererへ渡し、旧版と同じcycle/op/stage tooltipを表示する。
+    const toolTipText = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const canvas = document.querySelector(".pipeline-pane canvas");
+        if (!(canvas instanceof HTMLCanvasElement)) {
+            throw new Error("The pipeline canvas was not found.");
+        }
+        const rect = canvas.getBoundingClientRect();
+        canvas.dispatchEvent(new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: rect.left + 8,
+            clientY: rect.top + 8
+        }));
+        requestAnimationFrame(() => resolve(document.querySelector('[role="tooltip"]')?.textContent ?? null));
+    })`);
+    if (typeof toolTipText !== "string" || !toolTipText.startsWith("[0, 0]")) {
+        throw new Error(`Pipeline tooltip is incomplete: ${JSON.stringify(toolTipText)}`);
+    }
+
+    // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
+    const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const split = document.querySelector('input[aria-label="Split lanes"]');
+        const fixed = document.querySelector('input[aria-label="Fix op height"]');
+        const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
+        if (!(split instanceof HTMLInputElement) ||
+            !(fixed instanceof HTMLInputElement) ||
+            !(arrows instanceof HTMLSelectElement)) {
+            throw new Error("The renderer view controls were not found.");
+        }
+        split.click();
+        arrows.value = "leftSideCurve";
+        arrows.dispatchEvent(new Event("change", {bubbles: true}));
+        requestAnimationFrame(() => resolve({
+            split: split.checked,
+            fixEnabled: !fixed.disabled,
+            arrows: arrows.value
+        }));
+    })`);
+    if (!viewControlState.split || !viewControlState.fixEnabled || viewControlState.arrows !== "leftSideCurve") {
+        throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);
+    }
+
     // Kanataとして不一致になった入力をgem5 Parserで開き直し、同じCanvasへ表示できることを確認する。
     const gem5Fixture = path.join(__dirname, "fixtures", "gem5-basic.txt");
     await dropFixture(window, gem5Fixture, "text/plain");
