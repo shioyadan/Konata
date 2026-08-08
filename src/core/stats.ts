@@ -1,4 +1,6 @@
-import type { Op } from "./model";
+import type { Op, ParsedTrace } from "./model";
+
+export type StatsProgressCallback = (progress: number, count: number) => void;
 
 export interface StatsValues {
     numFetchedOps: number;
@@ -218,4 +220,62 @@ export function createStats(lastID: number, lastRID: number, lastCycle: number):
         new X86Gem5Stats(lastID, lastRID, lastCycle),
         new GenericStats(lastID, lastRID, lastCycle),
     ];
+}
+
+// 旧Konata.statsBody_と同じ順序で候補を選び、ID順に統計を集計する。
+export async function calculateStats(
+    trace: ParsedTrace,
+    onProgress?: StatsProgressCallback,
+    isCanceled: () => boolean = () => false,
+): Promise<Readonly<StatsValues> | null> {
+    const lastID = trace.lastID;
+    const candidates = createStats(lastID, trace.lastRID, trace.lastCycle);
+    const giveUpID = 1_000;
+    const sleepInterval = 50_000;
+
+    for (const stats of candidates) {
+        if (isCanceled()) {
+            return null;
+        }
+        let sleepTimer = 0;
+        for (let id = 0; id < lastID; id++) {
+            if (isCanceled()) {
+                return null;
+            }
+            const op = trace.getOp(id);
+            if (op === undefined) {
+                continue;
+            }
+            stats.update(op);
+
+            if (!stats.isDetected && id > giveUpID) {
+                break;
+            }
+
+            // 旧版と同じ間隔で他のUI処理へ切り替え、大きいtraceでも画面を固めない。
+            if (sleepTimer > sleepInterval) {
+                sleepTimer = 0;
+                onProgress?.(id / lastID, id / sleepInterval);
+                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                if (isCanceled()) {
+                    return null;
+                }
+            }
+            sleepTimer++;
+        }
+
+        if (!stats.isDetected) {
+            console.log(`Gave up analyzing this file (${stats.name})`);
+            continue;
+        }
+        if (isCanceled()) {
+            return null;
+        }
+
+        console.log(`Finished stats processing ('${stats.name}')`);
+        stats.finish();
+        return stats.stats;
+    }
+
+    throw new Error("No statistics implementation accepted this trace.");
 }

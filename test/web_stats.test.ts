@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Op } from "../src/core/model";
-import { createStats, GenericStats, X86Gem5Stats } from "../src/core/stats";
+import { Op, ParsedTrace, StageLevelMap } from "../src/core/model";
+import { ArrayOpStore } from "../src/core/op_store";
+import { calculateStats, createStats, GenericStats, X86Gem5Stats } from "../src/core/stats";
 
 function op(labelName: string, retired = false, flush = false): Op {
     const value = new Op();
@@ -80,4 +81,59 @@ test("createStats keeps the current detector priority", () => {
         createStats(0, 0, 0).map((stats) => stats.name),
         ["X86_Gem5_Stats", "GenericStats"],
     );
+});
+
+test("calculateStats preserves detector fallback and legacy ID bounds", async () => {
+    const store = new ArrayOpStore();
+    const branch = op(" bne x1, x2 ", true);
+    branch.id = 0;
+    store.setOp(branch.id, branch);
+    store.setRetiredOp(0, branch);
+
+    const flushed = op(" add x3, x4 ", false, true);
+    flushed.id = 1_002;
+    store.setOp(flushed.id, flushed);
+
+    const last = op(" bne skipped-last-op ", true);
+    last.id = 1_003;
+    store.setOp(last.id, last);
+    const trace = new ParsedTrace("stats.log", store, new Set(), new StageLevelMap(), 10);
+
+    const values = await calculateStats(trace);
+
+    assert.notEqual(values, null);
+    // X86候補を1,000 IDで諦めて汎用版で先頭から数え直し、旧版同様lastID自身は走査しない。
+    assert.equal(values?.numFetchedBr, 1);
+    assert.equal(values?.numFlush, 1);
+    assert.equal(values?.numBrPredMiss, 1);
+});
+
+test("calculateStats yields at the legacy progress interval", async () => {
+    const store = new ArrayOpStore();
+    const value = op(" add x1, x2 ", true);
+    for (let id = 0; id <= 50_002; id++) {
+        store.setOp(id, value);
+    }
+    store.setRetiredOp(0, value);
+    const trace = new ParsedTrace("large.log", store, new Set(), new StageLevelMap(), 50_003);
+    const updates: Array<[number, number]> = [];
+
+    const values = await calculateStats(trace, (progress, count) => updates.push([progress, count]));
+
+    assert.notEqual(values, null);
+    // 旧実装はsleepTimerが50,000を超えた次の命令で一度だけyieldする。
+    assert.deepEqual(updates, [[50_001 / 50_002, 50_001 / 50_000]]);
+});
+
+test("calculateStats stops when its trace is replaced", async () => {
+    const store = new ArrayOpStore();
+    const value = op(" add x1, x2 ", true);
+    value.id = 0;
+    store.setOp(0, value);
+    const trace = new ParsedTrace("closed.log", store, new Set(), new StageLevelMap(), 1);
+
+    const values = await calculateStats(trace, undefined, () => true);
+
+    // file切替やunmount時は、解放済みstoreを最後まで走査せず結果も表示しない。
+    assert.equal(values, null);
 });
