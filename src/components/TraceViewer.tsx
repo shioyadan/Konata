@@ -14,6 +14,7 @@ import {
 import type { ParsedTrace } from "../core/model";
 import { Gem5O3PipeViewParser } from "../core/gem5_o3_pipe_view_parser";
 import { OnikiriParser } from "../core/onikiri_parser";
+import { calculateStats, type StatsValues } from "../core/stats";
 import {
     DEP_ARROW_TYPE,
     KonataRenderer,
@@ -57,6 +58,7 @@ export function TraceViewer() {
     const traceRef = useRef<ParsedTrace | null>(null);
     // 複数ファイルが続けて選ばれた場合、遅く完了した旧requestで表示を上書きしない。
     const loadRequestRef = useRef(0);
+    const statsRequestRef = useRef(0);
     const dragPositionRef = useRef<DragPosition | null>(null);
 
     const [trace, setTrace] = useState<ParsedTrace | null>(null);
@@ -67,6 +69,11 @@ export function TraceViewer() {
     const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
+    const [statsProgress, setStatsProgress] = useState<number | null>(null);
+    const [statsValues, setStatsValues] = useState<Readonly<StatsValues> | null>(null);
+    const [statsFilter, setStatsFilter] = useState("");
+    const [statsError, setStatsError] = useState("");
+    const [isStatsDialogOpen, setIsStatsDialogOpen] = useState(false);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
 
@@ -78,14 +85,25 @@ export function TraceViewer() {
         }
     }, []);
 
+    const resetStats = useCallback(() => {
+        statsRequestRef.current++;
+        setStatsProgress(null);
+        setStatsValues(null);
+        setStatsError("");
+        setIsStatsDialogOpen(false);
+    }, []);
+
     const replaceTrace = useCallback((nextTrace: ParsedTrace | null) => {
+        // 旧traceの集計結果を新しいfileへ表示しないよう、進行中のrequestもここで無効化する。
+        resetStats();
         // 将来の圧縮pageやWorkerもtab切替時に解放できるよう、storeのcloseをここへ集約する。
         traceRef.current?.close();
         traceRef.current = nextTrace;
         setTrace(nextTrace);
-    }, []);
+    }, [resetStats]);
 
     useEffect(() => () => {
+        statsRequestRef.current++;
         // StrictModeの初回cleanup時点ではまだtraceがなく、実際のunmountでは最新traceを閉じる。
         traceRef.current?.close();
         traceRef.current = null;
@@ -114,6 +132,7 @@ export function TraceViewer() {
 
     const loadFile = useCallback(async (file: File) => {
         const requestID = ++loadRequestRef.current;
+        resetStats();
         setLoadState("loading");
         setFileName(file.name);
         setProgress(0);
@@ -152,7 +171,7 @@ export function TraceViewer() {
             setLoadState("error");
             setErrorMessage(error instanceof Error ? error.message : String(error));
         }
-    }, [replaceTrace]);
+    }, [replaceTrace, resetStats]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -315,9 +334,58 @@ export function TraceViewer() {
         });
     };
 
+    const showStats = () => {
+        if (trace === null || loadState === "loading" || statsProgress !== null) {
+            return;
+        }
+        const requestID = ++statsRequestRef.current;
+        setStatsProgress(0);
+        setStatsValues(null);
+        setStatsFilter("");
+        setStatsError("");
+        setIsStatsDialogOpen(false);
+
+        void calculateStats(
+            trace,
+            (value) => {
+                if (statsRequestRef.current === requestID) {
+                    setStatsProgress(value);
+                }
+            },
+            () => statsRequestRef.current !== requestID || traceRef.current !== trace,
+        ).then((values) => {
+            if (statsRequestRef.current !== requestID || values === null) {
+                return;
+            }
+            setStatsProgress(null);
+            setStatsValues(values);
+            setIsStatsDialogOpen(true);
+        }).catch((error) => {
+            if (statsRequestRef.current !== requestID) {
+                return;
+            }
+            setStatsProgress(null);
+            setStatsError(error instanceof Error ? error.message : String(error));
+            setIsStatsDialogOpen(true);
+        });
+    };
+
+    const closeStatsDialog = () => {
+        setIsStatsDialogOpen(false);
+        setStatsValues(null);
+        setStatsError("");
+    };
+
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (trace === null || event.defaultPrevented) {
+                return;
+            }
+            if (isStatsDialogOpen) {
+                if (event.key === "Escape") {
+                    closeStatsDialog();
+                    event.preventDefault();
+                }
                 return;
             }
             // View panelの入力中は、矢印や記号をCanvas操作として横取りしない。
@@ -360,7 +428,19 @@ export function TraceViewer() {
         };
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [moveHorizontal, moveVertical, trace, zoomAtCenter]);
+    }, [isStatsDialogOpen, moveHorizontal, moveVertical, trace, zoomAtCenter]);
+
+    let statsFilterError = "";
+    let statsRows: Array<[string, number]> = [];
+    if (statsValues !== null) {
+        try {
+            const filter = new RegExp(statsFilter, "i");
+            statsRows = Object.entries(statsValues).filter(([name]) => filter.test(name));
+        }
+        catch (_error) {
+            statsFilterError = "Invalid regular expression.";
+        }
+    }
 
     let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
     if (loadState === "loading") {
@@ -403,6 +483,13 @@ export function TraceViewer() {
                 />
                 <button className="primary-button" type="button" onClick={() => fileInputRef.current?.click()}>
                     Open trace
+                </button>
+                <button
+                    type="button"
+                    disabled={trace === null || loadState === "loading" || statsProgress !== null}
+                    onClick={showStats}
+                >
+                    Stats
                 </button>
                 <div className="zoom-controls" aria-label="Zoom controls">
                     <button type="button" disabled={trace === null} onClick={() => zoomAtCenter(1 / 1.2)} aria-label="Zoom out">
@@ -530,16 +617,16 @@ export function TraceViewer() {
                     </div>
                 </details>
                 <p className={`status status-${loadState}`} role="status">{statusMessage}</p>
-                {loadState === "loading" && (
+                {(loadState === "loading" || statsProgress !== null) && (
                     <div
-                        className="load-progress"
+                        className={`operation-progress ${loadState === "loading" ? "load" : "stats"}`}
                         role="progressbar"
-                        aria-label={`Loading ${fileName}`}
+                        aria-label={loadState === "loading" ? `Loading ${fileName}` : "Calculating statistics"}
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        aria-valuenow={Math.round(progress * 100)}
+                        aria-valuenow={Math.round((loadState === "loading" ? progress : statsProgress ?? 0) * 100)}
                     >
-                        <div style={{ width: `${progress * 100}%` }} />
+                        <div style={{ width: `${(loadState === "loading" ? progress : statsProgress ?? 0) * 100}%` }} />
                     </div>
                 )}
             </header>
@@ -592,6 +679,53 @@ export function TraceViewer() {
                     </pre>
                 )}
             </div>
+            {isStatsDialogOpen && (
+                <div
+                    className="dialog-backdrop"
+                    onMouseDown={(event) => {
+                        if (event.target === event.currentTarget) {
+                            closeStatsDialog();
+                        }
+                    }}
+                >
+                    <section className="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="stats-dialog-title">
+                        <header>
+                            <h2 id="stats-dialog-title">Stats</h2>
+                            <button type="button" aria-label="Close statistics" onClick={closeStatsDialog}>×</button>
+                        </header>
+                        {statsError === "" ? (
+                            <>
+                                <input
+                                    autoFocus
+                                    type="text"
+                                    aria-label="Filter statistics"
+                                    placeholder="Filter pattern for 'Name' column"
+                                    value={statsFilter}
+                                    onChange={(event) => setStatsFilter(event.target.value)}
+                                />
+                                {statsFilterError !== "" && <p className="stats-error">{statsFilterError}</p>}
+                                <div className="stats-table-container">
+                                    <table>
+                                        <thead>
+                                            <tr><th>Name</th><th>Value</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {statsRows.map(([name, value]) => (
+                                                <tr key={name}><td>{name}</td><td>{String(value)}</td></tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        ) : (
+                            <p className="stats-error">{statsError}</p>
+                        )}
+                        <footer>
+                            <button type="button" onClick={closeStatsDialog}>OK</button>
+                        </footer>
+                    </section>
+                </div>
+            )}
         </main>
     );
 }

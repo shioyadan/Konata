@@ -265,7 +265,7 @@ button:disabled {
     font-size: 0.9rem;
 }
 
-.load-progress {
+.operation-progress {
     position: absolute;
     z-index: 100;
     right: 0;
@@ -275,9 +275,115 @@ button:disabled {
     pointer-events: none;
 }
 
-.load-progress div {
+.operation-progress div {
     height: 100%;
+}
+
+.operation-progress.load div {
     background: hsl(220 100% 65%);
+}
+
+.operation-progress.stats div {
+    background: hsl(20 50% 65%);
+}
+
+.dialog-backdrop {
+    position: fixed;
+    z-index: 30;
+    inset: 0;
+    display: grid;
+    padding: 1.5rem;
+    background: rgb(0 0 0 / 55%);
+    place-items: center;
+}
+
+.stats-dialog {
+    display: flex;
+    width: min(42rem, 100%);
+    max-height: min(44rem, 90vh);
+    flex-direction: column;
+    gap: 0.8rem;
+    padding: 1rem;
+    border: 1px solid #535866;
+    border-radius: 0.4rem;
+    background: #292c35;
+    box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 45%);
+    color: #f2f3f5;
+    user-select: text;
+}
+
+.stats-dialog > header,
+.stats-dialog > footer {
+    display: flex;
+    align-items: center;
+}
+
+.stats-dialog > header {
+    justify-content: space-between;
+}
+
+.stats-dialog h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.stats-dialog > header button {
+    padding: 0.1rem 0.5rem;
+    border: 0;
+    background: transparent;
+    font-size: 1.25rem;
+}
+
+.stats-dialog > input {
+    width: 100%;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid #535866;
+    border-radius: 0.25rem;
+    background: #303440;
+    color: #f2f3f5;
+    font: inherit;
+}
+
+.stats-table-container {
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid #464b58;
+}
+
+.stats-dialog table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+}
+
+.stats-dialog th,
+.stats-dialog td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid #3d414c;
+    text-align: left;
+}
+
+.stats-dialog th {
+    position: sticky;
+    top: 0;
+    background: #343844;
+}
+
+.stats-dialog tbody tr:nth-child(even) {
+    background: rgb(255 255 255 / 4%);
+}
+
+.stats-dialog td:last-child {
+    font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.stats-dialog > footer {
+    justify-content: flex-end;
+}
+
+.stats-error {
+    margin: 0;
+    color: #ff9a91;
 }
 
 .trace-app.is-dragging-file::after {
@@ -374,6 +480,40 @@ button:disabled {
 
 .theme-light .empty-state span {
     color: #555;
+}
+
+.theme-light .stats-dialog {
+    border-color: #999;
+    background: #f4f4f4;
+    box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 30%);
+    color: #222;
+}
+
+.theme-light .stats-dialog > input {
+    border-color: #999;
+    background: #fff;
+    color: #222;
+}
+
+.theme-light .stats-table-container {
+    border-color: #bbb;
+}
+
+.theme-light .stats-dialog th,
+.theme-light .stats-dialog td {
+    border-bottom-color: #ccc;
+}
+
+.theme-light .stats-dialog th {
+    background: #e4e4e4;
+}
+
+.theme-light .stats-dialog tbody tr:nth-child(even) {
+    background: rgb(0 0 0 / 4%);
+}
+
+.theme-light .stats-error {
+    color: #a20f0f;
 }
 
 @media (max-width: 720px) {

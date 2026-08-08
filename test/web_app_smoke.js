@@ -212,6 +212,58 @@ async function run() {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
 
+    // 旧Stats dialogと同じName/Value表を開き、正規表現filterとclose操作まで確認する。
+    const statsState = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+        const button = [...document.querySelectorAll(".app-toolbar button")]
+            .find((candidate) => candidate.textContent?.trim() === "Stats");
+        if (!(button instanceof HTMLButtonElement)) {
+            throw new Error("The Stats button was not found.");
+        }
+        button.click();
+        const deadline = performance.now() + 5000;
+        const check = () => {
+            const dialog = document.querySelector('[role="dialog"]');
+            if (dialog instanceof HTMLElement) {
+                const rows = [...dialog.querySelectorAll("tbody tr")];
+                const fetchedRow = rows.find((row) => row.firstElementChild?.textContent === "numFetchedOps");
+                const filter = dialog.querySelector('input[aria-label="Filter statistics"]');
+                if (!(filter instanceof HTMLInputElement)) {
+                    reject(new Error("The statistics filter was not found."));
+                    return;
+                }
+                const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+                valueSetter?.call(filter, "numFlush");
+                filter.dispatchEvent(new Event("input", {bubbles: true}));
+                requestAnimationFrame(() => {
+                    const filteredNames = [...dialog.querySelectorAll("tbody tr td:first-child")]
+                        .map((cell) => cell.textContent);
+                    dialog.querySelector("footer button")?.click();
+                    requestAnimationFrame(() => resolve({
+                        title: dialog.querySelector("h2")?.textContent ?? null,
+                        initialRowCount: rows.length,
+                        fetchedValue: fetchedRow?.lastElementChild?.textContent ?? null,
+                        filteredNames,
+                        closed: document.querySelector('[role="dialog"]') === null
+                    }));
+                });
+                return;
+            }
+            if (performance.now() >= deadline) {
+                reject(new Error("Timed out while waiting for the statistics dialog."));
+                return;
+            }
+            setTimeout(check, 10);
+        };
+        check();
+    })`);
+    if (statsState.title !== "Stats" ||
+        statsState.initialRowCount !== 24 ||
+        statsState.fetchedValue !== "1" ||
+        JSON.stringify(statsState.filteredNames) !== JSON.stringify(["numFlush", "numFlushedOps"]) ||
+        !statsState.closed) {
+        throw new Error(`Statistics dialog is incomplete: ${JSON.stringify(statsState)}`);
+    }
+
     // 実Canvas上のpointer位置をRendererへ渡し、旧版と同じcycle/op/stage tooltipを表示する。
     const toolTipText = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const canvas = document.querySelector(".pipeline-pane canvas");
