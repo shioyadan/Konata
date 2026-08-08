@@ -554,7 +554,6 @@ export function TraceViewer() {
                 onPointerCancel={handlePointerUp}
             >
                 <section className="viewer-pane label-pane" aria-label="Instruction labels">
-                    <div className="pane-title">Instructions</div>
                     <canvas
                         ref={labelCanvasRef}
                         aria-label="Instruction labels canvas"
@@ -567,7 +566,6 @@ export function TraceViewer() {
                     </canvas>
                 </section>
                 <section className="viewer-pane pipeline-pane" aria-label="Pipeline chart">
-                    <div className="pane-title">Pipeline</div>
                     <canvas
                         ref={pipelineCanvasRef}
                         aria-label="Pipeline canvas"

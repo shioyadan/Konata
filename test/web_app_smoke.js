@@ -179,11 +179,14 @@ async function run() {
     // Reactの初期描画とCSS適用を、file読み込み前にも独立して確認する。
     const initialState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => {
+            const openButton = document.querySelector(".primary-button");
             resolve({
                 title: document.title,
                 headingCount: document.querySelectorAll(".app-toolbar h1").length,
                 status: document.querySelector(".status")?.textContent ?? null,
                 rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
+                paneTitleCount: document.querySelectorAll(".pane-title").length,
+                openButtonColor: openButton === null ? null : getComputedStyle(openButton).backgroundColor,
                 canvasCount: document.querySelectorAll(".viewer canvas").length
             });
         }));
@@ -192,6 +195,8 @@ async function run() {
         initialState.headingCount !== 0 ||
         initialState.status !== "Open or drop a Kanata or gem5 O3PipeView trace." ||
         initialState.rootChildCount !== 1 ||
+        initialState.paneTitleCount !== 0 ||
+        initialState.openButtonColor !== "rgb(52, 74, 100)" ||
         initialState.canvasCount !== 2) {
         throw new Error(`React initialization is incomplete: ${JSON.stringify(initialState)}`);
     }

@@ -69,13 +69,14 @@ button:disabled {
 }
 
 .primary-button {
-    border-color: #c85228;
-    background: #a8401d;
+    border-color: #506783;
+    background: #344a64;
     font-weight: 650;
 }
 
 .primary-button:hover:not(:disabled) {
-    background: #bd4a22;
+    border-color: #627d9e;
+    background: #405a78;
 }
 
 .zoom-controls {
@@ -203,7 +204,6 @@ button:disabled {
     position: relative;
     min-width: 0;
     min-height: 0;
-    padding-top: 1.75rem;
     overflow: hidden;
 }
 
@@ -214,23 +214,6 @@ button:disabled {
 
 .pipeline-pane {
     background: #262930;
-}
-
-.pane-title {
-    position: absolute;
-    z-index: 1;
-    top: 0;
-    right: 0;
-    left: 0;
-    height: 1.75rem;
-    padding: 0.3rem 0.55rem;
-    border-bottom: 1px solid #4b505d;
-    background: #292c35;
-    color: #aeb4c0;
-    font-size: 0.78rem;
-    font-weight: 650;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
 }
 
 .viewer canvas {
@@ -259,7 +242,7 @@ button:disabled {
 .empty-state {
     position: absolute;
     z-index: 2;
-    top: 1.75rem;
+    top: 0;
     right: 0;
     bottom: 0;
     left: 0;
@@ -382,12 +365,6 @@ button:disabled {
 
 .theme-light .pipeline-pane {
     background: #fff;
-}
-
-.theme-light .pane-title {
-    border-bottom-color: #ccc;
-    background: #e8e8e8;
-    color: #333;
 }
 
 .theme-light .empty-state {
