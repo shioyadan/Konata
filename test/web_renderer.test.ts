@@ -1,53 +1,161 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Lane, Op, Stage } from "../src/core/model";
-import { calculateStageRect, formatOpLabel } from "../src/renderer/konata_renderer";
+import { Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
+import { ArrayOpStore } from "../src/core/op_store";
+import { formatOpLabel, KonataRenderer } from "../src/renderer/konata_renderer";
 
-function createRenderedOp(): { op: Op; stage: Stage } {
+interface RecordedGradient {
+    readonly points: [number, number, number, number];
+    readonly stops: Array<[number, string]>;
+}
+
+interface RecordedContext {
+    readonly fillTexts: Array<[string, number, number]>;
+    readonly gradients: RecordedGradient[];
+    readonly context: CanvasRenderingContext2D;
+}
+
+function createRecordedContext(): RecordedContext {
+    const fillTexts: Array<[string, number, number]> = [];
+    const gradients: RecordedGradient[] = [];
+    const context = {
+        fillStyle: "",
+        strokeStyle: "",
+        lineWidth: 1,
+        font: "",
+        setTransform() {},
+        fillRect() {},
+        strokeRect() {},
+        beginPath() {},
+        moveTo() {},
+        lineTo() {},
+        bezierCurveTo() {},
+        stroke() {},
+        fill() {},
+        fillText(text: string, x: number, y: number) {
+            fillTexts.push([text, x, y]);
+        },
+        createLinearGradient(x0: number, y0: number, x1: number, y1: number) {
+            const gradient: RecordedGradient = { points: [x0, y0, x1, y1], stops: [] };
+            gradients.push(gradient);
+            return {
+                addColorStop(offset: number, color: string) {
+                    gradient.stops.push([offset, color]);
+                },
+            };
+        },
+    } as unknown as CanvasRenderingContext2D;
+    return { fillTexts, gradients, context };
+}
+
+function createCanvas(context: CanvasRenderingContext2D, width = 320, height = 96): HTMLCanvasElement {
+    return {
+        width,
+        height,
+        clientWidth: width,
+        clientHeight: height,
+        getContext: (type: string) => type === "2d" ? context : null,
+    } as unknown as HTMLCanvasElement;
+}
+
+function createTrace(): { trace: ParsedTrace; op: Op; stage: Stage } {
     const op = new Op();
-    op.id = 3;
+    op.id = 0;
     op.gid = 100;
-    op.rid = 2;
+    op.rid = 0;
     op.tid = 1;
-    op.labelName = "add x1, x2, x3";
+    op.retired = true;
+    op.fetchedCycle = 2;
     op.retiredCycle = 9;
+    op.line = 12;
+    op.labelName = "add x1, x2, x3";
+    op.labelDetail = "detail";
 
     const stage = new Stage();
     stage.name = "X";
+    stage.labels = "executing";
     stage.startCycle = 2;
     stage.endCycle = 5;
     const lane = new Lane();
     lane.stages.push(stage);
     op.lanes.set("0", lane);
-    return { op, stage };
+
+    const levelMap = new StageLevelMap();
+    levelMap.update("0", "X", lane);
+    const store = new ArrayOpStore();
+    store.setOp(0, op);
+    store.setRetiredOp(0, op);
+    return {
+        trace: new ParsedTrace("trace.log", store, new Set(["0"]), levelMap, 9),
+        op,
+        stage,
+    };
 }
 
 test("Web renderer keeps the legacy instruction label format", () => {
-    const { op } = createRenderedOp();
+    const { op } = createTrace();
     // 左paneはfile-local ID、global ID、thread、retire ID、命令ラベルの順で表示する。
-    // 検索結果やスクリーンショットを見比べやすいよう、旧Rendererの空白と記号も維持する。
-    assert.equal(formatOpLabel(op.id, op), "3: s100 (t1: r2): add x1, x2, x3");
+    assert.equal(formatOpLabel(op.id, op), "0: s100 (t1: r0): add x1, x2, x3");
 });
 
-test("Web renderer maps cycles and op IDs to legacy stage coordinates", () => {
-    const { op, stage } = createRenderedOp();
-    // 旧Rendererのscale=1は32px/cycle、24px/op。cycle 2から5のXは
-    // viewport (cycle=1, op=2) から見てx=32、y=25、幅96になる。
-    assert.deepEqual(calculateStageRect(op, stage, 1, 2, 1), {
-        left: 32,
-        top: 25,
-        width: 96,
-        height: 22,
-    });
+test("Web renderer draws stage names and elapsed cycles like the legacy renderer", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    renderer.setTrace(trace);
+    const label = createRecordedContext();
+    const pipeline = createRecordedContext();
 
-    // EのないstageはretiredCycleまで描き、短いstageも最低1pxを確保する。
-    stage.startCycle = 9;
-    stage.endCycle = 0;
-    assert.deepEqual(calculateStageRect(op, stage, 9, 3, 0.5), {
-        left: 0,
-        top: 0.5,
-        width: 1,
-        height: 11,
-    });
+    renderer.draw(createCanvas(label.context), createCanvas(pipeline.context));
+
+    // 3-cycleのX stageは先頭にX、後続cycleに1と2を個別に表示する。
+    assert.deepEqual(
+        pipeline.fillTexts.map(([text]) => text).sort(),
+        ["1", "2", "X"],
+    );
+    // 色はcycle方向ではなく、旧Rendererと同じstage上端から下端へのgradientにする。
+    assert.deepEqual(pipeline.gradients[0]?.points, [0, 0.5, 0, 24.5]);
+    assert.equal(pipeline.gradients[0]?.stops.length, 2);
+});
+
+test("Web renderer preserves legacy zoom levels and lane heights", () => {
+    const { trace, op } = createTrace();
+    const secondLane = new Lane();
+    const secondStage = new Stage();
+    secondStage.name = "Wb";
+    secondStage.startCycle = 5;
+    secondStage.endCycle = 6;
+    secondLane.stages.push(secondStage);
+    op.lanes.set("1", secondLane);
+    trace.stageLevelMap.update("1", "Wb", secondLane);
+
+    const renderer = new KonataRenderer();
+    renderer.setTrace(trace);
+    renderer.zoomAt(1.2, 0, 0);
+    assert.equal(renderer.zoomLevel, -1);
+    assert.equal(renderer.zoomPercent, 200);
+    renderer.zoomAt(1 / 1.2, 0, 0);
+    assert.equal(renderer.zoomLevel, 0);
+    assert.equal(renderer.zoomPercent, 100);
+
+    // lane分割時は既定でlane数に応じて命令行を高くし、高さ固定時だけ24pxへ戻す。
+    renderer.splitLanes = true;
+    assert.equal(renderer.opHeight, 48);
+    renderer.fixOpHeight = true;
+    assert.equal(renderer.opHeight, 24);
+});
+
+test("Web renderer preserves legacy tooltip contents", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    renderer.setTrace(trace);
+
+    const labelText = renderer.getLabelToolTipText(0);
+    assert.match(labelText ?? "", /Line: \t\t12/);
+    assert.match(labelText ?? "", /Serial ID:\t100/);
+
+    // cycle 3はX stageの2cycle目なので、stage長3とstage labelを表示する。
+    const pipelineText = renderer.getPipelineToolTipText(3 * KonataRenderer.OP_W, 0);
+    assert.match(pipelineText ?? "", /^\[3, 0\] X\[3\]/);
+    assert.match(pipelineText ?? "", /X: executing/);
 });

@@ -170,13 +170,13 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
-    // toolbar操作もRendererへ届き、表示倍率とCanvasが再描画されることを確認する。
+    // toolbar操作もRendererへ届き、旧Rendererの1段階zoom（100%→200%）で再描画されることを確認する。
     await window.webContents.executeJavaScript(`new Promise((resolve) => {
         document.querySelector('button[aria-label="Zoom in"]')?.click();
         requestAnimationFrame(() => requestAnimationFrame(resolve));
     })`);
     const zoomedState = await readRenderedState(window);
-    if (zoomedState.zoom !== "120%" || zoomedState.nonBackgroundPixels < 100) {
+    if (zoomedState.zoom !== "200%" || zoomedState.nonBackgroundPixels < 100) {
         throw new Error(`Zoom rendering is incomplete: ${JSON.stringify(zoomedState)}`);
     }
 
