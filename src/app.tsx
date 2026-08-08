@@ -111,8 +111,8 @@ export function App() {
 
     const loadFile = useCallback(async (file: File) => {
         const requestID = ++loadRequestRef.current;
-        resetStats();
-        resetSearch();
+        // 新しい入力用の空のsheetへ切り替え、旧partial traceもここで解放する。
+        replaceTrace(null);
         setLoadState("loading");
         setFileName(file.name);
         setProgress(0);
@@ -124,22 +124,39 @@ export function App() {
                     setProgress(value);
                 }
             };
+            const updateTrace = (partialTrace: ParsedTrace) => {
+                if (loadRequestRef.current !== requestID) {
+                    return;
+                }
+                if (traceRef.current !== partialTrace) {
+                    // 形式確定時だけ同じstoreを持つtraceへ切り替え、以後は再描画だけを行う。
+                    replaceTrace(partialTrace);
+                }
+                else {
+                    setRenderVersion((version) => version + 1);
+                }
+            };
             let parsedTrace: ParsedTrace;
             try {
-                parsedTrace = await new OnikiriParser().parse(file, updateProgress);
+                parsedTrace = await new OnikiriParser().parse(file, updateProgress, updateTrace);
             }
             catch (error) {
                 // 現行版と同じ順序で試し、Kanataとして不正な入力だけをgem5へ渡す。
                 if (!(error instanceof Error) || error.message !== "The selected file is not a Kanata trace.") {
                     throw error;
                 }
-                parsedTrace = await new Gem5O3PipeViewParser().parse(file, updateProgress);
+                parsedTrace = await new Gem5O3PipeViewParser().parse(file, updateProgress, updateTrace);
             }
             if (loadRequestRef.current !== requestID) {
                 parsedTrace.close();
                 return;
             }
-            replaceTrace(parsedTrace);
+            if (traceRef.current !== parsedTrace) {
+                replaceTrace(parsedTrace);
+            }
+            else {
+                setRenderVersion((version) => version + 1);
+            }
             setProgress(1);
             setLoadState("ready");
         }
@@ -151,7 +168,7 @@ export function App() {
             setLoadState("error");
             setErrorMessage(error instanceof Error ? error.message : String(error));
         }
-    }, [replaceTrace, resetSearch, resetStats]);
+    }, [replaceTrace]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];

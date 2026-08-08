@@ -103,3 +103,51 @@ test("Web Onikiri parser rejects an ID redefined after retirement", async () => 
         /0 is redefined by an I command/,
     );
 });
+
+test("Web Onikiri parser does not publish a trace before accepting its header", async () => {
+    let updateCount = 0;
+    await assert.rejects(
+        new OnikiriParser().parse(
+            new File(["O3PipeView:fetch:1000"], "gem5.log", { type: "text/plain" }),
+            undefined,
+            () => updateCount++,
+        ),
+        /not a Kanata trace/,
+    );
+    // gem5へのfallback前に空のKanata traceが一瞬表示されないことを固定する。
+    assert.equal(updateCount, 0);
+});
+
+test("Web Onikiri parser publishes one live trace while loading", async () => {
+    const lines = [
+        "Kanata\t0004",
+        "I\t0\t10\t0",
+        "S\t0\t0\tF",
+        "C\t1",
+        "R\t0\t0\t0",
+    ];
+    // FileLineReaderが途中経過を通知する8,192行まで埋め、EOFより前のstore状態を観測する。
+    while (lines.length < 8192) {
+        lines.push("C\t0");
+    }
+    lines.push("I\t1\t11\t0", "S\t1\t0\tF", "C\t1", "R\t1\t1\t0");
+
+    const updates: Array<{ trace: object; opCount: number; lastCycle: number }> = [];
+    const trace = await new OnikiriParser().parse(
+        new File([lines.join("\n")], "incremental.log", { type: "text/plain" }),
+        undefined,
+        (partialTrace) => updates.push({
+            trace: partialTrace,
+            opCount: partialTrace.opCount,
+            lastCycle: partialTrace.lastCycle,
+        }),
+    );
+
+    // header受理時、8,192行時、EOF時のいずれも同じtrace/storeを段階更新する。
+    assert.ok(updates.length >= 3);
+    assert.ok(updates.every((update) => update.trace === trace));
+    assert.equal(updates[0].opCount, 0);
+    assert.ok(updates.some((update) => update.opCount === 1 && update.lastCycle === 1));
+    assert.equal(updates.at(-1)?.opCount, 2);
+    assert.equal(trace.lastCycle, 2);
+});

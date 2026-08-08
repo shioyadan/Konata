@@ -125,6 +125,95 @@ async function dropFixture(window, fixturePath, mimeType, verifyProgressBar = fa
     })`);
 }
 
+async function verifyIncrementalRendering(window) {
+    return window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+        const firstLines = [
+            "Kanata\\t0004",
+            "I\\t0\\t10\\t0",
+            "S\\t0\\t0\\tF",
+            "C\\t1",
+            "R\\t0\\t0\\t0"
+        ];
+        // 8,192行目の進捗通知で1命令を描画し、残りの入力は観測できる時間だけ遅らせる。
+        while (firstLines.length < 8192) {
+            firstLines.push("C\\t0");
+        }
+        const firstText = firstLines.join("\\n") + "\\n";
+        const secondText = [
+            "I\\t1\\t11\\t0",
+            "S\\t1\\t0\\tF",
+            "C\\t1",
+            "R\\t1\\t1\\t0"
+        ].join("\\n");
+        const file = new File([firstText, secondText], "incremental.log", {type: "text/plain"});
+        const encoder = new TextEncoder();
+        const chunks = [encoder.encode(firstText), encoder.encode(secondText)];
+
+        // browserのFile APIは維持し、検査時だけ2番目のchunk到着を遅らせる。
+        Object.defineProperty(file, "stream", {value: () => {
+            let index = 0;
+            return new ReadableStream({
+                async pull(controller) {
+                    if (index >= chunks.length) {
+                        controller.close();
+                        return;
+                    }
+                    if (index === 1) {
+                        await new Promise((done) => setTimeout(done, 300));
+                    }
+                    controller.enqueue(chunks[index]);
+                    index++;
+                }
+            });
+        }});
+
+        const target = document.querySelector(".trace-app");
+        if (target === null) {
+            reject(new Error("The trace drop target was not found."));
+            return;
+        }
+        const event = new Event("drop", {bubbles: true, cancelable: true});
+        Object.defineProperty(event, "dataTransfer", {value: {files: [file]}});
+        target.dispatchEvent(event);
+
+        const deadline = performance.now() + 5000;
+        let partialPixels = 0;
+        const check = () => {
+            const root = document.querySelector(".trace-app");
+            const state = root?.dataset.loadState;
+            const opCount = Number(root?.dataset.opCount ?? -1);
+            if (state === "loading" && opCount === 1 && partialPixels === 0) {
+                const canvas = document.querySelector(".pipeline-pane canvas");
+                if (canvas instanceof HTMLCanvasElement) {
+                    const context = canvas.getContext("2d");
+                    const pixels = context?.getImageData(0, 0, canvas.width, canvas.height).data;
+                    if (pixels !== undefined) {
+                        for (let index = 0; index < pixels.length; index += 4) {
+                            if (pixels[index] !== 38 || pixels[index + 1] !== 41 || pixels[index + 2] !== 48) {
+                                partialPixels++;
+                            }
+                        }
+                    }
+                }
+            }
+            if (state === "ready" && opCount === 2) {
+                resolve({partialPixels, finalOpCount: opCount});
+                return;
+            }
+            if (state === "error") {
+                reject(new Error(document.querySelector(".status")?.textContent ?? "Trace loading failed."));
+                return;
+            }
+            if (performance.now() >= deadline) {
+                reject(new Error("Timed out while waiting for incremental rendering."));
+                return;
+            }
+            setTimeout(check, 5);
+        };
+        check();
+    })`);
+}
+
 async function readRenderedState(window) {
     return window.webContents.executeJavaScript(`(() => {
         const root = document.querySelector(".trace-app");
@@ -199,6 +288,11 @@ async function run() {
         initialState.openButtonColor !== "rgb(52, 74, 100)" ||
         initialState.canvasCount !== 2) {
         throw new Error(`React initialization is incomplete: ${JSON.stringify(initialState)}`);
+    }
+
+    const incrementalState = await verifyIncrementalRendering(window);
+    if (incrementalState.partialPixels < 100 || incrementalState.finalOpCount !== 2) {
+        throw new Error(`Incremental trace rendering is incomplete: ${JSON.stringify(incrementalState)}`);
     }
 
     const plainFixture = path.join(__dirname, "fixtures", "kanata-basic.txt");

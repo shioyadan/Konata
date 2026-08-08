@@ -70,10 +70,28 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
 test("Web gem5 parser rejects input without O3PipeView records", async () => {
     // 上位の形式フォールバックが判別できる英語errorを返し、空のtraceとして受理しない。
     const file = new File(["ordinary log line\n"], "ordinary.log", { type: "text/plain" });
+    let updateCount = 0;
     await assert.rejects(
-        new Gem5O3PipeViewParser().parse(file),
+        new Gem5O3PipeViewParser().parse(file, undefined, () => updateCount++),
         /not a gem5 O3PipeView trace/,
     );
+    // O3PipeView recordを確認するまでは、fallback対象の空traceを画面へ公開しない。
+    assert.equal(updateCount, 0);
+});
+
+test("Web gem5 parser publishes one trace only after detecting its format", async () => {
+    const partialTraces: object[] = [];
+    const trace = await new Gem5O3PipeViewParser().parse(
+        fileFromFixture("test/fixtures/gem5-basic.txt"),
+        undefined,
+        (partialTrace) => partialTraces.push(partialTrace),
+    );
+
+    // 最初のO3PipeView recordと最終drainで、同じstoreを持つtraceだけを通知する。
+    assert.ok(partialTraces.length >= 2);
+    assert.ok(partialTraces.every((partialTrace) => partialTrace === trace));
+    assert.equal(trace.opCount, 1);
+    assert.equal(trace.lastCycle, 6);
 });
 
 test("Web gem5 parser reorders sequence numbers and keeps flushed operations", async () => {

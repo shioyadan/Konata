@@ -112,8 +112,17 @@ export class ParsedTrace {
         readonly opStore: OpStore,
         readonly laneNames: ReadonlySet<string>,
         readonly stageLevelMap: StageLevelMap,
-        readonly lastCycle: number,
+        private lastCycle_: number,
     ) {}
+
+    get lastCycle(): number {
+        return this.lastCycle_;
+    }
+
+    // 読み込み途中も同じtraceをRendererへ渡すため、Parserが確定済みcycleを更新する。
+    updateLastCycle(lastCycle: number): void {
+        this.lastCycle_ = lastCycle;
+    }
 
     get lastID(): number {
         return this.opStore.lastID;
@@ -139,3 +148,5 @@ export class ParsedTrace {
         this.opStore.close();
     }
 }
+
+export type TraceUpdateCallback = (trace: ParsedTrace) => void;

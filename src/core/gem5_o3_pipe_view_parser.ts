@@ -1,5 +1,13 @@
 import { FileLineReader, type ProgressCallback } from "./file_line_reader";
-import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "./model";
+import {
+    Dependency,
+    Lane,
+    Op,
+    ParsedTrace,
+    Stage,
+    StageLevelMap,
+    type TraceUpdateCallback,
+} from "./model";
 import { ArrayOpStore, type MutableOpStore } from "./op_store";
 
 class Gem5O3PipeViewExLogInfo {
@@ -58,10 +66,37 @@ export class Gem5O3PipeViewParser {
 
     constructor(private readonly opStore_: MutableOpStore = new ArrayOpStore()) {}
 
-    async parse(file: File, onProgress?: ProgressCallback): Promise<ParsedTrace> {
+    async parse(
+        file: File,
+        onProgress?: ProgressCallback,
+        onUpdate?: TraceUpdateCallback,
+    ): Promise<ParsedTrace> {
         const reader = new FileLineReader(file);
-        for await (const line of reader.lines(onProgress)) {
+        const trace = new ParsedTrace(
+            file.name,
+            this.opStore_,
+            this.laneNames_,
+            this.stageLevelMap_,
+            this.currentCycle_,
+        );
+        let formatPublished = false;
+        const updateTrace = () => {
+            trace.updateLastCycle(this.currentCycle_);
+            onUpdate?.(trace);
+        };
+
+        for await (const line of reader.lines((progress) => {
+            onProgress?.(progress);
+            if (formatPublished) {
+                updateTrace();
+            }
+        })) {
             this.parseLine_(line);
+            if (!formatPublished && this.isGem5O3PipeView_) {
+                // 最初のO3PipeView recordまでは追加ログの可能性があり、形式確定後だけ公開する。
+                formatPublished = true;
+                updateTrace();
+            }
         }
         if (reader.canceled) {
             throw new Error("File loading was canceled.");
@@ -77,13 +112,8 @@ export class Gem5O3PipeViewParser {
         this.parsingExLogs_.clear();
         this.dependencyTable_.clear();
 
-        return new ParsedTrace(
-            file.name,
-            this.opStore_,
-            new Set(this.laneNames_),
-            this.stageLevelMap_,
-            this.currentCycle_,
-        );
+        updateTrace();
+        return trace;
     }
 
     private parseLine_(line: string): void {
