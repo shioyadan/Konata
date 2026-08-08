@@ -11,7 +11,7 @@ import {
     useState,
 } from "react";
 
-import type { ParsedTrace } from "../core/model";
+import type { Op, ParsedTrace } from "../core/model";
 import { Gem5O3PipeViewParser } from "../core/gem5_o3_pipe_view_parser";
 import { OnikiriParser } from "../core/onikiri_parser";
 import { calculateStats, type StatsValues } from "../core/stats";
@@ -35,6 +35,19 @@ interface CanvasToolTip {
     text: string;
 }
 
+interface FindResult {
+    readonly targetPattern: string;
+    readonly foundString: string;
+    readonly op: Op;
+    readonly anchorOp: Op;
+    readonly flushed: boolean;
+}
+
+interface HighlightedText {
+    readonly text: string;
+    readonly matched: boolean;
+}
+
 type DrawingThreshold =
     | "drawTextThreshold"
     | "drawDetailedlyThreshold"
@@ -49,16 +62,63 @@ const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawFrameThreshold", "Frames"],
 ];
 
+const COMMAND_HINTS: ReadonlyArray<readonly [string, string]> = [
+    ["Jump to #line", "j  <#line>"],
+    ["Jump to an op with rid", "jr <rid>"],
+    ["Find a string ('F3' key finds next)", "f  <string>"],
+    ["Load a file", "l"],
+];
+
+// 旧Storeと同じく、命令の見出し・詳細・全stage labelを正規表現検索の対象にする。
+function makeFindTargetString(op: Op): string {
+    let labelString =
+        `${op.id}: s${op.gid} (t${op.tid}: r${op.rid}) ${op.labelName}\n${op.labelDetail}`;
+    for (const lane of op.lanes.values()) {
+        for (const stage of lane.stages) {
+            if (stage.labels !== "") {
+                labelString += `\n${stage.labels}`;
+            }
+        }
+    }
+    return labelString;
+}
+
+function highlightMatches(line: string, pattern: string): HighlightedText[] {
+    const parts: HighlightedText[] = [];
+    let position = 0;
+    for (const match of line.matchAll(new RegExp(pattern, "g"))) {
+        const matchPosition = match.index;
+        const matchedText = match[0];
+        // 空文字への一致には着色する文字がないが、matchAll自体は次へ進む。
+        if (matchedText === "") {
+            continue;
+        }
+        if (position < matchPosition) {
+            parts.push({ text: line.slice(position, matchPosition), matched: false });
+        }
+        parts.push({ text: matchedText, matched: true });
+        position = matchPosition + matchedText.length;
+    }
+    if (position < line.length || parts.length === 0) {
+        parts.push({ text: line.slice(position), matched: false });
+    }
+    return parts;
+}
+
 export function TraceViewer() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
+    const commandInputRef = useRef<HTMLInputElement>(null);
     const rendererRef = useRef(new KonataRenderer());
     const traceRef = useRef<ParsedTrace | null>(null);
     // 複数ファイルが続けて選ばれた場合、遅く完了した旧requestで表示を上書きしない。
     const loadRequestRef = useRef(0);
     const statsRequestRef = useRef(0);
+    const searchRequestRef = useRef(0);
+    const commandHistoryRef = useRef<string[]>([]);
+    const commandHistoryIndexRef = useRef(-1);
     const dragPositionRef = useRef<DragPosition | null>(null);
 
     const [trace, setTrace] = useState<ParsedTrace | null>(null);
@@ -74,6 +134,11 @@ export function TraceViewer() {
     const [statsFilter, setStatsFilter] = useState("");
     const [statsError, setStatsError] = useState("");
     const [isStatsDialogOpen, setIsStatsDialogOpen] = useState(false);
+    const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+    const [command, setCommand] = useState("");
+    const [commandMessage, setCommandMessage] = useState("");
+    const [searchProgress, setSearchProgress] = useState<number | null>(null);
+    const [findResult, setFindResult] = useState<FindResult | null>(null);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
 
@@ -93,17 +158,27 @@ export function TraceViewer() {
         setIsStatsDialogOpen(false);
     }, []);
 
+    const resetSearch = useCallback(() => {
+        searchRequestRef.current++;
+        setSearchProgress(null);
+        setFindResult(null);
+        setCommandMessage("");
+        setIsCommandPaletteOpen(false);
+    }, []);
+
     const replaceTrace = useCallback((nextTrace: ParsedTrace | null) => {
         // 旧traceの集計結果を新しいfileへ表示しないよう、進行中のrequestもここで無効化する。
         resetStats();
+        resetSearch();
         // 将来の圧縮pageやWorkerもtab切替時に解放できるよう、storeのcloseをここへ集約する。
         traceRef.current?.close();
         traceRef.current = nextTrace;
         setTrace(nextTrace);
-    }, [resetStats]);
+    }, [resetSearch, resetStats]);
 
     useEffect(() => () => {
         statsRequestRef.current++;
+        searchRequestRef.current++;
         // StrictModeの初回cleanup時点ではまだtraceがなく、実際のunmountでは最新traceを閉じる。
         traceRef.current?.close();
         traceRef.current = null;
@@ -130,9 +205,19 @@ export function TraceViewer() {
         redraw();
     }, [redraw, renderVersion]);
 
+    useEffect(() => {
+        if (!isCommandPaletteOpen) {
+            return;
+        }
+        const input = commandInputRef.current;
+        input?.focus();
+        input?.setSelectionRange(input.value.length, input.value.length);
+    }, [isCommandPaletteOpen]);
+
     const loadFile = useCallback(async (file: File) => {
         const requestID = ++loadRequestRef.current;
         resetStats();
+        resetSearch();
         setLoadState("loading");
         setFileName(file.name);
         setProgress(0);
@@ -171,7 +256,7 @@ export function TraceViewer() {
             setLoadState("error");
             setErrorMessage(error instanceof Error ? error.message : String(error));
         }
-    }, [replaceTrace, resetStats]);
+    }, [replaceTrace, resetSearch, resetStats]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -196,6 +281,186 @@ export function TraceViewer() {
         setToolTip(null);
         setRenderVersion((version) => version + 1);
     }, []);
+
+    const openCommandPalette = useCallback((initialCommand: string) => {
+        if (isStatsDialogOpen) {
+            return;
+        }
+        commandHistoryIndexRef.current = -1;
+        setCommand(initialCommand);
+        setCommandMessage("");
+        setIsCommandPaletteOpen(true);
+    }, [isStatsDialogOpen]);
+
+    const findString = useCallback((target: string, basePosition: number, reverse: boolean): void => {
+        let targetPattern: RegExp;
+        try {
+            targetPattern = new RegExp(target);
+        }
+        catch (error) {
+            setCommandMessage(`"${target}" is an invalid regular expression. ${String(error)}`);
+            return;
+        }
+
+        const activeTrace = traceRef.current;
+        if (activeTrace === null) {
+            setCommandMessage("No trace is open.");
+            return;
+        }
+
+        const requestID = ++searchRequestRef.current;
+        setSearchProgress(0);
+        setFindResult(null);
+        setCommandMessage("");
+
+        void (async () => {
+            // 旧検索と同じく現在位置の次から始め、末尾では先頭へ折り返す。
+            const lastOpID = activeTrace.lastID;
+            let current = basePosition;
+            // WebモデルのlastIDは最大IDを含むため、旧処理の意図どおり全IDを巡回できる境界にする。
+            if (current < 0 || current > lastOpID) {
+                current = 0;
+            }
+
+            const sleepPeriod = 1024 * 8;
+            let previousSleepTime = Date.now();
+            const startTime = previousSleepTime;
+            let foundOp: Op | undefined;
+
+            for (let index = 0; index <= lastOpID; index++) {
+                current += reverse ? -1 : 1;
+                if (current < 0) {
+                    current = lastOpID;
+                }
+                else if (current > lastOpID) {
+                    current = 0;
+                }
+
+                const op = activeTrace.getOp(current);
+                if (op !== undefined && targetPattern.test(makeFindTargetString(op))) {
+                    foundOp = op;
+                    break;
+                }
+
+                // 大きなtraceでもUI操作で新しい検索へ切り替えられるよう、旧版と同じ間隔でyieldする。
+                if (index % sleepPeriod === 0 && previousSleepTime + 100 < Date.now()) {
+                    previousSleepTime = Date.now();
+                    if (searchRequestRef.current === requestID) {
+                        setSearchProgress(lastOpID > 0 ? index / lastOpID : 1);
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 17));
+                    if (searchRequestRef.current !== requestID || traceRef.current !== activeTrace) {
+                        return;
+                    }
+                }
+            }
+
+            console.log(`Search finished: ${target}@${foundOp?.id ?? -1}, ${Date.now() - startTime} msec`);
+            if (searchRequestRef.current !== requestID || traceRef.current !== activeTrace) {
+                return;
+            }
+            setSearchProgress(null);
+
+            if (foundOp === undefined) {
+                setCommandMessage(`"${target}" was not found.`);
+                return;
+            }
+
+            const renderer = rendererRef.current;
+            const viewPosition = renderer.viewPosition;
+            const moveTo = renderer.getPositionYFromOp(foundOp);
+            let left = viewPosition[0];
+            let top = viewPosition[1];
+            const pipelineWidth = pipelineCanvasRef.current?.clientWidth ?? 800;
+            const labelHeight = labelCanvasRef.current?.clientHeight ?? 400;
+
+            // ヒットした命令が画面外の場合だけ、旧版と同じく100pxの余白を付けて移動する。
+            if (foundOp.fetchedCycle < left ||
+                foundOp.fetchedCycle > left + pipelineWidth / renderer.opWidth) {
+                left = foundOp.fetchedCycle - 100 / renderer.opWidth;
+            }
+            if (moveTo < top || moveTo > top + labelHeight / renderer.opHeight) {
+                top = moveTo - 100 / renderer.opHeight;
+            }
+
+            const anchorOp = renderer.getVisibleOp(moveTo) ?? foundOp;
+            mutateView((targetRenderer) => targetRenderer.moveLogicalPosition([left, top]));
+            setFindResult({
+                targetPattern: target,
+                foundString: makeFindTargetString(foundOp),
+                op: foundOp,
+                anchorOp,
+                flushed: foundOp.flush,
+            });
+        })().catch((error) => {
+            if (searchRequestRef.current === requestID) {
+                setSearchProgress(null);
+                setCommandMessage(error instanceof Error ? error.message : String(error));
+            }
+        });
+    }, [mutateView]);
+
+    const repeatSearch = useCallback((reverse: boolean) => {
+        if (findResult === null) {
+            return;
+        }
+        const basePosition = rendererRef.current.getPositionYFromOp(findResult.anchorOp);
+        findString(findResult.targetPattern, basePosition, reverse);
+    }, [findResult, findString]);
+
+    const executeCommand = useCallback(() => {
+        let accepted = false;
+        const renderer = rendererRef.current;
+        const idMatch = command.match(/^j\s+(\d+)\s*$/);
+        const ridMatch = command.match(/^jr\s+(\d+)\s*$/);
+        const findMatch = command.match(/^f\s+(.+)$/);
+
+        if (idMatch !== null) {
+            resetSearch();
+            const id = Number(idMatch[1]);
+            const op = renderer.getVisibleOp(id);
+            if (op === undefined) {
+                setCommandMessage(`Op ${id} was not found.`);
+            }
+            else {
+                mutateView((targetRenderer) => targetRenderer.moveLogicalPosition([op.fetchedCycle, id]));
+            }
+            accepted = true;
+        }
+        else if (ridMatch !== null) {
+            resetSearch();
+            const rid = Number(ridMatch[1]);
+            const op = renderer.getOpFromRID(rid);
+            const y = renderer.getPositionYFromRID(rid);
+            if (op === undefined || y < 0) {
+                setCommandMessage(`Retired op ${rid} was not found.`);
+            }
+            else {
+                mutateView((targetRenderer) => targetRenderer.moveLogicalPosition([op.fetchedCycle, y]));
+            }
+            accepted = true;
+        }
+        else if (findMatch !== null) {
+            findString(findMatch[1], Math.floor(renderer.viewPosition[1]), false);
+            accepted = true;
+        }
+        else if (/^l(?:\s+.*)?$/.test(command)) {
+            // Webではpathを直接開けないため、lは同じfile pickerを起動する。
+            fileInputRef.current?.click();
+            accepted = true;
+        }
+        else {
+            setCommandMessage(`Failed to parse: ${command}`);
+        }
+
+        if (accepted) {
+            commandHistoryRef.current.unshift(command);
+            if (commandHistoryRef.current.length > 20) {
+                commandHistoryRef.current.pop();
+            }
+        }
+        setIsCommandPaletteOpen(false);
+    }, [command, findString, mutateView, resetSearch]);
 
     const zoomAtCenter = useCallback((factor: number) => {
         const canvas = pipelineCanvasRef.current;
@@ -378,7 +643,7 @@ export function TraceViewer() {
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (trace === null || event.defaultPrevented) {
+            if (event.defaultPrevented) {
                 return;
             }
             if (isStatsDialogOpen) {
@@ -388,14 +653,41 @@ export function TraceViewer() {
                 }
                 return;
             }
+            if (isCommandPaletteOpen) {
+                return;
+            }
+
+            const commandKey = event.ctrlKey || event.metaKey;
+            if (event.key === "F1" ||
+                (commandKey && event.shiftKey && event.key.toLowerCase() === "p")) {
+                openCommandPalette("");
+                event.preventDefault();
+                return;
+            }
+            if (commandKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+                openCommandPalette("f ");
+                event.preventDefault();
+                return;
+            }
+            if (trace === null) {
+                return;
+            }
             // View panelの入力中は、矢印や記号をCanvas操作として横取りしない。
             if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) {
                 return;
             }
 
-            const zoomKey = event.ctrlKey || event.metaKey;
+            const zoomKey = commandKey;
             let handled = true;
-            if (event.key === "ArrowUp") {
+            if (event.key === "F3") {
+                repeatSearch(event.shiftKey);
+            }
+            else if (event.key === "Escape" || event.key === "Enter") {
+                searchRequestRef.current++;
+                setSearchProgress(null);
+                setFindResult(null);
+            }
+            else if (event.key === "ArrowUp") {
                 zoomKey ? zoomAtCenter(2) : moveVertical(-1, !event.shiftKey);
             }
             else if (event.key === "ArrowDown") {
@@ -428,7 +720,8 @@ export function TraceViewer() {
         };
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [isStatsDialogOpen, moveHorizontal, moveVertical, trace, zoomAtCenter]);
+    }, [isCommandPaletteOpen, isStatsDialogOpen, moveHorizontal, moveVertical,
+        openCommandPalette, repeatSearch, trace, zoomAtCenter]);
 
     let statsFilterError = "";
     let statsRows: Array<[string, number]> = [];
@@ -452,6 +745,26 @@ export function TraceViewer() {
     else if (loadState === "error") {
         statusMessage = errorMessage;
     }
+    if (commandMessage !== "") {
+        statusMessage = commandMessage;
+    }
+
+    const findResultLines = findResult === null
+        ? []
+        : findResult.foundString.split("\n").filter((line, index) =>
+            index === 0 || new RegExp(findResult.targetPattern).test(line));
+    const findResultTop = findResult === null
+        ? 0
+        : Math.floor(rendererRef.current.getPixelPositionYFromOp(findResult.anchorOp)) +
+            rendererRef.current.opHeight;
+
+    const operation = loadState === "loading"
+        ? { type: "load", value: progress, label: `Loading ${fileName}` }
+        : statsProgress !== null
+            ? { type: "stats", value: statsProgress, label: "Calculating statistics" }
+            : searchProgress !== null
+                ? { type: "search", value: searchProgress, label: "Searching trace" }
+                : null;
 
     return (
         <main
@@ -473,6 +786,53 @@ export function TraceViewer() {
             }}
             onDrop={handleDrop}
         >
+            {isCommandPaletteOpen && (
+                <section className="command-palette" aria-label="Command palette">
+                    <input
+                        ref={commandInputRef}
+                        autoFocus
+                        type="text"
+                        aria-label="Command"
+                        value={command}
+                        onChange={(event) => setCommand(event.target.value)}
+                        onBlur={() => setIsCommandPaletteOpen(false)}
+                        onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                                setIsCommandPaletteOpen(false);
+                                event.preventDefault();
+                            }
+                            else if (event.key === "Enter") {
+                                executeCommand();
+                                event.preventDefault();
+                            }
+                            else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                                commandHistoryIndexRef.current += event.key === "ArrowUp" ? 1 : -1;
+                                commandHistoryIndexRef.current = Math.min(
+                                    commandHistoryRef.current.length - 1,
+                                    Math.max(-1, commandHistoryIndexRef.current),
+                                );
+                                const historyCommand = commandHistoryIndexRef.current === -1
+                                    ? ""
+                                    : commandHistoryRef.current[commandHistoryIndexRef.current] ?? "";
+                                setCommand(historyCommand);
+                                requestAnimationFrame(() => {
+                                    const input = commandInputRef.current;
+                                    input?.setSelectionRange(input.value.length, input.value.length);
+                                });
+                                event.preventDefault();
+                            }
+                        }}
+                    />
+                    <div className="command-hints">
+                        {COMMAND_HINTS.map(([text, syntax]) => (
+                            <div className="command-hint" key={syntax}>
+                                <span>{text}</span>
+                                <code>{syntax}</code>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
             <header className="app-toolbar">
                 <input
                     ref={fileInputRef}
@@ -486,7 +846,7 @@ export function TraceViewer() {
                 </button>
                 <button
                     type="button"
-                    disabled={trace === null || loadState === "loading" || statsProgress !== null}
+                    disabled={trace === null || loadState === "loading" || statsProgress !== null || searchProgress !== null}
                     onClick={showStats}
                 >
                     Stats
@@ -616,17 +976,19 @@ export function TraceViewer() {
                         </details>
                     </div>
                 </details>
-                <p className={`status status-${loadState}`} role="status">{statusMessage}</p>
-                {(loadState === "loading" || statsProgress !== null) && (
+                <p className={`status ${commandMessage === "" ? `status-${loadState}` : "status-error"}`} role="status">
+                    {statusMessage}
+                </p>
+                {operation !== null && (
                     <div
-                        className={`operation-progress ${loadState === "loading" ? "load" : "stats"}`}
+                        className={`operation-progress ${operation.type}`}
                         role="progressbar"
-                        aria-label={loadState === "loading" ? `Loading ${fileName}` : "Calculating statistics"}
+                        aria-label={operation.label}
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        aria-valuenow={Math.round((loadState === "loading" ? progress : statsProgress ?? 0) * 100)}
+                        aria-valuenow={Math.round(operation.value * 100)}
                     >
-                        <div style={{ width: `${(loadState === "loading" ? progress : statsProgress ?? 0) * 100}%` }} />
+                        <div style={{ width: `${operation.value * 100}%` }} />
                     </div>
                 )}
             </header>
@@ -677,6 +1039,36 @@ export function TraceViewer() {
                     >
                         {toolTip.text}
                     </pre>
+                )}
+                {findResult !== null && (
+                    <div
+                        className="find-result"
+                        data-op-id={findResult.op.id}
+                        style={{ top: findResultTop }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                    >
+                        <div className="find-result-content">
+                            {rendererRef.current.hideFlushedOps && findResult.flushed && (
+                                <div>A found op is not shown because it is flushed.</div>
+                            )}
+                            {findResultLines.map((line, lineIndex) => (
+                                <div key={`${lineIndex}:${line}`}>
+                                    {highlightMatches(line, findResult.targetPattern).map((part, partIndex) => (
+                                        <span className={part.matched ? "find-result-match" : undefined} key={partIndex}>
+                                            {part.text}
+                                        </span>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                        <button
+                            type="button"
+                            aria-label="Close search result"
+                            onClick={() => setFindResult(null)}
+                        >
+                            ×
+                        </button>
+                    </div>
                 )}
             </div>
             {isStatsDialogOpen && (

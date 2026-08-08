@@ -212,6 +212,99 @@ async function run() {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
 
+    // 旧コマンドパレットの起動、履歴、正規表現の前後検索、ID移動を実画面で確認する。
+    const commandState = await window.webContents.executeJavaScript(`(async () => {
+        const setInput = (input, value) => {
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+            setter?.call(input, value);
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+        // 非表示windowではrequestAnimationFrameが強く間引かれるため、React反映だけを短いtimerで待つ。
+        const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 10));
+        const waitForResult = (opID) => new Promise((resolve, reject) => {
+            const deadline = performance.now() + 2000;
+            const check = () => {
+                const result = document.querySelector('.find-result');
+                if (result instanceof HTMLElement && result.dataset.opId === String(opID)) {
+                    resolve(result.textContent ?? "");
+                }
+                else if (performance.now() >= deadline) {
+                    reject(new Error('Timed out while waiting for a search result.'));
+                }
+                else {
+                    setTimeout(check, 5);
+                }
+            };
+            check();
+        });
+        const openPalette = async (init) => {
+            document.dispatchEvent(new KeyboardEvent("keydown", init));
+            await nextFrame();
+            const input = document.querySelector('.command-palette input');
+            if (!(input instanceof HTMLInputElement)) {
+                throw new Error('The command palette was not opened.');
+            }
+            return input;
+        };
+        const execute = async (input, value) => {
+            setInput(input, value);
+            await nextFrame();
+            input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+            await nextFrame();
+        };
+
+        const searchInput = await openPalette({key: "f", ctrlKey: true, bubbles: true, cancelable: true});
+        const prefilled = searchInput.value;
+        const hints = [...document.querySelectorAll('.command-hint code')].map((hint) => hint.textContent);
+        await execute(searchInput, "f execute|consumer");
+        const firstResult = await waitForResult(1);
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "F3", bubbles: true, cancelable: true}));
+        const nextResult = await waitForResult(0);
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "F3", shiftKey: true, bubbles: true, cancelable: true}));
+        const previousResult = await waitForResult(1);
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        await nextFrame();
+
+        const historyInput = await openPalette({key: "F1", bubbles: true, cancelable: true});
+        historyInput.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowUp", bubbles: true, cancelable: true}));
+        await nextFrame();
+        const history = historyInput.value;
+        await execute(historyInput, "j 1");
+
+        const pipeline = document.querySelector(".pipeline-pane canvas");
+        if (!(pipeline instanceof HTMLCanvasElement)) {
+            throw new Error("The pipeline canvas was not found.");
+        }
+        const rect = pipeline.getBoundingClientRect();
+        pipeline.dispatchEvent(new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: rect.left + 8,
+            clientY: rect.top + 8
+        }));
+        await nextFrame();
+        const jumpToolTip = document.querySelector('[role="tooltip"]')?.textContent ?? null;
+
+        // 後続のCanvas操作テストが従来どおり先頭位置から始まるよう戻す。
+        const restoreInput = await openPalette({key: "F1", bubbles: true, cancelable: true});
+        await execute(restoreInput, "j 0");
+        return {prefilled, hints, firstResult, nextResult, previousResult, history, jumpToolTip};
+    })()`);
+    if (commandState.prefilled !== "f " ||
+        JSON.stringify(commandState.hints) !== JSON.stringify([
+            "j  <#line>",
+            "jr <rid>",
+            "f  <string>",
+            "l",
+        ]) ||
+        !commandState.firstResult.includes("consumer") ||
+        !commandState.nextResult.includes("execute") ||
+        !commandState.previousResult.includes("consumer") ||
+        commandState.history !== "f execute|consumer" ||
+        typeof commandState.jumpToolTip !== "string" ||
+        !commandState.jumpToolTip.startsWith("[3, 1]")) {
+        throw new Error(`Command palette is incomplete: ${JSON.stringify(commandState)}`);
+    }
+
     // 旧Stats dialogと同じName/Value表を開き、正規表現filterとclose操作まで確認する。
     const statsState = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
         const button = [...document.querySelectorAll(".app-toolbar button")]
