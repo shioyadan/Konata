@@ -1,52 +1,23 @@
-import {
-    type ChangeEvent,
-    type DragEvent,
-    type MouseEvent as ReactMouseEvent,
-    type PointerEvent,
-    type WheelEvent,
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useRef,
-    useState,
-} from "react";
+import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import type { Op, ParsedTrace } from "../core/model";
-import { Gem5O3PipeViewParser } from "../core/gem5_o3_pipe_view_parser";
-import { OnikiriParser } from "../core/onikiri_parser";
-import { calculateStats, type StatsValues } from "../core/stats";
+import { CommandPalette } from "./components/command_palette";
+import { StatsDialog } from "./components/stats_dialog";
+import {
+    type FindResult,
+    type LoadState,
+    TraceSheet,
+    type TraceSheetHandle,
+} from "./components/trace_sheet";
+import type { Op, ParsedTrace } from "./core/model";
+import { Gem5O3PipeViewParser } from "./core/gem5_o3_pipe_view_parser";
+import { OnikiriParser } from "./core/onikiri_parser";
+import { calculateStats, type StatsValues } from "./core/stats";
 import {
     DEP_ARROW_TYPE,
     KonataRenderer,
     type DependencyArrowType,
     type RendererTheme,
-} from "../renderer/konata_renderer";
-
-type LoadState = "idle" | "loading" | "ready" | "error";
-
-interface DragPosition {
-    x: number;
-    y: number;
-}
-
-interface CanvasToolTip {
-    left: number;
-    top: number;
-    text: string;
-}
-
-interface FindResult {
-    readonly targetPattern: string;
-    readonly foundString: string;
-    readonly op: Op;
-    readonly anchorOp: Op;
-    readonly flushed: boolean;
-}
-
-interface HighlightedText {
-    readonly text: string;
-    readonly matched: boolean;
-}
+} from "./renderer/konata_renderer";
 
 type DrawingThreshold =
     | "drawTextThreshold"
@@ -60,13 +31,6 @@ const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawDetailedlyThreshold", "Stage colors"],
     ["drawDependencyThreshold", "Dependency arrows"],
     ["drawFrameThreshold", "Frames"],
-];
-
-const COMMAND_HINTS: ReadonlyArray<readonly [string, string]> = [
-    ["Jump to #line", "j  <#line>"],
-    ["Jump to an op with rid", "jr <rid>"],
-    ["Find a string ('F3' key finds next)", "f  <string>"],
-    ["Load a file", "l"],
 ];
 
 // 旧Storeと同じく、命令の見出し・詳細・全stage labelを正規表現検索の対象にする。
@@ -83,34 +47,9 @@ function makeFindTargetString(op: Op): string {
     return labelString;
 }
 
-function highlightMatches(line: string, pattern: string): HighlightedText[] {
-    const parts: HighlightedText[] = [];
-    let position = 0;
-    for (const match of line.matchAll(new RegExp(pattern, "g"))) {
-        const matchPosition = match.index;
-        const matchedText = match[0];
-        // 空文字への一致には着色する文字がないが、matchAll自体は次へ進む。
-        if (matchedText === "") {
-            continue;
-        }
-        if (position < matchPosition) {
-            parts.push({ text: line.slice(position, matchPosition), matched: false });
-        }
-        parts.push({ text: matchedText, matched: true });
-        position = matchPosition + matchedText.length;
-    }
-    if (position < line.length || parts.length === 0) {
-        parts.push({ text: line.slice(position), matched: false });
-    }
-    return parts;
-}
-
-export function TraceViewer() {
+export function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const viewerRef = useRef<HTMLDivElement>(null);
-    const labelCanvasRef = useRef<HTMLCanvasElement>(null);
-    const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
-    const commandInputRef = useRef<HTMLInputElement>(null);
+    const traceSheetRef = useRef<TraceSheetHandle>(null);
     const rendererRef = useRef(new KonataRenderer());
     const traceRef = useRef<ParsedTrace | null>(null);
     // 複数ファイルが続けて選ばれた場合、遅く完了した旧requestで表示を上書きしない。
@@ -118,8 +57,6 @@ export function TraceViewer() {
     const statsRequestRef = useRef(0);
     const searchRequestRef = useRef(0);
     const commandHistoryRef = useRef<string[]>([]);
-    const commandHistoryIndexRef = useRef(-1);
-    const dragPositionRef = useRef<DragPosition | null>(null);
 
     const [trace, setTrace] = useState<ParsedTrace | null>(null);
     const [loadState, setLoadState] = useState<LoadState>("idle");
@@ -127,28 +64,16 @@ export function TraceViewer() {
     const [progress, setProgress] = useState(0);
     const [errorMessage, setErrorMessage] = useState("");
     const [isDraggingFile, setIsDraggingFile] = useState(false);
-    const [isPanning, setIsPanning] = useState(false);
-    const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
     const [statsProgress, setStatsProgress] = useState<number | null>(null);
     const [statsValues, setStatsValues] = useState<Readonly<StatsValues> | null>(null);
-    const [statsFilter, setStatsFilter] = useState("");
     const [statsError, setStatsError] = useState("");
     const [isStatsDialogOpen, setIsStatsDialogOpen] = useState(false);
-    const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-    const [command, setCommand] = useState("");
+    const [commandPaletteInitial, setCommandPaletteInitial] = useState<string | null>(null);
     const [commandMessage, setCommandMessage] = useState("");
     const [searchProgress, setSearchProgress] = useState<number | null>(null);
     const [findResult, setFindResult] = useState<FindResult | null>(null);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
-
-    const redraw = useCallback(() => {
-        const labelCanvas = labelCanvasRef.current;
-        const pipelineCanvas = pipelineCanvasRef.current;
-        if (labelCanvas !== null && pipelineCanvas !== null) {
-            rendererRef.current.draw(labelCanvas, pipelineCanvas);
-        }
-    }, []);
 
     const resetStats = useCallback(() => {
         statsRequestRef.current++;
@@ -163,7 +88,7 @@ export function TraceViewer() {
         setSearchProgress(null);
         setFindResult(null);
         setCommandMessage("");
-        setIsCommandPaletteOpen(false);
+        setCommandPaletteInitial(null);
     }, []);
 
     const replaceTrace = useCallback((nextTrace: ParsedTrace | null) => {
@@ -183,36 +108,6 @@ export function TraceViewer() {
         traceRef.current?.close();
         traceRef.current = null;
     }, []);
-
-    useLayoutEffect(() => {
-        rendererRef.current.setTrace(trace);
-        redraw();
-    }, [redraw, trace]);
-
-    useLayoutEffect(() => {
-        const viewer = viewerRef.current;
-        if (viewer === null) {
-            return;
-        }
-
-        // CSS layoutやwindowサイズが変わった時だけbacking storeを再確保する。
-        const observer = new ResizeObserver(redraw);
-        observer.observe(viewer);
-        return () => observer.disconnect();
-    }, [redraw]);
-
-    useLayoutEffect(() => {
-        redraw();
-    }, [redraw, renderVersion]);
-
-    useEffect(() => {
-        if (!isCommandPaletteOpen) {
-            return;
-        }
-        const input = commandInputRef.current;
-        input?.focus();
-        input?.setSelectionRange(input.value.length, input.value.length);
-    }, [isCommandPaletteOpen]);
 
     const loadFile = useCallback(async (file: File) => {
         const requestID = ++loadRequestRef.current;
@@ -277,8 +172,8 @@ export function TraceViewer() {
     };
 
     const mutateView = useCallback((mutation: (renderer: KonataRenderer) => void) => {
+        traceSheetRef.current?.clearToolTip();
         mutation(rendererRef.current);
-        setToolTip(null);
         setRenderVersion((version) => version + 1);
     }, []);
 
@@ -286,10 +181,8 @@ export function TraceViewer() {
         if (isStatsDialogOpen) {
             return;
         }
-        commandHistoryIndexRef.current = -1;
-        setCommand(initialCommand);
         setCommandMessage("");
-        setIsCommandPaletteOpen(true);
+        setCommandPaletteInitial(initialCommand);
     }, [isStatsDialogOpen]);
 
     const findString = useCallback((target: string, basePosition: number, reverse: boolean): void => {
@@ -371,8 +264,9 @@ export function TraceViewer() {
             const moveTo = renderer.getPositionYFromOp(foundOp);
             let left = viewPosition[0];
             let top = viewPosition[1];
-            const pipelineWidth = pipelineCanvasRef.current?.clientWidth ?? 800;
-            const labelHeight = labelCanvasRef.current?.clientHeight ?? 400;
+            const viewport = traceSheetRef.current?.getViewportSize();
+            const pipelineWidth = viewport?.pipelineWidth ?? 800;
+            const labelHeight = viewport?.labelHeight ?? 400;
 
             // ヒットした命令が画面外の場合だけ、旧版と同じく100pxの余白を付けて移動する。
             if (foundOp.fetchedCycle < left ||
@@ -408,7 +302,7 @@ export function TraceViewer() {
         findString(findResult.targetPattern, basePosition, reverse);
     }, [findResult, findString]);
 
-    const executeCommand = useCallback(() => {
+    const executeCommand = useCallback((command: string) => {
         let accepted = false;
         const renderer = rendererRef.current;
         const idMatch = command.match(/^j\s+(\d+)\s*$/);
@@ -459,15 +353,19 @@ export function TraceViewer() {
                 commandHistoryRef.current.pop();
             }
         }
-        setIsCommandPaletteOpen(false);
-    }, [command, findString, mutateView, resetSearch]);
+        setCommandPaletteInitial(null);
+    }, [findString, mutateView, resetSearch]);
 
     const zoomAtCenter = useCallback((factor: number) => {
-        const canvas = pipelineCanvasRef.current;
-        if (canvas === null) {
+        const viewport = traceSheetRef.current?.getViewportSize();
+        if (viewport === undefined) {
             return;
         }
-        mutateView((renderer) => renderer.zoomAt(factor, canvas.clientWidth / 2, canvas.clientHeight / 2));
+        mutateView((renderer) => renderer.zoomAt(
+            factor,
+            viewport.pipelineWidth / 2,
+            viewport.pipelineHeight / 2,
+        ));
     }, [mutateView]);
 
     const moveVertical = useCallback((delta: number, adjust: boolean) => {
@@ -483,108 +381,6 @@ export function TraceViewer() {
             0,
         ], false));
     }, [mutateView]);
-
-    const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-        if (trace === null) {
-            return;
-        }
-        event.preventDefault();
-        if (event.ctrlKey || event.metaKey) {
-            const rect = pipelineCanvasRef.current?.getBoundingClientRect();
-            const x = rect === undefined ? 0 : Math.max(0, event.clientX - rect.left);
-            const y = rect === undefined ? 0 : Math.max(0, event.clientY - rect.top);
-            mutateView((renderer) => renderer.zoomAt(event.deltaY < 0 ? 1.2 : 1 / 1.2, x, y));
-            return;
-        }
-
-        if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
-            // trackpadの横移動は、旧キーボード横移動と同じ6cycle単位へ対応させる。
-            moveHorizontal(event.deltaX > 0 ? 1 : -1);
-            return;
-        }
-
-        // 旧wheel操作と同じ3命令単位で移動し、左端を命令のfetch位置へ追従させる。
-        moveVertical(event.deltaY > 0 ? 1 : -1, true);
-    };
-
-    const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-        if (trace === null || event.button !== 0) {
-            return;
-        }
-        event.currentTarget.setPointerCapture(event.pointerId);
-        dragPositionRef.current = { x: event.clientX, y: event.clientY };
-        setIsPanning(true);
-    };
-
-    const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-        const previous = dragPositionRef.current;
-        if (previous === null) {
-            return;
-        }
-        // 紙を掴む感覚に合わせ、pointer移動と逆向きへviewを進める。
-        mutateView((renderer) => renderer.panPixels(previous.x - event.clientX, previous.y - event.clientY));
-        dragPositionRef.current = { x: event.clientX, y: event.clientY };
-    };
-
-    const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-        dragPositionRef.current = null;
-        setIsPanning(false);
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-    };
-
-    const handleDoubleClick = (event: ReactMouseEvent<HTMLCanvasElement>) => {
-        if (trace === null) {
-            return;
-        }
-        const rect = event.currentTarget.getBoundingClientRect();
-        mutateView((renderer) => renderer.zoomAt(
-            event.shiftKey ? 1 / 2 : 2,
-            event.clientX - rect.left,
-            event.clientY - rect.top,
-        ));
-    };
-
-    const handleLabelClick = (event: ReactMouseEvent<HTMLCanvasElement>) => {
-        if (trace === null) {
-            return;
-        }
-        const rect = event.currentTarget.getBoundingClientRect();
-        const op = rendererRef.current.getOpFromPixelPositionY(event.clientY - rect.top);
-        if (op !== undefined) {
-            // 旧label paneと同様、縦位置は変えず、選んだ命令のfetch cycleだけを左端へ合わせる。
-            mutateView((renderer) => renderer.moveLogicalPosition([
-                op.fetchedCycle,
-                renderer.viewPosition[1],
-            ]));
-        }
-    };
-
-    const updateToolTip = (
-        pane: "label" | "pipeline",
-        event: ReactMouseEvent<HTMLCanvasElement>,
-    ) => {
-        if (trace === null || dragPositionRef.current !== null) {
-            setToolTip(null);
-            return;
-        }
-        const canvasRect = event.currentTarget.getBoundingClientRect();
-        const viewerRect = viewerRef.current?.getBoundingClientRect();
-        if (viewerRect === undefined) {
-            return;
-        }
-        const x = event.clientX - canvasRect.left;
-        const y = event.clientY - canvasRect.top;
-        const text = pane === "label"
-            ? rendererRef.current.getLabelToolTipText(y)
-            : rendererRef.current.getPipelineToolTipText(x, y);
-        setToolTip(text === null ? null : {
-            left: event.clientX - viewerRect.left,
-            top: event.clientY - viewerRect.top + 20,
-            text,
-        });
-    };
 
     const toggleHideFlushedOps = (enabled: boolean) => {
         mutateView((renderer) => {
@@ -606,7 +402,6 @@ export function TraceViewer() {
         const requestID = ++statsRequestRef.current;
         setStatsProgress(0);
         setStatsValues(null);
-        setStatsFilter("");
         setStatsError("");
         setIsStatsDialogOpen(false);
 
@@ -653,7 +448,7 @@ export function TraceViewer() {
                 }
                 return;
             }
-            if (isCommandPaletteOpen) {
+            if (commandPaletteInitial !== null) {
                 return;
             }
 
@@ -720,20 +515,8 @@ export function TraceViewer() {
         };
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [isCommandPaletteOpen, isStatsDialogOpen, moveHorizontal, moveVertical,
+    }, [commandPaletteInitial, isStatsDialogOpen, moveHorizontal, moveVertical,
         openCommandPalette, repeatSearch, trace, zoomAtCenter]);
-
-    let statsFilterError = "";
-    let statsRows: Array<[string, number]> = [];
-    if (statsValues !== null) {
-        try {
-            const filter = new RegExp(statsFilter, "i");
-            statsRows = Object.entries(statsValues).filter(([name]) => filter.test(name));
-        }
-        catch (_error) {
-            statsFilterError = "Invalid regular expression.";
-        }
-    }
 
     let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
     if (loadState === "loading") {
@@ -748,15 +531,6 @@ export function TraceViewer() {
     if (commandMessage !== "") {
         statusMessage = commandMessage;
     }
-
-    const findResultLines = findResult === null
-        ? []
-        : findResult.foundString.split("\n").filter((line, index) =>
-            index === 0 || new RegExp(findResult.targetPattern).test(line));
-    const findResultTop = findResult === null
-        ? 0
-        : Math.floor(rendererRef.current.getPixelPositionYFromOp(findResult.anchorOp)) +
-            rendererRef.current.opHeight;
 
     const operation = loadState === "loading"
         ? { type: "load", value: progress, label: `Loading ${fileName}` }
@@ -786,52 +560,13 @@ export function TraceViewer() {
             }}
             onDrop={handleDrop}
         >
-            {isCommandPaletteOpen && (
-                <section className="command-palette" aria-label="Command palette">
-                    <input
-                        ref={commandInputRef}
-                        autoFocus
-                        type="text"
-                        aria-label="Command"
-                        value={command}
-                        onChange={(event) => setCommand(event.target.value)}
-                        onBlur={() => setIsCommandPaletteOpen(false)}
-                        onKeyDown={(event) => {
-                            if (event.key === "Escape") {
-                                setIsCommandPaletteOpen(false);
-                                event.preventDefault();
-                            }
-                            else if (event.key === "Enter") {
-                                executeCommand();
-                                event.preventDefault();
-                            }
-                            else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-                                commandHistoryIndexRef.current += event.key === "ArrowUp" ? 1 : -1;
-                                commandHistoryIndexRef.current = Math.min(
-                                    commandHistoryRef.current.length - 1,
-                                    Math.max(-1, commandHistoryIndexRef.current),
-                                );
-                                const historyCommand = commandHistoryIndexRef.current === -1
-                                    ? ""
-                                    : commandHistoryRef.current[commandHistoryIndexRef.current] ?? "";
-                                setCommand(historyCommand);
-                                requestAnimationFrame(() => {
-                                    const input = commandInputRef.current;
-                                    input?.setSelectionRange(input.value.length, input.value.length);
-                                });
-                                event.preventDefault();
-                            }
-                        }}
-                    />
-                    <div className="command-hints">
-                        {COMMAND_HINTS.map(([text, syntax]) => (
-                            <div className="command-hint" key={syntax}>
-                                <span>{text}</span>
-                                <code>{syntax}</code>
-                            </div>
-                        ))}
-                    </div>
-                </section>
+            {commandPaletteInitial !== null && (
+                <CommandPalette
+                    initialCommand={commandPaletteInitial}
+                    history={commandHistoryRef.current}
+                    onExecute={executeCommand}
+                    onClose={() => setCommandPaletteInitial(null)}
+                />
             )}
             <header className="app-toolbar">
                 <input
@@ -993,130 +728,18 @@ export function TraceViewer() {
                 )}
             </header>
 
-            <div
-                ref={viewerRef}
-                className={`viewer${isPanning ? " is-panning" : ""}`}
-                onWheel={handleWheel}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
-            >
-                <section className="viewer-pane label-pane" aria-label="Instruction labels">
-                    <canvas
-                        ref={labelCanvasRef}
-                        aria-label="Instruction labels canvas"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={handleLabelClick}
-                        onMouseMove={(event) => updateToolTip("label", event)}
-                        onMouseLeave={() => setToolTip(null)}
-                    >
-                        Instruction labels require canvas support.
-                    </canvas>
-                </section>
-                <section className="viewer-pane pipeline-pane" aria-label="Pipeline chart">
-                    <canvas
-                        ref={pipelineCanvasRef}
-                        aria-label="Pipeline canvas"
-                        onDoubleClick={handleDoubleClick}
-                        onMouseMove={(event) => updateToolTip("pipeline", event)}
-                        onMouseLeave={() => setToolTip(null)}
-                    >
-                        The pipeline chart requires canvas support.
-                    </canvas>
-                </section>
-                {trace === null && loadState !== "loading" && (
-                    <div className="empty-state">
-                        <strong>{loadState === "error" ? "The trace could not be opened." : "Drop a trace anywhere in this window."}</strong>
-                        <span>{loadState === "error" ? "Choose another trace to try again." : "Plain text and gzip files are supported."}</span>
-                    </div>
-                )}
-                {toolTip !== null && (
-                    <pre
-                        className="canvas-tooltip"
-                        role="tooltip"
-                        style={{ left: toolTip.left, top: toolTip.top }}
-                    >
-                        {toolTip.text}
-                    </pre>
-                )}
-                {findResult !== null && (
-                    <div
-                        className="find-result"
-                        data-op-id={findResult.op.id}
-                        style={{ top: findResultTop }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                    >
-                        <div className="find-result-content">
-                            {rendererRef.current.hideFlushedOps && findResult.flushed && (
-                                <div>A found op is not shown because it is flushed.</div>
-                            )}
-                            {findResultLines.map((line, lineIndex) => (
-                                <div key={`${lineIndex}:${line}`}>
-                                    {highlightMatches(line, findResult.targetPattern).map((part, partIndex) => (
-                                        <span className={part.matched ? "find-result-match" : undefined} key={partIndex}>
-                                            {part.text}
-                                        </span>
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                        <button
-                            type="button"
-                            aria-label="Close search result"
-                            onClick={() => setFindResult(null)}
-                        >
-                            ×
-                        </button>
-                    </div>
-                )}
-            </div>
+            <TraceSheet
+                ref={traceSheetRef}
+                renderer={rendererRef.current}
+                trace={trace}
+                loadState={loadState}
+                renderVersion={renderVersion}
+                findResult={findResult}
+                onMutateView={mutateView}
+                onCloseFindResult={() => setFindResult(null)}
+            />
             {isStatsDialogOpen && (
-                <div
-                    className="dialog-backdrop"
-                    onMouseDown={(event) => {
-                        if (event.target === event.currentTarget) {
-                            closeStatsDialog();
-                        }
-                    }}
-                >
-                    <section className="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="stats-dialog-title">
-                        <header>
-                            <h2 id="stats-dialog-title">Stats</h2>
-                            <button type="button" aria-label="Close statistics" onClick={closeStatsDialog}>×</button>
-                        </header>
-                        {statsError === "" ? (
-                            <>
-                                <input
-                                    autoFocus
-                                    type="text"
-                                    aria-label="Filter statistics"
-                                    placeholder="Filter pattern for 'Name' column"
-                                    value={statsFilter}
-                                    onChange={(event) => setStatsFilter(event.target.value)}
-                                />
-                                {statsFilterError !== "" && <p className="stats-error">{statsFilterError}</p>}
-                                <div className="stats-table-container">
-                                    <table>
-                                        <thead>
-                                            <tr><th>Name</th><th>Value</th></tr>
-                                        </thead>
-                                        <tbody>
-                                            {statsRows.map(([name, value]) => (
-                                                <tr key={name}><td>{name}</td><td>{String(value)}</td></tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </>
-                        ) : (
-                            <p className="stats-error">{statsError}</p>
-                        )}
-                        <footer>
-                            <button type="button" onClick={closeStatsDialog}>OK</button>
-                        </footer>
-                    </section>
-                </div>
+                <StatsDialog values={statsValues} error={statsError} onClose={closeStatsDialog} />
             )}
         </main>
     );
