@@ -203,21 +203,52 @@ button:disabled {
     width: 8rem;
 }
 
-.drawing-thresholds {
+.drawing-thresholds,
+.bookmark-controls {
     padding-top: 0.5rem;
     border-top: 1px solid #464b58;
 }
 
-.drawing-thresholds > summary {
+.drawing-thresholds > summary,
+.bookmark-controls > summary {
     cursor: pointer;
 }
 
-.drawing-thresholds[open] > summary {
+.drawing-thresholds[open] > summary,
+.bookmark-controls[open] > summary {
     margin-bottom: 0.55rem;
 }
 
 .drawing-thresholds label + label {
     margin-top: 0.45rem;
+}
+
+.bookmark-controls > p {
+    margin: 0 0 0.45rem;
+    color: #b8bec9;
+    font-size: 0.75rem;
+}
+
+.bookmark-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.bookmark-row + .bookmark-row {
+    margin-top: 0.35rem;
+}
+
+.bookmark-row button {
+    padding: 0.2rem 0.45rem;
+}
+
+.bookmark-row output {
+    font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 .status {
@@ -564,8 +595,13 @@ button:disabled {
     color: #222;
 }
 
-.theme-light .drawing-thresholds {
+.theme-light .drawing-thresholds,
+.theme-light .bookmark-controls {
     border-top-color: #ccc;
+}
+
+.theme-light .bookmark-controls > p {
+    color: #555;
 }
 
 .theme-light .label-pane {

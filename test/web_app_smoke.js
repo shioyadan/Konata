@@ -517,6 +517,82 @@ async function run() {
         throw new Error(`Keyboard navigation is incomplete: ${JSON.stringify(keyboardToolTip)}`);
     }
 
+    // 旧版と同じ数字キーでの移動とCtrl/Command+数字での設定を、表示中のslot値とCanvasで確認する。
+    const bookmarkState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const reset = [...document.querySelectorAll(".zoom-controls button")]
+            .find((button) => button.textContent?.trim() === "Reset");
+        if (!(reset instanceof HTMLButtonElement)) {
+            throw new Error("The Reset button was not found.");
+        }
+        reset.click();
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        document.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "2",
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true
+        }));
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const slot = document.querySelector('button[aria-label="Go to bookmark 2"]')?.nextElementSibling;
+            document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+            document.dispatchEvent(new KeyboardEvent("keydown", {key: "2", bubbles: true, cancelable: true}));
+
+            const pipeline = document.querySelector(".pipeline-pane canvas");
+            if (!(pipeline instanceof HTMLCanvasElement)) {
+                throw new Error("The pipeline canvas was not found.");
+            }
+            const rect = pipeline.getBoundingClientRect();
+            pipeline.dispatchEvent(new MouseEvent("mousemove", {
+                bubbles: true,
+                clientX: rect.left + 8,
+                clientY: rect.top + 8
+            }));
+            requestAnimationFrame(() => resolve({
+                slot: slot?.textContent ?? null,
+                goButtons: document.querySelectorAll('button[aria-label^="Go to bookmark "]').length,
+                setButtons: document.querySelectorAll('button[aria-label^="Set bookmark "]').length,
+                toolTip: document.querySelector('[role="tooltip"]')?.textContent ?? null
+            }));
+        }));
+    })`);
+    if (bookmarkState.slot !== "2: x:6, y:0, zoom:0" ||
+        bookmarkState.goButtons !== 10 ||
+        bookmarkState.setButtons !== 10 ||
+        typeof bookmarkState.toolTip !== "string" ||
+        !bookmarkState.toolTip.startsWith("[6, 0]")) {
+        throw new Error(`Bookmarks are incomplete: ${JSON.stringify(bookmarkState)}`);
+    }
+
+    const bookmarkZoomState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const reset = [...document.querySelectorAll(".zoom-controls button")]
+            .find((button) => button.textContent?.trim() === "Reset");
+        const zoomIn = document.querySelector('button[aria-label="Zoom in"]');
+        if (!(reset instanceof HTMLButtonElement) || !(zoomIn instanceof HTMLButtonElement)) {
+            throw new Error("The zoom controls were not found.");
+        }
+        zoomIn.click();
+        document.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "3",
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true
+        }));
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const slot = document.querySelector('button[aria-label="Go to bookmark 3"]')?.nextElementSibling;
+            reset.click();
+            document.dispatchEvent(new KeyboardEvent("keydown", {key: "3", bubbles: true, cancelable: true}));
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+                slot: slot?.textContent ?? null,
+                zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
+            })));
+        }));
+    })`);
+    if (typeof bookmarkZoomState.slot !== "string" ||
+        !bookmarkZoomState.slot.endsWith("zoom:-1") ||
+        bookmarkZoomState.zoom !== "200%") {
+        throw new Error(`Bookmark zoom is incomplete: ${JSON.stringify(bookmarkZoomState)}`);
+    }
+
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
     const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const split = document.querySelector('input[aria-label="Split lanes"]');

@@ -25,6 +25,12 @@ type DrawingThreshold =
     | "drawDependencyThreshold"
     | "drawFrameThreshold";
 
+interface ViewBookmark {
+    readonly x: number;
+    readonly y: number;
+    readonly zoom: number;
+}
+
 // 旧Settings dialogで変更できた描画閾値だけを、既存View panelへそのまま並べる。
 const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawTextThreshold", "Text"],
@@ -32,6 +38,11 @@ const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawDependencyThreshold", "Dependency arrows"],
     ["drawFrameThreshold", "Frames"],
 ];
+
+const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
+    { length: 10 },
+    () => ({ x: 0, y: 0, zoom: 0 }),
+);
 
 // 旧Storeと同じく、命令の見出し・詳細・全stage labelを正規表現検索の対象にする。
 function makeFindTargetString(op: Op): string {
@@ -72,6 +83,8 @@ export function App() {
     const [commandMessage, setCommandMessage] = useState("");
     const [searchProgress, setSearchProgress] = useState<number | null>(null);
     const [findResult, setFindResult] = useState<FindResult | null>(null);
+    // 永続化は設定全体と分けて判断し、まず旧版と同じ10枠をアプリ内で共有する。
+    const [bookmarks, setBookmarks] = useState(INITIAL_BOOKMARKS);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
 
@@ -399,6 +412,27 @@ export function App() {
         ], false));
     }, [mutateView]);
 
+    const setBookmark = useCallback((index: number) => {
+        const renderer = rendererRef.current;
+        const [x, y] = renderer.viewPosition;
+        // 旧Configの保存値と同じく、論理座標は整数へ切り下げる。
+        const bookmark = { x: Math.floor(x), y: Math.floor(y), zoom: renderer.zoomLevel };
+        setBookmarks((current) => current.map((value, position) =>
+            position === index ? bookmark : value));
+    }, []);
+
+    const goToBookmark = useCallback((index: number) => {
+        const bookmark = bookmarks[index];
+        if (bookmark === undefined) {
+            return;
+        }
+        mutateView((renderer) => {
+            // Web版はanimationを挟まず、旧版と同じ最終座標と倍率へ直接移動する。
+            renderer.zoomAbs(bookmark.zoom, bookmark.x, bookmark.y, false);
+            renderer.moveLogicalPosition([bookmark.x, bookmark.y]);
+        });
+    }, [bookmarks, mutateView]);
+
     const toggleHideFlushedOps = (enabled: boolean) => {
         mutateView((renderer) => {
             // 表示方式を変えても、現在の先頭命令とそのfetch位置を維持する。
@@ -523,6 +557,10 @@ export function App() {
             else if (event.key === "-") {
                 zoomAtCenter(1 / 2);
             }
+            else if (/^[0-9]$/.test(event.key) && !event.altKey && !event.shiftKey) {
+                const index = Number(event.key);
+                commandKey ? setBookmark(index) : goToBookmark(index);
+            }
             else {
                 handled = false;
             }
@@ -532,8 +570,8 @@ export function App() {
         };
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [commandPaletteInitial, isStatsDialogOpen, moveHorizontal, moveVertical,
-        openCommandPalette, repeatSearch, trace, zoomAtCenter]);
+    }, [commandPaletteInitial, goToBookmark, isStatsDialogOpen, moveHorizontal, moveVertical,
+        openCommandPalette, repeatSearch, setBookmark, trace, zoomAtCenter]);
 
     let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
     if (loadState === "loading") {
@@ -724,6 +762,31 @@ export function App() {
                                         }}
                                     />
                                 </label>
+                            ))}
+                        </details>
+                        <details className="bookmark-controls">
+                            <summary>Bookmarks</summary>
+                            <p>0–9: Go · Ctrl/⌘+0–9: Set</p>
+                            {bookmarks.map((bookmark, index) => (
+                                <div className="bookmark-row" key={index}>
+                                    <button
+                                        type="button"
+                                        aria-label={`Go to bookmark ${index}`}
+                                        disabled={trace === null}
+                                        onClick={() => goToBookmark(index)}
+                                    >
+                                        Go
+                                    </button>
+                                    <output>{index}: x:{bookmark.x}, y:{bookmark.y}, zoom:{bookmark.zoom}</output>
+                                    <button
+                                        type="button"
+                                        aria-label={`Set bookmark ${index}`}
+                                        disabled={trace === null}
+                                        onClick={() => setBookmark(index)}
+                                    >
+                                        Set
+                                    </button>
+                                </div>
                             ))}
                         </details>
                     </div>
