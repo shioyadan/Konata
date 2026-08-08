@@ -394,7 +394,6 @@ export function TraceViewer() {
             onDrop={handleDrop}
         >
             <header className="app-toolbar">
-                <h1>Konata Web</h1>
                 <input
                     ref={fileInputRef}
                     className="file-input"
@@ -531,6 +530,18 @@ export function TraceViewer() {
                     </div>
                 </details>
                 <p className={`status status-${loadState}`} role="status">{statusMessage}</p>
+                {loadState === "loading" && (
+                    <div
+                        className="load-progress"
+                        role="progressbar"
+                        aria-label={`Loading ${fileName}`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(progress * 100)}
+                    >
+                        <div style={{ width: `${progress * 100}%` }} />
+                    </div>
+                )}
             </header>
 
             <div
@@ -571,11 +582,6 @@ export function TraceViewer() {
                     <div className="empty-state">
                         <strong>{loadState === "error" ? "The trace could not be opened." : "Drop a trace anywhere in this window."}</strong>
                         <span>{loadState === "error" ? "Choose another trace to try again." : "Plain text and gzip files are supported."}</span>
-                    </div>
-                )}
-                {loadState === "loading" && (
-                    <div className="loading-state" aria-hidden="true">
-                        <div className="progress-track"><div style={{ width: `${Math.round(progress * 100)}%` }} /></div>
                     </div>
                 )}
                 {toolTip !== null && (

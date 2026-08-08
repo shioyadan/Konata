@@ -52,6 +52,7 @@ button:disabled {
 }
 
 .app-toolbar {
+    position: relative;
     z-index: 2;
     display: flex;
     min-height: 3.6rem;
@@ -61,14 +62,6 @@ button:disabled {
     border-bottom: 1px solid #464b58;
     background: #242730;
     box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
-}
-
-.app-toolbar h1 {
-    margin: 0 0.5rem 0 0;
-    color: #ff6b35;
-    font-size: 1.25rem;
-    letter-spacing: 0.01em;
-    white-space: nowrap;
 }
 
 .file-input {
@@ -263,8 +256,7 @@ button:disabled {
     white-space: pre-wrap;
 }
 
-.empty-state,
-.loading-state {
+.empty-state {
     position: absolute;
     z-index: 2;
     top: 1.75rem;
@@ -290,23 +282,19 @@ button:disabled {
     font-size: 0.9rem;
 }
 
-.loading-state {
-    align-items: flex-end;
-    padding: 1.2rem;
+.load-progress {
+    position: absolute;
+    z-index: 100;
+    right: 0;
+    bottom: -3px;
+    left: 0;
+    height: 3px;
+    pointer-events: none;
 }
 
-.progress-track {
-    width: min(30rem, 70%);
-    height: 0.35rem;
-    overflow: hidden;
-    border-radius: 1rem;
-    background: #474c58;
-}
-
-.progress-track div {
+.load-progress div {
     height: 100%;
-    background: #ff6b35;
-    transition: width 120ms linear;
+    background: hsl(220 100% 65%);
 }
 
 .trace-app.is-dragging-file::after {
@@ -409,10 +397,6 @@ button:disabled {
 
 .theme-light .empty-state span {
     color: #555;
-}
-
-.theme-light .progress-track {
-    background: #c5c8d0;
 }
 
 @media (max-width: 720px) {

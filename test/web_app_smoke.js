@@ -7,7 +7,7 @@ const {app, BrowserWindow} = require("electron");
 // Xvfb環境ではGPUを利用できないため、ウィンドウ生成前にsoftware描画へ固定する。
 app.commandLine.appendSwitch("disable-gpu");
 
-async function dropFixture(window, fixturePath, mimeType) {
+async function dropFixture(window, fixturePath, mimeType, verifyProgressBar = false) {
     const contents = fs.readFileSync(fixturePath).toString("base64");
     const fileName = path.basename(fixturePath);
 
@@ -18,22 +18,88 @@ async function dropFixture(window, fixturePath, mimeType) {
         for (let index = 0; index < binary.length; index++) {
             bytes[index] = binary.charCodeAt(index);
         }
-        const transfer = new DataTransfer();
-        transfer.items.add(new File(
+        const file = new File(
             [bytes],
             ${JSON.stringify(fileName)},
             {type: ${JSON.stringify(mimeType)}}
-        ));
+        );
+        if (${verifyProgressBar ? "true" : "false"}) {
+            // 高速なfixtureでも読み込み中の1frameを観測できるよう、この検査時だけ先頭chunkを遅らせる。
+            const originalStream = file.stream.bind(file);
+            Object.defineProperty(file, "stream", {value: () => {
+                const reader = originalStream().getReader();
+                let first = true;
+                return new ReadableStream({
+                    async pull(controller) {
+                        if (first) {
+                            first = false;
+                            await new Promise((resolve) => setTimeout(resolve, 250));
+                        }
+                        const result = await reader.read();
+                        if (result.done) {
+                            controller.close();
+                        }
+                        else {
+                            controller.enqueue(result.value);
+                        }
+                    },
+                    cancel(reason) {
+                        return reader.cancel(reason);
+                    }
+                });
+            }});
+        }
         const target = document.querySelector(".trace-app");
         if (target === null) {
             throw new Error("The trace drop target was not found.");
         }
-        target.dispatchEvent(new DragEvent("drop", {
-            bubbles: true,
-            cancelable: true,
-            dataTransfer: transfer
-        }));
+        if (${verifyProgressBar ? "true" : "false"}) {
+            const event = new Event("drop", {bubbles: true, cancelable: true});
+            Object.defineProperty(event, "dataTransfer", {value: {files: [file]}});
+            target.dispatchEvent(event);
+        }
+        else {
+            const transfer = new DataTransfer();
+            transfer.items.add(file);
+            target.dispatchEvent(new DragEvent("drop", {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: transfer
+            }));
+        }
     })()`);
+
+    if (verifyProgressBar) {
+        // 旧版と同じ、背景trackなし・高さ3pxの青いbarが読み込み中だけ現れることを確認する。
+        const progressState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+            const deadline = performance.now() + 200;
+            const check = () => {
+                const progress = document.querySelector('[role="progressbar"]');
+                const bar = progress?.firstElementChild;
+                if (progress instanceof HTMLElement && bar instanceof HTMLElement) {
+                    resolve({
+                        found: true,
+                        height: getComputedStyle(progress).height,
+                        trackColor: getComputedStyle(progress).backgroundColor,
+                        barColor: getComputedStyle(bar).backgroundColor
+                    });
+                }
+                else if (performance.now() >= deadline) {
+                    resolve({found: false, height: null, trackColor: null, barColor: null});
+                }
+                else {
+                    setTimeout(check, 5);
+                }
+            };
+            check();
+        })`);
+        if (!progressState.found ||
+            progressState.height !== "3px" ||
+            progressState.trackColor !== "rgba(0, 0, 0, 0)" ||
+            progressState.barColor !== "rgb(77, 136, 255)") {
+            throw new Error(`Load progress appearance is incomplete: ${JSON.stringify(progressState)}`);
+        }
+    }
 
     // gzip sampleでも十分な余裕を持たせ、失敗時には画面のstatusをそのまま報告する。
     return window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
@@ -62,7 +128,6 @@ async function dropFixture(window, fixturePath, mimeType) {
 async function readRenderedState(window) {
     return window.webContents.executeJavaScript(`(() => {
         const root = document.querySelector(".trace-app");
-        const heading = document.querySelector(".app-toolbar h1");
         const pipeline = document.querySelector(".pipeline-pane canvas");
         if (!(pipeline instanceof HTMLCanvasElement)) {
             throw new Error("The pipeline canvas was not found.");
@@ -82,9 +147,7 @@ async function readRenderedState(window) {
         }
 
         return {
-            heading: heading?.textContent ?? null,
             status: document.querySelector(".status")?.textContent ?? null,
-            headingColor: heading === null ? null : getComputedStyle(heading).color,
             rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
             loadState: root?.dataset.loadState ?? null,
             fileName: root?.dataset.fileName ?? null,
@@ -116,19 +179,18 @@ async function run() {
     // Reactの初期描画とCSS適用を、file読み込み前にも独立して確認する。
     const initialState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => {
-            const heading = document.querySelector(".app-toolbar h1");
             resolve({
-                heading: heading?.textContent ?? null,
+                title: document.title,
+                headingCount: document.querySelectorAll(".app-toolbar h1").length,
                 status: document.querySelector(".status")?.textContent ?? null,
-                headingColor: heading === null ? null : getComputedStyle(heading).color,
                 rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
                 canvasCount: document.querySelectorAll(".viewer canvas").length
             });
         }));
     })`);
-    if (initialState.heading !== "Konata Web" ||
+    if (initialState.title !== "Konata" ||
+        initialState.headingCount !== 0 ||
         initialState.status !== "Open or drop a Kanata or gem5 O3PipeView trace." ||
-        initialState.headingColor !== "rgb(255, 107, 53)" ||
         initialState.rootChildCount !== 1 ||
         initialState.canvasCount !== 2) {
         throw new Error(`React initialization is incomplete: ${JSON.stringify(initialState)}`);
@@ -271,7 +333,7 @@ async function run() {
     }
 
     const gzipFixture = path.join(__dirname, "..", "docs", "kanata-sample-2.log.gz");
-    await dropFixture(window, gzipFixture, "application/gzip");
+    await dropFixture(window, gzipFixture, "application/gzip", true);
     const gzipState = await readRenderedState(window);
     if (gzipState.loadState !== "ready" ||
         gzipState.fileName !== "kanata-sample-2.log.gz" ||
