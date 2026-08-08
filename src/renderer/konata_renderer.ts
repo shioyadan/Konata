@@ -37,6 +37,24 @@ export interface CustomColorScheme {
 
 type RendererStyle = typeof darkStyle;
 
+// 旧Configが既定で持っていたCustom schemeを、そのままWeb版でも選択できるようにする。
+const DEFAULT_CUSTOM_COLOR_SCHEMES: Readonly<Record<string, CustomColorScheme>> = {
+    Custom: {
+        defaultColor: { h: "100", s: "auto", l: "auto" },
+        "0": {
+            F: { h: "0", s: "auto", l: "auto" },
+            Rn: { h: "60", s: "auto", l: "auto" },
+            Dc: { h: "120", s: "auto", l: "auto" },
+            Is: { h: "180", s: "auto", l: "auto" },
+            Cm: { h: "240", s: "auto", l: "auto" },
+            f: { h: "0", s: "0", l: "auto" },
+        },
+        "1": {
+            stl: { h: "0", s: "0", l: "auto" },
+        },
+    },
+};
+
 // 旧Rendererのlabel paneと同じ表示形式を、Canvasとテストから共有する。
 export function formatOpLabel(id: number, op: Op): string {
     return `${id}: s${op.gid} (t${op.tid}: r${op.rid}): ${op.labelName}`;
@@ -69,7 +87,7 @@ export class KonataRenderer {
     private style_: RendererStyle = darkStyle;
     private theme_: RendererTheme = "dark";
     private colorScheme_ = "Auto";
-    private customColorSchemes_: Readonly<Record<string, CustomColorScheme>> = {};
+    private customColorSchemes_: Readonly<Record<string, CustomColorScheme>> = DEFAULT_CUSTOM_COLOR_SCHEMES;
     private dependencyArrowType_: DependencyArrowType = DEP_ARROW_TYPE.INSIDE_LINE;
     private splitLanes_ = false;
     private fixOpHeight_ = false;

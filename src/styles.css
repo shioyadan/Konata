@@ -108,7 +108,7 @@ button:disabled {
     position: relative;
 }
 
-.view-controls summary {
+.view-controls > summary {
     padding: 0.42rem 0.72rem;
     border: 1px solid #535866;
     border-radius: 0.35rem;
@@ -117,7 +117,7 @@ button:disabled {
     list-style: none;
 }
 
-.view-controls summary::-webkit-details-marker {
+.view-controls > summary::-webkit-details-marker {
     display: none;
 }
 
@@ -129,12 +129,14 @@ button:disabled {
     display: grid;
     width: max-content;
     min-width: 14rem;
+    max-height: calc(100vh - 5rem);
     gap: 0.55rem;
     padding: 0.7rem;
     border: 1px solid #535866;
     border-radius: 0.35rem;
     background: #292c35;
     box-shadow: 0 0.4rem 1.2rem rgb(0 0 0 / 35%);
+    overflow-y: auto;
 }
 
 .view-controls-panel label {
@@ -145,12 +147,34 @@ button:disabled {
     white-space: nowrap;
 }
 
-.view-controls-panel select {
+.view-controls-panel select,
+.view-controls-panel input[type="number"] {
     min-width: 8rem;
     padding: 0.2rem;
     border: 1px solid #535866;
     background: #303440;
     color: #f2f3f5;
+}
+
+.view-controls-panel input[type="number"] {
+    width: 8rem;
+}
+
+.drawing-thresholds {
+    padding-top: 0.5rem;
+    border-top: 1px solid #464b58;
+}
+
+.drawing-thresholds > summary {
+    cursor: pointer;
+}
+
+.drawing-thresholds[open] > summary {
+    margin-bottom: 0.55rem;
+}
+
+.drawing-thresholds label + label {
+    margin-top: 0.45rem;
 }
 
 .status {
@@ -299,6 +323,96 @@ button:disabled {
     font-weight: 650;
     place-items: center;
     pointer-events: none;
+}
+
+/* 旧light themeと同じCanvas色に合わせ、Web側の操作部も一緒に切り替える。 */
+.trace-app.theme-light {
+    color-scheme: light;
+    background: #525c7d;
+    color: #222;
+}
+
+.theme-light .app-toolbar {
+    border-bottom-color: #464e6a;
+    background: #525c7d;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 16%);
+}
+
+.theme-light button,
+.theme-light .view-controls > summary {
+    border-color: #999;
+    background: #f4f4f4;
+    color: #222;
+}
+
+.theme-light button:hover:not(:disabled),
+.theme-light .view-controls > summary:hover {
+    border-color: #d75b2d;
+    background: #e8e8e8;
+}
+
+.theme-light .primary-button {
+    border-color: #30374f;
+    background: #464e6a;
+    color: #fff;
+}
+
+.theme-light .primary-button:hover:not(:disabled) {
+    background: #363e5a;
+}
+
+.theme-light .zoom-controls output,
+.theme-light .status {
+    color: #fff;
+}
+
+.theme-light .status-error {
+    color: #ffd4d4;
+}
+
+.theme-light .view-controls-panel {
+    border-color: #999;
+    background: #f4f4f4;
+    box-shadow: 0 0.4rem 1.2rem rgb(0 0 0 / 22%);
+}
+
+.theme-light .view-controls-panel select,
+.theme-light .view-controls-panel input[type="number"] {
+    border-color: #999;
+    background: #fff;
+    color: #222;
+}
+
+.theme-light .drawing-thresholds {
+    border-top-color: #ccc;
+}
+
+.theme-light .label-pane {
+    border-right-color: #ccc;
+    background: #f4f4f4;
+}
+
+.theme-light .pipeline-pane {
+    background: #fff;
+}
+
+.theme-light .pane-title {
+    border-bottom-color: #ccc;
+    background: #e8e8e8;
+    color: #333;
+}
+
+.theme-light .empty-state {
+    background: rgb(255 255 255 / 72%);
+    color: #222;
+}
+
+.theme-light .empty-state span {
+    color: #555;
+}
+
+.theme-light .progress-track {
+    background: #c5c8d0;
 }
 
 @media (max-width: 720px) {

@@ -163,26 +163,98 @@ async function run() {
         throw new Error(`Pipeline tooltip is incomplete: ${JSON.stringify(toolTipText)}`);
     }
 
+    // 旧label paneと同じく、2命令目のlabelをクリックするとそのfetch cycleを左端へ合わせる。
+    const labelClickToolTip = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const label = document.querySelector(".label-pane canvas");
+        const pipeline = document.querySelector(".pipeline-pane canvas");
+        if (!(label instanceof HTMLCanvasElement) || !(pipeline instanceof HTMLCanvasElement)) {
+            throw new Error("The trace canvases were not found.");
+        }
+        const labelRect = label.getBoundingClientRect();
+        label.dispatchEvent(new MouseEvent("click", {
+            bubbles: true,
+            clientX: labelRect.left + 8,
+            clientY: labelRect.top + 30
+        }));
+        const pipelineRect = pipeline.getBoundingClientRect();
+        pipeline.dispatchEvent(new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: pipelineRect.left + 8,
+            clientY: pipelineRect.top + 8
+        }));
+        requestAnimationFrame(() => resolve(document.querySelector('[role="tooltip"]')?.textContent ?? null));
+    })`);
+    if (typeof labelClickToolTip !== "string" || !labelClickToolTip.startsWith("[3, 0]")) {
+        throw new Error(`Label click alignment is incomplete: ${JSON.stringify(labelClickToolTip)}`);
+    }
+
+    // 旧版の左右キーは1回につき6cycle移動する。右へ動かした後、後続テスト用に左へ戻す。
+    const keyboardToolTip = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true}));
+        const pipeline = document.querySelector(".pipeline-pane canvas");
+        if (!(pipeline instanceof HTMLCanvasElement)) {
+            throw new Error("The pipeline canvas was not found.");
+        }
+        const rect = pipeline.getBoundingClientRect();
+        pipeline.dispatchEvent(new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: rect.left + 8,
+            clientY: rect.top + 8
+        }));
+        requestAnimationFrame(() => {
+            const text = document.querySelector('[role="tooltip"]')?.textContent ?? null;
+            document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft", bubbles: true}));
+            resolve(text);
+        });
+    })`);
+    if (typeof keyboardToolTip !== "string" || !keyboardToolTip.startsWith("[9, 0]")) {
+        throw new Error(`Keyboard navigation is incomplete: ${JSON.stringify(keyboardToolTip)}`);
+    }
+
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
     const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const fixed = document.querySelector('input[aria-label="Fix op height"]');
         const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        const textThreshold = document.querySelector('input[aria-label="Text drawing threshold"]');
         if (!(split instanceof HTMLInputElement) ||
             !(fixed instanceof HTMLInputElement) ||
-            !(arrows instanceof HTMLSelectElement)) {
+            !(arrows instanceof HTMLSelectElement) ||
+            !(theme instanceof HTMLSelectElement) ||
+            !(color instanceof HTMLSelectElement) ||
+            !(textThreshold instanceof HTMLInputElement)) {
             throw new Error("The renderer view controls were not found.");
         }
         split.click();
         arrows.value = "leftSideCurve";
         arrows.dispatchEvent(new Event("change", {bubbles: true}));
-        requestAnimationFrame(() => resolve({
+        theme.value = "light";
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        color.value = "Custom";
+        color.dispatchEvent(new Event("change", {bubbles: true}));
+        textThreshold.value = "12";
+        textThreshold.dispatchEvent(new Event("input", {bubbles: true}));
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             split: split.checked,
             fixEnabled: !fixed.disabled,
-            arrows: arrows.value
-        }));
+            arrows: arrows.value,
+            theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
+            color: color.value,
+            textThreshold: textThreshold.value,
+            labelBackground: getComputedStyle(document.querySelector(".label-pane")).backgroundColor,
+            pipelineBackground: getComputedStyle(document.querySelector(".pipeline-pane")).backgroundColor
+        })));
     })`);
-    if (!viewControlState.split || !viewControlState.fixEnabled || viewControlState.arrows !== "leftSideCurve") {
+    if (!viewControlState.split ||
+        !viewControlState.fixEnabled ||
+        viewControlState.arrows !== "leftSideCurve" ||
+        viewControlState.theme !== "light" ||
+        viewControlState.color !== "Custom" ||
+        viewControlState.textThreshold !== "12" ||
+        viewControlState.labelBackground !== "rgb(244, 244, 244)" ||
+        viewControlState.pipelineBackground !== "rgb(255, 255, 255)") {
         throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);
     }
 

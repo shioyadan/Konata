@@ -159,3 +159,39 @@ test("Web renderer preserves legacy tooltip contents", () => {
     assert.match(pipelineText ?? "", /^\[3, 0\] X\[3\]/);
     assert.match(pipelineText ?? "", /X: executing/);
 });
+
+test("Web renderer applies the legacy light theme and Custom color scheme", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    renderer.setTrace(trace);
+    renderer.setTheme("light");
+    renderer.changeColorScheme("Custom");
+    const label = createRecordedContext();
+    const pipeline = createRecordedContext();
+
+    renderer.draw(createCanvas(label.context), createCanvas(pipeline.context));
+
+    assert.equal(renderer.theme, "light");
+    assert.equal(renderer.colorScheme, "Custom");
+    // Customで未指定のX stageは、旧Configの既定hue 100とlight themeの彩度・明度を組み合わせる。
+    assert.deepEqual(pipeline.gradients[0]?.stops, [
+        [0, "hsl(100,95%,95%)"],
+        [1, "hsl(100,70%,80%)"],
+    ]);
+});
+
+test("Web renderer keeps drawing thresholds configurable", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    renderer.setTrace(trace);
+    renderer.drawTextThreshold = 100;
+    const label = createRecordedContext();
+    const pipeline = createRecordedContext();
+
+    renderer.draw(createCanvas(label.context), createCanvas(pipeline.context));
+
+    // 24pxのlaneより閾値を大きくすると、旧Settingsと同様にlabelとstage文字だけを省略する。
+    assert.deepEqual(label.fillTexts, []);
+    assert.deepEqual(pipeline.fillTexts, []);
+    assert.equal(pipeline.gradients.length, 1);
+});

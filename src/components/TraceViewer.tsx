@@ -18,6 +18,7 @@ import {
     DEP_ARROW_TYPE,
     KonataRenderer,
     type DependencyArrowType,
+    type RendererTheme,
 } from "../renderer/konata_renderer";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -32,6 +33,20 @@ interface CanvasToolTip {
     top: number;
     text: string;
 }
+
+type DrawingThreshold =
+    | "drawTextThreshold"
+    | "drawDetailedlyThreshold"
+    | "drawDependencyThreshold"
+    | "drawFrameThreshold";
+
+// 旧Settings dialogで変更できた描画閾値だけを、既存View panelへそのまま並べる。
+const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
+    ["drawTextThreshold", "Text"],
+    ["drawDetailedlyThreshold", "Stage colors"],
+    ["drawDependencyThreshold", "Dependency arrows"],
+    ["drawFrameThreshold", "Frames"],
+];
 
 export function TraceViewer() {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -157,19 +172,33 @@ export function TraceViewer() {
         }
     };
 
-    const mutateView = (mutation: (renderer: KonataRenderer) => void) => {
+    const mutateView = useCallback((mutation: (renderer: KonataRenderer) => void) => {
         mutation(rendererRef.current);
         setToolTip(null);
         setRenderVersion((version) => version + 1);
-    };
+    }, []);
 
-    const zoomAtCenter = (factor: number) => {
+    const zoomAtCenter = useCallback((factor: number) => {
         const canvas = pipelineCanvasRef.current;
         if (canvas === null) {
             return;
         }
         mutateView((renderer) => renderer.zoomAt(factor, canvas.clientWidth / 2, canvas.clientHeight / 2));
-    };
+    }, [mutateView]);
+
+    const moveVertical = useCallback((delta: number, adjust: boolean) => {
+        const renderer = rendererRef.current;
+        const differenceY = delta * 3 / renderer.zoomScale;
+        const differenceX = adjust ? renderer.adjustScrollDifferenceX(differenceY) : 0;
+        mutateView((target) => target.moveLogicalDifference([differenceX, differenceY], false));
+    }, [mutateView]);
+
+    const moveHorizontal = useCallback((delta: number) => {
+        mutateView((renderer) => renderer.moveLogicalDifference([
+            delta * 6 / renderer.zoomScale,
+            0,
+        ], false));
+    }, [mutateView]);
 
     const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
         if (trace === null) {
@@ -184,22 +213,14 @@ export function TraceViewer() {
             return;
         }
 
-        const renderer = rendererRef.current;
         if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
             // trackpadの横移動は、旧キーボード横移動と同じ6cycle単位へ対応させる。
-            const direction = event.deltaX > 0 ? 1 : -1;
-            mutateView((target) => target.moveLogicalDifference([
-                direction * 6 / target.zoomScale,
-                0,
-            ], false));
+            moveHorizontal(event.deltaX > 0 ? 1 : -1);
             return;
         }
 
         // 旧wheel操作と同じ3命令単位で移動し、左端を命令のfetch位置へ追従させる。
-        const direction = event.deltaY > 0 ? 1 : -1;
-        const differenceY = direction * 3 / renderer.zoomScale;
-        const differenceX = renderer.adjustScrollDifferenceX(differenceY);
-        mutateView((target) => target.moveLogicalDifference([differenceX, differenceY], false));
+        moveVertical(event.deltaY > 0 ? 1 : -1, true);
     };
 
     const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -241,6 +262,21 @@ export function TraceViewer() {
         ));
     };
 
+    const handleLabelClick = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+        if (trace === null) {
+            return;
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        const op = rendererRef.current.getOpFromPixelPositionY(event.clientY - rect.top);
+        if (op !== undefined) {
+            // 旧label paneと同様、縦位置は変えず、選んだ命令のfetch cycleだけを左端へ合わせる。
+            mutateView((renderer) => renderer.moveLogicalPosition([
+                op.fetchedCycle,
+                renderer.viewPosition[1],
+            ]));
+        }
+    };
+
     const updateToolTip = (
         pane: "label" | "pipeline",
         event: ReactMouseEvent<HTMLCanvasElement>,
@@ -279,6 +315,53 @@ export function TraceViewer() {
         });
     };
 
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (trace === null || event.defaultPrevented) {
+                return;
+            }
+            // View panelの入力中は、矢印や記号をCanvas操作として横取りしない。
+            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) {
+                return;
+            }
+
+            const zoomKey = event.ctrlKey || event.metaKey;
+            let handled = true;
+            if (event.key === "ArrowUp") {
+                zoomKey ? zoomAtCenter(2) : moveVertical(-1, !event.shiftKey);
+            }
+            else if (event.key === "ArrowDown") {
+                zoomKey ? zoomAtCenter(1 / 2) : moveVertical(1, !event.shiftKey);
+            }
+            else if (event.key === "PageUp") {
+                moveVertical(-10, !zoomKey);
+            }
+            else if (event.key === "PageDown") {
+                moveVertical(10, !zoomKey);
+            }
+            else if (event.key === "ArrowLeft") {
+                moveHorizontal(-1);
+            }
+            else if (event.key === "ArrowRight") {
+                moveHorizontal(1);
+            }
+            else if (event.key === "+") {
+                zoomAtCenter(2);
+            }
+            else if (event.key === "-") {
+                zoomAtCenter(1 / 2);
+            }
+            else {
+                handled = false;
+            }
+            if (handled) {
+                event.preventDefault();
+            }
+        };
+        document.addEventListener("keydown", handleKeyDown);
+        return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [moveHorizontal, moveVertical, trace, zoomAtCenter]);
+
     let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
     if (loadState === "loading") {
         statusMessage = `Loading ${fileName}… ${Math.round(progress * 100)}%`;
@@ -292,7 +375,8 @@ export function TraceViewer() {
 
     return (
         <main
-            className={`trace-app${isDraggingFile ? " is-dragging-file" : ""}`}
+            className={`trace-app theme-${rendererRef.current.theme}${isDraggingFile ? " is-dragging-file" : ""}`}
+            data-theme={rendererRef.current.theme}
             data-load-state={loadState}
             data-file-name={fileName}
             data-op-count={trace?.opCount ?? 0}
@@ -340,6 +424,19 @@ export function TraceViewer() {
                 <details className="view-controls">
                     <summary>View</summary>
                     <div className="view-controls-panel">
+                        <label>
+                            Theme
+                            <select
+                                aria-label="UI color theme"
+                                value={rendererRef.current.theme}
+                                onChange={(event) => mutateView((renderer) => {
+                                    renderer.setTheme(event.target.value as RendererTheme);
+                                })}
+                            >
+                                <option value="dark">Dark</option>
+                                <option value="light">Light</option>
+                            </select>
+                        </label>
                         <label>
                             <input
                                 type="checkbox"
@@ -389,6 +486,7 @@ export function TraceViewer() {
                                 <option>ThreadID</option>
                                 <option>Orange</option>
                                 <option>RoyalBlue</option>
+                                <option>Custom</option>
                             </select>
                         </label>
                         <label>
@@ -406,6 +504,30 @@ export function TraceViewer() {
                                 <option value={DEP_ARROW_TYPE.NOT_SHOW}>Not show</option>
                             </select>
                         </label>
+                        <details className="drawing-thresholds">
+                            <summary>Drawing thresholds</summary>
+                            {DRAWING_THRESHOLDS.map(([key, label]) => (
+                                <label key={key}>
+                                    {label}
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.5"
+                                        aria-label={`${label} drawing threshold`}
+                                        value={rendererRef.current[key]}
+                                        disabled={trace === null}
+                                        onChange={(event) => {
+                                            const value = Number(event.target.value);
+                                            if (Number.isFinite(value) && value >= 0) {
+                                                mutateView((renderer) => {
+                                                    renderer[key] = value;
+                                                });
+                                            }
+                                        }}
+                                    />
+                                </label>
+                            ))}
+                        </details>
                     </div>
                 </details>
                 <p className={`status status-${loadState}`} role="status">{statusMessage}</p>
@@ -425,7 +547,8 @@ export function TraceViewer() {
                     <canvas
                         ref={labelCanvasRef}
                         aria-label="Instruction labels canvas"
-                        onDoubleClick={handleDoubleClick}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={handleLabelClick}
                         onMouseMove={(event) => updateToolTip("label", event)}
                         onMouseLeave={() => setToolTip(null)}
                     >
