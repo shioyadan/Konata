@@ -1085,7 +1085,7 @@ export function App() {
                     onChange={handleFileInput}
                 />
                 <button
-                    className="primary-button button-with-icon"
+                    className="primary-button button-with-icon toolbar-action"
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                 >
@@ -1093,7 +1093,7 @@ export function App() {
                     <span>Open</span>
                 </button>
                 <button
-                    className="button-with-icon"
+                    className="button-with-icon toolbar-action"
                     type="button"
                     disabled={trace === null || loadState === "loading" || statsProgress !== null || searchProgress !== null}
                     onClick={showStats}
@@ -1136,8 +1136,9 @@ export function App() {
                     </button>
                 </div>
                 <details ref={viewControlsRef} className="view-controls">
-                    <summary aria-label="View settings" title="View settings">
+                    <summary className="toolbar-action" aria-label="View settings" title="View settings">
                         <BsSliders aria-hidden="true" />
+                        <span>View</span>
                     </summary>
                     <div className="view-controls-panel">
                         <label>

@@ -458,6 +458,11 @@ async function run() {
                 rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
                 paneTitleCount: document.querySelectorAll(".pane-title").length,
                 openButtonColor: openButton === null ? null : getComputedStyle(openButton).backgroundColor,
+                openButtonForeground: openButton === null ? null : getComputedStyle(openButton).color,
+                openButtonDirection: openButton === null ? null : getComputedStyle(openButton).flexDirection,
+                openIconSize: Number.parseFloat(getComputedStyle(openButton?.querySelector("svg")).width),
+                openLabelSize: Number.parseFloat(getComputedStyle(openButton?.querySelector("span")).fontSize),
+                openLabelColor: getComputedStyle(openButton?.querySelector("span")).color,
                 openButtonText: openButton?.textContent?.trim() ?? null,
                 mainActionIconCount: document.querySelectorAll(".app-toolbar > .button-with-icon > svg").length,
                 zoomIconCount: document.querySelectorAll(".zoom-controls .icon-button > svg").length,
@@ -481,7 +486,12 @@ async function run() {
         initialState.status !== "Open or drop a Kanata or gem5 O3PipeView trace." ||
         initialState.rootChildCount !== 1 ||
         initialState.paneTitleCount !== 0 ||
-        initialState.openButtonColor !== "rgb(52, 74, 100)" ||
+        initialState.openButtonColor !== "rgba(0, 0, 0, 0)" ||
+        initialState.openButtonForeground !== "rgb(143, 193, 244)" ||
+        initialState.openButtonDirection !== "column" ||
+        initialState.openIconSize < 19 ||
+        initialState.openLabelSize > 11 ||
+        initialState.openLabelColor !== "rgb(147, 168, 188)" ||
         initialState.openButtonText !== "Open" ||
         initialState.mainActionIconCount !== 2 ||
         initialState.zoomIconCount !== 3 ||
@@ -1128,6 +1138,20 @@ async function run() {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             toolbarBackground: getComputedStyle(document.querySelector(".app-toolbar")).backgroundColor,
             toolbarShadow: getComputedStyle(document.querySelector(".app-toolbar")).boxShadow,
+            primaryButtonBackground: getComputedStyle(document.querySelector(".primary-button")).backgroundColor,
+            primaryButtonColor: getComputedStyle(document.querySelector(".primary-button")).color,
+            primaryButtonLabelColor: getComputedStyle(
+                document.querySelector(".primary-button span"),
+            ).color,
+            secondaryButtonBackground: getComputedStyle(
+                document.querySelector(".app-toolbar > button:not(.primary-button)"),
+            ).backgroundColor,
+            secondaryButtonColor: getComputedStyle(
+                document.querySelector(".app-toolbar > button:not(.primary-button)"),
+            ).color,
+            viewButtonBackground: getComputedStyle(viewControls.querySelector("summary")).backgroundColor,
+            viewButtonColor: getComputedStyle(viewControls.querySelector("summary")).color,
+            viewButtonLabel: viewControls.querySelector("summary span")?.textContent ?? null,
             tabBarBackground: getComputedStyle(document.querySelector(".tab-bar")).backgroundColor,
             tabBarBorderWidth: getComputedStyle(document.querySelector(".tab-bar")).borderBottomWidth,
             activeTabBackground: getComputedStyle(document.querySelector(".trace-tab.is-active")).backgroundColor,
@@ -1155,10 +1179,18 @@ async function run() {
         viewControlState.textThreshold !== "12" ||
         viewControlState.toolbarBackground !== "rgb(82, 92, 125)" ||
         viewControlState.toolbarShadow !== "none" ||
+        viewControlState.primaryButtonBackground !== "rgba(0, 0, 0, 0)" ||
+        viewControlState.primaryButtonColor !== "rgb(203, 229, 255)" ||
+        viewControlState.primaryButtonLabelColor !== "rgb(192, 203, 217)" ||
+        viewControlState.secondaryButtonBackground !== "rgba(0, 0, 0, 0)" ||
+        viewControlState.secondaryButtonColor !== "rgb(217, 221, 230)" ||
+        viewControlState.viewButtonBackground !== viewControlState.secondaryButtonBackground ||
+        viewControlState.viewButtonColor !== viewControlState.secondaryButtonColor ||
+        viewControlState.viewButtonLabel !== "View" ||
         viewControlState.tabBarBackground !== "rgb(59, 65, 88)" ||
         viewControlState.tabBarBorderWidth !== "0px" ||
         viewControlState.activeTabBackground !== viewControlState.toolbarBackground ||
-        !viewControlState.activeTabAccent.includes("3px") ||
+        viewControlState.activeTabAccent !== "none" ||
         viewControlState.activeTabFontWeight !== "650" ||
         viewControlState.viewPanelZIndex !== "10" ||
         viewControlState.splitterZIndex !== "0" ||
@@ -1410,12 +1442,12 @@ async function run() {
         typeof tabState.switched.searchText !== "string" ||
         !tabState.switched.searchText.includes("consumer") ||
         tabState.switched.labelWidth !== 320 ||
-        tabState.switched.toolbarBackground !== "rgb(36, 39, 48)" ||
+        tabState.switched.toolbarBackground !== "rgb(36, 42, 51)" ||
         tabState.switched.toolbarShadow !== "none" ||
-        tabState.switched.tabBarBackground !== "rgb(23, 25, 30)" ||
+        tabState.switched.tabBarBackground !== "rgb(23, 26, 32)" ||
         tabState.switched.tabBarBorderWidth !== "0px" ||
         tabState.switched.activeTabBackground !== tabState.switched.toolbarBackground ||
-        !tabState.switched.activeTabAccent.includes("3px") ||
+        tabState.switched.activeTabAccent !== "none" ||
         tabState.switched.activeTabFontWeight !== "650" ||
         tabState.switched.inactiveTabBackground !== tabState.switched.tabBarBackground ||
         tabState.switched.inactiveTabColor !== "rgb(157, 164, 177)" ||
