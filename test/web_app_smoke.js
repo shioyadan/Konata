@@ -838,7 +838,7 @@ async function run() {
         viewControlState.textThreshold !== "12" ||
         viewControlState.toolbarBackground !== "rgb(82, 92, 125)" ||
         viewControlState.toolbarShadow !== "none" ||
-        viewControlState.tabBarBackground !== viewControlState.toolbarBackground ||
+        viewControlState.tabBarBackground !== "rgb(59, 65, 88)" ||
         viewControlState.tabBarBorderWidth !== "0px" ||
         viewControlState.activeTabBackground !== viewControlState.toolbarBackground ||
         !viewControlState.activeTabAccent.includes("3px") ||
@@ -1058,12 +1058,12 @@ async function run() {
         tabState.switched.labelWidth !== 320 ||
         tabState.switched.toolbarBackground !== "rgb(36, 39, 48)" ||
         tabState.switched.toolbarShadow !== "none" ||
-        tabState.switched.tabBarBackground !== tabState.switched.toolbarBackground ||
+        tabState.switched.tabBarBackground !== "rgb(23, 25, 30)" ||
         tabState.switched.tabBarBorderWidth !== "0px" ||
         tabState.switched.activeTabBackground !== tabState.switched.toolbarBackground ||
         !tabState.switched.activeTabAccent.includes("3px") ||
         tabState.switched.activeTabFontWeight !== "650" ||
-        tabState.switched.inactiveTabBackground !== "rgb(23, 25, 30)" ||
+        tabState.switched.inactiveTabBackground !== tabState.switched.tabBarBackground ||
         tabState.switched.inactiveTabColor !== "rgb(157, 164, 177)" ||
         tabState.remainingCount !== 1 ||
         tabState.remainingSelected !== "gem5-basic.txt" ||

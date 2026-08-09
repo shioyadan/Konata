@@ -131,7 +131,7 @@ button:disabled {
     z-index: 1;
     flex: 0 0 auto;
     border-bottom: 0;
-    background: #242730;
+    background: #17191e;
     overflow-x: auto;
 }
 
@@ -682,7 +682,7 @@ button:disabled {
 }
 
 .theme-light .tab-bar {
-    background: #525c7d;
+    background: #3b4158;
 }
 
 .theme-light .trace-tab {
