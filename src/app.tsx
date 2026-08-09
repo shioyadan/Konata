@@ -48,6 +48,16 @@ interface ViewAnimation {
     frameID: number;
 }
 
+interface PendingScroll {
+    readonly tabID: number;
+    readonly position: readonly [number, number];
+}
+
+interface PendingZoom {
+    readonly tabID: number;
+    readonly level: number;
+}
+
 // 旧Settings dialogで変更できた描画閾値だけを、既存View panelへそのまま並べる。
 const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawTextThreshold", "Text"],
@@ -182,6 +192,8 @@ export function App() {
     const commandHistoryRef = useRef<string[]>([]);
     // timer IDなどの途中状態は表示結果ではないため、StoreではなくAppの寿命にだけ結び付ける。
     const viewAnimationRef = useRef<ViewAnimation | null>(null);
+    const pendingScrollRef = useRef<PendingScroll | null>(null);
+    const pendingZoomRef = useRef<PendingZoom | null>(null);
 
     const { tabs, activeTabID, settings } = useSyncExternalStore(store.subscribe, store.getSnapshot);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -225,6 +237,8 @@ export function App() {
     }, []);
 
     const cancelViewAnimation = useCallback(() => {
+        pendingScrollRef.current = null;
+        pendingZoomRef.current = null;
         const animation = viewAnimationRef.current;
         if (animation === null) {
             return;
@@ -260,6 +274,8 @@ export function App() {
             // Tab切替後に、以前のRendererを画面外で動かし続けない。
             if (store.activeTab?.id !== animation.tabID) {
                 viewAnimationRef.current = null;
+                pendingScrollRef.current = null;
+                pendingZoomRef.current = null;
                 return;
             }
 
@@ -274,6 +290,8 @@ export function App() {
             });
             if (progress >= 1) {
                 viewAnimationRef.current = null;
+                pendingScrollRef.current = null;
+                pendingZoomRef.current = null;
             }
             else {
                 animation.frameID = requestAnimationFrame(animate);
@@ -425,7 +443,7 @@ export function App() {
     };
 
     const mutateView = useCallback((mutation: (renderer: KonataRenderer) => void) => {
-        // drag、wheel、pinchなどの直接操作は、途中の値を起点に即座に引き継ぐ。
+        // drag、pinchなど入力自体が連続する操作は、途中の値を起点に即座に引き継ぐ。
         cancelViewAnimation();
         traceSheetRef.current?.clearToolTip();
         const tab = store.activeTab;
@@ -451,6 +469,31 @@ export function App() {
             ]);
         });
     }, [startViewAnimation, store]);
+
+    const moveView = useCallback((
+        difference: readonly [number, number],
+        adjustHorizontal: boolean,
+    ) => {
+        const tab = store.activeTab;
+        if (tab === null) {
+            return;
+        }
+        const pending = pendingScrollRef.current;
+        const [baseX, baseY] = pending?.tabID === tab.id
+            ? pending.position
+            : tab.renderer.viewPosition;
+        const differenceX = adjustHorizontal
+            ? tab.renderer.adjustScrollDifferenceXAt([baseX, baseY], difference[1])
+            : difference[0];
+        const target: readonly [number, number] = [
+            baseX + differenceX,
+            baseY + difference[1],
+        ];
+
+        // 連続入力は未到達の終点へ加算し、現在の描画位置から滑らかに引き直す。
+        scrollTo(target);
+        pendingScrollRef.current = { tabID: tab.id, position: target };
+    }, [scrollTo, store]);
 
     const moveSplitter = useCallback((position: number) => {
         const tab = store.activeTab;
@@ -673,15 +716,20 @@ export function App() {
     }, [findString, hideSearchResult, scrollTo, store]);
 
     const zoomAt = useCallback((factor: number, centerX: number, centerY: number) => {
-        const renderer = store.activeTab?.renderer;
-        if (renderer === undefined || factor === 1) {
+        const tab = store.activeTab;
+        if (tab === null || factor === 1) {
             return;
         }
+        const renderer = tab.renderer;
         const fromLevel = renderer.zoomLevel;
-        const toLevel = fromLevel + (factor > 1 ? -1 : 1);
+        const pending = pendingZoomRef.current;
+        // wheelなどが次のframeより速く届いても、各1段分を失わず目標倍率へ積み上げる。
+        const baseLevel = pending?.tabID === tab.id ? pending.level : fromLevel;
+        const toLevel = renderer.clampZoomLevel(baseLevel + (factor > 1 ? -1 : 1));
         startViewAnimation(ZOOM_ANIMATION_DURATION, (target, progress) => {
             target.zoomAbs(fromLevel + (toLevel - fromLevel) * progress, centerX, centerY);
         });
+        pendingZoomRef.current = { tabID: tab.id, level: toLevel };
     }, [startViewAnimation, store]);
 
     const zoomAtCenter = useCallback((factor: number) => {
@@ -694,17 +742,14 @@ export function App() {
     const moveVertical = useCallback((delta: number, adjust: boolean) => {
         const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const differenceY = delta * 3 / renderer.zoomScale;
-        const differenceX = adjust ? renderer.adjustScrollDifferenceX(differenceY) : 0;
-        const [fromX, fromY] = renderer.viewPosition;
-        scrollTo([fromX + differenceX, fromY + differenceY]);
-    }, [scrollTo, store]);
+        moveView([0, differenceY], adjust);
+    }, [moveView, store]);
 
     const moveHorizontal = useCallback((delta: number) => {
         const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
-        const [fromX, fromY] = renderer.viewPosition;
         const differenceX = delta * 6 / renderer.zoomScale;
-        scrollTo([fromX + differenceX, fromY]);
-    }, [scrollTo, store]);
+        moveView([differenceX, 0], false);
+    }, [moveView, store]);
 
     const setBookmark = useCallback((index: number) => {
         const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
@@ -1169,6 +1214,7 @@ export function App() {
                 splitterPosition={activeTab?.splitterPosition ?? DEFAULT_SPLITTER_POSITION}
                 onMoveSplitter={moveSplitter}
                 onMutateView={mutateView}
+                onMoveView={moveView}
                 onScrollView={scrollTo}
                 onZoomView={zoomAt}
                 onCloseFindResult={hideSearchResult}

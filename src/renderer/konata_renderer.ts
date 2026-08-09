@@ -226,8 +226,12 @@ export class KonataRenderer {
         this.zoomAbs(this.zoomLevel_ + zoomLevelDifference, posX, posY);
     }
 
+    clampZoomLevel(zoomLevel: number): number {
+        return Math.max(-1, Math.min(KonataRenderer.MAX_ZOOM_LEVEL, zoomLevel));
+    }
+
     zoomAbs(zoomLevel: number, posX: number, posY: number, compensatePosition = true): void {
-        this.zoomLevel_ = Math.max(-1, Math.min(KonataRenderer.MAX_ZOOM_LEVEL, zoomLevel));
+        this.zoomLevel_ = this.clampZoomLevel(zoomLevel);
         const oldScale = this.zoomScale_;
         this.zoomScale_ = this.calcScale_(this.zoomLevel_);
         this.updateScaleParameter_();
@@ -256,7 +260,15 @@ export class KonataRenderer {
     }
 
     adjustScrollDifferenceX(differenceY: number): number {
-        const positionY = this.viewPosition_.top;
+        return this.adjustScrollDifferenceXAt(this.viewPosition, differenceY);
+    }
+
+    // wheelの未到達目標へ次の入力を足す場合も、旧版と同じ命令追従量を計算する。
+    adjustScrollDifferenceXAt(
+        position: readonly [number, number],
+        differenceY: number,
+    ): number {
+        const [positionX, positionY] = position;
         const y = Math.floor(positionY);
         if (y < 0 || y > this.getVisibleBottom()) {
             return 0;
@@ -268,7 +280,7 @@ export class KonataRenderer {
             return 0;
         }
         if (oldOp === undefined || newOp.id === oldOp.id) {
-            return newOp.fetchedCycle - this.viewPosition_.left;
+            return newOp.fetchedCycle - positionX;
         }
         return newOp.fetchedCycle - oldOp.fetchedCycle;
     }

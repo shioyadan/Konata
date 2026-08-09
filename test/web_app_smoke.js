@@ -611,7 +611,7 @@ async function run() {
         throw new Error(`Double click zoom is incomplete: ${JSON.stringify(doubleClickZoomState)}`);
     }
 
-    // 通常wheelの横移動も中間cycleを通り、1操作分の6cycleへ到達する。
+    // 通常wheelを素早く3回送ると、途中で跳ばずに目標へ18cycle分を積み上げる。
     const wheelScrollState = await window.webContents.executeJavaScript(`(async () => {
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane canvas");
@@ -633,14 +633,14 @@ async function run() {
             const text = document.querySelector('[role="tooltip"]')?.textContent ?? "";
             return Number(text.startsWith("[") ? text.slice(1, text.indexOf(",")) : -1);
         };
-        const event = new WheelEvent("wheel", {
+        const events = Array.from({length: 3}, () => new WheelEvent("wheel", {
             bubbles: true,
             cancelable: true,
             deltaX: 1,
             clientX: rect.left + 8,
             clientY: rect.top + 8
-        });
-        const dispatched = viewer.dispatchEvent(event);
+        }));
+        const dispatched = events.map((event) => viewer.dispatchEvent(event));
         await new Promise((resolve) => requestAnimationFrame(() =>
             requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const duringCycle = await readCycle();
@@ -651,15 +651,15 @@ async function run() {
         await new Promise((resolve) => setTimeout(resolve, 300));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
-            canceled: !dispatched && event.defaultPrevented,
+            canceled: dispatched.every((value, index) => !value && events[index].defaultPrevented),
             duringCycle,
             finalCycle
         };
     })()`);
     if (!wheelScrollState.canceled ||
         wheelScrollState.duringCycle <= 0 ||
-        wheelScrollState.duringCycle >= 6 ||
-        wheelScrollState.finalCycle !== 6) {
+        wheelScrollState.duringCycle >= 18 ||
+        wheelScrollState.finalCycle !== 18) {
         throw new Error(`Wheel scroll animation is incomplete: ${JSON.stringify(wheelScrollState)}`);
     }
 

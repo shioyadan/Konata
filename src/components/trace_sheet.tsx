@@ -52,6 +52,7 @@ interface TraceSheetProps {
     readonly splitterPosition: number;
     readonly onMoveSplitter: (position: number) => void;
     readonly onMutateView: (mutation: (renderer: KonataRenderer) => void) => void;
+    readonly onMoveView: (difference: readonly [number, number], adjustHorizontal: boolean) => void;
     readonly onScrollView: (position: readonly [number, number]) => void;
     readonly onZoomView: (factor: number, centerX: number, centerY: number) => void;
     readonly onCloseFindResult: () => void;
@@ -91,6 +92,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     splitterPosition,
     onMoveSplitter,
     onMutateView,
+    onMoveView,
     onScrollView,
     onZoomView,
     onCloseFindResult,
@@ -179,19 +181,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
 
-        const [fromX, fromY] = renderer.viewPosition;
         if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
             // trackpadの横移動は、旧キーボード横移動と同じ6cycle単位へ対応させる。
             const differenceX = (event.deltaX > 0 ? 1 : -1) * 6 / renderer.zoomScale;
-            onScrollView([fromX + differenceX, fromY]);
+            onMoveView([differenceX, 0], false);
             return;
         }
 
         // 旧wheel操作と同じ3命令単位で移動し、左端を命令のfetch位置へ追従させる。
         const differenceY = (event.deltaY > 0 ? 1 : -1) * 3 / renderer.zoomScale;
-        const differenceX = renderer.adjustScrollDifferenceX(differenceY);
-        onScrollView([fromX + differenceX, fromY + differenceY]);
-    }, [onScrollView, onZoomView, renderer, trace]);
+        onMoveView([0, differenceY], true);
+    }, [onMoveView, onZoomView, renderer, trace]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
