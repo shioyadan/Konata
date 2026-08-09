@@ -707,6 +707,12 @@ async function run() {
         throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);
     }
 
+    // tab固有のRenderer状態として倍率も保持されるよう、別traceを開く前に変更する。
+    await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        document.querySelector('button[aria-label="Zoom in"]')?.click();
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    })`);
+
     // Kanataとして不一致になった入力をgem5 Parserで開き直し、同じCanvasへ表示できることを確認する。
     const gem5Fixture = path.join(__dirname, "fixtures", "gem5-basic.txt");
     await dropFixture(window, gem5Fixture, "text/plain");
@@ -717,6 +723,61 @@ async function run() {
         gem5State.laneCount !== 1 ||
         gem5State.nonBackgroundPixels < 100) {
         throw new Error(`gem5 trace rendering is incomplete: ${JSON.stringify(gem5State)}`);
+    }
+
+    // 旧tab barと同じく、traceとRenderer設定を保持して切り替え、active tabを閉じたら隣へ移る。
+    const tabState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const tabButtons = [...document.querySelectorAll('[role="tab"]')];
+        const plainTab = tabButtons.find((button) => button.textContent?.trim() === "kanata-basic.txt");
+        const closePlain = document.querySelector('button[aria-label="Close kanata-basic.txt"]');
+        if (!(plainTab instanceof HTMLButtonElement) || !(closePlain instanceof HTMLButtonElement)) {
+            throw new Error("The trace tabs were not found.");
+        }
+        const initialSelected = document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null;
+        plainTab.click();
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const root = document.querySelector(".trace-app");
+            const split = document.querySelector('input[aria-label="Split lanes"]');
+            const switched = {
+                fileName: root?.dataset.fileName ?? null,
+                opCount: Number(root?.dataset.opCount ?? -1),
+                theme: root?.dataset.theme ?? null,
+                split: split instanceof HTMLInputElement && split.checked,
+                zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
+            };
+            closePlain.click();
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                const remainingRoot = document.querySelector(".trace-app");
+                resolve({
+                    initialCount: tabButtons.length,
+                    initialSelected,
+                    switched,
+                    remainingCount: document.querySelectorAll('[role="tab"]').length,
+                    remainingSelected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null,
+                    remainingFileName: remainingRoot?.dataset.fileName ?? null,
+                    remainingOpCount: Number(remainingRoot?.dataset.opCount ?? -1),
+                    remainingTheme: remainingRoot?.dataset.theme ?? null,
+                    remainingSplit: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
+                    remainingZoom: document.querySelector(".zoom-controls output")?.textContent ?? null
+                });
+            }));
+        }));
+    })`);
+    if (tabState.initialCount !== 2 ||
+        tabState.initialSelected !== "gem5-basic.txt" ||
+        tabState.switched.fileName !== "kanata-basic.txt" ||
+        tabState.switched.opCount !== 2 ||
+        tabState.switched.theme !== "light" ||
+        !tabState.switched.split ||
+        tabState.switched.zoom !== "200%" ||
+        tabState.remainingCount !== 1 ||
+        tabState.remainingSelected !== "gem5-basic.txt" ||
+        tabState.remainingFileName !== "gem5-basic.txt" ||
+        tabState.remainingOpCount !== 1 ||
+        tabState.remainingTheme !== "light" ||
+        !tabState.remainingSplit ||
+        tabState.remainingZoom !== "100%") {
+        throw new Error(`Trace tabs are incomplete: ${JSON.stringify(tabState)}`);
     }
 
     const gzipFixture = path.join(__dirname, "..", "docs", "kanata-sample-2.log.gz");

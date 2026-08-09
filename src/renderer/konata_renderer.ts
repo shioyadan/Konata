@@ -113,6 +113,10 @@ export class KonataRenderer {
     }
 
     setTrace(trace: ParsedTrace | null): void {
+        // 非表示tabを再表示するだけなら、tab固有の座標と倍率を維持する。
+        if (this.trace_ === trace) {
+            return;
+        }
         this.trace_ = trace;
         this.resetView();
     }

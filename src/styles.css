@@ -128,6 +128,57 @@ button:disabled {
     background: #405a78;
 }
 
+.tab-bar {
+    z-index: 1;
+    flex: 0 0 auto;
+    border-bottom: 1px solid #464b58;
+    background: #20232a;
+    overflow-x: auto;
+}
+
+.tab-bar > [role="tablist"] {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+}
+
+.trace-tab {
+    display: flex;
+    border-right: 1px solid #464b58;
+    background: #292c35;
+}
+
+.trace-tab.is-active {
+    background: #343944;
+}
+
+.trace-tab button {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.trace-tab-activate {
+    max-width: 20rem;
+    padding: 0.35rem 0.3rem 0.35rem 0.7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.trace-tab[data-load-state="loading"] .trace-tab-activate::after {
+    content: " …";
+}
+
+.trace-tab-close {
+    padding: 0.25rem 0.55rem;
+    color: #b8bec9;
+}
+
+.trace-tab button:hover:not(:disabled) {
+    background: rgb(255 255 255 / 7%);
+}
+
 .zoom-controls {
     display: flex;
     align-items: center;
@@ -601,6 +652,24 @@ button:disabled {
 }
 
 .theme-light .bookmark-controls > p {
+    color: #555;
+}
+
+.theme-light .tab-bar {
+    border-bottom-color: #bbb;
+    background: #ddd;
+}
+
+.theme-light .trace-tab {
+    border-right-color: #bbb;
+    background: #e7e7e7;
+}
+
+.theme-light .trace-tab.is-active {
+    background: #fff;
+}
+
+.theme-light .trace-tab-close {
     color: #555;
 }
 

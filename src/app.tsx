@@ -2,6 +2,7 @@ import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useSt
 
 import { CommandPalette } from "./components/command_palette";
 import { StatsDialog } from "./components/stats_dialog";
+import { TabBar } from "./components/tab_bar";
 import {
     type FindResult,
     type LoadState,
@@ -31,6 +32,24 @@ interface ViewBookmark {
     readonly zoom: number;
 }
 
+interface TraceTab {
+    readonly id: number;
+    readonly fileName: string;
+    readonly renderer: KonataRenderer;
+    trace: ParsedTrace | null;
+    loadState: LoadState;
+    progress: number;
+    errorMessage: string;
+}
+
+function closeTabTrace(tab: TraceTab): void {
+    const trace = tab.trace;
+    tab.trace = null;
+    // Renderer側の参照も先に外し、閉じたtabだけでtrace全体を回収できるようにする。
+    tab.renderer.setTrace(null);
+    trace?.close();
+}
+
 // 旧Settings dialogで変更できた描画閾値だけを、既存View panelへそのまま並べる。
 const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawTextThreshold", "Text"],
@@ -38,6 +57,21 @@ const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawDependencyThreshold", "Dependency arrows"],
     ["drawFrameThreshold", "Frames"],
 ];
+
+function createTabRenderer(source: KonataRenderer): KonataRenderer {
+    const renderer = new KonataRenderer();
+    // 単一sheet版で新しいfileを開いた時と同じく、現在の表示設定を次のtabへ引き継ぐ。
+    renderer.setTheme(source.theme);
+    renderer.hideFlushedOps = source.hideFlushedOps;
+    renderer.splitLanes = source.splitLanes;
+    renderer.fixOpHeight = source.fixOpHeight;
+    renderer.changeColorScheme(source.colorScheme);
+    renderer.dependencyArrowType = source.dependencyArrowType;
+    for (const [key] of DRAWING_THRESHOLDS) {
+        renderer[key] = source[key];
+    }
+    return renderer;
+}
 
 const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
     { length: 10 },
@@ -96,19 +130,16 @@ function makeFindTargetString(op: Op): string {
 export function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const traceSheetRef = useRef<TraceSheetHandle>(null);
-    const rendererRef = useRef(new KonataRenderer());
-    const traceRef = useRef<ParsedTrace | null>(null);
-    // 複数ファイルが続けて選ばれた場合、遅く完了した旧requestで表示を上書きしない。
-    const loadRequestRef = useRef(0);
+    const emptyRendererRef = useRef(new KonataRenderer());
+    const tabsRef = useRef(new Map<number, TraceTab>());
+    const activeTabRef = useRef<TraceTab | null>(null);
+    const nextTabIDRef = useRef(0);
     const statsRequestRef = useRef(0);
     const searchRequestRef = useRef(0);
     const commandHistoryRef = useRef<string[]>([]);
 
-    const [trace, setTrace] = useState<ParsedTrace | null>(null);
-    const [loadState, setLoadState] = useState<LoadState>("idle");
-    const [fileName, setFileName] = useState("");
-    const [progress, setProgress] = useState(0);
-    const [errorMessage, setErrorMessage] = useState("");
+    const [tabs, setTabs] = useState<readonly TraceTab[]>([]);
+    const [activeTabID, setActiveTabID] = useState<number | null>(null);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [statsProgress, setStatsProgress] = useState<number | null>(null);
     const [statsValues, setStatsValues] = useState<Readonly<StatsValues> | null>(null);
@@ -122,6 +153,15 @@ export function App() {
     const [bookmarks, setBookmarks] = useState<readonly ViewBookmark[]>(loadBookmarks);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
+
+    const activeTab = tabs.find((tab) => tab.id === activeTabID) ?? null;
+    activeTabRef.current = activeTab;
+    const trace = activeTab?.trace ?? null;
+    const loadState = activeTab?.loadState ?? "idle";
+    const fileName = activeTab?.fileName ?? "";
+    const progress = activeTab?.progress ?? 0;
+    const errorMessage = activeTab?.errorMessage ?? "";
+    const renderer = activeTab?.renderer ?? emptyRendererRef.current;
 
     useEffect(() => {
         saveBookmarks(bookmarks);
@@ -143,50 +183,91 @@ export function App() {
         setCommandPaletteInitial(null);
     }, []);
 
-    const replaceTrace = useCallback((nextTrace: ParsedTrace | null) => {
-        // 旧traceの集計結果を新しいfileへ表示しないよう、進行中のrequestもここで無効化する。
+    const publishTabs = useCallback(() => {
+        setTabs(Array.from(tabsRef.current.values()));
+    }, []);
+
+    const activateTab = useCallback((id: number) => {
+        if (!tabsRef.current.has(id) || activeTabRef.current?.id === id) {
+            return;
+        }
+        // 検索結果とdialogはactive sheetだけに属し、tabをまたいで表示しない。
         resetStats();
         resetSearch();
-        // 将来の圧縮pageやWorkerもtab切替時に解放できるよう、storeのcloseをここへ集約する。
-        traceRef.current?.close();
-        traceRef.current = nextTrace;
-        setTrace(nextTrace);
+        setActiveTabID(id);
+        setRenderVersion((version) => version + 1);
     }, [resetSearch, resetStats]);
+
+    const closeTab = useCallback((id: number) => {
+        const openTabs = Array.from(tabsRef.current.values());
+        const closingIndex = openTabs.findIndex((tab) => tab.id === id);
+        const closingTab = openTabs[closingIndex];
+        if (closingTab === undefined) {
+            return;
+        }
+
+        // callbackが閉じたtabを更新しないよう、mapから外してからstoreを解放する。
+        tabsRef.current.delete(id);
+        closeTabTrace(closingTab);
+
+        if (activeTabRef.current?.id === id) {
+            resetStats();
+            resetSearch();
+            const remainingTabs = Array.from(tabsRef.current.values());
+            const nextTab = remainingTabs[Math.min(closingIndex, remainingTabs.length - 1)] ?? null;
+            setActiveTabID(nextTab?.id ?? null);
+            setRenderVersion((version) => version + 1);
+        }
+        publishTabs();
+    }, [publishTabs, resetSearch, resetStats]);
 
     useEffect(() => () => {
         statsRequestRef.current++;
         searchRequestRef.current++;
-        // StrictModeの初回cleanup時点ではまだtraceがなく、実際のunmountでは最新traceを閉じる。
-        traceRef.current?.close();
-        traceRef.current = null;
+        // StrictModeの初回cleanup時点ではtabがなく、実際のunmountでは全storeを閉じる。
+        for (const tab of tabsRef.current.values()) {
+            closeTabTrace(tab);
+        }
+        tabsRef.current.clear();
+        activeTabRef.current = null;
     }, []);
 
     const loadFile = useCallback(async (file: File) => {
-        const requestID = ++loadRequestRef.current;
-        // 新しい入力用の空のsheetへ切り替え、旧partial traceもここで解放する。
-        replaceTrace(null);
-        setLoadState("loading");
-        setFileName(file.name);
-        setProgress(0);
-        setErrorMessage("");
+        const sourceRenderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
+        const tab: TraceTab = {
+            id: nextTabIDRef.current++,
+            fileName: file.name,
+            renderer: createTabRenderer(sourceRenderer),
+            trace: null,
+            loadState: "loading",
+            progress: 0,
+            errorMessage: "",
+        };
+        tabsRef.current.set(tab.id, tab);
+        publishTabs();
+        resetStats();
+        resetSearch();
+        setActiveTabID(tab.id);
+        setRenderVersion((version) => version + 1);
 
         try {
             const updateProgress = (value: number) => {
-                if (loadRequestRef.current === requestID) {
-                    setProgress(value);
+                if (tabsRef.current.get(tab.id) === tab) {
+                    tab.progress = value;
+                    publishTabs();
                 }
             };
             const updateTrace = (partialTrace: ParsedTrace) => {
-                if (loadRequestRef.current !== requestID) {
+                if (tabsRef.current.get(tab.id) !== tab) {
                     return;
                 }
-                if (traceRef.current !== partialTrace) {
+                if (tab.trace !== partialTrace) {
                     // 形式確定時だけ同じstoreを持つtraceへ切り替え、以後は再描画だけを行う。
-                    replaceTrace(partialTrace);
+                    closeTabTrace(tab);
+                    tab.trace = partialTrace;
                 }
-                else {
-                    setRenderVersion((version) => version + 1);
-                }
+                publishTabs();
+                setRenderVersion((version) => version + 1);
             };
             let parsedTrace: ParsedTrace;
             try {
@@ -199,28 +280,30 @@ export function App() {
                 }
                 parsedTrace = await new Gem5O3PipeViewParser().parse(file, updateProgress, updateTrace);
             }
-            if (loadRequestRef.current !== requestID) {
+            if (tabsRef.current.get(tab.id) !== tab) {
                 parsedTrace.close();
                 return;
             }
-            if (traceRef.current !== parsedTrace) {
-                replaceTrace(parsedTrace);
+            if (tab.trace !== parsedTrace) {
+                closeTabTrace(tab);
+                tab.trace = parsedTrace;
             }
-            else {
-                setRenderVersion((version) => version + 1);
-            }
-            setProgress(1);
-            setLoadState("ready");
+            tab.progress = 1;
+            tab.loadState = "ready";
+            publishTabs();
+            setRenderVersion((version) => version + 1);
         }
         catch (error) {
-            if (loadRequestRef.current !== requestID) {
+            if (tabsRef.current.get(tab.id) !== tab) {
                 return;
             }
-            replaceTrace(null);
-            setLoadState("error");
-            setErrorMessage(error instanceof Error ? error.message : String(error));
+            closeTabTrace(tab);
+            tab.loadState = "error";
+            tab.errorMessage = error instanceof Error ? error.message : String(error);
+            publishTabs();
+            setRenderVersion((version) => version + 1);
         }
-    }, [replaceTrace]);
+    }, [publishTabs, resetSearch, resetStats]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -242,7 +325,7 @@ export function App() {
 
     const mutateView = useCallback((mutation: (renderer: KonataRenderer) => void) => {
         traceSheetRef.current?.clearToolTip();
-        mutation(rendererRef.current);
+        mutation(activeTabRef.current?.renderer ?? emptyRendererRef.current);
         setRenderVersion((version) => version + 1);
     }, []);
 
@@ -264,8 +347,9 @@ export function App() {
             return;
         }
 
-        const activeTrace = traceRef.current;
-        if (activeTrace === null) {
+        const searchedTab = activeTabRef.current;
+        const activeTrace = searchedTab?.trace ?? null;
+        if (searchedTab === null || activeTrace === null) {
             setCommandMessage("No trace is open.");
             return;
         }
@@ -311,14 +395,14 @@ export function App() {
                         setSearchProgress(lastOpID > 0 ? index / lastOpID : 1);
                     }
                     await new Promise((resolve) => setTimeout(resolve, 17));
-                    if (searchRequestRef.current !== requestID || traceRef.current !== activeTrace) {
+                    if (searchRequestRef.current !== requestID || activeTabRef.current !== searchedTab) {
                         return;
                     }
                 }
             }
 
             console.log(`Search finished: ${target}@${foundOp?.id ?? -1}, ${Date.now() - startTime} msec`);
-            if (searchRequestRef.current !== requestID || traceRef.current !== activeTrace) {
+            if (searchRequestRef.current !== requestID || activeTabRef.current !== searchedTab) {
                 return;
             }
             setSearchProgress(null);
@@ -328,7 +412,7 @@ export function App() {
                 return;
             }
 
-            const renderer = rendererRef.current;
+            const renderer = searchedTab.renderer;
             const viewPosition = renderer.viewPosition;
             const moveTo = renderer.getPositionYFromOp(foundOp);
             let left = viewPosition[0];
@@ -367,13 +451,14 @@ export function App() {
         if (findResult === null) {
             return;
         }
-        const basePosition = rendererRef.current.getPositionYFromOp(findResult.anchorOp);
+        const renderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
+        const basePosition = renderer.getPositionYFromOp(findResult.anchorOp);
         findString(findResult.targetPattern, basePosition, reverse);
     }, [findResult, findString]);
 
     const executeCommand = useCallback((command: string) => {
         let accepted = false;
-        const renderer = rendererRef.current;
+        const renderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
         const idMatch = command.match(/^j\s+(\d+)\s*$/);
         const ridMatch = command.match(/^jr\s+(\d+)\s*$/);
         const findMatch = command.match(/^f\s+(.+)$/);
@@ -438,7 +523,7 @@ export function App() {
     }, [mutateView]);
 
     const moveVertical = useCallback((delta: number, adjust: boolean) => {
-        const renderer = rendererRef.current;
+        const renderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
         const differenceY = delta * 3 / renderer.zoomScale;
         const differenceX = adjust ? renderer.adjustScrollDifferenceX(differenceY) : 0;
         mutateView((target) => target.moveLogicalDifference([differenceX, differenceY], false));
@@ -452,7 +537,7 @@ export function App() {
     }, [mutateView]);
 
     const setBookmark = useCallback((index: number) => {
-        const renderer = rendererRef.current;
+        const renderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
         const [x, y] = renderer.viewPosition;
         // 旧Configの保存値と同じく、論理座標は整数へ切り下げる。
         const bookmark = { x: Math.floor(x), y: Math.floor(y), zoom: renderer.zoomLevel };
@@ -502,7 +587,7 @@ export function App() {
                     setStatsProgress(value);
                 }
             },
-            () => statsRequestRef.current !== requestID || traceRef.current !== trace,
+            () => statsRequestRef.current !== requestID || activeTabRef.current?.trace !== trace,
         ).then((values) => {
             if (statsRequestRef.current !== requestID || values === null) {
                 return;
@@ -636,8 +721,8 @@ export function App() {
 
     return (
         <main
-            className={`trace-app theme-${rendererRef.current.theme}${isDraggingFile ? " is-dragging-file" : ""}`}
-            data-theme={rendererRef.current.theme}
+            className={`trace-app theme-${renderer.theme}${isDraggingFile ? " is-dragging-file" : ""}`}
+            data-theme={renderer.theme}
             data-load-state={loadState}
             data-file-name={fileName}
             data-op-count={trace?.opCount ?? 0}
@@ -684,7 +769,7 @@ export function App() {
                     <button type="button" disabled={trace === null} onClick={() => zoomAtCenter(1 / 1.2)} aria-label="Zoom out">
                         −
                     </button>
-                    <output>{rendererRef.current.zoomPercent}%</output>
+                    <output>{renderer.zoomPercent}%</output>
                     <button type="button" disabled={trace === null} onClick={() => zoomAtCenter(1.2)} aria-label="Zoom in">
                         +
                     </button>
@@ -703,7 +788,7 @@ export function App() {
                             Theme
                             <select
                                 aria-label="UI color theme"
-                                value={rendererRef.current.theme}
+                                value={renderer.theme}
                                 onChange={(event) => mutateView((renderer) => {
                                     renderer.setTheme(event.target.value as RendererTheme);
                                 })}
@@ -716,7 +801,7 @@ export function App() {
                             <input
                                 type="checkbox"
                                 aria-label="Hide flushed ops"
-                                checked={rendererRef.current.hideFlushedOps}
+                                checked={renderer.hideFlushedOps}
                                 disabled={trace === null}
                                 onChange={(event) => toggleHideFlushedOps(event.target.checked)}
                             />
@@ -726,7 +811,7 @@ export function App() {
                             <input
                                 type="checkbox"
                                 aria-label="Split lanes"
-                                checked={rendererRef.current.splitLanes}
+                                checked={renderer.splitLanes}
                                 disabled={trace === null}
                                 onChange={(event) => mutateView((renderer) => {
                                     renderer.splitLanes = event.target.checked;
@@ -738,8 +823,8 @@ export function App() {
                             <input
                                 type="checkbox"
                                 aria-label="Fix op height"
-                                checked={rendererRef.current.fixOpHeight}
-                                disabled={trace === null || !rendererRef.current.splitLanes}
+                                checked={renderer.fixOpHeight}
+                                disabled={trace === null || !renderer.splitLanes}
                                 onChange={(event) => mutateView((renderer) => {
                                     renderer.fixOpHeight = event.target.checked;
                                 })}
@@ -750,7 +835,7 @@ export function App() {
                             Color
                             <select
                                 aria-label="Pipeline color scheme"
-                                value={rendererRef.current.colorScheme}
+                                value={renderer.colorScheme}
                                 disabled={trace === null}
                                 onChange={(event) => mutateView((renderer) => {
                                     renderer.changeColorScheme(event.target.value);
@@ -768,7 +853,7 @@ export function App() {
                             Dependency arrows
                             <select
                                 aria-label="Dependency arrow type"
-                                value={rendererRef.current.dependencyArrowType}
+                                value={renderer.dependencyArrowType}
                                 disabled={trace === null}
                                 onChange={(event) => mutateView((renderer) => {
                                     renderer.dependencyArrowType = event.target.value as DependencyArrowType;
@@ -789,7 +874,7 @@ export function App() {
                                         min="0"
                                         step="0.5"
                                         aria-label={`${label} drawing threshold`}
-                                        value={rendererRef.current[key]}
+                                        value={renderer[key]}
                                         disabled={trace === null}
                                         onChange={(event) => {
                                             const value = Number(event.target.value);
@@ -847,9 +932,16 @@ export function App() {
                 )}
             </header>
 
+            <TabBar
+                tabs={tabs}
+                activeTabID={activeTabID}
+                onActivate={activateTab}
+                onClose={closeTab}
+            />
             <TraceSheet
+                key={activeTabID ?? "empty"}
                 ref={traceSheetRef}
-                renderer={rendererRef.current}
+                renderer={renderer}
                 trace={trace}
                 loadState={loadState}
                 renderVersion={renderVersion}
