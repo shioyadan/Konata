@@ -75,12 +75,20 @@ interface PendingZoom {
     readonly level: number;
 }
 
-// 旧Settings dialogで変更できた描画閾値だけを、既存View panelへそのまま並べる。
-const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
-    ["drawTextThreshold", "Text"],
-    ["drawDetailedlyThreshold", "Stage colors"],
-    ["drawDependencyThreshold", "Dependency arrows"],
-    ["drawFrameThreshold", "Frames"],
+// 旧Settingsの内部keyは維持し、UIでは描画を始めるlaneの最小高さとして示す。
+const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string, string]> = [
+    ["drawTextThreshold", "Text labels", "Show text labels when the lane is taller than this value."],
+    [
+        "drawDetailedlyThreshold",
+        "Stage details",
+        "Draw individual lanes and stages when the lane is taller than this value.",
+    ],
+    [
+        "drawDependencyThreshold",
+        "Dependency arrows",
+        "Show dependency arrows when the lane is taller than this value.",
+    ],
+    ["drawFrameThreshold", "Stage borders", "Show stage borders when the lane is taller than this value."],
 ];
 
 const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
@@ -1334,15 +1342,17 @@ export function App() {
                             />
                         </label>
                         <details className="drawing-thresholds">
-                            <summary>Drawing thresholds</summary>
-                            {DRAWING_THRESHOLDS.map(([key, label]) => (
-                                <label key={key}>
+                            <summary title="Minimum lane height required to draw each detail.">
+                                Minimum lane height (px)
+                            </summary>
+                            {DRAWING_THRESHOLDS.map(([key, label, description]) => (
+                                <label key={key} title={description}>
                                     {label}
                                     <input
                                         type="number"
                                         min="0"
                                         step="0.5"
-                                        aria-label={`${label} drawing threshold`}
+                                        aria-label={`${label} minimum lane height`}
                                         value={settings[key]}
                                         disabled={trace === null}
                                         onChange={(event) => {

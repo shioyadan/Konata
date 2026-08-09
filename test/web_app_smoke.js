@@ -1208,7 +1208,8 @@ async function run() {
         const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
-        const textThreshold = document.querySelector('input[aria-label="Text drawing threshold"]');
+        const drawingThresholds = document.querySelector(".drawing-thresholds");
+        const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
         if (!(viewControls instanceof HTMLDetailsElement) ||
             !(viewPanel instanceof HTMLElement) ||
             !(splitter instanceof HTMLElement) ||
@@ -1217,6 +1218,7 @@ async function run() {
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
+            !(drawingThresholds instanceof HTMLDetailsElement) ||
             !(textThreshold instanceof HTMLInputElement)) {
             throw new Error("The renderer view controls were not found.");
         }
@@ -1268,6 +1270,13 @@ async function run() {
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
             color: color.value,
             textThreshold: textThreshold.value,
+            thresholdSummary: drawingThresholds.querySelector("summary")?.textContent?.trim() ?? null,
+            thresholdSummaryTitle: drawingThresholds.querySelector("summary")?.title ?? null,
+            thresholdLabels: Array.from(drawingThresholds.querySelectorAll("label"), (label) => ({
+                text: label.childNodes[0]?.textContent?.trim() ?? null,
+                title: label.title,
+                ariaLabel: label.querySelector("input")?.getAttribute("aria-label") ?? null
+            })),
             labelBackground: getComputedStyle(document.querySelector(".label-pane")).backgroundColor,
             pipelineBackground: getComputedStyle(document.querySelector(".pipeline-pane")).backgroundColor
         })));
@@ -1278,6 +1287,30 @@ async function run() {
         viewControlState.theme !== "light" ||
         viewControlState.color !== "Custom" ||
         viewControlState.textThreshold !== "12" ||
+        viewControlState.thresholdSummary !== "Minimum lane height (px)" ||
+        viewControlState.thresholdSummaryTitle !== "Minimum lane height required to draw each detail." ||
+        JSON.stringify(viewControlState.thresholdLabels) !== JSON.stringify([
+            {
+                text: "Text labels",
+                title: "Show text labels when the lane is taller than this value.",
+                ariaLabel: "Text labels minimum lane height"
+            },
+            {
+                text: "Stage details",
+                title: "Draw individual lanes and stages when the lane is taller than this value.",
+                ariaLabel: "Stage details minimum lane height"
+            },
+            {
+                text: "Dependency arrows",
+                title: "Show dependency arrows when the lane is taller than this value.",
+                ariaLabel: "Dependency arrows minimum lane height"
+            },
+            {
+                text: "Stage borders",
+                title: "Show stage borders when the lane is taller than this value.",
+                ariaLabel: "Stage borders minimum lane height"
+            }
+        ]) ||
         viewControlState.toolbarBackground !== "rgb(82, 92, 125)" ||
         viewControlState.toolbarShadow !== "none" ||
         viewControlState.primaryButtonBackground !== "rgba(0, 0, 0, 0)" ||
@@ -1370,7 +1403,7 @@ async function run() {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
-        const textThreshold = document.querySelector('input[aria-label="Text drawing threshold"]');
+        const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
         if (!(split instanceof HTMLInputElement) ||
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
@@ -1461,7 +1494,7 @@ async function run() {
             const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
             const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
             const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
-            const textThreshold = document.querySelector('input[aria-label="Text drawing threshold"]');
+            const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
             const switched = {
                 closeHasIcon: closePlain.querySelector("svg") !== null,
                 fileName: root?.dataset.fileName ?? null,
@@ -1517,7 +1550,7 @@ async function run() {
                     remainingArrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
                     remainingColor: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
                     remainingHideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
-                    remainingTextThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
+                    remainingTextThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
                     remainingZoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                     remainingSearchOpID: document.querySelector('.find-result')?.dataset.opId ?? null,
                     remainingLabelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
@@ -1880,7 +1913,7 @@ async function run() {
             arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
             hideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
-            textThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
+            textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1),
@@ -1963,7 +1996,7 @@ async function run() {
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
             arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
-            textThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
+            textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
         })));
