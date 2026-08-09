@@ -110,7 +110,6 @@ button:disabled {
     padding: 0.55rem 0.85rem;
     border-bottom: 1px solid #464b58;
     background: #242730;
-    box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
 }
 
 .file-input {
@@ -131,8 +130,8 @@ button:disabled {
 .tab-bar {
     z-index: 1;
     flex: 0 0 auto;
-    border-bottom: 1px solid #464b58;
-    background: #20232a;
+    border-bottom: 0;
+    background: #242730;
     overflow-x: auto;
 }
 
@@ -144,12 +143,14 @@ button:disabled {
 
 .trace-tab {
     display: flex;
-    border-right: 1px solid #464b58;
-    background: #292c35;
+    border-right: 1px solid #3b404c;
+    background: #20232a;
 }
 
+/* 選択中のtabをtoolbarと同じ面へつなぎ、上端の色だけで選択状態を示す。 */
 .trace-tab.is-active {
-    background: #343944;
+    background: #242730;
+    box-shadow: inset 0 2px 0 #6687ad;
 }
 
 .trace-tab button {
@@ -600,7 +601,6 @@ button:disabled {
 .theme-light .app-toolbar {
     border-bottom-color: #464e6a;
     background: #525c7d;
-    box-shadow: 0 2px 8px rgb(0 0 0 / 16%);
 }
 
 .theme-light .command-palette {
@@ -674,21 +674,30 @@ button:disabled {
 }
 
 .theme-light .tab-bar {
-    border-bottom-color: #bbb;
-    background: #ddd;
+    background: #525c7d;
 }
 
 .theme-light .trace-tab {
-    border-right-color: #bbb;
-    background: #e7e7e7;
+    border-right-color: #3f465f;
+    background: #464e6a;
 }
 
 .theme-light .trace-tab.is-active {
-    background: #fff;
+    background: #525c7d;
+    box-shadow: inset 0 2px 0 #a4c5e8;
+}
+
+.theme-light .trace-tab button {
+    background: transparent;
+    color: #f2f3f5;
+}
+
+.theme-light .trace-tab button:hover:not(:disabled) {
+    background: rgb(255 255 255 / 9%);
 }
 
 .theme-light .trace-tab-close {
-    color: #555;
+    color: #d7dbe4;
 }
 
 .theme-light .label-pane {

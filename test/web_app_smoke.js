@@ -813,6 +813,12 @@ async function run() {
         inputSetter?.call(textThreshold, "12");
         textThreshold.dispatchEvent(new Event("input", {bubbles: true}));
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            toolbarBackground: getComputedStyle(document.querySelector(".app-toolbar")).backgroundColor,
+            toolbarShadow: getComputedStyle(document.querySelector(".app-toolbar")).boxShadow,
+            tabBarBackground: getComputedStyle(document.querySelector(".tab-bar")).backgroundColor,
+            tabBarBorderWidth: getComputedStyle(document.querySelector(".tab-bar")).borderBottomWidth,
+            activeTabBackground: getComputedStyle(document.querySelector(".trace-tab.is-active")).backgroundColor,
+            activeTabAccent: getComputedStyle(document.querySelector(".trace-tab.is-active")).boxShadow,
             split: split.checked,
             fixEnabled: !fixed.disabled,
             arrows: arrows.value,
@@ -829,6 +835,12 @@ async function run() {
         viewControlState.theme !== "light" ||
         viewControlState.color !== "Custom" ||
         viewControlState.textThreshold !== "12" ||
+        viewControlState.toolbarBackground !== "rgb(82, 92, 125)" ||
+        viewControlState.toolbarShadow !== "none" ||
+        viewControlState.tabBarBackground !== viewControlState.toolbarBackground ||
+        viewControlState.tabBarBorderWidth !== "0px" ||
+        viewControlState.activeTabBackground !== viewControlState.toolbarBackground ||
+        viewControlState.activeTabAccent === "none" ||
         viewControlState.labelBackground !== "rgb(244, 244, 244)" ||
         viewControlState.pipelineBackground !== "rgb(255, 255, 255)") {
         throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);
@@ -975,7 +987,14 @@ async function run() {
                 zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                 searchOpID: document.querySelector('.find-result')?.dataset.opId ?? null,
                 searchText: document.querySelector('.find-result')?.textContent ?? null,
-                labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
+                labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1),
+                toolbarBackground: getComputedStyle(toolbar).backgroundColor,
+                toolbarShadow: getComputedStyle(toolbar).boxShadow,
+                tabBarBackground: getComputedStyle(tabBar).backgroundColor,
+                tabBarBorderWidth: getComputedStyle(tabBar).borderBottomWidth,
+                activeTabBackground: getComputedStyle(document.querySelector('.trace-tab.is-active')).backgroundColor,
+                activeTabAccent: getComputedStyle(document.querySelector('.trace-tab.is-active')).boxShadow,
+                inactiveTabBackground: getComputedStyle(document.querySelector('.trace-tab:not(.is-active)')).backgroundColor
             };
             const middleDown = new MouseEvent("mousedown", {
                 bubbles: true,
@@ -1033,6 +1052,13 @@ async function run() {
         typeof tabState.switched.searchText !== "string" ||
         !tabState.switched.searchText.includes("consumer") ||
         tabState.switched.labelWidth !== 320 ||
+        tabState.switched.toolbarBackground !== "rgb(36, 39, 48)" ||
+        tabState.switched.toolbarShadow !== "none" ||
+        tabState.switched.tabBarBackground !== tabState.switched.toolbarBackground ||
+        tabState.switched.tabBarBorderWidth !== "0px" ||
+        tabState.switched.activeTabBackground !== tabState.switched.toolbarBackground ||
+        tabState.switched.activeTabAccent === "none" ||
+        tabState.switched.inactiveTabBackground !== "rgb(32, 35, 42)" ||
         tabState.remainingCount !== 1 ||
         tabState.remainingSelected !== "gem5-basic.txt" ||
         tabState.remainingFileName !== "gem5-basic.txt" ||
