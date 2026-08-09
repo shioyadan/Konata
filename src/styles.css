@@ -264,6 +264,16 @@ button:disabled {
     width: 8rem;
 }
 
+.custom-color-control {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.custom-color-control > button {
+    justify-self: end;
+    padding: 0.25rem 0.65rem;
+}
+
 .drawing-thresholds,
 .bookmark-controls {
     padding-top: 0.5rem;
@@ -501,9 +511,9 @@ button:disabled {
     place-items: center;
 }
 
-.stats-dialog {
+.stats-dialog,
+.custom-color-dialog {
     display: flex;
-    width: min(42rem, 100%);
     max-height: min(44rem, 90vh);
     flex-direction: column;
     gap: 0.8rem;
@@ -516,22 +526,35 @@ button:disabled {
     user-select: text;
 }
 
+.stats-dialog {
+    width: min(42rem, 100%);
+}
+
+.custom-color-dialog {
+    width: min(72rem, 100%);
+}
+
 .stats-dialog > header,
-.stats-dialog > footer {
+.stats-dialog > footer,
+.custom-color-dialog > header,
+.custom-color-dialog > footer {
     display: flex;
     align-items: center;
 }
 
-.stats-dialog > header {
+.stats-dialog > header,
+.custom-color-dialog > header {
     justify-content: space-between;
 }
 
-.stats-dialog h2 {
+.stats-dialog h2,
+.custom-color-dialog h2 {
     margin: 0;
     font-size: 1.1rem;
 }
 
-.stats-dialog > header button {
+.stats-dialog > header button,
+.custom-color-dialog > header button {
     padding: 0.1rem 0.5rem;
     border: 0;
     background: transparent;
@@ -583,6 +606,80 @@ button:disabled {
 
 .stats-dialog > footer {
     justify-content: flex-end;
+}
+
+.custom-color-dialog > p {
+    margin: 0;
+    color: #b8bec9;
+    font-size: 0.85rem;
+}
+
+.custom-color-dialog > footer {
+    justify-content: space-between;
+}
+
+.custom-color-table-container {
+    min-height: 0;
+    border: 1px solid #464b58;
+    overflow: auto;
+}
+
+.custom-color-dialog table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.custom-color-dialog th,
+.custom-color-dialog td {
+    padding: 0.35rem 0.45rem;
+    border-bottom: 1px solid #3d414c;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.custom-color-dialog thead th {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    background: #343844;
+}
+
+.custom-color-dialog tbody tr:nth-child(even) {
+    background: rgb(255 255 255 / 4%);
+}
+
+.custom-color-preview {
+    display: block;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 1px solid rgb(255 255 255 / 45%);
+    border-radius: 0.2rem;
+}
+
+.custom-color-hue,
+.custom-color-component {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.custom-color-hue input[type="range"] {
+    width: 8rem;
+}
+
+.custom-color-dialog input[type="number"] {
+    width: 4.2rem;
+    padding: 0.2rem;
+    border: 1px solid #535866;
+    background: #303440;
+    color: #f2f3f5;
+}
+
+.custom-color-component label {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .stats-error {
@@ -741,7 +838,8 @@ button:disabled {
     color: #555;
 }
 
-.theme-light .stats-dialog {
+.theme-light .stats-dialog,
+.theme-light .custom-color-dialog {
     border-color: #999;
     background: #f4f4f4;
     box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 30%);
@@ -773,6 +871,37 @@ button:disabled {
 
 .theme-light .stats-error {
     color: #a20f0f;
+}
+
+.theme-light .custom-color-dialog > p {
+    color: #555;
+}
+
+.theme-light .custom-color-table-container {
+    border-color: #bbb;
+}
+
+.theme-light .custom-color-dialog th,
+.theme-light .custom-color-dialog td {
+    border-bottom-color: #ccc;
+}
+
+.theme-light .custom-color-dialog thead th {
+    background: #e4e4e4;
+}
+
+.theme-light .custom-color-dialog tbody tr:nth-child(even) {
+    background: rgb(0 0 0 / 4%);
+}
+
+.theme-light .custom-color-dialog input[type="number"] {
+    border-color: #999;
+    background: #fff;
+    color: #222;
+}
+
+.theme-light .custom-color-preview {
+    border-color: rgb(0 0 0 / 40%);
 }
 
 @media (max-width: 720px) {

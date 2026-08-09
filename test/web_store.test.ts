@@ -3,7 +3,11 @@ import test from "node:test";
 
 import { Op, ParsedTrace, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
-import { DEP_ARROW_TYPE, KonataRenderer } from "../src/renderer/konata_renderer";
+import {
+    DEFAULT_CUSTOM_COLOR_SCHEME,
+    DEP_ARROW_TYPE,
+    KonataRenderer,
+} from "../src/renderer/konata_renderer";
 import { type Change, Store } from "../src/store";
 
 function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpStore } {
@@ -185,10 +189,11 @@ test("Store keeps search context per tab and rejects stale search updates", () =
     store.close();
 });
 
-test("Store restores and publishes only legacy persistent view settings", () => {
+test("Store restores and publishes persistent view settings", () => {
     const store = new Store({
         theme: "light",
         colorScheme: "RoyalBlue",
+        customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
         splitterPosition: 321,
         dependencyArrowType: DEP_ARROW_TYPE.LEFT_SIDE_CURVE,
         drawTextThreshold: 11,
@@ -223,6 +228,11 @@ test("Store restores and publishes only legacy persistent view settings", () => 
     });
     store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: tab.id, position: 280 });
     store.dispatch({ type: "KONATA_CHANGE_COLOR_SCHEME", tabID: tab.id, scheme: "Custom" });
+    const customColorScheme = {
+        ...DEFAULT_CUSTOM_COLOR_SCHEME,
+        defaultColor: { ...DEFAULT_CUSTOM_COLOR_SCHEME.defaultColor, h: 210 },
+    };
+    store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({ type: "KONATA_FIX_OP_HEIGHT", enabled: true });
     store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
@@ -230,6 +240,7 @@ test("Store restores and publishes only legacy persistent view settings", () => 
     assert.deepEqual(store.persistedViewSettings, {
         theme: "dark",
         colorScheme: "Custom",
+        customColorScheme,
         splitterPosition: 280,
         dependencyArrowType: DEP_ARROW_TYPE.NOT_SHOW,
         drawTextThreshold: 14,
@@ -238,7 +249,7 @@ test("Store restores and publishes only legacy persistent view settings", () => 
         drawFrameThreshold: 6,
     });
     // Tab固有設定や旧Storeだけの一時設定では、永続化通知を増やさない。
-    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 5);
+    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 6);
 
     store.close();
 });
@@ -289,6 +300,15 @@ test("Store separates global view settings from tab-specific settings", () => {
     assert.ok(changes.some((change) => change.type === "WINDOW_CSS_UPDATE"));
     assert.ok(changes.some((change) =>
         change.type === "PANE_CONTENT_UPDATE" && change.tabID === null));
+
+    // Custom定義は全体設定なので、既存の全Rendererへ同じ値を即時反映する。
+    const customColorScheme = {
+        ...DEFAULT_CUSTOM_COLOR_SCHEME,
+        defaultColor: { ...DEFAULT_CUSTOM_COLOR_SCHEME.defaultColor, h: 210 },
+    };
+    store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });
+    assert.deepEqual(firstRenderer.customColorScheme, customColorScheme);
+    assert.deepEqual(secondRenderer.customColorScheme, customColorScheme);
 
     // 色方式は最後の選択を新規Tabの既定値にするが、変更対象は指定したTabだけに限る。
     assert.equal(firstRenderer.colorScheme, "Custom");

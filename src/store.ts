@@ -1,7 +1,9 @@
 import type { Op, ParsedTrace } from "./core/model";
 import {
+    DEFAULT_CUSTOM_COLOR_SCHEME,
     DEP_ARROW_TYPE,
     KonataRenderer,
+    type CustomColorScheme,
     type DependencyArrowType,
     type RendererTheme,
 } from "./renderer/konata_renderer";
@@ -19,6 +21,7 @@ export const DEFAULT_SPLITTER_POSITION = 450;
 
 export interface GlobalViewSettings {
     readonly theme: RendererTheme;
+    readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly dependencyArrowType: DependencyArrowType;
     readonly splitLanes: boolean;
     readonly fixOpHeight: boolean;
@@ -30,6 +33,7 @@ export interface GlobalViewSettings {
 
 const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     theme: "dark",
+    customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
     fixOpHeight: false,
@@ -43,6 +47,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
 export interface PersistedViewSettings {
     readonly theme: RendererTheme;
     readonly colorScheme: string;
+    readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly splitterPosition: number;
     readonly dependencyArrowType: DependencyArrowType;
     readonly drawTextThreshold: number;
@@ -54,6 +59,7 @@ export interface PersistedViewSettings {
 export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = {
     theme: DEFAULT_GLOBAL_VIEW_SETTINGS.theme,
     colorScheme: "Auto",
+    customColorScheme: DEFAULT_GLOBAL_VIEW_SETTINGS.customColorScheme,
     splitterPosition: DEFAULT_SPLITTER_POSITION,
     dependencyArrowType: DEFAULT_GLOBAL_VIEW_SETTINGS.dependencyArrowType,
     drawTextThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawTextThreshold,
@@ -113,6 +119,10 @@ export type Action =
     | { readonly type: "KONATA_SPLIT_LANES"; readonly enabled: boolean }
     | { readonly type: "KONATA_FIX_OP_HEIGHT"; readonly enabled: boolean }
     | { readonly type: "KONATA_CHANGE_COLOR_SCHEME"; readonly tabID: number; readonly scheme: string }
+    | {
+        readonly type: "KONATA_CHANGE_CUSTOM_COLORS";
+        readonly scheme: Readonly<CustomColorScheme>;
+    }
     | { readonly type: "KONATA_HIDE_FLUSHED_OPS"; readonly tabID: number; readonly enabled: boolean }
     | {
         readonly type: "KONATA_CHANGE_DRAWING_THRESHOLD";
@@ -221,6 +231,7 @@ export class Store {
         this.settings_ = {
             ...DEFAULT_GLOBAL_VIEW_SETTINGS,
             theme: viewSettings.theme,
+            customColorScheme: viewSettings.customColorScheme,
             dependencyArrowType: viewSettings.dependencyArrowType,
             drawTextThreshold: viewSettings.drawTextThreshold,
             drawDetailedlyThreshold: viewSettings.drawDetailedlyThreshold,
@@ -261,6 +272,7 @@ export class Store {
         return {
             theme: this.settings_.theme,
             colorScheme: this.defaultColorScheme_,
+            customColorScheme: this.settings_.customColorScheme,
             splitterPosition: this.defaultSplitterPosition_,
             dependencyArrowType: this.settings_.dependencyArrowType,
             drawTextThreshold: this.settings_.drawTextThreshold,
@@ -507,6 +519,14 @@ export class Store {
             ]);
             return;
         }
+        case "KONATA_CHANGE_CUSTOM_COLORS": {
+            // Custom定義は旧Configと同じ全体設定なので、表示中かどうかに関係なく全Tabへ反映する。
+            this.setGlobalViewSettings_({
+                ...this.settings_,
+                customColorScheme: action.scheme,
+            }, false, true);
+            return;
+        }
         case "KONATA_HIDE_FLUSHED_OPS": {
             const tab = this.tabs_.get(action.tabID);
             if (tab === undefined) {
@@ -585,6 +605,7 @@ export class Store {
     private applyGlobalViewSettings_(renderer: KonataRenderer): void {
         const settings = this.settings_;
         renderer.setTheme(settings.theme);
+        renderer.setCustomColorSchemes({ Custom: settings.customColorScheme });
         renderer.dependencyArrowType = settings.dependencyArrowType;
         renderer.splitLanes = settings.splitLanes;
         renderer.fixOpHeight = settings.fixOpHeight;

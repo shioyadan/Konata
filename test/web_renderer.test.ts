@@ -3,7 +3,11 @@ import test from "node:test";
 
 import { Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
-import { formatOpLabel, KonataRenderer } from "../src/renderer/konata_renderer";
+import {
+    DEFAULT_CUSTOM_COLOR_SCHEME,
+    formatOpLabel,
+    KonataRenderer,
+} from "../src/renderer/konata_renderer";
 
 interface RecordedGradient {
     readonly points: [number, number, number, number];
@@ -177,6 +181,20 @@ test("Web renderer applies the legacy light theme and Custom color scheme", () =
     assert.deepEqual(pipeline.gradients[0]?.stops, [
         [0, "hsl(100,95%,95%)"],
         [1, "hsl(100,70%,80%)"],
+    ]);
+
+    // 編集した既定色は未指定stageへ即時反映され、固定した彩度・明度はtheme値で上書きしない。
+    renderer.setCustomColorSchemes({
+        Custom: {
+            ...DEFAULT_CUSTOM_COLOR_SCHEME,
+            defaultColor: { h: 210, s: 25, l: 60 },
+        },
+    });
+    const editedPipeline = createRecordedContext();
+    renderer.draw(createCanvas(createRecordedContext().context), createCanvas(editedPipeline.context));
+    assert.deepEqual(editedPipeline.gradients[0]?.stops, [
+        [0, "hsl(210,25%,60%)"],
+        [1, "hsl(210,25%,60%)"],
     ]);
 });
 

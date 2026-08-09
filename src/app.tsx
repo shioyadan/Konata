@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { CommandPalette } from "./components/command_palette";
+import { CustomColorDialog } from "./components/custom_color_dialog";
 import { StatsDialog } from "./components/stats_dialog";
 import { TabBar } from "./components/tab_bar";
 import {
@@ -20,8 +21,12 @@ import { Gem5O3PipeViewParser } from "./core/gem5_o3_pipe_view_parser";
 import { OnikiriParser } from "./core/onikiri_parser";
 import { calculateStats, type StatsValues } from "./core/stats";
 import {
+    DEFAULT_CUSTOM_COLOR_SCHEME,
     DEP_ARROW_TYPE,
     KonataRenderer,
+    type CustomColorComponent,
+    type CustomColorDefinition,
+    type CustomColorScheme,
     type DependencyArrowType,
     type RendererTheme,
 } from "./renderer/konata_renderer";
@@ -90,29 +95,77 @@ function isNonNegativeFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-function isPersistedViewSettings(value: unknown): value is PersistedViewSettings {
+function isCustomColorComponent(value: unknown): value is CustomColorComponent {
+    return value === "auto" ||
+        (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100);
+}
+
+function isCustomColorDefinition(value: unknown): value is CustomColorDefinition {
     if (typeof value !== "object" || value === null) {
         return false;
     }
+    const color = value as Partial<Record<keyof CustomColorDefinition, unknown>>;
+    return typeof color.h === "number" && Number.isFinite(color.h) && color.h >= 0 && color.h < 360 &&
+        isCustomColorComponent(color.s) && isCustomColorComponent(color.l);
+}
+
+function isCustomColorScheme(value: unknown): value is CustomColorScheme {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const scheme = value as Record<string, unknown>;
+    if (!isCustomColorDefinition(scheme.defaultColor)) {
+        return false;
+    }
+    return Object.entries(scheme).every(([laneName, lane]) => {
+        if (laneName === "defaultColor") {
+            return true;
+        }
+        return typeof lane === "object" && lane !== null &&
+            Object.values(lane).every(isCustomColorDefinition);
+    });
+}
+
+function parsePersistedViewSettings(value: unknown): PersistedViewSettings | null {
+    if (typeof value !== "object" || value === null) {
+        return null;
+    }
     const settings = value as Partial<Record<keyof PersistedViewSettings, unknown>>;
-    return (settings.theme === "dark" || settings.theme === "light") &&
-        typeof settings.colorScheme === "string" &&
-        PIPELINE_COLOR_SCHEMES.has(settings.colorScheme) &&
-        isNonNegativeFiniteNumber(settings.splitterPosition) &&
-        (settings.dependencyArrowType === DEP_ARROW_TYPE.INSIDE_LINE ||
-            settings.dependencyArrowType === DEP_ARROW_TYPE.LEFT_SIDE_CURVE ||
-            settings.dependencyArrowType === DEP_ARROW_TYPE.NOT_SHOW) &&
-        isNonNegativeFiniteNumber(settings.drawTextThreshold) &&
-        isNonNegativeFiniteNumber(settings.drawDetailedlyThreshold) &&
-        isNonNegativeFiniteNumber(settings.drawDependencyThreshold) &&
-        isNonNegativeFiniteNumber(settings.drawFrameThreshold);
+    if ((settings.theme !== "dark" && settings.theme !== "light") ||
+        typeof settings.colorScheme !== "string" ||
+        !PIPELINE_COLOR_SCHEMES.has(settings.colorScheme) ||
+        !isNonNegativeFiniteNumber(settings.splitterPosition) ||
+        (settings.dependencyArrowType !== DEP_ARROW_TYPE.INSIDE_LINE &&
+            settings.dependencyArrowType !== DEP_ARROW_TYPE.LEFT_SIDE_CURVE &&
+            settings.dependencyArrowType !== DEP_ARROW_TYPE.NOT_SHOW) ||
+        !isNonNegativeFiniteNumber(settings.drawTextThreshold) ||
+        !isNonNegativeFiniteNumber(settings.drawDetailedlyThreshold) ||
+        !isNonNegativeFiniteNumber(settings.drawDependencyThreshold) ||
+        !isNonNegativeFiniteNumber(settings.drawFrameThreshold)) {
+        return null;
+    }
+    return {
+        theme: settings.theme,
+        colorScheme: settings.colorScheme,
+        // 旧Web版の保存値にはこのfieldがないため、他の設定を捨てず既定配色で補う。
+        customColorScheme: isCustomColorScheme(settings.customColorScheme)
+            ? settings.customColorScheme
+            : DEFAULT_CUSTOM_COLOR_SCHEME,
+        splitterPosition: settings.splitterPosition,
+        dependencyArrowType: settings.dependencyArrowType,
+        drawTextThreshold: settings.drawTextThreshold,
+        drawDetailedlyThreshold: settings.drawDetailedlyThreshold,
+        drawDependencyThreshold: settings.drawDependencyThreshold,
+        drawFrameThreshold: settings.drawFrameThreshold,
+    };
 }
 
 function loadViewSettings(): Readonly<PersistedViewSettings> {
     try {
         const value: unknown = JSON.parse(localStorage.getItem(VIEW_SETTINGS_STORAGE_KEY) ?? "null");
-        if (isPersistedViewSettings(value)) {
-            return value;
+        const settings = parsePersistedViewSettings(value);
+        if (settings !== null) {
+            return settings;
         }
     }
     catch {
@@ -201,6 +254,7 @@ export function App() {
     const [statsValues, setStatsValues] = useState<Readonly<StatsValues> | null>(null);
     const [statsError, setStatsError] = useState("");
     const [isStatsDialogOpen, setIsStatsDialogOpen] = useState(false);
+    const [isCustomColorDialogOpen, setIsCustomColorDialogOpen] = useState(false);
     const [commandPaletteInitial, setCommandPaletteInitial] = useState<string | null>(null);
     const [commandMessage, setCommandMessage] = useState("");
     // 旧版と同じ10枠だけを読み込み、設定全体を扱う新しい層は設けない。
@@ -503,12 +557,12 @@ export function App() {
     }, [store]);
 
     const openCommandPalette = useCallback((initialCommand: string) => {
-        if (isStatsDialogOpen) {
+        if (isStatsDialogOpen || isCustomColorDialogOpen) {
             return;
         }
         setCommandMessage("");
         setCommandPaletteInitial(initialCommand);
-    }, [isStatsDialogOpen]);
+    }, [isCustomColorDialogOpen, isStatsDialogOpen]);
 
     const findString = useCallback((target: string, basePosition: number, reverse: boolean): void => {
         let targetPattern: RegExp;
@@ -852,6 +906,13 @@ export function App() {
             if (event.defaultPrevented) {
                 return;
             }
+            if (isCustomColorDialogOpen) {
+                if (event.key === "Escape") {
+                    setIsCustomColorDialogOpen(false);
+                    event.preventDefault();
+                }
+                return;
+            }
             if (isStatsDialogOpen) {
                 if (event.key === "Escape") {
                     closeStatsDialog();
@@ -938,8 +999,9 @@ export function App() {
         };
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [commandPaletteInitial, goToBookmark, hideSearchResult, isStatsDialogOpen, moveHorizontal,
-        moveTab, moveVertical, openCommandPalette, repeatSearch, setBookmark, trace, zoomAtCenter]);
+    }, [commandPaletteInitial, goToBookmark, hideSearchResult, isCustomColorDialogOpen,
+        isStatsDialogOpen, moveHorizontal, moveTab, moveVertical, openCommandPalette, repeatSearch,
+        setBookmark, trace, zoomAtCenter]);
 
     let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
     if (loadState === "loading") {
@@ -1092,30 +1154,43 @@ export function App() {
                             />
                             Fix op height
                         </label>
-                        <label>
-                            Color
-                            <select
-                                aria-label="Pipeline color scheme"
-                                value={renderer.colorScheme}
-                                disabled={trace === null}
-                                onChange={(event) => {
-                                    if (activeTab !== null) {
-                                        store.dispatch({
-                                            type: "KONATA_CHANGE_COLOR_SCHEME",
-                                            tabID: activeTab.id,
-                                            scheme: event.target.value,
-                                        });
-                                    }
-                                }}
-                            >
-                                <option>Auto</option>
-                                <option>Unique</option>
-                                <option>ThreadID</option>
-                                <option>Orange</option>
-                                <option>RoyalBlue</option>
-                                <option>Custom</option>
-                            </select>
-                        </label>
+                        <div className="custom-color-control">
+                            <label>
+                                Color
+                                <select
+                                    aria-label="Pipeline color scheme"
+                                    value={renderer.colorScheme}
+                                    disabled={trace === null}
+                                    onChange={(event) => {
+                                        if (activeTab !== null) {
+                                            store.dispatch({
+                                                type: "KONATA_CHANGE_COLOR_SCHEME",
+                                                tabID: activeTab.id,
+                                                scheme: event.target.value,
+                                            });
+                                        }
+                                    }}
+                                >
+                                    <option>Auto</option>
+                                    <option>Unique</option>
+                                    <option>ThreadID</option>
+                                    <option>Orange</option>
+                                    <option>RoyalBlue</option>
+                                    <option>Custom</option>
+                                </select>
+                            </label>
+                            {renderer.colorScheme === "Custom" && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        viewControlsRef.current?.removeAttribute("open");
+                                        setIsCustomColorDialogOpen(true);
+                                    }}
+                                >
+                                    Edit…
+                                </button>
+                            )}
+                        </div>
                         <label>
                             Dependency arrows
                             <select
@@ -1222,6 +1297,16 @@ export function App() {
             />
             {isStatsDialogOpen && (
                 <StatsDialog values={statsValues} error={statsError} onClose={closeStatsDialog} />
+            )}
+            {isCustomColorDialogOpen && (
+                <CustomColorDialog
+                    scheme={settings.customColorScheme}
+                    onChange={(scheme) => store.dispatch({
+                        type: "KONATA_CHANGE_CUSTOM_COLORS",
+                        scheme,
+                    })}
+                    onClose={() => setIsCustomColorDialogOpen(false)}
+                />
             )}
         </main>
     );

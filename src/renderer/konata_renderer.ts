@@ -24,35 +24,40 @@ export const DEP_ARROW_TYPE = {
 export type DependencyArrowType = typeof DEP_ARROW_TYPE[keyof typeof DEP_ARROW_TYPE];
 export type RendererTheme = "dark" | "light";
 
+export type CustomColorComponent = number | "auto";
+
 export interface CustomColorDefinition {
-    h: string | number;
-    s: string | number;
-    l: string | number;
+    readonly h: number;
+    readonly s: CustomColorComponent;
+    readonly l: CustomColorComponent;
 }
 
 export interface CustomColorScheme {
-    defaultColor: CustomColorDefinition;
-    [laneName: string]: CustomColorDefinition | Record<string, CustomColorDefinition>;
+    readonly defaultColor: CustomColorDefinition;
+    readonly [laneName: string]:
+        CustomColorDefinition | Readonly<Record<string, CustomColorDefinition>>;
 }
 
 type RendererStyle = typeof darkStyle;
 
 // 旧Configが既定で持っていたCustom schemeを、そのままWeb版でも選択できるようにする。
-const DEFAULT_CUSTOM_COLOR_SCHEMES: Readonly<Record<string, CustomColorScheme>> = {
-    Custom: {
-        defaultColor: { h: "100", s: "auto", l: "auto" },
-        "0": {
-            F: { h: "0", s: "auto", l: "auto" },
-            Rn: { h: "60", s: "auto", l: "auto" },
-            Dc: { h: "120", s: "auto", l: "auto" },
-            Is: { h: "180", s: "auto", l: "auto" },
-            Cm: { h: "240", s: "auto", l: "auto" },
-            f: { h: "0", s: "0", l: "auto" },
-        },
-        "1": {
-            stl: { h: "0", s: "0", l: "auto" },
-        },
+export const DEFAULT_CUSTOM_COLOR_SCHEME: Readonly<CustomColorScheme> = {
+    defaultColor: { h: 100, s: "auto", l: "auto" },
+    "0": {
+        F: { h: 0, s: "auto", l: "auto" },
+        Rn: { h: 60, s: "auto", l: "auto" },
+        Dc: { h: 120, s: "auto", l: "auto" },
+        Is: { h: 180, s: "auto", l: "auto" },
+        Cm: { h: 240, s: "auto", l: "auto" },
+        f: { h: 0, s: 0, l: "auto" },
     },
+    "1": {
+        stl: { h: 0, s: 0, l: "auto" },
+    },
+};
+
+const DEFAULT_CUSTOM_COLOR_SCHEMES: Readonly<Record<string, CustomColorScheme>> = {
+    Custom: DEFAULT_CUSTOM_COLOR_SCHEME,
 };
 
 // 旧Rendererのlabel paneと同じ表示形式を、Canvasとテストから共有する。
@@ -212,6 +217,10 @@ export class KonataRenderer {
 
     setCustomColorSchemes(schemes: Readonly<Record<string, CustomColorScheme>>): void {
         this.customColorSchemes_ = schemes;
+    }
+
+    get customColorScheme(): Readonly<CustomColorScheme> {
+        return this.customColorSchemes_.Custom ?? DEFAULT_CUSTOM_COLOR_SCHEME;
     }
 
     // 現在のReact UIの倍率指定を、旧Rendererの1段階zoomへ対応させる。
@@ -876,11 +885,9 @@ export class KonataRenderer {
         return this.colorScheme_;
     }
 
-    private colorComponent_(value: string | number, automatic: string): string {
+    private colorComponent_(value: CustomColorComponent, automatic: string): string {
         const component = value === "auto" ? automatic : value;
-        return typeof component === "number" || /^\d+$/.test(component)
-            ? `${component}%`
-            : component;
+        return `${component}%`;
     }
 
     private isKnownCalculatedColorScheme_(): boolean {

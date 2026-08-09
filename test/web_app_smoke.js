@@ -1433,6 +1433,127 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
+    // Custom選択時だけ編集画面を開き、F stageの変更、即時再描画、reset、保存まで確認する。
+    const customColorState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        if (!(color instanceof HTMLSelectElement)) {
+            throw new Error("The pipeline color selector was not found.");
+        }
+        color.value = "Custom";
+        color.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        const edit = [...document.querySelectorAll(".custom-color-control button")]
+            .find((button) => button.textContent?.trim() === "Edit…");
+        if (!(edit instanceof HTMLButtonElement)) {
+            throw new Error("The custom color edit button was not found.");
+        }
+        edit.click();
+        await nextFrame();
+
+        const dialog = document.querySelector(".custom-color-dialog");
+        const pipeline = document.querySelector(".pipeline-pane canvas");
+        if (!(dialog instanceof HTMLElement) || !(pipeline instanceof HTMLCanvasElement)) {
+            throw new Error("The custom color dialog was not found.");
+        }
+        const signature = () => {
+            const pixels = pipeline.getContext("2d")?.getImageData(0, 0, pipeline.width, pipeline.height).data;
+            if (pixels === undefined) {
+                return null;
+            }
+            let value = 0;
+            for (let index = 0; index < pixels.length; index += 16) {
+                value = (value * 31 + pixels[index] + pixels[index + 1] * 3 + pixels[index + 2] * 7) >>> 0;
+            }
+            return value;
+        };
+        const beforeSignature = signature();
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        const setHue = async (value) => {
+            const hue = document.querySelector('input[aria-label="Lane 0 / F hue"]');
+            if (!(hue instanceof HTMLInputElement)) {
+                throw new Error("The F stage hue input was not found.");
+            }
+            inputSetter?.call(hue, String(value));
+            hue.dispatchEvent(new Event("input", {bubbles: true}));
+            await nextFrame();
+        };
+        const setSaturation = async (value) => {
+            const automatic = document.querySelector('input[aria-label="Use automatic Lane 0 / F saturation"]');
+            if (!(automatic instanceof HTMLInputElement)) {
+                throw new Error("The F stage automatic saturation control was not found.");
+            }
+            if (automatic.checked) {
+                automatic.click();
+                await nextFrame();
+            }
+            const saturation = document.querySelector('input[aria-label="Lane 0 / F saturation"]');
+            if (!(saturation instanceof HTMLInputElement)) {
+                throw new Error("The F stage saturation input was not found.");
+            }
+            inputSetter?.call(saturation, String(value));
+            saturation.dispatchEvent(new Event("input", {bubbles: true}));
+            await nextFrame();
+        };
+
+        await setHue(210);
+        await setSaturation(25);
+        const editedSignature = signature();
+        const reset = [...dialog.querySelectorAll("footer button")]
+            .find((button) => button.textContent?.trim() === "Reset to Defaults");
+        if (!(reset instanceof HTMLButtonElement)) {
+            throw new Error("The custom color reset button was not found.");
+        }
+        reset.click();
+        await nextFrame();
+        const resetHue = document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null;
+        const resetAutomatic = document.querySelector(
+            'input[aria-label="Use automatic Lane 0 / F saturation"]',
+        )?.checked ?? null;
+
+        await setHue(210);
+        await setSaturation(25);
+        const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
+        const preview = document.querySelector('[aria-label="Lane 0 / F color preview"]');
+        const result = {
+            title: dialog.querySelector("h2")?.textContent ?? null,
+            rows: dialog.querySelectorAll("tbody tr").length,
+            beforeSignature,
+            editedSignature,
+            resetHue,
+            resetAutomatic,
+            storedColor: stored?.customColorScheme?.["0"]?.F ?? null,
+            previewColor: preview instanceof HTMLElement ? getComputedStyle(preview).backgroundColor : null
+        };
+        const close = [...dialog.querySelectorAll("footer button")]
+            .find((button) => button.textContent?.trim() === "Close");
+        close?.click();
+        await nextFrame();
+        color.value = "RoyalBlue";
+        color.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        return {
+            ...result,
+            closed: document.querySelector(".custom-color-dialog") === null,
+            editHidden: document.querySelector(".custom-color-control button") === null
+        };
+    })()`);
+    if (customColorState.title !== "Custom Colors" ||
+        customColorState.rows !== 8 ||
+        customColorState.beforeSignature === customColorState.editedSignature ||
+        customColorState.resetHue !== "0" ||
+        !customColorState.resetAutomatic ||
+        customColorState.storedColor?.h !== 210 ||
+        customColorState.storedColor?.s !== 25 ||
+        customColorState.storedColor?.l !== "auto" ||
+        typeof customColorState.previewColor !== "string" ||
+        customColorState.previewColor === "" ||
+        !customColorState.closed ||
+        !customColorState.editHidden) {
+        throw new Error(`Custom color editor is incomplete: ${JSON.stringify(customColorState)}`);
+    }
+
     // toolbar操作は即時に飛ばず、旧Rendererの1段階zoom（100%→200%）へ補間する。
     const zoomAnimationStart = await window.webContents.executeJavaScript(`(() => {
         const output = document.querySelector(".zoom-controls output");
@@ -1484,6 +1605,8 @@ async function run() {
         viewSettingsSetupState.stored?.splitterPosition !== 280 ||
         viewSettingsSetupState.stored?.dependencyArrowType !== "notShow" ||
         viewSettingsSetupState.stored?.drawTextThreshold !== 14 ||
+        viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.h !== 210 ||
+        viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.s !== 25 ||
         viewSettingsSetupState.storesSplitLanes) {
         throw new Error(`View settings setup is incomplete: ${JSON.stringify(viewSettingsSetupState)}`);
     }
@@ -1499,7 +1622,9 @@ async function run() {
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
             hideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
             textThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
-            labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
+            labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1),
+            customColor: JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null")
+                ?.customColorScheme?.["0"]?.F ?? null
         })));
     })`);
     if (persistedViewSettingsState.theme !== "light" ||
@@ -1509,8 +1634,57 @@ async function run() {
         persistedViewSettingsState.color !== "RoyalBlue" ||
         persistedViewSettingsState.hideFlushed ||
         persistedViewSettingsState.textThreshold !== "14" ||
-        persistedViewSettingsState.labelWidth !== 280) {
+        persistedViewSettingsState.labelWidth !== 280 ||
+        persistedViewSettingsState.customColor?.h !== 210 ||
+        persistedViewSettingsState.customColor?.s !== 25) {
         throw new Error(`View settings persistence is incomplete: ${JSON.stringify(persistedViewSettingsState)}`);
+    }
+
+    // Custom部分だけが壊れている場合は、他の表示設定を維持して旧既定配色だけを復元する。
+    await window.webContents.executeJavaScript(`(() => {
+        const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
+        stored.customColorScheme.defaultColor.h = 999;
+        localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
+    })()`);
+    await window.loadFile(webFile);
+    await dropFixture(window, plainFixture, "text/plain");
+    const recoveredCustomColorState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        if (!(color instanceof HTMLSelectElement)) {
+            throw new Error("The pipeline color selector was not restored.");
+        }
+        const theme = document.querySelector(".trace-app")?.dataset.theme ?? null;
+        color.value = "Custom";
+        color.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        const edit = document.querySelector(".custom-color-control button");
+        if (!(edit instanceof HTMLButtonElement)) {
+            throw new Error("The restored custom color edit button was not found.");
+        }
+        edit.click();
+        await nextFrame();
+        const result = {
+            theme,
+            defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
+            fetchHue: document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null,
+            fetchAutomatic: document.querySelector(
+                'input[aria-label="Use automatic Lane 0 / F saturation"]',
+            )?.checked ?? null
+        };
+        document.querySelector('.custom-color-dialog button[aria-label="Close custom colors"]')?.click();
+        await nextFrame();
+        color.value = "RoyalBlue";
+        color.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        return result;
+    })()`);
+    if (recoveredCustomColorState.theme !== "light" ||
+        recoveredCustomColorState.defaultHue !== "100" ||
+        recoveredCustomColorState.fetchHue !== "0" ||
+        !recoveredCustomColorState.fetchAutomatic) {
+        throw new Error(`Custom color recovery is incomplete: ${JSON.stringify(recoveredCustomColorState)}`);
     }
 
     await window.webContents.executeJavaScript(
