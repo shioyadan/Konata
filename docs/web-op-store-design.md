@@ -185,5 +185,11 @@ The experiment therefore selects synchronous, independently compressed zstd page
 product integration. The JSON codec remains available to tests and benchmarks as the comparison
 baseline. Search and statistics still need a page-oriented traversal path because their complete
 scan cost is dominated by object reconstruction and operation-cache population rather than zstd
-itself. Bundle size and browser smoke behavior will be recorded when the selected store is wired
-into the application entry path.
+itself.
+
+Wiring the selected store into both Parser paths increased the production single HTML from
+315,563 bytes to 568,430 bytes, an increase of 252,867 bytes (about 247 KiB) for the embedded
+codec. It adds no external runtime file or network request. The browser smoke test passed with
+incremental Kanata rendering, cancellation, unsupported-input cleanup, gem5 fallback, search,
+statistics, zoomed rendering, multiple tabs, and tab closure all using the zstd store. The legacy
+Electron application remains on its separate existing storage path.

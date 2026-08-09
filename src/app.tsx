@@ -31,6 +31,7 @@ import {
 import type { Op, ParsedTrace } from "./core/model";
 import { Gem5O3PipeViewParser } from "./core/gem5_o3_pipe_view_parser";
 import { OnikiriParser } from "./core/onikiri_parser";
+import { SerializedPageOpStore } from "./core/serialized_page_op_store";
 import { calculateStats, type StatsValues } from "./core/stats";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -518,6 +519,12 @@ export function App() {
         resetCommandUI();
 
         let parsingTrace: ParsedTrace | null = null;
+        // Parserが形式を確定してtraceを公開するまでは、Appが未公開storeの解放を受け持つ。
+        let unpublishedStore: SerializedPageOpStore | null = null;
+        const closeUnpublishedStore = () => {
+            unpublishedStore?.close();
+            unpublishedStore = null;
+        };
         try {
             const updateProgress = (value: number) => {
                 store.dispatch({ type: "FILE_LOAD_PROGRESS", tabID: tab.id, progress: value });
@@ -525,11 +532,13 @@ export function App() {
             const updateTrace = (partialTrace: ParsedTrace) => {
                 // 形式確定後は同じtraceを更新し、Storeから対象sheetの再描画を通知する。
                 parsingTrace = partialTrace;
+                unpublishedStore = null;
                 store.dispatch({ type: "FILE_LOAD_TRACE", tabID: tab.id, trace: partialTrace });
             };
             let parsedTrace: ParsedTrace;
             try {
-                parsedTrace = await new OnikiriParser().parse(
+                unpublishedStore = await SerializedPageOpStore.createZstd();
+                parsedTrace = await new OnikiriParser(unpublishedStore).parse(
                     file,
                     updateProgress,
                     updateTrace,
@@ -541,16 +550,21 @@ export function App() {
                 if (!(error instanceof Error) || error.message !== "The selected file is not a Kanata trace.") {
                     throw error;
                 }
-                parsedTrace = await new Gem5O3PipeViewParser().parse(
+                closeUnpublishedStore();
+                unpublishedStore = await SerializedPageOpStore.createZstd();
+                parsedTrace = await new Gem5O3PipeViewParser(unpublishedStore).parse(
                     file,
                     updateProgress,
                     updateTrace,
                     tab.loadSignal,
                 );
             }
+            // 空入力などを除き通常はupdateTraceで所有権が移るが、完了値もtrace自身がstoreを所有する。
+            unpublishedStore = null;
             store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: parsedTrace });
         }
         catch (error) {
+            closeUnpublishedStore();
             // close済みTabの意図的なcancelは、別Tabへerrorとして表示しない。
             if (tab.loadSignal.aborted) {
                 return;
