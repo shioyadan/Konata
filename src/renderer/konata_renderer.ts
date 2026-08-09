@@ -154,7 +154,16 @@ export class KonataRenderer {
     }
 
     get zoomPercent(): number {
-        return Math.round(this.zoomScale_ * 100);
+        return this.zoomScale_ * 100;
+    }
+
+    get zoomPercentLabel(): string {
+        const percent = this.zoomPercent;
+        // 大幅に縮小しても0%に丸めず、ツールバー内に収まる桁数で倍率を示す。
+        const value = percent >= 0.01
+            ? Number(percent.toPrecision(3)).toString()
+            : percent.toExponential(1);
+        return `${value}%`;
     }
 
     // 縦方向は24px/opなので、2^5より小さくなった時だけ取得解像度を落とす。

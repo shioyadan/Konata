@@ -142,6 +142,13 @@ test("Web renderer preserves legacy zoom levels and lane heights", () => {
     assert.equal(renderer.zoomLevel, 0);
     assert.equal(renderer.zoomPercent, 100);
 
+    // 大幅な縮小時も0%と表示せず、倍率の違いが読み取れる精度を残す。
+    renderer.zoomAbs(8, 0, 0, false);
+    assert.equal(renderer.zoomPercentLabel, "0.391%");
+    renderer.zoomAbs(24, 0, 0, false);
+    assert.equal(renderer.zoomPercentLabel, "6.0e-6%");
+    renderer.resetView();
+
     // lane分割時は既定でlane数に応じて命令行を高くし、高さ固定時だけ24pxへ戻す。
     renderer.splitLanes = true;
     assert.equal(renderer.opHeight, 48);

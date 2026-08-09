@@ -1142,40 +1142,6 @@ export function App() {
                         ))}
                     </div>
                 </details>
-                <div className="zoom-controls" aria-label="Zoom controls">
-                    <button
-                        className="icon-button"
-                        type="button"
-                        disabled={trace === null}
-                        onClick={() => zoomAtCenter(1 / 1.2)}
-                        aria-label="Zoom out"
-                        title="Zoom out"
-                    >
-                        <BsZoomOut aria-hidden="true" />
-                    </button>
-                    <output>{renderer.zoomPercent}%</output>
-                    <button
-                        className="icon-button"
-                        type="button"
-                        disabled={trace === null}
-                        onClick={() => zoomAtCenter(1.2)}
-                        aria-label="Zoom in"
-                        title="Zoom in"
-                    >
-                        <BsZoomIn aria-hidden="true" />
-                    </button>
-                    <button
-                        className="icon-button"
-                        type="button"
-                        disabled={trace === null}
-                        onClick={resetView}
-                        aria-label="Reset view"
-                        title="Reset view"
-                    >
-                        <BsArrowCounterclockwise aria-hidden="true" />
-                        <span className="visually-hidden">Reset</span>
-                    </button>
-                </div>
                 <button
                     className="button-with-icon toolbar-action"
                     type="button"
@@ -1329,6 +1295,40 @@ export function App() {
                         </details>
                     </div>
                 </details>
+                <div className="zoom-controls" aria-label="Zoom controls">
+                    <button
+                        className="icon-button"
+                        type="button"
+                        disabled={trace === null}
+                        onClick={() => zoomAtCenter(1 / 1.2)}
+                        aria-label="Zoom out"
+                        title="Zoom out"
+                    >
+                        <BsZoomOut aria-hidden="true" />
+                    </button>
+                    <output>{renderer.zoomPercentLabel}</output>
+                    <button
+                        className="icon-button"
+                        type="button"
+                        disabled={trace === null}
+                        onClick={() => zoomAtCenter(1.2)}
+                        aria-label="Zoom in"
+                        title="Zoom in"
+                    >
+                        <BsZoomIn aria-hidden="true" />
+                    </button>
+                    <button
+                        className="icon-button"
+                        type="button"
+                        disabled={trace === null}
+                        onClick={resetView}
+                        aria-label="Reset view"
+                        title="Reset view"
+                    >
+                        <BsArrowCounterclockwise aria-hidden="true" />
+                        <span className="visually-hidden">Reset</span>
+                    </button>
+                </div>
                 <p className={`status ${visibleMessage === "" ? `status-${loadState}` : "status-error"}`} role="status">
                     {statusMessage}
                 </p>

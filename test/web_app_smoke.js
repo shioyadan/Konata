@@ -508,7 +508,7 @@ async function run() {
         initialState.openButtonText !== "Open" ||
         initialState.mainActionIconCount !== 3 ||
         JSON.stringify(initialState.toolbarSequence) !==
-            JSON.stringify(["Open", "Search", "Bookmark", "Zoom", "Stats", "View"]) ||
+            JSON.stringify(["Open", "Search", "Bookmark", "Stats", "View", "Zoom"]) ||
         initialState.zoomIconCount !== 3 ||
         JSON.stringify(initialState.zoomLabels) !== JSON.stringify(["Zoom out", "Zoom in", "Reset view"]) ||
         !initialState.viewSettingsIcon ||
