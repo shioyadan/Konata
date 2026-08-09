@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { OnikiriParser } from "../src/core/onikiri_parser";
+import { ArrayOpStore } from "../src/core/op_store";
 
 function fileFromFixture(relativePath: string, type: string): File {
     const filePath = path.resolve(import.meta.dirname, "..", relativePath);
@@ -150,4 +151,43 @@ test("Web Onikiri parser publishes one live trace while loading", async () => {
     assert.ok(updates.some((update) => update.opCount === 1 && update.lastCycle === 1));
     assert.equal(updates.at(-1)?.opCount, 2);
     assert.equal(trace.lastCycle, 2);
+});
+
+test("Web Onikiri parser cancels its input stream through an AbortSignal", async () => {
+    const lines = ["Kanata\t0004", "I\t0\t10\t0", "S\t0\t0\tF"];
+    while (lines.length < 8192) {
+        lines.push("C\t0");
+    }
+    const contents = `${lines.join("\n")}\n`;
+    const file = new File([contents], "cancel.log", { type: "text/plain" });
+    let streamCanceled = false;
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream<Uint8Array>({
+        start(controller) {
+            // 先頭だけを渡してEOFを保留し、Parserが次のchunkを待つ状態を再現する。
+            controller.enqueue(new TextEncoder().encode(contents));
+        },
+        cancel() {
+            streamCanceled = true;
+        },
+    }) });
+
+    let notifyProgress: (() => void) | null = null;
+    const progressReached = new Promise<void>((resolve) => {
+        notifyProgress = resolve;
+    });
+    const controller = new AbortController();
+    const opStore = new ArrayOpStore();
+    const parsing = new OnikiriParser(opStore).parse(
+        file,
+        () => notifyProgress?.(),
+        undefined,
+        controller.signal,
+    );
+
+    await progressReached;
+    controller.abort();
+    await assert.rejects(parsing, /File loading was canceled/);
+    // cancelは表示更新を無視するだけでなく、Fileのstreamと途中OpStoreまで解放する。
+    assert.equal(streamCanceled, true);
+    assert.equal(opStore.opCount, 0);
 });

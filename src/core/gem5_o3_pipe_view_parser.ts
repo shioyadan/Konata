@@ -70,6 +70,7 @@ export class Gem5O3PipeViewParser {
         file: File,
         onProgress?: ProgressCallback,
         onUpdate?: TraceUpdateCallback,
+        signal?: AbortSignal,
     ): Promise<ParsedTrace> {
         const reader = new FileLineReader(file);
         const trace = new ParsedTrace(
@@ -90,7 +91,7 @@ export class Gem5O3PipeViewParser {
             if (formatPublished) {
                 updateTrace();
             }
-        })) {
+        }, signal)) {
             this.parseLine_(line);
             if (!formatPublished && this.isGem5O3PipeView_) {
                 // 最初のO3PipeView recordまでは追加ログの可能性があり、形式確定後だけ公開する。
@@ -99,6 +100,8 @@ export class Gem5O3PipeViewParser {
             }
         }
         if (reader.canceled) {
+            // cancel時には最終drainを行わず、途中までの命令をそのまま解放する。
+            trace.close();
             throw new Error("File loading was canceled.");
         }
         if (!this.isGem5O3PipeView_) {

@@ -28,6 +28,7 @@ export class OnikiriParser {
         file: File,
         onProgress?: ProgressCallback,
         onUpdate?: TraceUpdateCallback,
+        signal?: AbortSignal,
     ): Promise<ParsedTrace> {
         const reader = new FileLineReader(file);
         // lane setとstoreを複製せず、読み込み完了後まで同じtraceを段階更新する。
@@ -49,7 +50,7 @@ export class OnikiriParser {
             if (formatConfirmed) {
                 updateTrace();
             }
-        })) {
+        }, signal)) {
             this.parseLine_(line);
             if (!formatConfirmed) {
                 // 先頭headerが受理されるまで公開せず、gem5 fallback時に空のKanata traceを見せない。
@@ -58,6 +59,8 @@ export class OnikiriParser {
             }
         }
         if (reader.canceled) {
+            // 呼び出し側へ返らないtraceはParser側で解放する。Tab側ですでに閉じていてもcloseは安全である。
+            trace.close();
             throw new Error("File loading was canceled.");
         }
         if (this.currentLine_ === 1) {

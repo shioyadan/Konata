@@ -156,3 +156,39 @@ test("Web gem5 parser restores dependencies from rename logs", async () => {
     assert.match(producer.lanes.get("0")?.stages[0].labels ?? "", /Renaming arch reg 1/);
     assert.match(consumer.lanes.get("0")?.stages[0].labels ?? "", /Looking up IntRegClass/);
 });
+
+test("Web gem5 parser cancels its input stream through an AbortSignal", async () => {
+    const lines = ["O3PipeView:fetch:1000:0x10:0:10: pending op"];
+    while (lines.length < 8192) {
+        lines.push("ordinary log line");
+    }
+    const contents = `${lines.join("\n")}\n`;
+    const file = new File([contents], "cancel-gem5.log", { type: "text/plain" });
+    let streamCanceled = false;
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream<Uint8Array>({
+        start(controller) {
+            // 有効な形式を公開した後でEOFだけを保留し、途中drain前のcancelを確認する。
+            controller.enqueue(new TextEncoder().encode(contents));
+        },
+        cancel() {
+            streamCanceled = true;
+        },
+    }) });
+
+    let notifyProgress: (() => void) | null = null;
+    const progressReached = new Promise<void>((resolve) => {
+        notifyProgress = resolve;
+    });
+    const controller = new AbortController();
+    const parsing = new Gem5O3PipeViewParser().parse(
+        file,
+        () => notifyProgress?.(),
+        undefined,
+        controller.signal,
+    );
+
+    await progressReached;
+    controller.abort();
+    await assert.rejects(parsing, /File loading was canceled/);
+    assert.equal(streamCanceled, true);
+});

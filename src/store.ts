@@ -116,6 +116,7 @@ export type Change =
 
 // 旧Tabと同じく、1つの入力、その命令列、Renderer状態を同じ寿命で所有する。
 export class Tab {
+    private readonly loadAbortController_ = new AbortController();
     trace: ParsedTrace | null = null;
     loadState: LoadState = "loading";
     progress = 0;
@@ -135,6 +136,10 @@ export class Tab {
         readonly renderer: KonataRenderer,
     ) {}
 
+    get loadSignal(): AbortSignal {
+        return this.loadAbortController_.signal;
+    }
+
     setTrace(trace: ParsedTrace): void {
         if (this.trace === trace) {
             return;
@@ -148,6 +153,8 @@ export class Tab {
     close(): void {
         const trace = this.trace;
         this.trace = null;
+        // 入力streamとParserはこのTabだけに属するため、traceを解放する前に停止を通知する。
+        this.loadAbortController_.abort();
         // Tabを参照して動作中の非同期検索を止め、Opへの参照もtraceと同時に外す。
         this.findContext.requestID++;
         this.findContext.progress = null;

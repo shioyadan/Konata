@@ -25,6 +25,7 @@ test("Store owns tab traces, renderers, activation, and close", () => {
     store.dispatch({ type: "FILE_OPEN", fileName: "first.log", renderer: new KonataRenderer() });
     const firstTab = store.activeTab;
     assert.ok(firstTab !== null);
+    assert.equal(firstTab.loadSignal.aborted, false);
     const first = createTrace("first.log");
     store.dispatch({ type: "FILE_LOAD_FINISH", tabID: firstTab.id, trace: first.trace });
     store.dispatch({
@@ -48,6 +49,9 @@ test("Store owns tab traces, renderers, activation, and close", () => {
     // active tabを閉じると隣へ移り、そのTabが所有していたOpStoreだけを解放する。
     store.dispatch({ type: "TAB_CLOSE", tabID: firstTab.id });
     assert.equal(store.activeTab, secondTab);
+    // traceの有無にかかわらず、閉じたTabだけの入力処理へcancelを通知する。
+    assert.equal(firstTab.loadSignal.aborted, true);
+    assert.equal(secondTab.loadSignal.aborted, false);
     assert.equal(first.opStore.opCount, 0);
     assert.equal(second.opStore.opCount, 1);
     assert.ok(changes.some((change) => change.type === "PANE_CONTENT_UPDATE"));

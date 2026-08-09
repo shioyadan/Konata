@@ -214,18 +214,32 @@ export function App() {
             };
             let parsedTrace: ParsedTrace;
             try {
-                parsedTrace = await new OnikiriParser().parse(file, updateProgress, updateTrace);
+                parsedTrace = await new OnikiriParser().parse(
+                    file,
+                    updateProgress,
+                    updateTrace,
+                    tab.loadSignal,
+                );
             }
             catch (error) {
                 // 現行版と同じ順序で試し、Kanataとして不正な入力だけをgem5へ渡す。
                 if (!(error instanceof Error) || error.message !== "The selected file is not a Kanata trace.") {
                     throw error;
                 }
-                parsedTrace = await new Gem5O3PipeViewParser().parse(file, updateProgress, updateTrace);
+                parsedTrace = await new Gem5O3PipeViewParser().parse(
+                    file,
+                    updateProgress,
+                    updateTrace,
+                    tab.loadSignal,
+                );
             }
             store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: parsedTrace });
         }
         catch (error) {
+            // close済みTabの意図的なcancelは、別Tabへerrorとして表示しない。
+            if (tab.loadSignal.aborted) {
+                return;
+            }
             store.dispatch({
                 type: "FILE_LOAD_ERROR",
                 tabID: tab.id,

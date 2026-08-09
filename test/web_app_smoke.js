@@ -214,6 +214,58 @@ async function verifyIncrementalRendering(window) {
     })`);
 }
 
+async function verifyClosedTabCancelsLoading(window) {
+    return window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+        const lines = ["Kanata\\t0004", "I\\t0\\t10\\t0", "S\\t0\\t0\\tF"];
+        while (lines.length < 8192) {
+            lines.push("C\\t0");
+        }
+        const contents = lines.join("\\n") + "\\n";
+        const file = new File([contents], "cancel-loading.log", {type: "text/plain"});
+        let streamCanceled = false;
+        Object.defineProperty(file, "stream", {value: () => new ReadableStream({
+            start(controller) {
+                // EOFを渡さず、タブを閉じるまでParserが入力待ちになるstreamを作る。
+                controller.enqueue(new TextEncoder().encode(contents));
+            },
+            cancel() {
+                streamCanceled = true;
+            }
+        })});
+
+        const target = document.querySelector(".trace-app");
+        if (target === null) {
+            reject(new Error("The trace drop target was not found."));
+            return;
+        }
+        const event = new Event("drop", {bubbles: true, cancelable: true});
+        Object.defineProperty(event, "dataTransfer", {value: {files: [file]}});
+        target.dispatchEvent(event);
+
+        const deadline = performance.now() + 5000;
+        let closeClicked = false;
+        const check = () => {
+            const close = document.querySelector('button[aria-label="Close cancel-loading.log"]');
+            const loading = document.querySelector(".trace-app")?.dataset.loadState === "loading";
+            const opCount = Number(document.querySelector(".trace-app")?.dataset.opCount ?? -1);
+            if (!closeClicked && close instanceof HTMLButtonElement && loading && opCount === 0) {
+                closeClicked = true;
+                close.click();
+            }
+            if (closeClicked && streamCanceled && close === null) {
+                resolve({streamCanceled, tabClosed: true});
+                return;
+            }
+            if (performance.now() >= deadline) {
+                reject(new Error("Timed out while waiting for the closed tab to cancel loading."));
+                return;
+            }
+            setTimeout(check, 5);
+        };
+        check();
+    })`);
+}
+
 async function readRenderedState(window) {
     return window.webContents.executeJavaScript(`(() => {
         const root = document.querySelector(".trace-app");
@@ -296,6 +348,11 @@ async function run() {
     const incrementalState = await verifyIncrementalRendering(window);
     if (incrementalState.partialPixels < 100 || incrementalState.finalOpCount !== 2) {
         throw new Error(`Incremental trace rendering is incomplete: ${JSON.stringify(incrementalState)}`);
+    }
+
+    const canceledLoadState = await verifyClosedTabCancelsLoading(window);
+    if (!canceledLoadState.streamCanceled || !canceledLoadState.tabClosed) {
+        throw new Error(`Closing a loading tab did not cancel its stream: ${JSON.stringify(canceledLoadState)}`);
     }
 
     const plainFixture = path.join(__dirname, "fixtures", "kanata-basic.txt");
