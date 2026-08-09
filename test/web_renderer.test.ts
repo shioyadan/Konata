@@ -224,17 +224,17 @@ test("Web renderer applies the legacy light theme and Custom color scheme", () =
     ]);
 });
 
-test("Web renderer keeps drawing thresholds configurable", () => {
+test("Web renderer keeps minimum lane heights configurable", () => {
     const { trace } = createTrace();
     const renderer = new KonataRenderer();
     renderer.setTrace(trace);
-    renderer.drawTextThreshold = 100;
+    renderer.textLabelMinimumLaneHeight = 100;
     const label = createRecordedContext();
     const pipeline = createRecordedContext();
 
     renderer.draw(createCanvas(label.context), createCanvas(pipeline.context));
 
-    // 24pxのlaneより閾値を大きくすると、旧Settingsと同様にlabelとstage文字だけを省略する。
+    // 24pxのlaneより最小高さを大きくすると、旧Settingsと同様にlabelとstage文字だけを省略する。
     assert.deepEqual(label.fillTexts, []);
     assert.deepEqual(pipeline.fillTexts, []);
     assert.equal(pipeline.gradients.length, 1);

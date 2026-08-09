@@ -74,11 +74,11 @@ export class KonataRenderer {
     static readonly OP_H = 24;
 
     readonly name = "KonataRenderer";
-    // 描画モードを切り替える閾値は旧Configの既定値をそのまま使う。
-    drawDetailedlyThreshold = 1;
-    drawDependencyThreshold = 4;
-    drawFrameThreshold = 4;
-    drawTextThreshold = 10;
+    // 各詳細を描画するlaneの最小高さは、旧Configの既定値を維持する。
+    textLabelMinimumLaneHeight = 10;
+    stageDetailMinimumLaneHeight = 1;
+    dependencyArrowMinimumLaneHeight = 4;
+    stageBorderMinimumLaneHeight = 4;
 
     private static readonly ZOOM_RATIO = 1;
     private static readonly MAX_ZOOM_LEVEL = 24;
@@ -513,19 +513,19 @@ export class KonataRenderer {
     }
 
     private get canDrawDetailedly_(): boolean {
-        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.drawDetailedlyThreshold;
+        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.stageDetailMinimumLaneHeight;
     }
 
     private get canDrawDependency_(): boolean {
-        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.drawDependencyThreshold;
+        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.dependencyArrowMinimumLaneHeight;
     }
 
     private get canDrawFrame_(): boolean {
-        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.drawFrameThreshold;
+        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.stageBorderMinimumLaneHeight;
     }
 
     private get canDrawText_(): boolean {
-        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.drawTextThreshold;
+        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.textLabelMinimumLaneHeight;
     }
 
     private prepareCanvas_(canvas: HTMLCanvasElement): CanvasSize {

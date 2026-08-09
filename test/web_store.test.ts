@@ -196,10 +196,10 @@ test("Store restores and publishes persistent view settings", () => {
         customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
         splitterPosition: 321,
         dependencyArrowType: DEP_ARROW_TYPE.LEFT_SIDE_CURVE,
-        drawTextThreshold: 11,
-        drawDetailedlyThreshold: 2,
-        drawDependencyThreshold: 5,
-        drawFrameThreshold: 6,
+        textLabelMinimumLaneHeight: 11,
+        stageDetailMinimumLaneHeight: 2,
+        dependencyArrowMinimumLaneHeight: 5,
+        stageBorderMinimumLaneHeight: 6,
         drawZoomFactor: 1.5,
     });
     const changes: Change[] = [];
@@ -207,7 +207,7 @@ test("Store restores and publishes persistent view settings", () => {
     const restored = store.getSnapshot().settings;
     assert.equal(restored.theme, "light");
     assert.equal(restored.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
-    assert.equal(restored.drawTextThreshold, 11);
+    assert.equal(restored.textLabelMinimumLaneHeight, 11);
     assert.equal(restored.drawZoomFactor, 1.5);
     // lane分割と固定高さは旧Configの保存対象ではなく、再起動時には初期値へ戻る。
     assert.equal(restored.splitLanes, false);
@@ -224,8 +224,8 @@ test("Store restores and publishes persistent view settings", () => {
     store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "dark" });
     store.dispatch({ type: "KONATA_SET_DEP_ARROW_TYPE", arrowType: DEP_ARROW_TYPE.NOT_SHOW });
     store.dispatch({
-        type: "KONATA_CHANGE_DRAWING_THRESHOLD",
-        threshold: "drawTextThreshold",
+        type: "KONATA_CHANGE_MINIMUM_LANE_HEIGHT",
+        setting: "textLabelMinimumLaneHeight",
         value: 14,
     });
     store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: tab.id, position: 280 });
@@ -246,10 +246,10 @@ test("Store restores and publishes persistent view settings", () => {
         customColorScheme,
         splitterPosition: 280,
         dependencyArrowType: DEP_ARROW_TYPE.NOT_SHOW,
-        drawTextThreshold: 14,
-        drawDetailedlyThreshold: 2,
-        drawDependencyThreshold: 5,
-        drawFrameThreshold: 6,
+        textLabelMinimumLaneHeight: 14,
+        stageDetailMinimumLaneHeight: 2,
+        dependencyArrowMinimumLaneHeight: 5,
+        stageBorderMinimumLaneHeight: 6,
         drawZoomFactor: 2,
     });
     // Tab固有設定や旧Storeだけの一時設定では、永続化通知を増やさない。
@@ -282,8 +282,8 @@ test("Store separates global view settings from tab-specific settings", () => {
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({ type: "KONATA_FIX_OP_HEIGHT", enabled: true });
     store.dispatch({
-        type: "KONATA_CHANGE_DRAWING_THRESHOLD",
-        threshold: "drawTextThreshold",
+        type: "KONATA_CHANGE_MINIMUM_LANE_HEIGHT",
+        setting: "textLabelMinimumLaneHeight",
         value: 12,
     });
 
@@ -298,7 +298,7 @@ test("Store separates global view settings from tab-specific settings", () => {
         assert.equal(renderer.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
         assert.equal(renderer.splitLanes, true);
         assert.equal(renderer.fixOpHeight, true);
-        assert.equal(renderer.drawTextThreshold, 12);
+        assert.equal(renderer.textLabelMinimumLaneHeight, 12);
     }
     assert.equal(store.getSnapshot().settings.theme, "light");
     assert.ok(changes.some((change) => change.type === "WINDOW_CSS_UPDATE"));

@@ -1203,21 +1203,25 @@ async function run() {
         const viewControls = document.querySelector(".view-controls");
         const viewPanel = document.querySelector(".view-controls-panel");
         const splitter = document.querySelector(".pane-splitter");
+        const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const fixed = document.querySelector('input[aria-label="Fix op height"]');
         const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const drawingThresholds = document.querySelector(".drawing-thresholds");
         const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
         if (!(viewControls instanceof HTMLDetailsElement) ||
             !(viewPanel instanceof HTMLElement) ||
             !(splitter instanceof HTMLElement) ||
+            !(hideFlushed instanceof HTMLInputElement) ||
             !(split instanceof HTMLInputElement) ||
             !(fixed instanceof HTMLInputElement) ||
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
+            !(zoomSteps instanceof HTMLInputElement) ||
             !(drawingThresholds instanceof HTMLDetailsElement) ||
             !(textThreshold instanceof HTMLInputElement)) {
             throw new Error("The renderer view controls were not found.");
@@ -1272,6 +1276,8 @@ async function run() {
             textThreshold: textThreshold.value,
             thresholdSummary: drawingThresholds.querySelector("summary")?.textContent?.trim() ?? null,
             thresholdSummaryTitle: drawingThresholds.querySelector("summary")?.title ?? null,
+            settingTitles: [theme, hideFlushed, split, fixed, color, arrows, zoomSteps]
+                .map((control) => control.closest("label")?.title ?? null),
             thresholdLabels: Array.from(drawingThresholds.querySelectorAll("label"), (label) => ({
                 text: label.childNodes[0]?.textContent?.trim() ?? null,
                 title: label.title,
@@ -1288,7 +1294,17 @@ async function run() {
         viewControlState.color !== "Custom" ||
         viewControlState.textThreshold !== "12" ||
         viewControlState.thresholdSummary !== "Minimum lane height (px)" ||
-        viewControlState.thresholdSummaryTitle !== "Minimum lane height required to draw each detail." ||
+        viewControlState.thresholdSummaryTitle !==
+            "Larger values hide details sooner as you zoom out; smaller values keep them visible longer." ||
+        JSON.stringify(viewControlState.settingTitles) !== JSON.stringify([
+            "Switch the interface and canvas between dark and light colors.",
+            "Hide flushed instructions and arrange the remaining instructions by retire ID.",
+            "Show each pipeline lane on a separate row.",
+            "Keep each instruction at a fixed total height when lanes are split.",
+            "Choose how pipeline stages are colored.",
+            "Choose how instruction dependencies are drawn.",
+            "Number of steps used to double or halve the zoom."
+        ]) ||
         JSON.stringify(viewControlState.thresholdLabels) !== JSON.stringify([
             {
                 text: "Text labels",
@@ -1875,7 +1891,8 @@ async function run() {
                 zoomStepsBeforeThresholds: zoomSteps.closest("label")?.nextElementSibling
                     ?.classList.contains("drawing-thresholds") === true,
                 stored,
-                storesSplitLanes: stored !== null && "splitLanes" in stored
+                storesSplitLanes: stored !== null && "splitLanes" in stored,
+                storesLegacyLaneHeight: stored !== null && "drawTextThreshold" in stored
             });
         }));
     })`);
@@ -1887,11 +1904,12 @@ async function run() {
         viewSettingsSetupState.stored?.colorScheme !== "RoyalBlue" ||
         viewSettingsSetupState.stored?.splitterPosition !== 280 ||
         viewSettingsSetupState.stored?.dependencyArrowType !== "notShow" ||
-        viewSettingsSetupState.stored?.drawTextThreshold !== 14 ||
+        viewSettingsSetupState.stored?.textLabelMinimumLaneHeight !== 14 ||
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
         viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.h !== 210 ||
         viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.s !== 25 ||
-        viewSettingsSetupState.storesSplitLanes) {
+        viewSettingsSetupState.storesSplitLanes ||
+        viewSettingsSetupState.storesLegacyLaneHeight) {
         throw new Error(`View settings setup is incomplete: ${JSON.stringify(viewSettingsSetupState)}`);
     }
 
@@ -1936,9 +1954,19 @@ async function run() {
         throw new Error(`View settings persistence is incomplete: ${JSON.stringify(persistedViewSettingsState)}`);
     }
 
-    // 旧Web保存値にzoom factorがなくCustom部分だけが壊れていても、他の設定を維持する。
+    // 旧Webのthreshold名とzoom factorの欠落、Custom部分の破損が重なっても他の設定を維持する。
     await window.webContents.executeJavaScript(`(() => {
         const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
+        const renamedLaneHeights = [
+            ["textLabelMinimumLaneHeight", "drawTextThreshold"],
+            ["stageDetailMinimumLaneHeight", "drawDetailedlyThreshold"],
+            ["dependencyArrowMinimumLaneHeight", "drawDependencyThreshold"],
+            ["stageBorderMinimumLaneHeight", "drawFrameThreshold"]
+        ];
+        for (const [name, oldName] of renamedLaneHeights) {
+            stored[oldName] = stored[name];
+            delete stored[name];
+        }
         delete stored.drawZoomFactor;
         stored.customColorScheme.defaultColor.h = 999;
         localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
@@ -1962,14 +1990,20 @@ async function run() {
         }
         edit.click();
         await nextFrame();
+        const migrated = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
         const result = {
             theme,
+            textMinimumLaneHeight: document.querySelector(
+                'input[aria-label="Text labels minimum lane height"]',
+            )?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
             fetchHue: document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null,
             fetchAutomatic: document.querySelector(
                 'input[aria-label="Use automatic Lane 0 / F saturation"]',
-            )?.checked ?? null
+            )?.checked ?? null,
+            migratedLaneHeight: migrated?.textLabelMinimumLaneHeight ?? null,
+            removedLegacyLaneHeight: migrated !== null && !("drawTextThreshold" in migrated)
         };
         document.querySelector('.custom-color-dialog button[aria-label="Close custom colors"]')?.click();
         await nextFrame();
@@ -1979,10 +2013,13 @@ async function run() {
         return result;
     })()`);
     if (recoveredCustomColorState.theme !== "light" ||
+        recoveredCustomColorState.textMinimumLaneHeight !== "14" ||
         recoveredCustomColorState.zoomSteps !== "1" ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.fetchHue !== "0" ||
-        !recoveredCustomColorState.fetchAutomatic) {
+        !recoveredCustomColorState.fetchAutomatic ||
+        recoveredCustomColorState.migratedLaneHeight !== 14 ||
+        !recoveredCustomColorState.removedLegacyLaneHeight) {
         throw new Error(`Custom color recovery is incomplete: ${JSON.stringify(recoveredCustomColorState)}`);
     }
 

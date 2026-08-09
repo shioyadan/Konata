@@ -10,11 +10,11 @@ import {
 
 export type LoadState = "idle" | "loading" | "ready" | "error";
 export type Operation = "load" | "search";
-export type DrawingThreshold =
-    | "drawTextThreshold"
-    | "drawDetailedlyThreshold"
-    | "drawDependencyThreshold"
-    | "drawFrameThreshold";
+export type MinimumLaneHeightKey =
+    | "textLabelMinimumLaneHeight"
+    | "stageDetailMinimumLaneHeight"
+    | "dependencyArrowMinimumLaneHeight"
+    | "stageBorderMinimumLaneHeight";
 
 // 旧Configの初期値を維持し、新しいTabだけは直前に選んだ幅を引き継ぐ。
 export const DEFAULT_SPLITTER_POSITION = 450;
@@ -25,10 +25,10 @@ export interface GlobalViewSettings {
     readonly dependencyArrowType: DependencyArrowType;
     readonly splitLanes: boolean;
     readonly fixOpHeight: boolean;
-    readonly drawTextThreshold: number;
-    readonly drawDetailedlyThreshold: number;
-    readonly drawDependencyThreshold: number;
-    readonly drawFrameThreshold: number;
+    readonly textLabelMinimumLaneHeight: number;
+    readonly stageDetailMinimumLaneHeight: number;
+    readonly dependencyArrowMinimumLaneHeight: number;
+    readonly stageBorderMinimumLaneHeight: number;
     readonly drawZoomFactor: number;
 }
 
@@ -38,10 +38,10 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
     fixOpHeight: false,
-    drawTextThreshold: 10,
-    drawDetailedlyThreshold: 1,
-    drawDependencyThreshold: 4,
-    drawFrameThreshold: 4,
+    textLabelMinimumLaneHeight: 10,
+    stageDetailMinimumLaneHeight: 1,
+    dependencyArrowMinimumLaneHeight: 4,
+    stageBorderMinimumLaneHeight: 4,
     drawZoomFactor: 1,
 };
 
@@ -52,10 +52,10 @@ export interface PersistedViewSettings {
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly splitterPosition: number;
     readonly dependencyArrowType: DependencyArrowType;
-    readonly drawTextThreshold: number;
-    readonly drawDetailedlyThreshold: number;
-    readonly drawDependencyThreshold: number;
-    readonly drawFrameThreshold: number;
+    readonly textLabelMinimumLaneHeight: number;
+    readonly stageDetailMinimumLaneHeight: number;
+    readonly dependencyArrowMinimumLaneHeight: number;
+    readonly stageBorderMinimumLaneHeight: number;
     readonly drawZoomFactor: number;
 }
 
@@ -65,10 +65,10 @@ export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = 
     customColorScheme: DEFAULT_GLOBAL_VIEW_SETTINGS.customColorScheme,
     splitterPosition: DEFAULT_SPLITTER_POSITION,
     dependencyArrowType: DEFAULT_GLOBAL_VIEW_SETTINGS.dependencyArrowType,
-    drawTextThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawTextThreshold,
-    drawDetailedlyThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawDetailedlyThreshold,
-    drawDependencyThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawDependencyThreshold,
-    drawFrameThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawFrameThreshold,
+    textLabelMinimumLaneHeight: DEFAULT_GLOBAL_VIEW_SETTINGS.textLabelMinimumLaneHeight,
+    stageDetailMinimumLaneHeight: DEFAULT_GLOBAL_VIEW_SETTINGS.stageDetailMinimumLaneHeight,
+    dependencyArrowMinimumLaneHeight: DEFAULT_GLOBAL_VIEW_SETTINGS.dependencyArrowMinimumLaneHeight,
+    stageBorderMinimumLaneHeight: DEFAULT_GLOBAL_VIEW_SETTINGS.stageBorderMinimumLaneHeight,
     drawZoomFactor: DEFAULT_GLOBAL_VIEW_SETTINGS.drawZoomFactor,
 };
 
@@ -129,8 +129,8 @@ export type Action =
     }
     | { readonly type: "KONATA_HIDE_FLUSHED_OPS"; readonly tabID: number; readonly enabled: boolean }
     | {
-        readonly type: "KONATA_CHANGE_DRAWING_THRESHOLD";
-        readonly threshold: DrawingThreshold;
+        readonly type: "KONATA_CHANGE_MINIMUM_LANE_HEIGHT";
+        readonly setting: MinimumLaneHeightKey;
         readonly value: number;
     }
     | { readonly type: "KONATA_CHANGE_ZOOM_FACTOR"; readonly value: number }
@@ -238,10 +238,10 @@ export class Store {
             theme: viewSettings.theme,
             customColorScheme: viewSettings.customColorScheme,
             dependencyArrowType: viewSettings.dependencyArrowType,
-            drawTextThreshold: viewSettings.drawTextThreshold,
-            drawDetailedlyThreshold: viewSettings.drawDetailedlyThreshold,
-            drawDependencyThreshold: viewSettings.drawDependencyThreshold,
-            drawFrameThreshold: viewSettings.drawFrameThreshold,
+            textLabelMinimumLaneHeight: viewSettings.textLabelMinimumLaneHeight,
+            stageDetailMinimumLaneHeight: viewSettings.stageDetailMinimumLaneHeight,
+            dependencyArrowMinimumLaneHeight: viewSettings.dependencyArrowMinimumLaneHeight,
+            stageBorderMinimumLaneHeight: viewSettings.stageBorderMinimumLaneHeight,
             drawZoomFactor: viewSettings.drawZoomFactor,
         };
         this.snapshot_ = {
@@ -281,10 +281,10 @@ export class Store {
             customColorScheme: this.settings_.customColorScheme,
             splitterPosition: this.defaultSplitterPosition_,
             dependencyArrowType: this.settings_.dependencyArrowType,
-            drawTextThreshold: this.settings_.drawTextThreshold,
-            drawDetailedlyThreshold: this.settings_.drawDetailedlyThreshold,
-            drawDependencyThreshold: this.settings_.drawDependencyThreshold,
-            drawFrameThreshold: this.settings_.drawFrameThreshold,
+            textLabelMinimumLaneHeight: this.settings_.textLabelMinimumLaneHeight,
+            stageDetailMinimumLaneHeight: this.settings_.stageDetailMinimumLaneHeight,
+            dependencyArrowMinimumLaneHeight: this.settings_.dependencyArrowMinimumLaneHeight,
+            stageBorderMinimumLaneHeight: this.settings_.stageBorderMinimumLaneHeight,
             drawZoomFactor: this.settings_.drawZoomFactor,
         };
     }
@@ -553,9 +553,9 @@ export class Store {
             ]);
             return;
         }
-        case "KONATA_CHANGE_DRAWING_THRESHOLD": {
+        case "KONATA_CHANGE_MINIMUM_LANE_HEIGHT": {
             this.setGlobalViewSettings_(
-                { ...this.settings_, [action.threshold]: action.value },
+                { ...this.settings_, [action.setting]: action.value },
                 false,
                 true,
             );
@@ -627,10 +627,10 @@ export class Store {
         renderer.dependencyArrowType = settings.dependencyArrowType;
         renderer.splitLanes = settings.splitLanes;
         renderer.fixOpHeight = settings.fixOpHeight;
-        renderer.drawTextThreshold = settings.drawTextThreshold;
-        renderer.drawDetailedlyThreshold = settings.drawDetailedlyThreshold;
-        renderer.drawDependencyThreshold = settings.drawDependencyThreshold;
-        renderer.drawFrameThreshold = settings.drawFrameThreshold;
+        renderer.textLabelMinimumLaneHeight = settings.textLabelMinimumLaneHeight;
+        renderer.stageDetailMinimumLaneHeight = settings.stageDetailMinimumLaneHeight;
+        renderer.dependencyArrowMinimumLaneHeight = settings.dependencyArrowMinimumLaneHeight;
+        renderer.stageBorderMinimumLaneHeight = settings.stageBorderMinimumLaneHeight;
     }
 
     private publish_(activeTabID: number | null, changes: readonly Change[]): void {

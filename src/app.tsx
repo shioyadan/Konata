@@ -45,8 +45,8 @@ import {
 import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
-    type DrawingThreshold,
     type FindResult,
+    type MinimumLaneHeightKey,
     type PersistedViewSettings,
     Store,
 } from "./store";
@@ -75,20 +75,28 @@ interface PendingZoom {
     readonly level: number;
 }
 
-// 旧Settingsの内部keyは維持し、UIでは描画を始めるlaneの最小高さとして示す。
-const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string, string]> = [
-    ["drawTextThreshold", "Text labels", "Show text labels when the lane is taller than this value."],
+// 各詳細を描画するlaneの最小高さと、UIの説明を1か所で対応付ける。
+const MINIMUM_LANE_HEIGHTS: ReadonlyArray<readonly [MinimumLaneHeightKey, string, string]> = [
     [
-        "drawDetailedlyThreshold",
+        "textLabelMinimumLaneHeight",
+        "Text labels",
+        "Show text labels when the lane is taller than this value.",
+    ],
+    [
+        "stageDetailMinimumLaneHeight",
         "Stage details",
         "Draw individual lanes and stages when the lane is taller than this value.",
     ],
     [
-        "drawDependencyThreshold",
+        "dependencyArrowMinimumLaneHeight",
         "Dependency arrows",
         "Show dependency arrows when the lane is taller than this value.",
     ],
-    ["drawFrameThreshold", "Stage borders", "Show stage borders when the lane is taller than this value."],
+    [
+        "stageBorderMinimumLaneHeight",
+        "Stage borders",
+        "Show stage borders when the lane is taller than this value.",
+    ],
 ];
 
 const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
@@ -156,7 +164,26 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
     if (typeof value !== "object" || value === null) {
         return null;
     }
-    const settings = value as Partial<Record<keyof PersistedViewSettings, unknown>>;
+    const settings = value as Partial<Record<keyof PersistedViewSettings, unknown>> & Record<string, unknown>;
+    // 旧Web版のthreshold名は読み込みだけ許容し、次回保存時に現在の名称へ移行する。
+    const readRenamedSetting = (name: keyof PersistedViewSettings, oldName: string): unknown =>
+        settings[name] === undefined ? settings[oldName] : settings[name];
+    const textLabelMinimumLaneHeight = readRenamedSetting(
+        "textLabelMinimumLaneHeight",
+        "drawTextThreshold",
+    );
+    const stageDetailMinimumLaneHeight = readRenamedSetting(
+        "stageDetailMinimumLaneHeight",
+        "drawDetailedlyThreshold",
+    );
+    const dependencyArrowMinimumLaneHeight = readRenamedSetting(
+        "dependencyArrowMinimumLaneHeight",
+        "drawDependencyThreshold",
+    );
+    const stageBorderMinimumLaneHeight = readRenamedSetting(
+        "stageBorderMinimumLaneHeight",
+        "drawFrameThreshold",
+    );
     // 既存Web版の保存値にはzoom factorがないため、他の設定を保ったまま旧既定値を補う。
     const drawZoomFactor = settings.drawZoomFactor === undefined
         ? DEFAULT_PERSISTED_VIEW_SETTINGS.drawZoomFactor
@@ -168,10 +195,10 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         (settings.dependencyArrowType !== DEP_ARROW_TYPE.INSIDE_LINE &&
             settings.dependencyArrowType !== DEP_ARROW_TYPE.LEFT_SIDE_CURVE &&
             settings.dependencyArrowType !== DEP_ARROW_TYPE.NOT_SHOW) ||
-        !isNonNegativeFiniteNumber(settings.drawTextThreshold) ||
-        !isNonNegativeFiniteNumber(settings.drawDetailedlyThreshold) ||
-        !isNonNegativeFiniteNumber(settings.drawDependencyThreshold) ||
-        !isNonNegativeFiniteNumber(settings.drawFrameThreshold) ||
+        !isNonNegativeFiniteNumber(textLabelMinimumLaneHeight) ||
+        !isNonNegativeFiniteNumber(stageDetailMinimumLaneHeight) ||
+        !isNonNegativeFiniteNumber(dependencyArrowMinimumLaneHeight) ||
+        !isNonNegativeFiniteNumber(stageBorderMinimumLaneHeight) ||
         !isPositiveFiniteNumber(drawZoomFactor)) {
         return null;
     }
@@ -184,10 +211,10 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
             : DEFAULT_CUSTOM_COLOR_SCHEME,
         splitterPosition: settings.splitterPosition,
         dependencyArrowType: settings.dependencyArrowType,
-        drawTextThreshold: settings.drawTextThreshold,
-        drawDetailedlyThreshold: settings.drawDetailedlyThreshold,
-        drawDependencyThreshold: settings.drawDependencyThreshold,
-        drawFrameThreshold: settings.drawFrameThreshold,
+        textLabelMinimumLaneHeight,
+        stageDetailMinimumLaneHeight,
+        dependencyArrowMinimumLaneHeight,
+        stageBorderMinimumLaneHeight,
         drawZoomFactor,
     };
 }
@@ -1220,7 +1247,7 @@ export function App() {
                         <span>View</span>
                     </summary>
                     <div className="view-controls-panel">
-                        <label>
+                        <label title="Switch the interface and canvas between dark and light colors.">
                             Theme
                             <select
                                 aria-label="UI color theme"
@@ -1234,7 +1261,7 @@ export function App() {
                                 <option value="light">Light</option>
                             </select>
                         </label>
-                        <label>
+                        <label title="Hide flushed instructions and arrange the remaining instructions by retire ID.">
                             <input
                                 type="checkbox"
                                 aria-label="Hide flushed ops"
@@ -1244,7 +1271,7 @@ export function App() {
                             />
                             Hide flushed ops
                         </label>
-                        <label>
+                        <label title="Show each pipeline lane on a separate row.">
                             <input
                                 type="checkbox"
                                 aria-label="Split lanes"
@@ -1257,7 +1284,7 @@ export function App() {
                             />
                             Split lanes
                         </label>
-                        <label>
+                        <label title="Keep each instruction at a fixed total height when lanes are split.">
                             <input
                                 type="checkbox"
                                 aria-label="Fix op height"
@@ -1271,7 +1298,7 @@ export function App() {
                             Fix op height
                         </label>
                         <div className="custom-color-control">
-                            <label>
+                            <label title="Choose how pipeline stages are colored.">
                                 Color
                                 <select
                                     aria-label="Pipeline color scheme"
@@ -1309,7 +1336,7 @@ export function App() {
                                 </button>
                             )}
                         </div>
-                        <label>
+                        <label title="Choose how instruction dependencies are drawn.">
                             Dependency arrows
                             <select
                                 aria-label="Dependency arrow type"
@@ -1342,10 +1369,10 @@ export function App() {
                             />
                         </label>
                         <details className="drawing-thresholds">
-                            <summary title="Minimum lane height required to draw each detail.">
+                            <summary title="Larger values hide details sooner as you zoom out; smaller values keep them visible longer.">
                                 Minimum lane height (px)
                             </summary>
-                            {DRAWING_THRESHOLDS.map(([key, label, description]) => (
+                            {MINIMUM_LANE_HEIGHTS.map(([key, label, description]) => (
                                 <label key={key} title={description}>
                                     {label}
                                     <input
@@ -1359,8 +1386,8 @@ export function App() {
                                             const value = Number(event.target.value);
                                             if (Number.isFinite(value) && value >= 0) {
                                                 store.dispatch({
-                                                    type: "KONATA_CHANGE_DRAWING_THRESHOLD",
-                                                    threshold: key,
+                                                    type: "KONATA_CHANGE_MINIMUM_LANE_HEIGHT",
+                                                    setting: key,
                                                     value,
                                                 });
                                             }
