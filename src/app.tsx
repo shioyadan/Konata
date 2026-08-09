@@ -726,6 +726,12 @@ export function App() {
                     onClose={() => setCommandPaletteInitial(null)}
                 />
             )}
+            <TabBar
+                tabs={tabs}
+                activeTabID={activeTabID}
+                onActivate={activateTab}
+                onClose={closeTab}
+            />
             <header className="app-toolbar">
                 <input
                     ref={fileInputRef}
@@ -923,12 +929,6 @@ export function App() {
                 )}
             </header>
 
-            <TabBar
-                tabs={tabs}
-                activeTabID={activeTabID}
-                onActivate={activateTab}
-                onClose={closeTab}
-            />
             <TraceSheet
                 key={activeTabID ?? "empty"}
                 ref={traceSheetRef}

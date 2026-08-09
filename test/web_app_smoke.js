@@ -930,14 +930,20 @@ async function run() {
         throw new Error(`Second tab settings are incomplete: ${JSON.stringify(secondTabSettingsState)}`);
     }
 
-    // 旧tab barと同じく、traceとRenderer設定を保持して切り替え、active tabを閉じたら隣へ移る。
+    // traceとRenderer設定を保持して切り替え、middle clickでactive tabを閉じたら隣へ移る。
     const tabState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const tabButtons = [...document.querySelectorAll('[role="tab"]')];
         const plainTab = tabButtons.find((button) => button.textContent?.trim() === "kanata-basic.txt");
         const closePlain = document.querySelector('button[aria-label="Close kanata-basic.txt"]');
-        if (!(plainTab instanceof HTMLButtonElement) || !(closePlain instanceof HTMLButtonElement)) {
+        const tabBar = document.querySelector(".tab-bar");
+        const toolbar = document.querySelector(".app-toolbar");
+        if (!(plainTab instanceof HTMLButtonElement) ||
+            !(closePlain instanceof HTMLButtonElement) ||
+            !(tabBar instanceof HTMLElement) ||
+            !(toolbar instanceof HTMLElement)) {
             throw new Error("The trace tabs were not found.");
         }
+        const tabsAboveToolbar = tabBar.nextElementSibling === toolbar;
         const initialSelected = document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null;
         plainTab.click();
         requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -961,12 +967,27 @@ async function run() {
                 searchText: document.querySelector('.find-result')?.textContent ?? null,
                 labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
             };
-            closePlain.click();
+            const middleDown = new MouseEvent("mousedown", {
+                bubbles: true,
+                cancelable: true,
+                button: 1
+            });
+            const middleClick = new MouseEvent("auxclick", {
+                bubbles: true,
+                cancelable: true,
+                button: 1
+            });
+            const downDispatched = plainTab.dispatchEvent(middleDown);
+            const clickDispatched = plainTab.dispatchEvent(middleClick);
             requestAnimationFrame(() => requestAnimationFrame(() => {
                 const remainingRoot = document.querySelector(".trace-app");
                 resolve({
                     initialCount: tabButtons.length,
                     initialSelected,
+                    tabsAboveToolbar,
+                    middleClickCanceled:
+                        !downDispatched && middleDown.defaultPrevented &&
+                        !clickDispatched && middleClick.defaultPrevented,
                     switched,
                     remainingCount: document.querySelectorAll('[role="tab"]').length,
                     remainingSelected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null,
@@ -987,6 +1008,8 @@ async function run() {
     })`);
     if (tabState.initialCount !== 2 ||
         tabState.initialSelected !== "gem5-basic.txt" ||
+        !tabState.tabsAboveToolbar ||
+        !tabState.middleClickCanceled ||
         tabState.switched.fileName !== "kanata-basic.txt" ||
         tabState.switched.opCount !== 2 ||
         tabState.switched.theme !== "dark" ||

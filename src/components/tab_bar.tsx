@@ -13,7 +13,7 @@ interface TabBarProps {
     readonly onClose: (id: number) => void;
 }
 
-// 旧app_tabbarと同じく、ファイル名による選択と明示的なcloseだけを担当する。
+// 旧app_tabbarと同じくファイル名で選択し、×または一般的なmiddle clickで閉じる。
 export function TabBar({ tabs, activeTabID, onActivate, onClose }: TabBarProps) {
     if (tabs.length === 0) {
         return null;
@@ -26,6 +26,18 @@ export function TabBar({ tabs, activeTabID, onActivate, onClose }: TabBarProps) 
                         className={`trace-tab${tab.id === activeTabID ? " is-active" : ""}`}
                         data-load-state={tab.loadState}
                         key={tab.id}
+                        onMouseDown={(event) => {
+                            if (event.button === 1) {
+                                // middle clickのauto-scrollを開始せず、mouseup後のauxclickだけで閉じる。
+                                event.preventDefault();
+                            }
+                        }}
+                        onAuxClick={(event) => {
+                            if (event.button === 1) {
+                                event.preventDefault();
+                                onClose(tab.id);
+                            }
+                        }}
                     >
                         <button
                             className="trace-tab-activate"
