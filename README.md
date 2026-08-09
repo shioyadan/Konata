@@ -73,8 +73,8 @@ the corresponding instruction.
 
 The toolbar provides Open, Search, Bookmark, Stats, View, and zoom controls. View changes the
 theme, pipeline colors, dependency arrows, lane layout, flushed-op visibility, and drawing
-thresholds. Zoom fineness values greater than 1 make each zoom step smaller. Custom colors can be
-edited from the Custom color scheme.
+thresholds. Zoom steps per 2× controls how many input steps double or halve the view. Custom colors
+can be edited from the Custom color scheme.
 
 - Drag the canvas to pan. A horizontal trackpad wheel scrolls horizontally.
 - Use the mouse wheel or Up/Down keys to follow instructions vertically.

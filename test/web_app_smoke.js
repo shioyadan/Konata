@@ -1821,24 +1821,26 @@ async function run() {
     const viewSettingsSetupState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
-        const zoomFineness = document.querySelector('input[aria-label="Zoom fineness"]');
+        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
-            !(zoomFineness instanceof HTMLInputElement)) {
+            !(zoomSteps instanceof HTMLInputElement)) {
             throw new Error("The view settings controls were not found.");
         }
         theme.value = "light";
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         split.click();
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        inputSetter?.call(zoomFineness, "2");
-        zoomFineness.dispatchEvent(new Event("input", {bubbles: true}));
+        inputSetter?.call(zoomSteps, "2");
+        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
             resolve({
                 theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
                 split: split.checked,
-                zoomFineness: zoomFineness.value,
+                zoomSteps: zoomSteps.value,
+                zoomStepsBeforeThresholds: zoomSteps.closest("label")?.nextElementSibling
+                    ?.classList.contains("drawing-thresholds") === true,
                 stored,
                 storesSplitLanes: stored !== null && "splitLanes" in stored
             });
@@ -1846,7 +1848,8 @@ async function run() {
     })`);
     if (viewSettingsSetupState.theme !== "light" ||
         !viewSettingsSetupState.split ||
-        viewSettingsSetupState.zoomFineness !== "2" ||
+        viewSettingsSetupState.zoomSteps !== "2" ||
+        !viewSettingsSetupState.zoomStepsBeforeThresholds ||
         viewSettingsSetupState.stored?.theme !== "light" ||
         viewSettingsSetupState.stored?.colorScheme !== "RoyalBlue" ||
         viewSettingsSetupState.stored?.splitterPosition !== 280 ||
@@ -1878,7 +1881,7 @@ async function run() {
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
             hideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
             textThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
-            zoomFineness: document.querySelector('input[aria-label="Zoom fineness"]')?.value ?? null,
+            zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1),
             customColor: JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null")
@@ -1892,7 +1895,7 @@ async function run() {
         persistedViewSettingsState.color !== "RoyalBlue" ||
         persistedViewSettingsState.hideFlushed ||
         persistedViewSettingsState.textThreshold !== "14" ||
-        persistedViewSettingsState.zoomFineness !== "2" ||
+        persistedViewSettingsState.zoomSteps !== "2" ||
         persistedViewSettingsState.zoom !== "141%" ||
         persistedViewSettingsState.labelWidth !== 280 ||
         persistedViewSettingsState.customColor?.h !== 210 ||
@@ -1928,7 +1931,7 @@ async function run() {
         await nextFrame();
         const result = {
             theme,
-            zoomFineness: document.querySelector('input[aria-label="Zoom fineness"]')?.value ?? null,
+            zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
             fetchHue: document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null,
             fetchAutomatic: document.querySelector(
@@ -1943,7 +1946,7 @@ async function run() {
         return result;
     })()`);
     if (recoveredCustomColorState.theme !== "light" ||
-        recoveredCustomColorState.zoomFineness !== "1" ||
+        recoveredCustomColorState.zoomSteps !== "1" ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.fetchHue !== "0" ||
         !recoveredCustomColorState.fetchAutomatic) {
@@ -1961,7 +1964,7 @@ async function run() {
             arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
             textThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
-            zoomFineness: document.querySelector('input[aria-label="Zoom fineness"]')?.value ?? null,
+            zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
         })));
     })`);
@@ -1969,7 +1972,7 @@ async function run() {
         recoveredViewSettingsState.arrows !== "insideLine" ||
         recoveredViewSettingsState.color !== "Auto" ||
         recoveredViewSettingsState.textThreshold !== "10" ||
-        recoveredViewSettingsState.zoomFineness !== "1" ||
+        recoveredViewSettingsState.zoomSteps !== "1" ||
         recoveredViewSettingsState.labelWidth !== 450) {
         throw new Error(`View settings recovery is incomplete: ${JSON.stringify(recoveredViewSettingsState)}`);
     }

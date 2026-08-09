@@ -1317,6 +1317,22 @@ export function App() {
                                 <option value={DEP_ARROW_TYPE.NOT_SHOW}>Not show</option>
                             </select>
                         </label>
+                        <label title="Number of steps used to double or halve the zoom.">
+                            Zoom steps per 2×
+                            <input
+                                type="number"
+                                min="0.1"
+                                step="0.1"
+                                aria-label="Zoom steps per 2x"
+                                value={settings.drawZoomFactor}
+                                onChange={(event) => {
+                                    const value = Number(event.target.value);
+                                    if (Number.isFinite(value) && value > 0) {
+                                        store.dispatch({ type: "KONATA_CHANGE_ZOOM_FACTOR", value });
+                                    }
+                                }}
+                            />
+                        </label>
                         <details className="drawing-thresholds">
                             <summary>Drawing thresholds</summary>
                             {DRAWING_THRESHOLDS.map(([key, label]) => (
@@ -1343,22 +1359,6 @@ export function App() {
                                 </label>
                             ))}
                         </details>
-                        <label title="Higher values make each zoom step smaller.">
-                            Zoom fineness
-                            <input
-                                type="number"
-                                min="0.1"
-                                step="0.1"
-                                aria-label="Zoom fineness"
-                                value={settings.drawZoomFactor}
-                                onChange={(event) => {
-                                    const value = Number(event.target.value);
-                                    if (Number.isFinite(value) && value > 0) {
-                                        store.dispatch({ type: "KONATA_CHANGE_ZOOM_FACTOR", value });
-                                    }
-                                }}
-                            />
-                        </label>
                     </div>
                 </details>
                 <div className="zoom-controls" aria-label="Zoom controls">
