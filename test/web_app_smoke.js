@@ -458,6 +458,12 @@ async function run() {
                 rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
                 paneTitleCount: document.querySelectorAll(".pane-title").length,
                 openButtonColor: openButton === null ? null : getComputedStyle(openButton).backgroundColor,
+                openButtonText: openButton?.textContent?.trim() ?? null,
+                mainActionIconCount: document.querySelectorAll(".app-toolbar > .button-with-icon > svg").length,
+                zoomIconCount: document.querySelectorAll(".zoom-controls .icon-button > svg").length,
+                zoomLabels: [...document.querySelectorAll(".zoom-controls .icon-button")]
+                    .map((button) => button.getAttribute("aria-label")),
+                viewSettingsIcon: document.querySelector('.view-controls > summary[aria-label="View settings"] > svg') !== null,
                 canvasCount: document.querySelectorAll(".viewer canvas").length,
                 splitterCount: document.querySelectorAll(".pane-splitter").length,
                 viewerWidth: Math.round(viewer?.getBoundingClientRect().width ?? -1),
@@ -476,6 +482,11 @@ async function run() {
         initialState.rootChildCount !== 1 ||
         initialState.paneTitleCount !== 0 ||
         initialState.openButtonColor !== "rgb(52, 74, 100)" ||
+        initialState.openButtonText !== "Open" ||
+        initialState.mainActionIconCount !== 2 ||
+        initialState.zoomIconCount !== 3 ||
+        JSON.stringify(initialState.zoomLabels) !== JSON.stringify(["Zoom out", "Zoom in", "Reset view"]) ||
+        !initialState.viewSettingsIcon ||
         initialState.canvasCount !== 2 ||
         initialState.splitterCount !== 0 ||
         initialState.labelWidth !== 0 ||
@@ -844,6 +855,7 @@ async function run() {
                     dialog.querySelector("footer button")?.click();
                     requestAnimationFrame(() => resolve({
                         title: dialog.querySelector("h2")?.textContent ?? null,
+                        closeIcon: dialog.querySelector('button[aria-label="Close statistics"] svg') !== null,
                         initialRowCount: rows.length,
                         fetchedValue: fetchedRow?.lastElementChild?.textContent ?? null,
                         filteredNames,
@@ -861,6 +873,7 @@ async function run() {
         check();
     })`);
     if (statsState.title !== "Stats" ||
+        !statsState.closeIcon ||
         statsState.initialRowCount !== 24 ||
         statsState.fetchedValue !== "1" ||
         JSON.stringify(statsState.filteredNames) !== JSON.stringify(["numFlush", "numFlushedOps"]) ||
@@ -1317,6 +1330,7 @@ async function run() {
             const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
             const textThreshold = document.querySelector('input[aria-label="Text drawing threshold"]');
             const switched = {
+                closeHasIcon: closePlain.querySelector("svg") !== null,
                 fileName: root?.dataset.fileName ?? null,
                 opCount: Number(root?.dataset.opCount ?? -1),
                 theme: root?.dataset.theme ?? null,
@@ -1382,6 +1396,7 @@ async function run() {
         tabState.initialSelected !== "gem5-basic.txt" ||
         !tabState.tabsAboveToolbar ||
         !tabState.middleClickCanceled ||
+        !tabState.switched.closeHasIcon ||
         tabState.switched.fileName !== "kanata-basic.txt" ||
         tabState.switched.opCount !== 2 ||
         tabState.switched.theme !== "dark" ||
@@ -1579,6 +1594,10 @@ async function run() {
         const preview = document.querySelector('[aria-label="Lane 0 / F color preview"]');
         const result = {
             title: dialog.querySelector("h2")?.textContent ?? null,
+            closeIcon: dialog.querySelector('button[aria-label="Close custom colors"] svg') !== null,
+            addIcon: addButton.querySelector("svg") !== null,
+            removeIcon: removeAdded.querySelector("svg") !== null,
+            resetIcon: reset.querySelector("svg") !== null,
             initialRows,
             missingBefore,
             rowsAfterAdd,
@@ -1612,6 +1631,10 @@ async function run() {
         };
     })()`);
     if (customColorState.title !== "Custom Colors" ||
+        !customColorState.closeIcon ||
+        !customColorState.addIcon ||
+        !customColorState.removeIcon ||
+        !customColorState.resetIcon ||
         customColorState.initialRows !== 8 ||
         customColorState.missingBefore <= 0 ||
         customColorState.rowsAfterAdd !== customColorState.initialRows + 1 ||

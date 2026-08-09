@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BsX } from "react-icons/bs";
 
 import type { StatsValues } from "../core/stats";
 
@@ -35,7 +36,9 @@ export function StatsDialog({ values, error, onClose }: StatsDialogProps) {
             <section className="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="stats-dialog-title">
                 <header>
                     <h2 id="stats-dialog-title">Stats</h2>
-                    <button type="button" aria-label="Close statistics" onClick={onClose}>×</button>
+                    <button type="button" aria-label="Close statistics" title="Close" onClick={onClose}>
+                        <BsX aria-hidden="true" />
+                    </button>
                 </header>
                 {error === "" ? (
                     <>

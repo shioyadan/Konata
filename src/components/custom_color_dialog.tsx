@@ -3,6 +3,12 @@ import {
     useRef,
     useState,
 } from "react";
+import {
+    BsArrowCounterclockwise,
+    BsPlus,
+    BsTrash,
+    BsX,
+} from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
 import {
@@ -284,7 +290,9 @@ export function CustomColorDialog({ scheme, trace, onChange, onClose }: CustomCo
                     onPointerCancel={finishDrag}
                 >
                     <h2 id="custom-color-dialog-title">Custom Colors</h2>
-                    <button type="button" aria-label="Close custom colors" onClick={onClose}>×</button>
+                    <button type="button" aria-label="Close custom colors" title="Close" onClick={onClose}>
+                        <BsX aria-hidden="true" />
+                    </button>
                 </header>
                 <p>Saturation and lightness set to Auto follow the current theme.</p>
                 <div className="custom-color-add">
@@ -301,6 +309,7 @@ export function CustomColorDialog({ scheme, trace, onChange, onClose }: CustomCo
                             ))}
                     </select>
                     <button
+                        className="button-with-icon"
                         type="button"
                         disabled={selectedTarget === undefined}
                         onClick={() => {
@@ -314,7 +323,8 @@ export function CustomColorDialog({ scheme, trace, onChange, onClose }: CustomCo
                             }
                         }}
                     >
-                        Add Stage
+                        <BsPlus aria-hidden="true" />
+                        <span>Add Stage</span>
                     </button>
                 </div>
                 <div className="custom-color-table-container">
@@ -396,11 +406,13 @@ export function CustomColorDialog({ scheme, trace, onChange, onClose }: CustomCo
                                         <td>
                                             {target !== DEFAULT_TARGET && (
                                                 <button
+                                                    className="icon-button danger-icon-button"
                                                     type="button"
                                                     aria-label={`Remove ${target.label}`}
+                                                    title={`Remove ${target.label}`}
                                                     onClick={() => onChange(removeDefinition(scheme, target))}
                                                 >
-                                                    ×
+                                                    <BsTrash aria-hidden="true" />
                                                 </button>
                                             )}
                                         </td>
@@ -411,8 +423,13 @@ export function CustomColorDialog({ scheme, trace, onChange, onClose }: CustomCo
                     </table>
                 </div>
                 <footer>
-                    <button type="button" onClick={() => onChange(makeTraceScheme(traceTargets))}>
-                        Reset from Trace
+                    <button
+                        className="button-with-icon"
+                        type="button"
+                        onClick={() => onChange(makeTraceScheme(traceTargets))}
+                    >
+                        <BsArrowCounterclockwise aria-hidden="true" />
+                        <span>Reset from Trace</span>
                     </button>
                     <button type="button" onClick={onClose}>Close</button>
                 </footer>

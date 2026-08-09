@@ -1,3 +1,5 @@
+import { BsX } from "react-icons/bs";
+
 import type { LoadState } from "../store";
 
 export interface TabBarItem {
@@ -52,9 +54,10 @@ export function TabBar({ tabs, activeTabID, onActivate, onClose }: TabBarProps) 
                             className="trace-tab-close"
                             type="button"
                             aria-label={`Close ${tab.fileName}`}
+                            title={`Close ${tab.fileName}`}
                             onClick={() => onClose(tab.id)}
                         >
-                            ×
+                            <BsX aria-hidden="true" />
                         </button>
                     </div>
                 ))}

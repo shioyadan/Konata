@@ -29,18 +29,59 @@ button {
 }
 
 button:hover:not(:disabled) {
-    border-color: #ff8a5f;
+    border-color: #79a4d3;
     background: #3b404d;
 }
 
-button:focus-visible {
-    outline: 2px solid #ff8a5f;
+button:focus-visible,
+.view-controls > summary:focus-visible {
+    outline: 2px solid #79a4d3;
     outline-offset: 2px;
 }
 
 button:disabled {
     opacity: 0.45;
     cursor: default;
+}
+
+/* 頻出操作はアイコンの形を揃え、文脈だけでは曖昧な操作には文字も残す。 */
+.button-with-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+}
+
+.button-with-icon svg,
+.icon-button svg {
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+}
+
+.icon-button {
+    display: inline-grid;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    place-items: center;
+}
+
+.danger-icon-button:hover:not(:disabled) {
+    border-color: #bd6464;
+    color: #ffaaa3;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
 }
 
 .trace-app {
@@ -181,8 +222,15 @@ button:disabled {
 }
 
 .trace-tab-close {
+    display: grid;
     padding: 0.25rem 0.55rem;
     color: #b8bec9;
+    place-items: center;
+}
+
+.trace-tab-close svg {
+    width: 1rem;
+    height: 1rem;
 }
 
 .trace-tab button:hover:not(:disabled) {
@@ -201,6 +249,10 @@ button:disabled {
     padding-left: 0.55rem;
 }
 
+.zoom-controls .icon-button {
+    padding: 0;
+}
+
 .zoom-controls output {
     min-width: 3.6rem;
     color: #c9cdd5;
@@ -213,12 +265,26 @@ button:disabled {
 }
 
 .view-controls > summary {
-    padding: 0.42rem 0.72rem;
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
     border: 1px solid #535866;
     border-radius: 0.35rem;
     background: #303440;
     cursor: pointer;
     list-style: none;
+    place-items: center;
+}
+
+.view-controls > summary:hover {
+    border-color: #79a4d3;
+    background: #3b404d;
+}
+
+.view-controls > summary svg {
+    width: 1rem;
+    height: 1rem;
 }
 
 .view-controls > summary::-webkit-details-marker {
@@ -491,6 +557,9 @@ button:disabled {
 }
 
 .find-result > button {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
     align-self: start;
     margin: -12px -8px 0 10px;
     padding: 0;
@@ -499,6 +568,7 @@ button:disabled {
     color: #fff;
     font-size: 20px;
     line-height: 1;
+    place-items: center;
 }
 
 .dialog-backdrop {
@@ -555,10 +625,14 @@ button:disabled {
 
 .stats-dialog > header button,
 .custom-color-dialog > header button {
-    padding: 0.1rem 0.5rem;
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
     border: 0;
     background: transparent;
     font-size: 1.25rem;
+    place-items: center;
 }
 
 .stats-dialog > input {
@@ -701,10 +775,9 @@ button:disabled {
 }
 
 .custom-color-dialog tbody td:last-child button {
-    padding: 0.1rem 0.45rem;
+    padding: 0;
     border: 0;
     background: transparent;
-    font-size: 1.1rem;
 }
 
 .custom-color-component label {
@@ -771,7 +844,7 @@ button:disabled {
 
 .theme-light button:hover:not(:disabled),
 .theme-light .view-controls > summary:hover {
-    border-color: #d75b2d;
+    border-color: #355f91;
     background: #e8e8e8;
 }
 

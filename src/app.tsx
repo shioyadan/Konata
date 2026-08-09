@@ -7,6 +7,15 @@ import {
     useState,
     useSyncExternalStore,
 } from "react";
+import {
+    BsArrowCounterclockwise,
+    BsBarChart,
+    BsFolder2Open,
+    BsPencil,
+    BsSliders,
+    BsZoomIn,
+    BsZoomOut,
+} from "react-icons/bs";
 
 import { CommandPalette } from "./components/command_palette";
 import { CustomColorDialog } from "./components/custom_color_dialog";
@@ -1075,34 +1084,61 @@ export function App() {
                     accept=".log,.txt,.gz,text/plain,application/gzip"
                     onChange={handleFileInput}
                 />
-                <button className="primary-button" type="button" onClick={() => fileInputRef.current?.click()}>
-                    Open trace
+                <button
+                    className="primary-button button-with-icon"
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                >
+                    <BsFolder2Open aria-hidden="true" />
+                    <span>Open</span>
                 </button>
                 <button
+                    className="button-with-icon"
                     type="button"
                     disabled={trace === null || loadState === "loading" || statsProgress !== null || searchProgress !== null}
                     onClick={showStats}
                 >
-                    Stats
+                    <BsBarChart aria-hidden="true" />
+                    <span>Stats</span>
                 </button>
                 <div className="zoom-controls" aria-label="Zoom controls">
-                    <button type="button" disabled={trace === null} onClick={() => zoomAtCenter(1 / 1.2)} aria-label="Zoom out">
-                        −
+                    <button
+                        className="icon-button"
+                        type="button"
+                        disabled={trace === null}
+                        onClick={() => zoomAtCenter(1 / 1.2)}
+                        aria-label="Zoom out"
+                        title="Zoom out"
+                    >
+                        <BsZoomOut aria-hidden="true" />
                     </button>
                     <output>{renderer.zoomPercent}%</output>
-                    <button type="button" disabled={trace === null} onClick={() => zoomAtCenter(1.2)} aria-label="Zoom in">
-                        +
+                    <button
+                        className="icon-button"
+                        type="button"
+                        disabled={trace === null}
+                        onClick={() => zoomAtCenter(1.2)}
+                        aria-label="Zoom in"
+                        title="Zoom in"
+                    >
+                        <BsZoomIn aria-hidden="true" />
                     </button>
                     <button
+                        className="icon-button"
                         type="button"
                         disabled={trace === null}
                         onClick={resetView}
+                        aria-label="Reset view"
+                        title="Reset view"
                     >
-                        Reset
+                        <BsArrowCounterclockwise aria-hidden="true" />
+                        <span className="visually-hidden">Reset</span>
                     </button>
                 </div>
                 <details ref={viewControlsRef} className="view-controls">
-                    <summary>View</summary>
+                    <summary aria-label="View settings" title="View settings">
+                        <BsSliders aria-hidden="true" />
+                    </summary>
                     <div className="view-controls-panel">
                         <label>
                             Theme
@@ -1181,13 +1217,15 @@ export function App() {
                             </label>
                             {renderer.colorScheme === "Custom" && (
                                 <button
+                                    className="button-with-icon"
                                     type="button"
                                     onClick={() => {
                                         viewControlsRef.current?.removeAttribute("open");
                                         setIsCustomColorDialogOpen(true);
                                     }}
                                 >
-                                    Edit…
+                                    <BsPencil aria-hidden="true" />
+                                    <span>Edit…</span>
                                 </button>
                             )}
                         </div>

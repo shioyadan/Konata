@@ -8,6 +8,7 @@ import {
     useRef,
     useState,
 } from "react";
+import { BsX } from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
 import { KonataRenderer } from "../renderer/konata_renderer";
@@ -442,7 +443,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                             </div>
                         ))}
                     </div>
-                    <button type="button" aria-label="Close search result" onClick={onCloseFindResult}>×</button>
+                    <button type="button" aria-label="Close search result" title="Close" onClick={onCloseFindResult}>
+                        <BsX aria-hidden="true" />
+                    </button>
                 </div>
             )}
         </div>

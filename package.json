@@ -16,6 +16,7 @@
     "jquery": "^3.6.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-icons": "^5.5.0",
     "riot": "^3.13.2",
     "riotcontrol": "^0.0.3",
     "@electron/remote": "2.1.3"
