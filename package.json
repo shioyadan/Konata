@@ -12,14 +12,15 @@
   },
   "license": "BSD-3-Clause",
   "dependencies": {
+    "@electron/remote": "2.1.3",
+    "@hpcc-js/wasm-zstd": "1.15.0",
     "bootstrap": "^4.6.0",
     "jquery": "^3.6.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-icons": "^5.5.0",
     "riot": "^3.13.2",
-    "riotcontrol": "^0.0.3",
-    "@electron/remote": "2.1.3"
+    "riotcontrol": "^0.0.3"
   },
   "devDependencies": {
     "@electron/packager": "20.2.0",

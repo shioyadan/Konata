@@ -152,3 +152,38 @@ The next isolated change will replace each JSON string page with an independent 
 Compact JSON and the cache constants remain unchanged so that compression ratio, decode latency,
 and bundle cost can be measured without mixing in a binary schema, dictionary, prefetching, or
 cache tuning.
+
+## Zstandard page experiment
+
+The codec experiment uses `@hpcc-js/wasm-zstd` 1.15.0 and compression level 1. WebAssembly is
+loaded asynchronously before parsing, while each evicted page is stored as one independent frame.
+After initialization, both compression and decompression remain synchronous, preserving the
+Canvas-facing `getOp()` interface. The process-wide codec singleton is not unloaded when a trace
+closes because another tab may still use it.
+
+The benchmark now reports the full page serialization and reconstruction time, including compact
+model conversion and JSON processing. The following ranges are from two repeated runs in the fixed
+Node.js 22 environment. The one-time WebAssembly initialization, approximately 25 ms in a separate
+diagnostic, is excluded from parse time.
+
+| Input and store | Parse (ms) | Warm 100k (ms) | Sequential 100k (ms) | Retained heap (MiB) | Stored pages after parse |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| bundled / Hierarchical JSON | 107.10–114.24 | 7.89–8.42 | 26.88–27.32 | 8.91–8.92 | 2,425,137 characters |
+| bundled / Hierarchical zstd | 118.40–124.95 | 10.76–11.05 | 27.70–30.52 | 6.92 | 299,005 bytes |
+| synthetic / Hierarchical JSON | 415.48–433.67 | 8.02–8.10 | 639.35–654.46 | 22.42 | 20,702,224 characters |
+| synthetic / Hierarchical zstd | 450.81–469.34 | 8.14–8.76 | 668.69–680.94 | 2.87 | 1,380,415 bytes |
+
+For the 100,000-operation synthetic trace, zstd reduces the stored page payload by about 93% and
+the retained heap by about 87% relative to hierarchical JSON. Its maximum full-page serialization
+time was 0.94–1.28 ms and maximum reconstruction time was 2.55–2.71 ms. The bundled trace has more
+complex operations; its corresponding maxima were 3.27–3.34 ms and 3.18–3.31 ms. These measured
+pauses remain well below one 60 Hz frame, so a deferred compression queue or Worker would add
+complexity without addressing an observed problem. They should only be reconsidered if larger,
+richer real traces produce materially longer page times.
+
+The experiment therefore selects synchronous, independently compressed zstd pages for the first
+product integration. The JSON codec remains available to tests and benchmarks as the comparison
+baseline. Search and statistics still need a page-oriented traversal path because their complete
+scan cost is dominated by object reconstruction and operation-cache population rather than zstd
+itself. Bundle size and browser smoke behavior will be recorded when the selected store is wired
+into the application entry path.

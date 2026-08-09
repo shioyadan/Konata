@@ -46,22 +46,30 @@ interface BenchmarkResult {
 }
 
 interface StoreMetrics {
+    pageCodec: "json" | "zstd";
     serializedPages: number;
     decodedPages: number;
     serializedCharacters: number;
+    storedSize: number;
     opCacheAccesses: number;
     opCacheHits: number;
     levels: readonly {
         span: number;
         serializedPages: number;
         decodedPages: number;
+        storedSize: number;
+        serializeCount: number;
+        serializeMilliseconds: number;
+        maxSerializeMilliseconds: number;
         decodeCount: number;
+        decodeMilliseconds: number;
+        maxDecodeMilliseconds: number;
     }[];
 }
 
 interface StoreCase {
     readonly name: string;
-    create(): MutableOpStore;
+    create(): MutableOpStore | Promise<MutableOpStore>;
 }
 
 const garbageCollector = (globalThis as typeof globalThis & { gc?: () => void }).gc;
@@ -110,16 +118,24 @@ function storeMetrics(store: MutableOpStore): StoreMetrics | undefined {
         return undefined;
     }
     return {
+        pageCodec: store.pageCodec,
         serializedPages: store.serializedPageCount,
         decodedPages: store.decodedPageCount,
         serializedCharacters: store.serializedCharacterCount,
+        storedSize: store.storedSize,
         opCacheAccesses: store.opCacheAccessCount,
         opCacheHits: store.opCacheHitCount,
         levels: store.levelMetrics.map((level) => ({
             span: level.span,
             serializedPages: level.serializedPages,
             decodedPages: level.decodedPages,
+            storedSize: level.storedSize,
+            serializeCount: level.serializeCount,
+            serializeMilliseconds: Math.round(level.serializeMilliseconds * 100) / 100,
+            maxSerializeMilliseconds: Math.round(level.maxSerializeMilliseconds * 100) / 100,
             decodeCount: level.decodeCount,
+            decodeMilliseconds: Math.round(level.decodeMilliseconds * 100) / 100,
+            maxDecodeMilliseconds: Math.round(level.maxDecodeMilliseconds * 100) / 100,
         })),
     };
 }
@@ -131,7 +147,8 @@ async function benchmark(name: string, file: File, storeCase: StoreCase): Promis
     let progressCallbacks = 0;
     let parserWarnings = 0;
     let trace: ParsedTrace | undefined;
-    const store = storeCase.create();
+    // zstdのWASM初期化時間は、traceを開いた後のpage処理時間と分けて扱う。
+    const store = await storeCase.create();
 
     // 既知の互換警告は件数だけ記録し、benchmarkのJSON出力を機械処理しやすく保つ。
     const originalWarn = console.warn;
@@ -254,7 +271,8 @@ async function main(): Promise<void> {
     const samplePath = path.resolve(import.meta.dirname, "..", "docs", "kanata-sample-2.log.gz");
     const stores: StoreCase[] = [
         { name: "ArrayOpStore", create: () => new ArrayOpStore() },
-        { name: "SerializedPageOpStore", create: () => new SerializedPageOpStore() },
+        { name: "HierarchicalJsonOpStore", create: () => new SerializedPageOpStore() },
+        { name: "HierarchicalZstdOpStore", create: () => SerializedPageOpStore.createZstd() },
     ];
     const inputs = [
         {

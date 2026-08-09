@@ -133,6 +133,28 @@ test("SerializedPageOpStore restores the complete mutable Op model", () => {
     assert.equal(store.getOp(0)?.labelDetail, "detail\nline; updated");
 });
 
+test("SerializedPageOpStore stores independently decodable Zstandard pages", async () => {
+    // 既存のpage退避条件は変えず、保存表現だけをzstd frameへ差し替えて往復を確認する。
+    const store = await SerializedPageOpStore.createZstd({
+        pageSizeBits: 0,
+        maxDecodedPages: 1,
+        levelSpans: [1],
+    });
+    const original = createComplexOp();
+    store.setOp(original.id, original);
+    const other = new Op();
+    other.id = 1;
+    store.setOp(other.id, other);
+
+    const metrics = store.levelMetrics[0];
+    assert.equal(store.pageCodec, "zstd");
+    assert.equal(metrics.serializedPages, 1);
+    assert.equal(metrics.serializeCount, 1);
+    assert.ok(metrics.storedSize < metrics.serializedCharacters);
+    assert.equal(store.getOp(0)?.labelDetail, original.labelDetail);
+    assert.equal(store.levelMetrics[0].decodeCount, 1);
+});
+
 test("SerializedPageOpStore uses coarse pages and both LRU layers", () => {
     // 1 Op/pageにすると、最後のID以外は必ずserialize済みになる。
     const store = new SerializedPageOpStore({

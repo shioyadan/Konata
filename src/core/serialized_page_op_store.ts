@@ -1,3 +1,5 @@
+import { Zstd } from "@hpcc-js/wasm-zstd";
+
 import { Dependency, Lane, Op, Stage } from "./model";
 import { resolveOpID, type MutableOpStore } from "./op_store";
 
@@ -33,6 +35,19 @@ interface DecodedPage {
     dirty: boolean;
 }
 
+type StoredPagePayload = string | Uint8Array;
+
+interface StoredPage {
+    readonly payload: StoredPagePayload;
+    readonly serializedCharacters: number;
+}
+
+interface PageCodec {
+    readonly name: "json" | "zstd";
+    encode(serialized: string): StoredPagePayload;
+    decode(payload: StoredPagePayload): string;
+}
+
 export interface SerializedPageOpStoreOptions {
     pageSizeBits?: number;
     maxDecodedPages?: number;
@@ -45,7 +60,13 @@ export interface SerializedPageLevelMetrics {
     readonly serializedPages: number;
     readonly decodedPages: number;
     readonly serializedCharacters: number;
+    readonly storedSize: number;
+    readonly serializeCount: number;
+    readonly serializeMilliseconds: number;
+    readonly maxSerializeMilliseconds: number;
     readonly decodeCount: number;
+    readonly decodeMilliseconds: number;
+    readonly maxDecodeMilliseconds: number;
 }
 
 const RETIRED_FLAG = 1;
@@ -53,6 +74,34 @@ const FLUSH_FLAG = 2;
 const EOF_FLAG = 4;
 const DEFAULT_LEVEL_SPANS = [1, 8, 64, 512, 4096] as const;
 const DEFAULT_MAX_CACHED_OPS = 32768;
+const ZSTD_COMPRESSION_LEVEL = 1;
+
+const jsonPageCodec: PageCodec = {
+    name: "json",
+    encode: (serialized) => serialized,
+    decode: (payload) => {
+        if (typeof payload !== "string") {
+            throw new Error("Expected a JSON page.");
+        }
+        return payload;
+    },
+};
+
+function createZstdPageCodec(zstd: Zstd): PageCodec {
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    return {
+        name: "zstd",
+        // pageは独立したframeにし、表示に必要なpageだけを同期的に復元できるようにする。
+        encode: (serialized) => zstd.compress(encoder.encode(serialized), ZSTD_COMPRESSION_LEVEL),
+        decode: (payload) => {
+            if (!(payload instanceof Uint8Array)) {
+                throw new Error("Expected a Zstandard page.");
+            }
+            return decoder.decode(zstd.decompress(payload));
+        },
+    };
+}
 
 function serializeOp(op: Op): StoredOp {
     const lanes: StoredLane[] = [];
@@ -146,28 +195,44 @@ function deserializeOp(stored: StoredOp): Op {
 
 // 8倍ずつ間引いたOpを独立したpage群へ保存し、縮小時の展開回数を抑える。
 class SerializedPageLevel {
-    private readonly serializedPages_ = new Map<number, string>();
+    private readonly serializedPages_ = new Map<number, StoredPage>();
     private readonly decodedPages_ = new Map<number, DecodedPage>();
     private readonly decodedPageLRU_ = new Map<number, true>();
+    private serializeCount_ = 0;
+    private serializeMilliseconds_ = 0;
+    private maxSerializeMilliseconds_ = 0;
     private decodeCount_ = 0;
+    private decodeMilliseconds_ = 0;
+    private maxDecodeMilliseconds_ = 0;
 
     constructor(
         readonly span: number,
         private readonly pageSize_: number,
         private readonly maxDecodedPages_: number,
+        private readonly codec_: PageCodec,
     ) {}
 
     get metrics(): SerializedPageLevelMetrics {
         let serializedCharacters = 0;
-        for (const serialized of this.serializedPages_.values()) {
-            serializedCharacters += serialized.length;
+        let storedSize = 0;
+        for (const stored of this.serializedPages_.values()) {
+            serializedCharacters += stored.serializedCharacters;
+            storedSize += typeof stored.payload === "string"
+                ? stored.payload.length
+                : stored.payload.byteLength;
         }
         return {
             span: this.span,
             serializedPages: this.serializedPages_.size,
             decodedPages: this.decodedPages_.size,
             serializedCharacters,
+            storedSize,
+            serializeCount: this.serializeCount_,
+            serializeMilliseconds: this.serializeMilliseconds_,
+            maxSerializeMilliseconds: this.maxSerializeMilliseconds_,
             decodeCount: this.decodeCount_,
+            decodeMilliseconds: this.decodeMilliseconds_,
+            maxDecodeMilliseconds: this.maxDecodeMilliseconds_,
         };
     }
 
@@ -191,7 +256,12 @@ class SerializedPageLevel {
         this.serializedPages_.clear();
         this.decodedPages_.clear();
         this.decodedPageLRU_.clear();
+        this.serializeCount_ = 0;
+        this.serializeMilliseconds_ = 0;
+        this.maxSerializeMilliseconds_ = 0;
         this.decodeCount_ = 0;
+        this.decodeMilliseconds_ = 0;
+        this.maxDecodeMilliseconds_ = 0;
     }
 
     private pageIndex_(blockID: number): number {
@@ -205,12 +275,17 @@ class SerializedPageLevel {
             return cached;
         }
 
-        const serialized = this.serializedPages_.get(pageIndex);
+        const storedPage = this.serializedPages_.get(pageIndex);
         let ops: Array<Op | undefined> = [];
-        if (serialized !== undefined) {
+        if (storedPage !== undefined) {
+            const start = performance.now();
+            const serialized = this.codec_.decode(storedPage.payload);
             const storedOps = JSON.parse(serialized) as Array<StoredOp | null>;
             ops = storedOps.map((stored) => stored === null ? undefined : deserializeOp(stored));
+            const milliseconds = performance.now() - start;
             this.decodeCount_++;
+            this.decodeMilliseconds_ += milliseconds;
+            this.maxDecodeMilliseconds_ = Math.max(this.maxDecodeMilliseconds_, milliseconds);
         }
         const page: DecodedPage = { ops, dirty: false };
         this.decodedPages_.set(pageIndex, page);
@@ -238,15 +313,24 @@ class SerializedPageLevel {
             }
             if (page.dirty || !this.serializedPages_.has(oldest)) {
                 // undefinedの穴はJSONでnullになり、page内offsetを維持できる。
+                const start = performance.now();
                 const storedOps = page.ops.map((op) => op === undefined ? null : serializeOp(op));
-                this.serializedPages_.set(oldest, JSON.stringify(storedOps));
+                const serialized = JSON.stringify(storedOps);
+                this.serializedPages_.set(oldest, {
+                    payload: this.codec_.encode(serialized),
+                    serializedCharacters: serialized.length,
+                });
+                const milliseconds = performance.now() - start;
+                this.serializeCount_++;
+                this.serializeMilliseconds_ += milliseconds;
+                this.maxSerializeMilliseconds_ = Math.max(this.maxSerializeMilliseconds_, milliseconds);
             }
             this.decodedPages_.delete(oldest);
         }
     }
 }
 
-// 旧BigKeyValueStoreと同じ多段pageとOp LRUを、非圧縮JSON pageで再現する試作。
+// 旧BigKeyValueStoreと同じ多段pageとOp LRUを、JSONまたはzstd pageで再現する試作。
 export class SerializedPageOpStore implements MutableOpStore {
     private readonly levels_: readonly SerializedPageLevel[];
     private readonly maxCachedOps_: number;
@@ -258,7 +342,10 @@ export class SerializedPageOpStore implements MutableOpStore {
     private opCacheAccessCount_ = 0;
     private opCacheHitCount_ = 0;
 
-    constructor(options: SerializedPageOpStoreOptions = {}) {
+    constructor(
+        options: SerializedPageOpStoreOptions = {},
+        private readonly pageCodec_: PageCodec = jsonPageCodec,
+    ) {
         const pageSizeBits = options.pageSizeBits ?? 8;
         const maxDecodedPages = options.maxDecodedPages ?? 4;
         const maxCachedOps = options.maxCachedOps ?? DEFAULT_MAX_CACHED_OPS;
@@ -280,8 +367,17 @@ export class SerializedPageOpStore implements MutableOpStore {
         }
         const pageSize = 2 ** pageSizeBits;
         this.levels_ = levelSpans.map((span) =>
-            new SerializedPageLevel(span, pageSize, maxDecodedPages));
+            new SerializedPageLevel(span, pageSize, maxDecodedPages, pageCodec_));
         this.maxCachedOps_ = maxCachedOps;
+    }
+
+    static async createZstd(options: SerializedPageOpStoreOptions = {}): Promise<SerializedPageOpStore> {
+        // WASMのcompileだけを非同期で済ませ、描画時の同期getOp()は維持する。
+        return new SerializedPageOpStore(options, createZstdPageCodec(await Zstd.load()));
+    }
+
+    get pageCodec(): "json" | "zstd" {
+        return this.pageCodec_.name;
     }
 
     get lastID(): number {
@@ -306,6 +402,10 @@ export class SerializedPageOpStore implements MutableOpStore {
 
     get serializedCharacterCount(): number {
         return this.levelMetrics.reduce((sum, level) => sum + level.serializedCharacters, 0);
+    }
+
+    get storedSize(): number {
+        return this.levelMetrics.reduce((sum, level) => sum + level.storedSize, 0);
     }
 
     get levelMetrics(): readonly SerializedPageLevelMetrics[] {
