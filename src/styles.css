@@ -144,13 +144,13 @@ button:disabled {
 .trace-tab {
     display: flex;
     border-right: 1px solid #3b404c;
-    background: #20232a;
+    background: #17191e;
 }
 
-/* 選択中のtabをtoolbarと同じ面へつなぎ、上端の色だけで選択状態を示す。 */
+/* active tabはtoolbarへつなぎ、色・線・文字の三つで選択状態を示す。 */
 .trace-tab.is-active {
     background: #242730;
-    box-shadow: inset 0 2px 0 #6687ad;
+    box-shadow: inset 0 3px 0 #79a4d3;
 }
 
 .trace-tab button {
@@ -159,12 +159,20 @@ button:disabled {
     background: transparent;
 }
 
+.trace-tab:not(.is-active) button {
+    color: #9da4b1;
+}
+
 .trace-tab-activate {
     max-width: 20rem;
     padding: 0.35rem 0.3rem 0.35rem 0.7rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.trace-tab.is-active .trace-tab-activate {
+    font-weight: 650;
 }
 
 .trace-tab[data-load-state="loading"] .trace-tab-activate::after {
@@ -679,17 +687,21 @@ button:disabled {
 
 .theme-light .trace-tab {
     border-right-color: #3f465f;
-    background: #464e6a;
+    background: #3b4158;
 }
 
 .theme-light .trace-tab.is-active {
     background: #525c7d;
-    box-shadow: inset 0 2px 0 #a4c5e8;
+    box-shadow: inset 0 3px 0 #b8d7f7;
 }
 
 .theme-light .trace-tab button {
     background: transparent;
     color: #f2f3f5;
+}
+
+.theme-light .trace-tab:not(.is-active) button {
+    color: #c1c7d2;
 }
 
 .theme-light .trace-tab button:hover:not(:disabled) {

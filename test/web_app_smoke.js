@@ -819,6 +819,7 @@ async function run() {
             tabBarBorderWidth: getComputedStyle(document.querySelector(".tab-bar")).borderBottomWidth,
             activeTabBackground: getComputedStyle(document.querySelector(".trace-tab.is-active")).backgroundColor,
             activeTabAccent: getComputedStyle(document.querySelector(".trace-tab.is-active")).boxShadow,
+            activeTabFontWeight: getComputedStyle(document.querySelector(".trace-tab.is-active .trace-tab-activate")).fontWeight,
             split: split.checked,
             fixEnabled: !fixed.disabled,
             arrows: arrows.value,
@@ -840,7 +841,8 @@ async function run() {
         viewControlState.tabBarBackground !== viewControlState.toolbarBackground ||
         viewControlState.tabBarBorderWidth !== "0px" ||
         viewControlState.activeTabBackground !== viewControlState.toolbarBackground ||
-        viewControlState.activeTabAccent === "none" ||
+        !viewControlState.activeTabAccent.includes("3px") ||
+        viewControlState.activeTabFontWeight !== "650" ||
         viewControlState.labelBackground !== "rgb(244, 244, 244)" ||
         viewControlState.pipelineBackground !== "rgb(255, 255, 255)") {
         throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);
@@ -994,7 +996,9 @@ async function run() {
                 tabBarBorderWidth: getComputedStyle(tabBar).borderBottomWidth,
                 activeTabBackground: getComputedStyle(document.querySelector('.trace-tab.is-active')).backgroundColor,
                 activeTabAccent: getComputedStyle(document.querySelector('.trace-tab.is-active')).boxShadow,
-                inactiveTabBackground: getComputedStyle(document.querySelector('.trace-tab:not(.is-active)')).backgroundColor
+                activeTabFontWeight: getComputedStyle(document.querySelector('.trace-tab.is-active .trace-tab-activate')).fontWeight,
+                inactiveTabBackground: getComputedStyle(document.querySelector('.trace-tab:not(.is-active)')).backgroundColor,
+                inactiveTabColor: getComputedStyle(document.querySelector('.trace-tab:not(.is-active) .trace-tab-activate')).color
             };
             const middleDown = new MouseEvent("mousedown", {
                 bubbles: true,
@@ -1057,8 +1061,10 @@ async function run() {
         tabState.switched.tabBarBackground !== tabState.switched.toolbarBackground ||
         tabState.switched.tabBarBorderWidth !== "0px" ||
         tabState.switched.activeTabBackground !== tabState.switched.toolbarBackground ||
-        tabState.switched.activeTabAccent === "none" ||
-        tabState.switched.inactiveTabBackground !== "rgb(32, 35, 42)" ||
+        !tabState.switched.activeTabAccent.includes("3px") ||
+        tabState.switched.activeTabFontWeight !== "650" ||
+        tabState.switched.inactiveTabBackground !== "rgb(23, 25, 30)" ||
+        tabState.switched.inactiveTabColor !== "rgb(157, 164, 177)" ||
         tabState.remainingCount !== 1 ||
         tabState.remainingSelected !== "gem5-basic.txt" ||
         tabState.remainingFileName !== "gem5-basic.txt" ||
