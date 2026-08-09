@@ -1190,7 +1190,7 @@ export function App() {
                     ref={fileInputRef}
                     className="file-input"
                     type="file"
-                    accept=".log,.txt,.gz,text/plain,application/gzip"
+                    accept=".log,.txt,.gz,.zst,.zstd,text/plain,application/gzip,application/zstd"
                     onChange={handleFileInput}
                 />
                 <button

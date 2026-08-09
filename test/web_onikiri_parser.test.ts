@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import { Zstd } from "@hpcc-js/wasm-zstd";
+
 import { OnikiriParser } from "../src/core/onikiri_parser";
 import { ArrayOpStore } from "../src/core/op_store";
 
@@ -92,6 +94,32 @@ test("Web Onikiri parser streams the bundled gzip sample", async () => {
     // サンプル末尾にはRがないため、終端処理で命令を捨てずeofとして残す。
     assert.equal(last.id, 4040);
     assert.equal(last.eof, true);
+});
+
+test("Web Onikiri parser streams concurrent Zstandard traces", async () => {
+    const sourcePath = path.resolve(import.meta.dirname, "fixtures", "kanata-basic.txt");
+    const source = fs.readFileSync(sourcePath);
+    const sourceBytes = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+    const compressed = (await Zstd.load()).compress(sourceBytes);
+    // fixtureを増やさず実際のzstd frameを作り、FileLineReaderの拡張子判定とstream展開を通す。
+    // OSがMIME typeを付けない通常のfile pickerでも、.zst拡張子から判定できることを確認する。
+    const file = new File([compressed], "kanata-basic.txt.zst");
+    const secondFile = new File([compressed], "kanata-basic.txt.zstd", { type: "application/zstd" });
+    const progressValues: number[] = [];
+    // singleton decoderを共有する2読込みを同時に開始し、stream状態を混在させず直列化できることも固定する。
+    const [trace, secondTrace] = await Promise.all([
+        new OnikiriParser().parse(file, (progress) => progressValues.push(progress)),
+        new OnikiriParser().parse(secondFile),
+    ]);
+
+    assert.equal(trace.lastID, 1);
+    assert.equal(trace.lastRID, 0);
+    assert.equal(trace.lastCycle, 5);
+    assert.equal(trace.opCount, 2);
+    assert.deepEqual([...trace.laneNames].sort(), ["0", "1"]);
+    assert.equal(trace.getOp(0)?.labelName, "producer\nname");
+    assert.equal(progressValues.at(-1), 1);
+    assert.equal(secondTrace.opCount, 2);
 });
 
 test("Web Onikiri parser rejects an ID redefined after retirement", async () => {

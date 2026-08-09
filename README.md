@@ -12,9 +12,10 @@
 
 ### Web application
 
-Open [Konata Web](https://shioyadan.github.io/Konata/), then choose or drop a plain-text or
-gzip-compressed Kanata/O3PipeView trace. The selected file is parsed locally in the browser and
-is not uploaded. The initial screen shows the application version, commit, and build date.
+Open [Konata Web](https://shioyadan.github.io/Konata/), then choose or drop a plain-text,
+gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. The selected file is parsed
+locally in the browser and is not uploaded. The initial screen shows the application version,
+commit, and build date.
 
 The Web application is currently published from the `dev-v100` branch while the v1.0 migration
 is in progress. To build it locally, use the Docker development environment:
@@ -103,6 +104,7 @@ the corresponding slot. Command history, bookmarks, and view settings are saved 
 | Feature | Web application | Reference Electron application |
 | --- | --- | --- |
 | Local plain/gzip traces, tabs, search, bookmarks, Stats, and view settings | Supported | Supported |
+| Local Zstandard (`.zst`/`.zstd`) traces | Supported | Not supported |
 | Progressive parsing and drawing | Supported | Supported |
 | Adjust position | Toolbar crosshair | Pipeline context menu |
 | Transparent overlay and synchronized scrolling | Not yet implemented | Supported |

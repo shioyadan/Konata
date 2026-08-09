@@ -399,7 +399,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             {trace === null && loadState !== "loading" && (
                 <div className="empty-state">
                     <strong>{loadState === "error" ? "The trace could not be opened." : "Drop a trace anywhere in this window."}</strong>
-                    <span>{loadState === "error" ? errorMessage : "Plain text and gzip files are supported."}</span>
+                    <span>{loadState === "error" ? errorMessage : "Plain text, gzip, and Zstandard files are supported."}</span>
                     {loadState === "error" && (
                         <button type="button" onClick={onOpenTrace}>Choose another trace</button>
                     )}

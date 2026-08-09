@@ -7,13 +7,12 @@ const {app, BrowserWindow} = require("electron");
 // Xvfb環境ではGPUを利用できないため、ウィンドウ生成前にsoftware描画へ固定する。
 app.commandLine.appendSwitch("disable-gpu");
 
-async function dropFixture(window, fixturePath, mimeType, verifyProgressBar = false) {
-    const contents = fs.readFileSync(fixturePath).toString("base64");
-    const fileName = path.basename(fixturePath);
+async function dropContents(window, contents, fileName, mimeType, verifyProgressBar = false) {
+    const encodedContents = contents.toString("base64");
 
     // RendererへNode APIを公開せず、browserで選択した時と同じFile/DragEventを組み立てる。
     await window.webContents.executeJavaScript(`(() => {
-        const binary = atob(${JSON.stringify(contents)});
+        const binary = atob(${JSON.stringify(encodedContents)});
         const bytes = new Uint8Array(binary.length);
         for (let index = 0; index < binary.length; index++) {
             bytes[index] = binary.charCodeAt(index);
@@ -123,6 +122,16 @@ async function dropFixture(window, fixturePath, mimeType, verifyProgressBar = fa
         };
         check();
     })`);
+}
+
+async function dropFixture(window, fixturePath, mimeType, verifyProgressBar = false) {
+    return dropContents(
+        window,
+        fs.readFileSync(fixturePath),
+        path.basename(fixturePath),
+        mimeType,
+        verifyProgressBar,
+    );
 }
 
 async function verifyIncrementalRendering(window) {
@@ -464,6 +473,8 @@ async function run() {
                 title: document.title,
                 headingCount: document.querySelectorAll(".app-toolbar h1").length,
                 status: document.querySelector(".status")?.textContent ?? null,
+                fileAccept: document.querySelector(".file-input")?.getAttribute("accept") ?? null,
+                emptyDetail: document.querySelector(".empty-state span")?.textContent ?? null,
                 rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
                 paneTitleCount: document.querySelectorAll(".pane-title").length,
                 openButtonColor: openButton === null ? null : getComputedStyle(openButton).backgroundColor,
@@ -503,6 +514,9 @@ async function run() {
     if (initialState.title !== "Konata" ||
         initialState.headingCount !== 0 ||
         initialState.status !== "Open or drop a Kanata or gem5 O3PipeView trace." ||
+        initialState.fileAccept !==
+            ".log,.txt,.gz,.zst,.zstd,text/plain,application/gzip,application/zstd" ||
+        initialState.emptyDetail !== "Plain text, gzip, and Zstandard files are supported." ||
         initialState.rootChildCount !== 1 ||
         initialState.paneTitleCount !== 0 ||
         initialState.openButtonColor !== "rgba(0, 0, 0, 0)" ||
@@ -1629,6 +1643,30 @@ async function run() {
         gzipState.nonBackgroundPixels < 100) {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
+
+    const {Zstd} = await import("@hpcc-js/wasm-zstd");
+    const zstdSource = fs.readFileSync(gem5Fixture);
+    const zstdSourceBytes = new Uint8Array(
+        zstdSource.buffer,
+        zstdSource.byteOffset,
+        zstdSource.byteLength,
+    );
+    // 圧縮fixtureを増やさず、zstdを展開し直すgem5 fallbackまでbrowser上で通す。
+    const zstdContents = Buffer.from((await Zstd.load()).compress(zstdSourceBytes));
+    await dropContents(window, zstdContents, "gem5-basic.txt.zst", "application/zstd");
+    const zstdState = await readRenderedState(window);
+    if (zstdState.loadState !== "ready" ||
+        zstdState.fileName !== "gem5-basic.txt.zst" ||
+        zstdState.opCount !== 1 ||
+        zstdState.laneCount !== 1 ||
+        zstdState.nonBackgroundPixels < 100) {
+        throw new Error(`Zstandard trace rendering is incomplete: ${JSON.stringify(zstdState)}`);
+    }
+    // 後続の色設定検査はgzip sampleのstage一覧を使うため、確認済みのzstd Tabだけ閉じて戻す。
+    await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        document.querySelector(".trace-tab.is-active .trace-tab-close")?.click();
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    })`);
 
     // Custom編集画面でdrag、stage追加・削除、traceからのreset、即時再描画、保存まで確認する。
     const customColorState = await window.webContents.executeJavaScript(`(async () => {
