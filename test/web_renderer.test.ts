@@ -156,6 +156,25 @@ test("Web renderer preserves legacy zoom levels and lane heights", () => {
     assert.equal(renderer.opHeight, 24);
 });
 
+test("Web renderer finds an instruction anchor for position adjustment", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    renderer.setTrace(trace);
+    renderer.zoomAbs(8, 0, 0, false);
+
+    // 横方向だけを見失った場合は、上端命令のfetch cycleへ倍率を変えずに戻せる。
+    renderer.moveLogicalPosition([100, 0]);
+    assert.deepEqual(renderer.getAdjustedViewPosition(), [2, 0]);
+    assert.deepEqual(renderer.viewPosition, [100, 0]);
+    assert.equal(renderer.zoomLevel, 8);
+
+    // 上下方向も範囲外なら、短いtraceでも先頭命令を復帰先にできる。
+    renderer.moveLogicalPosition([100, -10]);
+    assert.deepEqual(renderer.getAdjustedViewPosition(), [2, 0]);
+    renderer.moveLogicalPosition([100, 10]);
+    assert.deepEqual(renderer.getAdjustedViewPosition(), [2, 0]);
+});
+
 test("Web renderer preserves legacy tooltip contents", () => {
     const { trace } = createTrace();
     const renderer = new KonataRenderer();

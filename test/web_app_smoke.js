@@ -509,8 +509,9 @@ async function run() {
         initialState.mainActionIconCount !== 3 ||
         JSON.stringify(initialState.toolbarSequence) !==
             JSON.stringify(["Open", "Search", "Bookmark", "Stats", "View", "Zoom"]) ||
-        initialState.zoomIconCount !== 3 ||
-        JSON.stringify(initialState.zoomLabels) !== JSON.stringify(["Zoom out", "Zoom in", "Reset view"]) ||
+        initialState.zoomIconCount !== 4 ||
+        JSON.stringify(initialState.zoomLabels) !==
+            JSON.stringify(["Zoom out", "Zoom in", "Adjust position", "Reset view"]) ||
         !initialState.viewSettingsIcon ||
         !initialState.bookmarkPanelTopLevel ||
         initialState.bookmarkInViewPanel ||
@@ -650,13 +651,16 @@ async function run() {
     }
 
     // 通常wheelを素早く3回送ると、途中で跳ばずに目標へ18cycle分を積み上げる。
+    // その後のAdjust positionは上端命令のfetch cycleへ、同じscroll補間で復帰する。
     const wheelScrollState = await window.webContents.executeJavaScript(`(async () => {
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane canvas");
+        const adjust = document.querySelector('button[aria-label="Adjust position"]');
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         if (!(viewer instanceof HTMLElement) ||
             !(pipeline instanceof HTMLCanvasElement) ||
+            !(adjust instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement)) {
             throw new Error("The wheel scroll controls were not found.");
         }
@@ -685,19 +689,31 @@ async function run() {
         await new Promise((resolve) => setTimeout(resolve, 220));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const finalCycle = await readCycle();
+        adjust.click();
+        await new Promise((resolve) => requestAnimationFrame(() =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const adjustedDuringCycle = await readCycle();
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const adjustedFinalCycle = await readCycle();
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
             canceled: dispatched.every((value, index) => !value && events[index].defaultPrevented),
             duringCycle,
-            finalCycle
+            finalCycle,
+            adjustedDuringCycle,
+            adjustedFinalCycle
         };
     })()`);
     if (!wheelScrollState.canceled ||
         wheelScrollState.duringCycle <= 0 ||
         wheelScrollState.duringCycle >= 18 ||
-        wheelScrollState.finalCycle !== 18) {
+        wheelScrollState.finalCycle !== 18 ||
+        wheelScrollState.adjustedDuringCycle <= 0 ||
+        wheelScrollState.adjustedDuringCycle >= 18 ||
+        wheelScrollState.adjustedFinalCycle !== 0) {
         throw new Error(`Wheel scroll animation is incomplete: ${JSON.stringify(wheelScrollState)}`);
     }
 

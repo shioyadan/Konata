@@ -329,6 +329,32 @@ export class KonataRenderer {
         this.viewPosition_.top = position[1];
     }
 
+    getAdjustedViewPosition(): readonly [number, number] | null {
+        if (this.trace_ === null) {
+            return null;
+        }
+
+        const top = this.viewPosition_.top;
+        let op: Op | undefined;
+        if (top < 0) {
+            op = this.getOpFromID(0);
+        }
+        else if (top > this.getVisibleBottom()) {
+            // 旧版と同じく末尾に余白を残しつつ、短いtraceでも先頭へ復帰できるようにする。
+            op = this.getVisibleOp(Math.max(0, this.getVisibleBottom() - 30));
+        }
+        else {
+            op = this.getOpFromPixelPositionY(0);
+        }
+        if (op === undefined) {
+            return null;
+        }
+
+        // flushされた命令よりRIDに対応するretire済み命令を優先し、将来のTab同期でも同じ基準を使う。
+        op = this.getOpFromRID(op.rid) ?? op;
+        return [op.fetchedCycle, this.hideFlushedOps_ ? op.rid : op.id];
+    }
+
     getVisibleOp(y: number, resolution = 0): Op | undefined {
         return this.hideFlushedOps_
             ? this.getOpFromRID(y, resolution)

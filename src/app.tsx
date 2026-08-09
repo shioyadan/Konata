@@ -11,6 +11,7 @@ import {
     BsArrowCounterclockwise,
     BsBarChart,
     BsBookmark,
+    BsCrosshair,
     BsFolder2Open,
     BsPencil,
     BsSearch,
@@ -559,6 +560,14 @@ export function App() {
         // 連続入力は未到達の終点へ加算し、現在の描画位置から滑らかに引き直す。
         scrollTo(target);
         pendingScrollRef.current = { tabID: tab.id, position: target };
+    }, [scrollTo, store]);
+
+    const adjustPosition = useCallback(() => {
+        const target = store.activeTab?.renderer.getAdjustedViewPosition();
+        if (target !== null && target !== undefined) {
+            // 見失った位置からの移動経路が分かるよう、通常scrollと同じ補間を使う。
+            scrollTo(target);
+        }
     }, [scrollTo, store]);
 
     const moveSplitter = useCallback((position: number) => {
@@ -1316,6 +1325,16 @@ export function App() {
                         title="Zoom in"
                     >
                         <BsZoomIn aria-hidden="true" />
+                    </button>
+                    <button
+                        className="icon-button"
+                        type="button"
+                        disabled={trace === null}
+                        onClick={adjustPosition}
+                        aria-label="Adjust position"
+                        title="Adjust position"
+                    >
+                        <BsCrosshair aria-hidden="true" />
                     </button>
                     <button
                         className="icon-button"
