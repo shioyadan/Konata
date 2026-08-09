@@ -157,6 +157,7 @@ function makeFindTargetString(op: Op): string {
 
 export function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const viewControlsRef = useRef<HTMLDetailsElement>(null);
     const traceSheetRef = useRef<TraceSheetHandle>(null);
     const emptyRendererRef = useRef(new KonataRenderer());
     const storeRef = useRef<Store | null>(null);
@@ -780,6 +781,13 @@ export function App() {
             data-file-name={fileName}
             data-op-count={trace?.opCount ?? 0}
             data-lane-count={trace?.laneNames.size ?? 0}
+            onClick={(event) => {
+                const viewControls = viewControlsRef.current;
+                // nativeのdetailsは外側clickで閉じないため、panel外だけを明示的に閉じる。
+                if (viewControls?.open && !viewControls.contains(event.target as Node)) {
+                    viewControls.open = false;
+                }
+            }}
             onDragEnter={(event) => {
                 event.preventDefault();
                 setIsDraggingFile(true);
@@ -840,7 +848,7 @@ export function App() {
                         Reset
                     </button>
                 </div>
-                <details className="view-controls">
+                <details ref={viewControlsRef} className="view-controls">
                     <summary>View</summary>
                     <div className="view-controls-panel">
                         <label>

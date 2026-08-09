@@ -178,12 +178,26 @@ async function verifyIncrementalRendering(window) {
 
         const deadline = performance.now() + 5000;
         let partialPixels = 0;
+        let progressLayers = null;
         const check = () => {
             const root = document.querySelector(".trace-app");
             const state = root?.dataset.loadState;
             const opCount = Number(root?.dataset.opCount ?? -1);
             if (state === "loading" && opCount === 1 && partialPixels === 0) {
                 const canvas = document.querySelector(".pipeline-pane canvas");
+                const toolbar = document.querySelector(".app-toolbar");
+                const progress = document.querySelector(".operation-progress");
+                const splitter = document.querySelector(".pane-splitter");
+                if (toolbar instanceof HTMLElement &&
+                    progress instanceof HTMLElement &&
+                    splitter instanceof HTMLElement) {
+                    // progressはtoolbarの下端からviewerへ3px重なるため、splitterより上の階層を維持する。
+                    progressLayers = {
+                        toolbar: getComputedStyle(toolbar).zIndex,
+                        progress: getComputedStyle(progress).zIndex,
+                        splitter: getComputedStyle(splitter).zIndex
+                    };
+                }
                 if (canvas instanceof HTMLCanvasElement) {
                     const context = canvas.getContext("2d");
                     const pixels = context?.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -197,7 +211,7 @@ async function verifyIncrementalRendering(window) {
                 }
             }
             if (state === "ready" && opCount === 2) {
-                resolve({partialPixels, finalOpCount: opCount});
+                resolve({partialPixels, finalOpCount: opCount, progressLayers});
                 return;
             }
             if (state === "error") {
@@ -404,7 +418,11 @@ async function run() {
     }
 
     const incrementalState = await verifyIncrementalRendering(window);
-    if (incrementalState.partialPixels < 100 || incrementalState.finalOpCount !== 2) {
+    if (incrementalState.partialPixels < 100 ||
+        incrementalState.finalOpCount !== 2 ||
+        incrementalState.progressLayers?.toolbar !== "2" ||
+        incrementalState.progressLayers?.progress !== "100" ||
+        incrementalState.progressLayers?.splitter !== "0") {
         throw new Error(`Incremental trace rendering is incomplete: ${JSON.stringify(incrementalState)}`);
     }
 
@@ -788,13 +806,19 @@ async function run() {
 
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
     const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const viewControls = document.querySelector(".view-controls");
+        const viewPanel = document.querySelector(".view-controls-panel");
+        const splitter = document.querySelector(".pane-splitter");
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const fixed = document.querySelector('input[aria-label="Fix op height"]');
         const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const textThreshold = document.querySelector('input[aria-label="Text drawing threshold"]');
-        if (!(split instanceof HTMLInputElement) ||
+        if (!(viewControls instanceof HTMLDetailsElement) ||
+            !(viewPanel instanceof HTMLElement) ||
+            !(splitter instanceof HTMLElement) ||
+            !(split instanceof HTMLInputElement) ||
             !(fixed instanceof HTMLInputElement) ||
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
@@ -802,6 +826,12 @@ async function run() {
             !(textThreshold instanceof HTMLInputElement)) {
             throw new Error("The renderer view controls were not found.");
         }
+        // panel内のclickでは開いたままにし、Canvas側のclickで閉じる。
+        viewControls.open = true;
+        viewPanel.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+        const staysOpenAfterInsideClick = viewControls.open;
+        document.querySelector(".pipeline-pane")?.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+        const closesAfterOutsideClick = !viewControls.open;
         split.click();
         arrows.value = "leftSideCurve";
         arrows.dispatchEvent(new Event("change", {bubbles: true}));
@@ -820,6 +850,10 @@ async function run() {
             activeTabBackground: getComputedStyle(document.querySelector(".trace-tab.is-active")).backgroundColor,
             activeTabAccent: getComputedStyle(document.querySelector(".trace-tab.is-active")).boxShadow,
             activeTabFontWeight: getComputedStyle(document.querySelector(".trace-tab.is-active .trace-tab-activate")).fontWeight,
+            viewPanelZIndex: getComputedStyle(viewPanel).zIndex,
+            splitterZIndex: getComputedStyle(splitter).zIndex,
+            staysOpenAfterInsideClick,
+            closesAfterOutsideClick,
             split: split.checked,
             fixEnabled: !fixed.disabled,
             arrows: arrows.value,
@@ -843,6 +877,10 @@ async function run() {
         viewControlState.activeTabBackground !== viewControlState.toolbarBackground ||
         !viewControlState.activeTabAccent.includes("3px") ||
         viewControlState.activeTabFontWeight !== "650" ||
+        viewControlState.viewPanelZIndex !== "10" ||
+        viewControlState.splitterZIndex !== "0" ||
+        !viewControlState.staysOpenAfterInsideClick ||
+        !viewControlState.closesAfterOutsideClick ||
         viewControlState.labelBackground !== "rgb(244, 244, 244)" ||
         viewControlState.pipelineBackground !== "rgb(255, 255, 255)") {
         throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);

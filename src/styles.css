@@ -102,6 +102,7 @@ button:disabled {
 
 .app-toolbar {
     position: relative;
+    /* 設定panelと下端のprogressを、viewer内のCanvasやsplitterより上に保つ。 */
     z-index: 2;
     display: flex;
     min-height: 3.6rem;
@@ -352,7 +353,8 @@ button:disabled {
 
 /* 旧window_splitterと同じ10px幅を確保し、label側と一体に見せる。 */
 .pane-splitter {
-    z-index: 3;
+    /* toolbarから開く設定panelより前へ出ないよう、描画面内の階層に留める。 */
+    z-index: 0;
     min-width: 10px;
     border-right: 1px solid #555b68;
     background: #303340;
@@ -425,6 +427,7 @@ button:disabled {
 
 .operation-progress {
     position: absolute;
+    /* toolbar内では設定類と独立して、下端の3pxを常に最前面へ描く。 */
     z-index: 100;
     right: 0;
     bottom: -3px;
