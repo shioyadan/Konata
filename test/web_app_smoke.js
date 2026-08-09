@@ -434,6 +434,90 @@ async function waitForViewAnimation(window, delay = 300) {
     })`);
 }
 
+async function verifyApplicationMenu(window) {
+    return window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const menu = document.querySelector(".application-menu");
+        const summary = menu?.querySelector(":scope > summary");
+        const panel = menu?.querySelector(".application-menu-panel");
+        if (!(menu instanceof HTMLDetailsElement) ||
+            !(summary instanceof HTMLElement) ||
+            !(panel instanceof HTMLElement)) {
+            throw new Error("The application menu was not found.");
+        }
+
+        summary.click();
+        await nextFrame();
+        const menuItems = [...panel.querySelectorAll(":scope > button, :scope > a")]
+            .map((item) => item.textContent?.trim() ?? "");
+        const menuLinks = [...panel.querySelectorAll(":scope > a")].map((link) => ({
+            href: link.getAttribute("href"),
+            target: link.getAttribute("target"),
+            rel: link.getAttribute("rel")
+        }));
+        const menuVersion = panel.querySelector("small")?.textContent?.trim() ?? null;
+
+        // Aboutは初期画面と同じbuild情報を、作業中にも確認できる入口として検査する。
+        panel.querySelector("button")?.click();
+        await nextFrame();
+        await nextFrame();
+        const about = document.querySelector(".about-dialog");
+        const aboutState = {
+            title: about?.querySelector("h2")?.textContent ?? null,
+            summary: [...(about?.querySelector(".about-summary")?.children ?? [])]
+                .map((element) => element.textContent?.trim() ?? "").join(" "),
+            values: [...(about?.querySelectorAll(".build-details dd") ?? [])]
+                .map((value) => value.textContent?.trim() ?? ""),
+            links: [...(about?.querySelectorAll(".about-links a") ?? [])]
+                .map((link) => link.textContent?.trim() ?? ""),
+            backdropLayer: getComputedStyle(document.querySelector(".dialog-backdrop")).zIndex
+        };
+        about?.querySelector("button[aria-label^='Close']")?.click();
+        await nextFrame();
+
+        // shortcut一覧とEscapeによる閉じ方を、menu本体とは独立して確認する。
+        summary.click();
+        await nextFrame();
+        panel.querySelectorAll(":scope > button")[1]?.click();
+        await nextFrame();
+        await nextFrame();
+        const shortcuts = document.querySelector(".shortcuts-dialog");
+        const shortcutState = {
+            title: shortcuts?.querySelector("h2")?.textContent ?? null,
+            entries: [...(shortcuts?.querySelectorAll(".shortcut-list > div") ?? [])].map((row) => [
+                row.querySelector("dt")?.textContent ?? "",
+                row.querySelector("dd")?.textContent ?? ""
+            ])
+        };
+        const escapeCanceled = !document.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true
+        }));
+        await nextFrame();
+        const dialogClosedByEscape = document.querySelector(".application-dialog") === null;
+
+        // menu外の操作でも閉じ、描画面へ不要なpanelを残さない。
+        summary.click();
+        await nextFrame();
+        document.querySelector(".trace-app")?.dispatchEvent(new PointerEvent("pointerdown", {
+            bubbles: true
+        }));
+        await nextFrame();
+
+        return {
+            menuItems,
+            menuLinks,
+            menuVersion,
+            aboutState,
+            shortcutState,
+            escapeCanceled,
+            dialogClosedByEscape,
+            menuClosedByOutsidePointer: !menu.open
+        };
+    })()`);
+}
+
 async function run() {
     // 製品Web版と同じくNode integrationを使わないRendererで検証する。
     const window = new BrowserWindow({
@@ -499,6 +583,9 @@ async function run() {
                 bookmarkPanelTopLevel:
                     document.querySelector(".app-toolbar > .bookmark-controls > .bookmark-controls-panel") !== null,
                 bookmarkInViewPanel: document.querySelector(".view-controls-panel .bookmark-controls") !== null,
+                applicationMenuIcon:
+                    document.querySelector('.application-menu > summary[aria-label="Application menu"] > svg') !== null,
+                applicationMenuRightmost: toolbar?.lastElementChild?.classList.contains("application-menu") === true,
                 canvasCount: document.querySelectorAll(".viewer canvas").length,
                 splitterCount: document.querySelectorAll(".pane-splitter").length,
                 viewerWidth: Math.round(viewer?.getBoundingClientRect().width ?? -1),
@@ -528,7 +615,7 @@ async function run() {
         initialState.openButtonText !== "Open" ||
         initialState.mainActionIconCount !== 3 ||
         JSON.stringify(initialState.toolbarSequence) !==
-            JSON.stringify(["Open", "Search", "Bookmark", "Stats", "View", "Zoom"]) ||
+            JSON.stringify(["Open", "Search", "Bookmark", "Stats", "View", "Zoom", "Menu"]) ||
         initialState.zoomIconCount !== 4 ||
         initialState.zoomSeparatorCount !== 1 ||
         !initialState.zoomSeparatorPlacement ||
@@ -537,6 +624,8 @@ async function run() {
         !initialState.viewSettingsIcon ||
         !initialState.bookmarkPanelTopLevel ||
         initialState.bookmarkInViewPanel ||
+        !initialState.applicationMenuIcon ||
+        !initialState.applicationMenuRightmost ||
         initialState.canvasCount !== 2 ||
         initialState.splitterCount !== 0 ||
         initialState.labelWidth !== 0 ||
@@ -547,6 +636,32 @@ async function run() {
         initialState.buildInfoText !==
             `Version ${initialState.version} · Commit ${initialState.commit} · ${initialState.date}`) {
         throw new Error(`React initialization is incomplete: ${JSON.stringify(initialState)}`);
+    }
+
+    const applicationMenuState = await verifyApplicationMenu(window);
+    if (JSON.stringify(applicationMenuState.menuItems) !== JSON.stringify([
+        "About Konata",
+        "Keyboard shortcuts",
+        "GitHub Repository",
+        "License information"
+    ]) ||
+        applicationMenuState.menuLinks.some((link) =>
+            link.target !== "_blank" || !link.rel?.includes("noreferrer")) ||
+        applicationMenuState.menuVersion !== `Version ${initialState.version}` ||
+        applicationMenuState.aboutState.title !== "About Konata" ||
+        applicationMenuState.aboutState.summary !== "Konata Pipeline visualization tool" ||
+        JSON.stringify(applicationMenuState.aboutState.values) !==
+            JSON.stringify([initialState.version, initialState.commit, initialState.date]) ||
+        JSON.stringify(applicationMenuState.aboutState.links) !== JSON.stringify(["GitHub", "Licenses"]) ||
+        applicationMenuState.aboutState.backdropLayer !== "30" ||
+        applicationMenuState.shortcutState.title !== "Keyboard Shortcuts" ||
+        applicationMenuState.shortcutState.entries.length !== 8 ||
+        JSON.stringify(applicationMenuState.shortcutState.entries[0]) !==
+            JSON.stringify(["Open trace", "Ctrl/⌘+O"]) ||
+        !applicationMenuState.escapeCanceled ||
+        !applicationMenuState.dialogClosedByEscape ||
+        !applicationMenuState.menuClosedByOutsidePointer) {
+        throw new Error(`Application menu is incomplete: ${JSON.stringify(applicationMenuState)}`);
     }
 
     const incrementalState = await verifyIncrementalRendering(window);

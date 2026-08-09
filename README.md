@@ -166,7 +166,7 @@ environment must allow deployments from `dev-v100`.
 
 ## License
 
-Copyright (C) 2016-2022 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
+Copyright (C) 2016-2026 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
 
 This application is released under the 3-Clause BSD License, see LICENSE.md.
 This application bundles ELECTRON and many third-party packages in accordance with 

@@ -20,6 +20,7 @@ import {
     BsZoomOut,
 } from "react-icons/bs";
 
+import { ApplicationMenu } from "./components/application_menu";
 import { CommandPalette } from "./components/command_palette";
 import { CustomColorDialog } from "./components/custom_color_dialog";
 import { StatsDialog } from "./components/stats_dialog";
@@ -1466,6 +1467,7 @@ export function App() {
                 <p className={`status ${visibleMessage === "" ? `status-${loadState}` : "status-error"}`} role="status">
                     {statusMessage}
                 </p>
+                <ApplicationMenu />
                 {operation !== null && (
                     <div
                         className={`operation-progress ${operation.type}`}
