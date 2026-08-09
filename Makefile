@@ -83,9 +83,10 @@ serve:
 	$(WEBPACK) serve --mode development
 
 # ビルド方式に依存しないRenderer検証を共通化し、developmentとproductionの両方で使う。
+# CIではgzip sampleの解析を含む一連のUI検査に30秒以上かかるため、全体には余裕を持たせる。
 web-render-smoke:
 	ELECTRON_ENABLE_LOGGING=1 \
-		dbus-run-session -- xvfb-run -a timeout 30s \
+		dbus-run-session -- xvfb-run -a timeout 60s \
 		$(ELECTRON) test/web_app_smoke.js --no-sandbox --disable-gpu
 
 # Web版をNode integrationなしで読み込み、ReactのmountとCSS適用までを検証する。
