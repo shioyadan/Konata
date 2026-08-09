@@ -24,6 +24,8 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
     assert.equal(trace.lastCycle, 6);
     assert.equal(trace.opCount, 1);
     assert.deepEqual([...trace.laneNames], ["0"]);
+    // UIはこの列挙からCustom色の追加候補を作るため、変換後のstage順を明示する。
+    assert.deepEqual(trace.stageLevelMap.getStageNames("0"), ["F", "Dc", "Rn", "Ds", "Is", "Cm"]);
 
     const op = trace.getOp(0);
     assert.ok(op);

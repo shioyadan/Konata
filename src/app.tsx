@@ -1298,9 +1298,10 @@ export function App() {
             {isStatsDialogOpen && (
                 <StatsDialog values={statsValues} error={statsError} onClose={closeStatsDialog} />
             )}
-            {isCustomColorDialogOpen && (
+            {isCustomColorDialogOpen && trace !== null && (
                 <CustomColorDialog
                     scheme={settings.customColorScheme}
+                    trace={trace}
                     onChange={(scheme) => store.dispatch({
                         type: "KONATA_CHANGE_CUSTOM_COLORS",
                         scheme,

@@ -614,6 +614,30 @@ button:disabled {
     font-size: 0.85rem;
 }
 
+.custom-color-dialog > header {
+    cursor: move;
+    touch-action: none;
+    user-select: none;
+}
+
+.custom-color-dialog > header button {
+    cursor: pointer;
+}
+
+.custom-color-add {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.custom-color-add select {
+    min-width: 14rem;
+    padding: 0.35rem;
+    border: 1px solid #535866;
+    background: #303440;
+    color: #f2f3f5;
+}
+
 .custom-color-dialog > footer {
     justify-content: space-between;
 }
@@ -674,6 +698,13 @@ button:disabled {
     border: 1px solid #535866;
     background: #303440;
     color: #f2f3f5;
+}
+
+.custom-color-dialog tbody td:last-child button {
+    padding: 0.1rem 0.45rem;
+    border: 0;
+    background: transparent;
+    font-size: 1.1rem;
 }
 
 .custom-color-component label {
@@ -895,6 +926,12 @@ button:disabled {
 }
 
 .theme-light .custom-color-dialog input[type="number"] {
+    border-color: #999;
+    background: #fff;
+    color: #222;
+}
+
+.theme-light .custom-color-add select {
     border-color: #999;
     background: #fff;
     color: #222;

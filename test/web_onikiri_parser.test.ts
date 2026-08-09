@@ -27,6 +27,10 @@ test("Web Onikiri parser preserves core commands for a plain-text trace", async 
     assert.deepEqual([...trace.laneNames].sort(), ["0", "1"]);
     assert.equal(trace.stageLevelMap.laneNum, 2);
     assert.equal(trace.stageLevelMap.has("0", "X"), true);
+    // Custom色の初期化に使うため、各laneのstageをParserでの初出順に列挙できることも固定する。
+    assert.deepEqual(trace.stageLevelMap.getStageNames("0"), ["F", "X", "Rt"]);
+    // 同一cycle内でstlへ置き換わったゼロ長のFは描画対象にならないため列挙しない。
+    assert.deepEqual(trace.stageLevelMap.getStageNames("1"), ["stl"]);
 
     const producer = trace.getOp(0);
     const consumer = trace.getOp(1);

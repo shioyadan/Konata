@@ -97,6 +97,11 @@ export class StageLevelMap {
         return this.levels_.get(laneName)?.has(stageName) ?? false;
     }
 
+    getStageNames(laneName: string): readonly string[] {
+        // Parserが記録した初出順を保ち、設定UIが命令列全体を再走査せずに利用できるようにする。
+        return [...(this.levels_.get(laneName)?.keys() ?? [])];
+    }
+
     getLaneID(laneName: string): number {
         return this.laneIDs_.get(laneName) ?? 0;
     }

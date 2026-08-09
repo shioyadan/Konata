@@ -1433,7 +1433,7 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
-    // Custom選択時だけ編集画面を開き、F stageの変更、即時再描画、reset、保存まで確認する。
+    // Custom編集画面でdrag、stage追加・削除、traceからのreset、即時再描画、保存まで確認する。
     const customColorState = await window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -1457,6 +1457,78 @@ async function run() {
         if (!(dialog instanceof HTMLElement) || !(pipeline instanceof HTMLCanvasElement)) {
             throw new Error("The custom color dialog was not found.");
         }
+        const header = dialog.querySelector("header");
+        if (!(header instanceof HTMLElement)) {
+            throw new Error("The custom color dialog header was not found.");
+        }
+        // synthetic pointerにも製品コードと同じcapture寿命を与え、header dragを実座標で確認する。
+        const captured = new Set();
+        Object.defineProperties(header, {
+            setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => captured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
+        });
+        const initialRect = dialog.getBoundingClientRect();
+        const headerRect = header.getBoundingClientRect();
+        const dispatchPointer = (type, x, y, buttons) => header.dispatchEvent(new PointerEvent(type, {
+            pointerId: 1,
+            pointerType: "mouse",
+            isPrimary: true,
+            button: type === "pointerdown" ? 0 : -1,
+            buttons,
+            clientX: x,
+            clientY: y,
+            bubbles: true,
+            cancelable: true
+        }));
+        const dragX = headerRect.left + 80;
+        const dragY = headerRect.top + headerRect.height / 2;
+        dispatchPointer("pointerdown", dragX, dragY, 1);
+        dispatchPointer("pointermove", dragX + 140, dragY + 70, 1);
+        dispatchPointer("pointerup", dragX + 140, dragY + 70, 0);
+        await nextFrame();
+        const draggedRect = dialog.getBoundingClientRect();
+        delete header.setPointerCapture;
+        delete header.hasPointerCapture;
+        delete header.releasePointerCapture;
+
+        const initialRows = dialog.querySelectorAll("tbody tr").length;
+        const addSelect = dialog.querySelector('select[aria-label="Stage to add"]');
+        const addButton = [...dialog.querySelectorAll("button")]
+            .find((button) => button.textContent?.trim() === "Add Stage");
+        if (!(addSelect instanceof HTMLSelectElement) || !(addButton instanceof HTMLButtonElement)) {
+            throw new Error("The custom color stage controls were not found.");
+        }
+        const missingBefore = addSelect.options.length;
+        const addedLabel = addSelect.selectedOptions[0]?.textContent?.trim() ?? null;
+        addButton.click();
+        await nextFrame();
+        const rowsAfterAdd = dialog.querySelectorAll("tbody tr").length;
+        const missingAfterAdd = dialog.querySelector('select[aria-label="Stage to add"]')?.options.length ?? -1;
+        const removeAdded = [...dialog.querySelectorAll('button[aria-label^="Remove Lane"]')]
+            .find((button) => button.getAttribute("aria-label") === "Remove " + addedLabel);
+        if (!(removeAdded instanceof HTMLButtonElement)) {
+            throw new Error("The added custom color stage could not be removed.");
+        }
+        removeAdded.click();
+        await nextFrame();
+        const rowsAfterRemove = dialog.querySelectorAll("tbody tr").length;
+        const missingAfterRemove = dialog.querySelector('select[aria-label="Stage to add"]')?.options.length ?? -1;
+
+        const reset = [...dialog.querySelectorAll("footer button")]
+            .find((button) => button.textContent?.trim() === "Reset from Trace");
+        if (!(reset instanceof HTMLButtonElement)) {
+            throw new Error("The custom color trace reset button was not found.");
+        }
+        reset.click();
+        await nextFrame();
+        const resetRows = dialog.querySelectorAll("tbody tr").length;
+        const resetAddDisabled = dialog.querySelector('.custom-color-add button')?.disabled ?? null;
+        const resetHue = document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null;
+        const resetAutomatic = document.querySelector(
+            'input[aria-label="Use automatic Lane 0 / F saturation"]',
+        )?.checked ?? null;
+
         const signature = () => {
             const pixels = pipeline.getContext("2d")?.getImageData(0, 0, pipeline.width, pipeline.height).data;
             if (pixels === undefined) {
@@ -1500,25 +1572,25 @@ async function run() {
         await setHue(210);
         await setSaturation(25);
         const editedSignature = signature();
-        const reset = [...dialog.querySelectorAll("footer button")]
-            .find((button) => button.textContent?.trim() === "Reset to Defaults");
-        if (!(reset instanceof HTMLButtonElement)) {
-            throw new Error("The custom color reset button was not found.");
-        }
-        reset.click();
-        await nextFrame();
-        const resetHue = document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null;
-        const resetAutomatic = document.querySelector(
-            'input[aria-label="Use automatic Lane 0 / F saturation"]',
-        )?.checked ?? null;
-
-        await setHue(210);
-        await setSaturation(25);
         const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
+        const storedStageCount = Object.entries(stored?.customColorScheme ?? {})
+            .filter(([laneName]) => laneName !== "defaultColor")
+            .reduce((count, [, stages]) => count + Object.keys(stages).length, 0);
         const preview = document.querySelector('[aria-label="Lane 0 / F color preview"]');
         const result = {
             title: dialog.querySelector("h2")?.textContent ?? null,
-            rows: dialog.querySelectorAll("tbody tr").length,
+            initialRows,
+            missingBefore,
+            rowsAfterAdd,
+            missingAfterAdd,
+            rowsAfterRemove,
+            missingAfterRemove,
+            resetRows,
+            resetAddDisabled,
+            storedStageCount,
+            dragX: Math.round(draggedRect.left - initialRect.left),
+            dragY: Math.round(draggedRect.top - initialRect.top),
+            dragCaptures: captured.size,
             beforeSignature,
             editedSignature,
             resetHue,
@@ -1540,7 +1612,18 @@ async function run() {
         };
     })()`);
     if (customColorState.title !== "Custom Colors" ||
-        customColorState.rows !== 8 ||
+        customColorState.initialRows !== 8 ||
+        customColorState.missingBefore <= 0 ||
+        customColorState.rowsAfterAdd !== customColorState.initialRows + 1 ||
+        customColorState.missingAfterAdd !== customColorState.missingBefore - 1 ||
+        customColorState.rowsAfterRemove !== customColorState.initialRows ||
+        customColorState.missingAfterRemove !== customColorState.missingBefore ||
+        customColorState.resetRows <= customColorState.initialRows ||
+        !customColorState.resetAddDisabled ||
+        customColorState.storedStageCount !== customColorState.resetRows - 1 ||
+        customColorState.dragX < 100 ||
+        customColorState.dragY < 50 ||
+        customColorState.dragCaptures !== 0 ||
         customColorState.beforeSignature === customColorState.editedSignature ||
         customColorState.resetHue !== "0" ||
         !customColorState.resetAutomatic ||
