@@ -1,11 +1,18 @@
-import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+    type ChangeEvent,
+    type DragEvent,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    useSyncExternalStore,
+} from "react";
 
 import { CommandPalette } from "./components/command_palette";
 import { StatsDialog } from "./components/stats_dialog";
 import { TabBar } from "./components/tab_bar";
 import {
     type FindResult,
-    type LoadState,
     TraceSheet,
     type TraceSheetHandle,
 } from "./components/trace_sheet";
@@ -19,6 +26,7 @@ import {
     type DependencyArrowType,
     type RendererTheme,
 } from "./renderer/konata_renderer";
+import { Store } from "./store";
 
 type DrawingThreshold =
     | "drawTextThreshold"
@@ -30,24 +38,6 @@ interface ViewBookmark {
     readonly x: number;
     readonly y: number;
     readonly zoom: number;
-}
-
-interface TraceTab {
-    readonly id: number;
-    readonly fileName: string;
-    readonly renderer: KonataRenderer;
-    trace: ParsedTrace | null;
-    loadState: LoadState;
-    progress: number;
-    errorMessage: string;
-}
-
-function closeTabTrace(tab: TraceTab): void {
-    const trace = tab.trace;
-    tab.trace = null;
-    // Renderer側の参照も先に外し、閉じたtabだけでtrace全体を回収できるようにする。
-    tab.renderer.setTrace(null);
-    trace?.close();
 }
 
 // 旧Settings dialogで変更できた描画閾値だけを、既存View panelへそのまま並べる。
@@ -131,15 +121,16 @@ export function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const traceSheetRef = useRef<TraceSheetHandle>(null);
     const emptyRendererRef = useRef(new KonataRenderer());
-    const tabsRef = useRef(new Map<number, TraceTab>());
-    const activeTabRef = useRef<TraceTab | null>(null);
-    const nextTabIDRef = useRef(0);
+    const storeRef = useRef<Store | null>(null);
+    if (storeRef.current === null) {
+        storeRef.current = new Store();
+    }
+    const store = storeRef.current;
     const statsRequestRef = useRef(0);
     const searchRequestRef = useRef(0);
     const commandHistoryRef = useRef<string[]>([]);
 
-    const [tabs, setTabs] = useState<readonly TraceTab[]>([]);
-    const [activeTabID, setActiveTabID] = useState<number | null>(null);
+    const { tabs, activeTabID } = useSyncExternalStore(store.subscribe, store.getSnapshot);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [statsProgress, setStatsProgress] = useState<number | null>(null);
     const [statsValues, setStatsValues] = useState<Readonly<StatsValues> | null>(null);
@@ -154,8 +145,7 @@ export function App() {
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
 
-    const activeTab = tabs.find((tab) => tab.id === activeTabID) ?? null;
-    activeTabRef.current = activeTab;
+    const activeTab = store.activeTab;
     const trace = activeTab?.trace ?? null;
     const loadState = activeTab?.loadState ?? "idle";
     const fileName = activeTab?.fileName ?? "";
@@ -183,91 +173,62 @@ export function App() {
         setCommandPaletteInitial(null);
     }, []);
 
-    const publishTabs = useCallback(() => {
-        setTabs(Array.from(tabsRef.current.values()));
-    }, []);
-
     const activateTab = useCallback((id: number) => {
-        if (!tabsRef.current.has(id) || activeTabRef.current?.id === id) {
+        const previousTabID = store.activeTab?.id ?? null;
+        store.dispatch({ type: "TAB_ACTIVATE", tabID: id });
+        if (store.activeTab?.id === previousTabID) {
             return;
         }
         // 検索結果とdialogはactive sheetだけに属し、tabをまたいで表示しない。
         resetStats();
         resetSearch();
-        setActiveTabID(id);
-        setRenderVersion((version) => version + 1);
-    }, [resetSearch, resetStats]);
+    }, [resetSearch, resetStats, store]);
 
     const closeTab = useCallback((id: number) => {
-        const openTabs = Array.from(tabsRef.current.values());
-        const closingIndex = openTabs.findIndex((tab) => tab.id === id);
-        const closingTab = openTabs[closingIndex];
-        if (closingTab === undefined) {
-            return;
-        }
-
-        // callbackが閉じたtabを更新しないよう、mapから外してからstoreを解放する。
-        tabsRef.current.delete(id);
-        closeTabTrace(closingTab);
-
-        if (activeTabRef.current?.id === id) {
+        const wasActive = store.activeTab?.id === id;
+        store.dispatch({ type: "TAB_CLOSE", tabID: id });
+        if (wasActive) {
             resetStats();
             resetSearch();
-            const remainingTabs = Array.from(tabsRef.current.values());
-            const nextTab = remainingTabs[Math.min(closingIndex, remainingTabs.length - 1)] ?? null;
-            setActiveTabID(nextTab?.id ?? null);
+        }
+    }, [resetSearch, resetStats, store]);
+
+    useEffect(() => store.subscribeChange((change) => {
+        if (change.type === "PANE_CONTENT_UPDATE" && change.tabID === store.activeTab?.id) {
             setRenderVersion((version) => version + 1);
         }
-        publishTabs();
-    }, [publishTabs, resetSearch, resetStats]);
+    }), [store]);
 
     useEffect(() => () => {
         statsRequestRef.current++;
         searchRequestRef.current++;
-        // StrictModeの初回cleanup時点ではtabがなく、実際のunmountでは全storeを閉じる。
-        for (const tab of tabsRef.current.values()) {
-            closeTabTrace(tab);
-        }
-        tabsRef.current.clear();
-        activeTabRef.current = null;
-    }, []);
+        // StrictModeの初回cleanup時点ではtabがなく、実際のunmountではStoreが全tabを閉じる。
+        store.close();
+    }, [store]);
 
     const loadFile = useCallback(async (file: File) => {
-        const sourceRenderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
-        const tab: TraceTab = {
-            id: nextTabIDRef.current++,
+        const sourceRenderer = store.activeTab?.renderer ?? emptyRendererRef.current;
+        store.dispatch({
+            type: "FILE_OPEN",
             fileName: file.name,
             renderer: createTabRenderer(sourceRenderer),
-            trace: null,
-            loadState: "loading",
-            progress: 0,
-            errorMessage: "",
-        };
-        tabsRef.current.set(tab.id, tab);
-        publishTabs();
+        });
+        const tab = store.activeTab;
+        if (tab === null) {
+            return;
+        }
         resetStats();
         resetSearch();
-        setActiveTabID(tab.id);
-        setRenderVersion((version) => version + 1);
 
+        let parsingTrace: ParsedTrace | null = null;
         try {
             const updateProgress = (value: number) => {
-                if (tabsRef.current.get(tab.id) === tab) {
-                    tab.progress = value;
-                    publishTabs();
-                }
+                store.dispatch({ type: "FILE_LOAD_PROGRESS", tabID: tab.id, progress: value });
             };
             const updateTrace = (partialTrace: ParsedTrace) => {
-                if (tabsRef.current.get(tab.id) !== tab) {
-                    return;
-                }
-                if (tab.trace !== partialTrace) {
-                    // 形式確定時だけ同じstoreを持つtraceへ切り替え、以後は再描画だけを行う。
-                    closeTabTrace(tab);
-                    tab.trace = partialTrace;
-                }
-                publishTabs();
-                setRenderVersion((version) => version + 1);
+                // 形式確定後は同じtraceを更新し、Storeから対象sheetの再描画を通知する。
+                parsingTrace = partialTrace;
+                store.dispatch({ type: "FILE_LOAD_TRACE", tabID: tab.id, trace: partialTrace });
             };
             let parsedTrace: ParsedTrace;
             try {
@@ -280,30 +241,17 @@ export function App() {
                 }
                 parsedTrace = await new Gem5O3PipeViewParser().parse(file, updateProgress, updateTrace);
             }
-            if (tabsRef.current.get(tab.id) !== tab) {
-                parsedTrace.close();
-                return;
-            }
-            if (tab.trace !== parsedTrace) {
-                closeTabTrace(tab);
-                tab.trace = parsedTrace;
-            }
-            tab.progress = 1;
-            tab.loadState = "ready";
-            publishTabs();
-            setRenderVersion((version) => version + 1);
+            store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: parsedTrace });
         }
         catch (error) {
-            if (tabsRef.current.get(tab.id) !== tab) {
-                return;
-            }
-            closeTabTrace(tab);
-            tab.loadState = "error";
-            tab.errorMessage = error instanceof Error ? error.message : String(error);
-            publishTabs();
-            setRenderVersion((version) => version + 1);
+            store.dispatch({
+                type: "FILE_LOAD_ERROR",
+                tabID: tab.id,
+                message: error instanceof Error ? error.message : String(error),
+                trace: parsingTrace,
+            });
         }
-    }, [publishTabs, resetSearch, resetStats]);
+    }, [resetSearch, resetStats, store]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -325,9 +273,14 @@ export function App() {
 
     const mutateView = useCallback((mutation: (renderer: KonataRenderer) => void) => {
         traceSheetRef.current?.clearToolTip();
-        mutation(activeTabRef.current?.renderer ?? emptyRendererRef.current);
-        setRenderVersion((version) => version + 1);
-    }, []);
+        const tab = store.activeTab;
+        if (tab === null) {
+            mutation(emptyRendererRef.current);
+            setRenderVersion((version) => version + 1);
+            return;
+        }
+        store.dispatch({ type: "KONATA_MUTATE_VIEW", tabID: tab.id, mutation });
+    }, [store]);
 
     const openCommandPalette = useCallback((initialCommand: string) => {
         if (isStatsDialogOpen) {
@@ -347,7 +300,7 @@ export function App() {
             return;
         }
 
-        const searchedTab = activeTabRef.current;
+        const searchedTab = store.activeTab;
         const activeTrace = searchedTab?.trace ?? null;
         if (searchedTab === null || activeTrace === null) {
             setCommandMessage("No trace is open.");
@@ -395,14 +348,14 @@ export function App() {
                         setSearchProgress(lastOpID > 0 ? index / lastOpID : 1);
                     }
                     await new Promise((resolve) => setTimeout(resolve, 17));
-                    if (searchRequestRef.current !== requestID || activeTabRef.current !== searchedTab) {
+                    if (searchRequestRef.current !== requestID || store.activeTab !== searchedTab) {
                         return;
                     }
                 }
             }
 
             console.log(`Search finished: ${target}@${foundOp?.id ?? -1}, ${Date.now() - startTime} msec`);
-            if (searchRequestRef.current !== requestID || activeTabRef.current !== searchedTab) {
+            if (searchRequestRef.current !== requestID || store.activeTab !== searchedTab) {
                 return;
             }
             setSearchProgress(null);
@@ -445,20 +398,20 @@ export function App() {
                 setCommandMessage(error instanceof Error ? error.message : String(error));
             }
         });
-    }, [mutateView]);
+    }, [mutateView, store]);
 
     const repeatSearch = useCallback((reverse: boolean) => {
         if (findResult === null) {
             return;
         }
-        const renderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
+        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const basePosition = renderer.getPositionYFromOp(findResult.anchorOp);
         findString(findResult.targetPattern, basePosition, reverse);
-    }, [findResult, findString]);
+    }, [findResult, findString, store]);
 
     const executeCommand = useCallback((command: string) => {
         let accepted = false;
-        const renderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
+        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const idMatch = command.match(/^j\s+(\d+)\s*$/);
         const ridMatch = command.match(/^jr\s+(\d+)\s*$/);
         const findMatch = command.match(/^f\s+(.+)$/);
@@ -508,7 +461,7 @@ export function App() {
             }
         }
         setCommandPaletteInitial(null);
-    }, [findString, mutateView, resetSearch]);
+    }, [findString, mutateView, resetSearch, store]);
 
     const zoomAtCenter = useCallback((factor: number) => {
         const viewport = traceSheetRef.current?.getViewportSize();
@@ -523,11 +476,11 @@ export function App() {
     }, [mutateView]);
 
     const moveVertical = useCallback((delta: number, adjust: boolean) => {
-        const renderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
+        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const differenceY = delta * 3 / renderer.zoomScale;
         const differenceX = adjust ? renderer.adjustScrollDifferenceX(differenceY) : 0;
         mutateView((target) => target.moveLogicalDifference([differenceX, differenceY], false));
-    }, [mutateView]);
+    }, [mutateView, store]);
 
     const moveHorizontal = useCallback((delta: number) => {
         mutateView((renderer) => renderer.moveLogicalDifference([
@@ -537,13 +490,13 @@ export function App() {
     }, [mutateView]);
 
     const setBookmark = useCallback((index: number) => {
-        const renderer = activeTabRef.current?.renderer ?? emptyRendererRef.current;
+        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const [x, y] = renderer.viewPosition;
         // 旧Configの保存値と同じく、論理座標は整数へ切り下げる。
         const bookmark = { x: Math.floor(x), y: Math.floor(y), zoom: renderer.zoomLevel };
         setBookmarks((current) => current.map((value, position) =>
             position === index ? bookmark : value));
-    }, []);
+    }, [store]);
 
     const goToBookmark = useCallback((index: number) => {
         const bookmark = bookmarks[index];
@@ -587,7 +540,7 @@ export function App() {
                     setStatsProgress(value);
                 }
             },
-            () => statsRequestRef.current !== requestID || activeTabRef.current?.trace !== trace,
+            () => statsRequestRef.current !== requestID || store.activeTab?.trace !== trace,
         ).then((values) => {
             if (statsRequestRef.current !== requestID || values === null) {
                 return;

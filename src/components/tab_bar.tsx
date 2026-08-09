@@ -1,4 +1,4 @@
-import type { LoadState } from "./trace_sheet";
+import type { LoadState } from "../store";
 
 export interface TabBarItem {
     readonly id: number;

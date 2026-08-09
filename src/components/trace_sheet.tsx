@@ -11,8 +11,7 @@ import {
 
 import type { Op, ParsedTrace } from "../core/model";
 import { KonataRenderer } from "../renderer/konata_renderer";
-
-export type LoadState = "idle" | "loading" | "ready" | "error";
+import type { LoadState } from "../store";
 
 export interface FindResult {
     readonly targetPattern: string;
