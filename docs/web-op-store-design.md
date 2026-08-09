@@ -214,9 +214,16 @@ reconstruction time was 7.39–7.75 ms. The retained heap returned to about 8.5 
 trace. This validates the existing page and cache constants for initial interactive use without
 adding asynchronous compression or changing the hierarchy.
 
-The complete scan still reconstructs every operation and fills the 32,768-entry interactive
-operation cache. It therefore takes about 1.2 seconds and raises the sampled heap from about 15 MiB
-after parsing to about 185 MiB. Search and statistics already yield periodically, but a measured
-case now exists for giving sequential scans a path that uses decoded page LRU without populating
-the interactive operation LRU. That change should preserve the normal renderer lookup algorithm
-and be measured separately rather than reducing the cache globally.
+The initial complete scan reconstructed every operation and filled the 32,768-entry interactive
+operation cache. It therefore took about 1.2 seconds and raised the sampled heap from about 15 MiB
+after parsing to about 185 MiB. Search and statistics already yield periodically, but this provided
+a measured reason to separate sequential scanning without reducing the renderer cache globally.
+
+`getOpForScan()` now reads level-0 decoded pages without populating the operation LRU. Search and
+statistics use this path; Canvas rendering, jumps, zoom-level selection, and RID lookup retain the
+normal hierarchical and operation caches. On two runs of the same real trace, the zstd scan took
+581.12–748.35 ms instead of 1,148.90–1,162.12 ms for normal sequential lookup. After an explicit
+garbage collection, scan heap was 16.52–16.53 MiB versus 14.91–14.92 MiB immediately after parsing,
+and operation-cache access counts did not increase during the scan. The JSON scan similarly took
+486.56–519.56 ms instead of 1,002.26–1,032.65 ms. This small read boundary removes the observed
+cache pollution without adding a page iterator, changing cache constants, or changing stored data.

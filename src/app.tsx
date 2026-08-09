@@ -720,7 +720,7 @@ export function App() {
                     current = 0;
                 }
 
-                const op = activeTrace.getOp(current);
+                const op = activeTrace.getOpForScan(current);
                 if (op !== undefined && targetPattern.test(makeFindTargetString(op))) {
                     foundOp = op;
                     break;

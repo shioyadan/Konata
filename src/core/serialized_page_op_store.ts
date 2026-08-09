@@ -458,6 +458,14 @@ export class SerializedPageOpStore implements MutableOpStore {
         return op;
     }
 
+    getOpForScan(id: number): Op | undefined {
+        if (id < 0 || id > this.lastID_) {
+            return undefined;
+        }
+        // 順次走査はlevel 0のpage LRUだけを使い、対話操作用Op LRUへ登録しない。
+        return this.levels_[0].getOp(id);
+    }
+
     setRetiredOp(rid: number, op: Op): void {
         if (rid < 0) {
             return;

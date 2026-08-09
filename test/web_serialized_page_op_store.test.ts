@@ -191,6 +191,11 @@ test("SerializedPageOpStore uses coarse pages and both LRU layers", () => {
     assert.equal(store.levelMetrics[2].decodeCount, beforeReload + 1);
     assert.equal(store.levelMetrics[0].decodeCount, before[0].decodeCount);
 
+    const cacheAccessesBeforeScan = store.opCacheAccessCount;
+    assert.equal(store.getOpForScan(8)?.id, 8);
+    // 全走査用取得はpageを利用しても、対話操作のOp cache統計と内容を変えない。
+    assert.equal(store.opCacheAccessCount, cacheAccessesBeforeScan);
+
     // 完了後の追記はOp cacheを無効化し、IDが対応する全階層へ同じ変更を書き戻す。
     const updated = new Op();
     updated.id = 8;

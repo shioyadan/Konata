@@ -141,6 +141,10 @@ export class ParsedTrace {
         return this.opStore.getOp(id, resolutionLevel);
     }
 
+    getOpForScan(id: number): Op | undefined {
+        return this.opStore.getOpForScan(id);
+    }
+
     getOpFromRID(rid: number, resolutionLevel = 0): Op | undefined {
         return this.opStore.getOpFromRID(rid, resolutionLevel);
     }

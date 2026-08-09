@@ -20,6 +20,8 @@ export interface OpStore {
 
     // パースが終わって表示可能なopを返す。将来のページstoreでは複製を返してよい。
     getOp(id: number, resolutionLevel?: number): Op | undefined;
+    // 検索・統計の全走査では、描画用のOp LRUへ大量の命令を残さず取得する。
+    getOpForScan(id: number): Op | undefined;
     getOpFromRID(rid: number, resolutionLevel?: number): Op | undefined;
 
     // 旧OpListのcloseと同じく、tabを閉じた後に内部資源を解放する。
@@ -70,6 +72,10 @@ export class ArrayOpStore implements MutableOpStore {
             return undefined;
         }
         return this.ops_[resolveOpID(id, resolutionLevel)];
+    }
+
+    getOpForScan(id: number): Op | undefined {
+        return id < 0 || id > this.lastID_ ? undefined : this.ops_[id];
     }
 
     setRetiredOp(rid: number, op: Op): void {

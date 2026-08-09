@@ -24,17 +24,21 @@ interface BenchmarkResult {
     lastCycle: number;
     parseMilliseconds: number;
     warmLookupMilliseconds: number;
+    scanMilliseconds: number;
     lookupMilliseconds: number;
     lookupCount: number;
     lookupHits: number;
+    scanHits: number;
     progressCallbacks: number;
     parserWarnings: number;
     storeMetricsAfterParse?: StoreMetrics;
+    storeMetricsAfterScan?: StoreMetrics;
     storeMetricsAfterLookup?: StoreMetrics;
     memoryMiB: {
         heapBefore: number;
         heapPeakSampled: number;
         heapAfterParse: number;
+        heapAfterScan: number;
         heapAfterLookup: number;
         heapRetainedDelta: number;
         heapAfterClose: number;
@@ -196,7 +200,24 @@ async function benchmark(name: string, file: File, storeCase: StoreCase): Promis
     }
     const warmLookupMilliseconds = performance.now() - warmLookupStart;
 
-    // 全IDを順に走査し、page missと復元を含む検索・統計処理側のcostも分離して残す。
+    // 検索・統計と同じ走査用取得で、描画用Op LRUを汚さない場合のcostを分けて測る。
+    let scanHits = 0;
+    const scanStart = performance.now();
+    for (let index = 0; index < lookupCount; index++) {
+        if (trace.getOpForScan(index % idSpan) !== undefined) {
+            scanHits++;
+        }
+    }
+    const scanMilliseconds = performance.now() - scanStart;
+    collectGarbage();
+    const afterScan = memorySnapshot();
+    peak = {
+        heapUsed: Math.max(peak.heapUsed, afterScan.heapUsed),
+        rss: Math.max(peak.rss, afterScan.rss),
+    };
+    const storeMetricsAfterScan = storeMetrics(store);
+
+    // 同じ全IDを通常取得し、遠距離移動でOp LRUへ載せる場合のcostも残す。
     lookupHits = 0;
     const lookupStart = performance.now();
     for (let index = 0; index < lookupCount; index++) {
@@ -231,17 +252,21 @@ async function benchmark(name: string, file: File, storeCase: StoreCase): Promis
         ...summary,
         parseMilliseconds: Math.round(parseMilliseconds * 100) / 100,
         warmLookupMilliseconds: Math.round(warmLookupMilliseconds * 100) / 100,
+        scanMilliseconds: Math.round(scanMilliseconds * 100) / 100,
         lookupMilliseconds: Math.round(lookupMilliseconds * 100) / 100,
         lookupCount,
         lookupHits,
+        scanHits,
         progressCallbacks,
         parserWarnings,
         storeMetricsAfterParse,
+        storeMetricsAfterScan,
         storeMetricsAfterLookup,
         memoryMiB: {
             heapBefore: toMiB(before.heapUsed),
             heapPeakSampled: toMiB(peak.heapUsed),
             heapAfterParse: toMiB(afterParse.heapUsed),
+            heapAfterScan: toMiB(afterScan.heapUsed),
             heapAfterLookup: toMiB(afterLookup.heapUsed),
             heapRetainedDelta: toMiB(afterParse.heapUsed - before.heapUsed),
             heapAfterClose: toMiB(afterClose.heapUsed),

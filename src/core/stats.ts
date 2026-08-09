@@ -242,7 +242,7 @@ export async function calculateStats(
             if (isCanceled()) {
                 return null;
             }
-            const op = trace.getOp(id);
+            const op = trace.getOpForScan(id);
             if (op === undefined) {
                 continue;
             }
