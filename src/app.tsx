@@ -62,11 +62,11 @@ const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
 );
 const BOOKMARK_STORAGE_KEY = "konata.bookmarks";
 const VIEW_SETTINGS_STORAGE_KEY = "konata.viewSettings";
-// 移動元と移動先を目で追える長さにしつつ、連続操作を妨げない範囲に収める。
-const ZOOM_ANIMATION_DURATION = 200;
-const SCROLL_ANIMATION_DURATION = 200;
-const BOOKMARK_ANIMATION_DURATION = 260;
-const BOOKMARK_ZOOM_ANIMATION_DURATION = 220;
+// 旧版と同じ速度を保ち、操作方法だけに依存せず同じ補間を適用する。
+const ZOOM_ANIMATION_DURATION = 80;
+const SCROLL_ANIMATION_DURATION = 100;
+const BOOKMARK_ANIMATION_DURATION = 200;
+const BOOKMARK_ZOOM_ANIMATION_DURATION = 160;
 const PIPELINE_COLOR_SCHEMES = new Set([
     "Auto",
     "Unique",
