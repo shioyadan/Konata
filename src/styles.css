@@ -159,8 +159,8 @@ button:disabled {
 
 .app-toolbar {
     position: relative;
-    /* 設定panelと下端のprogressを、viewer内のCanvasやsplitterより上に保つ。 */
-    z-index: 2;
+    /* 設定panelと下端のprogressを、初期message、Canvas、splitterより上に保つ。 */
+    z-index: 3;
     display: flex;
     min-height: 3rem;
     align-items: center;

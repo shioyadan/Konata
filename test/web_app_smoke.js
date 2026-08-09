@@ -456,6 +456,12 @@ async function verifyApplicationMenu(window) {
             rel: link.getAttribute("rel")
         }));
         const menuVersion = panel.querySelector("small")?.textContent?.trim() ?? null;
+        // 初期messageの半透明layerより手前にあり、menu項目を直接操作できることを確認する。
+        const panelRect = panel.getBoundingClientRect();
+        const menuPanelOnTop = panel.contains(document.elementFromPoint(
+            panelRect.left + panelRect.width / 2,
+            panelRect.top + 12
+        ));
 
         // Aboutは初期画面と同じbuild情報を、作業中にも確認できる入口として検査する。
         panel.querySelector("button")?.click();
@@ -509,6 +515,7 @@ async function verifyApplicationMenu(window) {
             menuItems,
             menuLinks,
             menuVersion,
+            menuPanelOnTop,
             aboutState,
             shortcutState,
             escapeCanceled,
@@ -648,6 +655,7 @@ async function run() {
         applicationMenuState.menuLinks.some((link) =>
             link.target !== "_blank" || !link.rel?.includes("noreferrer")) ||
         applicationMenuState.menuVersion !== `Version ${initialState.version}` ||
+        !applicationMenuState.menuPanelOnTop ||
         applicationMenuState.aboutState.title !== "About Konata" ||
         applicationMenuState.aboutState.summary !== "Konata Pipeline visualization tool" ||
         JSON.stringify(applicationMenuState.aboutState.values) !==
@@ -667,7 +675,7 @@ async function run() {
     const incrementalState = await verifyIncrementalRendering(window);
     if (incrementalState.partialPixels < 100 ||
         incrementalState.finalOpCount !== 2 ||
-        incrementalState.progressLayers?.toolbar !== "2" ||
+        incrementalState.progressLayers?.toolbar !== "3" ||
         incrementalState.progressLayers?.progress !== "100" ||
         incrementalState.progressLayers?.splitter !== "0") {
         throw new Error(`Incremental trace rendering is incomplete: ${JSON.stringify(incrementalState)}`);
