@@ -227,3 +227,31 @@ garbage collection, scan heap was 16.52–16.53 MiB versus 14.91–14.92 MiB imm
 and operation-cache access counts did not increase during the scan. The JSON scan similarly took
 486.56–519.56 ms instead of 1,002.26–1,032.65 ms. This small read boundary removes the observed
 cache pollution without adding a page iterator, changing cache constants, or changing stored data.
+
+## Browser loading responsiveness
+
+The production Web UI and the legacy Electron UI were compared with the same real trace, Docker
+image, Electron 43 renderer, and 1,100 by 700 viewport. The timer started after the input was in
+memory and ended after the final Canvas update. Three runs of the initial Web path took
+5.03–5.09 seconds, while the legacy UI took 2.37–2.42 seconds. The Web renderer still produced a
+frame every 16.8–20.0 ms, so this was accumulated scheduling cost rather than one long zstd pause.
+
+`FileLineReader` yielded after every 8,192 lines with `setTimeout(0)`. The real trace contains
+4,853,322 lines, so Chromium applied its repeated-timer delay hundreds of times. Replacing that
+timer with a short-lived `MessageChannel` task preserves progress reporting, cancellation, and
+browser rendering without the timer delay. Publishing the mutable trace to the Canvas on the first
+update and every eighth progress update avoids redrawing the same viewport unnecessarily; the
+final update remains immediate.
+
+With both changes, three cold production loads took 2.79–2.82 seconds and the maximum frame gap was
+16.8–33.3 ms. Keeping `MessageChannel` but publishing every update took 3.20–3.33 seconds, while
+only throttling Canvas updates with the original timers still took 4.96–4.98 seconds. A tested
+`scheduler.yield()` variant was slightly faster at 2.64–2.71 seconds but allowed frame gaps of about
+117 ms, so it was rejected. Preloading the zstd WebAssembly module did not materially change the
+original result.
+
+These measurements correct the initial suspicion that synchronous zstd compression was the main
+UI slowdown. On the same trace the core zstd store added about 0.2 seconds over hierarchical JSON,
+and the largest single page compression remained below 4.60 ms. Moving compression to a Worker is
+therefore still deferred; it would add ownership and synchronization complexity without addressing
+the measured scheduling bottleneck.

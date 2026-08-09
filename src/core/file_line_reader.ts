@@ -1,5 +1,18 @@
 export type ProgressCallback = (progress: number) => void;
 
+function yieldToBrowser(): Promise<void> {
+    // MessageChannelなら連続するsetTimeout(0)の最小待ち時間なしで、描画と入力へ制御を返せる。
+    return new Promise<void>((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => {
+            channel.port1.close();
+            channel.port2.close();
+            resolve();
+        };
+        channel.port2.postMessage(undefined);
+    });
+}
+
 export class FileLineReader {
     private reader_: ReadableStreamDefaultReader<Uint8Array> | null = null;
     private bytesRead_ = 0;
@@ -83,7 +96,7 @@ export class FileLineReader {
                     // 大きい入力でも描画とキャンセル操作へ定期的に制御を戻す。
                     if (lineCount % 8192 === 0) {
                         onProgress?.(this.progress);
-                        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                        await yieldToBrowser();
                     }
                     newline = buffer.indexOf("\n", lineStart);
                 }

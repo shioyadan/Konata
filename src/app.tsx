@@ -525,6 +525,7 @@ export function App() {
             unpublishedStore?.close();
             unpublishedStore = null;
         };
+        let traceUpdateCount = 0;
         try {
             const updateProgress = (value: number) => {
                 store.dispatch({ type: "FILE_LOAD_PROGRESS", tabID: tab.id, progress: value });
@@ -533,6 +534,11 @@ export function App() {
                 // 形式確定後は同じtraceを更新し、Storeから対象sheetの再描画を通知する。
                 parsingTrace = partialTrace;
                 unpublishedStore = null;
+                traceUpdateCount++;
+                // progressとcancel確認は細かく維持し、重いCanvas途中描画だけを約8回に1回へ抑える。
+                if (traceUpdateCount !== 1 && traceUpdateCount % 8 !== 0) {
+                    return;
+                }
                 store.dispatch({ type: "FILE_LOAD_TRACE", tabID: tab.id, trace: partialTrace });
             };
             let parsedTrace: ParsedTrace;
