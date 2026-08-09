@@ -51,7 +51,11 @@ function createComplexOp(): Op {
 
 test("SerializedPageOpStore restores the complete mutable Op model", () => {
     // 1 Op/page、展開page 1枚に制限し、別IDの追加で必ずserialize/deserializeを通す。
-    const store = new SerializedPageOpStore({ pageSizeBits: 0, maxDecodedPages: 1 });
+    const store = new SerializedPageOpStore({
+        pageSizeBits: 0,
+        maxDecodedPages: 1,
+        levelSpans: [1],
+    });
     const original = createComplexOp();
     store.setOp(original.id, original);
     store.setRetiredOp(original.rid, original);
@@ -129,13 +133,62 @@ test("SerializedPageOpStore restores the complete mutable Op model", () => {
     assert.equal(store.getOp(0)?.labelDetail, "detail\nline; updated");
 });
 
+test("SerializedPageOpStore uses coarse pages and both LRU layers", () => {
+    // 1 Op/pageにすると、最後のID以外は必ずserialize済みになる。
+    const store = new SerializedPageOpStore({
+        pageSizeBits: 0,
+        maxDecodedPages: 1,
+        maxCachedOps: 1,
+        levelSpans: [1, 8, 64],
+    });
+    for (let id = 0; id <= 128; id++) {
+        const op = new Op();
+        op.id = id;
+        store.setOp(id, op);
+    }
+
+    assert.deepEqual(store.levelMetrics.map((level) => level.span), [1, 8, 64]);
+    const before = store.levelMetrics;
+    const coarse = store.getOp(65, 5);
+    assert.equal(coarse?.id, 64);
+    const afterCoarse = store.levelMetrics;
+    // 2^6単位へ丸めたIDは64命令間隔の階層から読み、level 0を展開しない。
+    assert.equal(afterCoarse[0].decodeCount, before[0].decodeCount);
+    assert.equal(afterCoarse[1].decodeCount, before[1].decodeCount);
+    assert.equal(afterCoarse[2].decodeCount, before[2].decodeCount + 1);
+
+    assert.equal(store.getOp(66, 5), coarse);
+    assert.equal(store.opCacheAccessCount, 2);
+    assert.equal(store.opCacheHitCount, 1);
+    assert.equal(store.levelMetrics[2].decodeCount, afterCoarse[2].decodeCount);
+
+    // Op LRUから64を追い出した後は、階層側のpage LRUから1 pageだけ再展開する。
+    assert.equal(store.getOp(128, 5)?.id, 128);
+    const beforeReload = store.levelMetrics[2].decodeCount;
+    assert.equal(store.getOp(65, 5)?.id, 64);
+    assert.equal(store.levelMetrics[2].decodeCount, beforeReload + 1);
+    assert.equal(store.levelMetrics[0].decodeCount, before[0].decodeCount);
+
+    // 完了後の追記はOp cacheを無効化し、IDが対応する全階層へ同じ変更を書き戻す。
+    const updated = new Op();
+    updated.id = 8;
+    updated.labelDetail = "updated after eviction";
+    store.setOp(updated.id, updated);
+    assert.equal(store.opCount, 129);
+    assert.equal(store.getOp(9, 2)?.labelDetail, "updated after eviction");
+});
+
 test("OnikiriParser preserves post-retire updates through serialized pages", async () => {
     const fixturePath = path.resolve(import.meta.dirname, "fixtures", "kanata-basic.txt");
     const contents = fs.readFileSync(fixturePath);
     const bytes = new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength);
     const file = new File([bytes], "kanata-basic.txt", { type: "text/plain" });
     // 1 Op/pageにしてid=1のretire時にid=0を追い出し、末尾のretire後Lで再展開させる。
-    const store = new SerializedPageOpStore({ pageSizeBits: 0, maxDecodedPages: 1 });
+    const store = new SerializedPageOpStore({
+        pageSizeBits: 0,
+        maxDecodedPages: 1,
+        levelSpans: [1],
+    });
     const trace = await new OnikiriParser(store).parse(file);
 
     assert.equal(trace.lastID, 1);
@@ -160,7 +213,11 @@ test("OnikiriParser writes dependencies back to an evicted producer page", async
         "R\t2\t2\t0",
     ].join("\n");
     const file = new File([contents], "stored-producer.log", { type: "text/plain" });
-    const store = new SerializedPageOpStore({ pageSizeBits: 0, maxDecodedPages: 1 });
+    const store = new SerializedPageOpStore({
+        pageSizeBits: 0,
+        maxDecodedPages: 1,
+        levelSpans: [1],
+    });
     const trace = await new OnikiriParser(store).parse(file);
 
     assert.deepEqual(trace.getOp(0)?.cons.map((dependency) => ({ ...dependency })), [

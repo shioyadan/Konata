@@ -108,7 +108,47 @@ lookups remain fast enough for further testing, but the store is not ready to be
 - search and statistics need a page-oriented traversal path instead of repeated `getOp()` calls;
 - compression and browser-main-thread responsiveness have not been measured yet.
 
-The next experiment should add a page-oriented traversal API and measure one decode per page with
-periodic event-loop yields. The Canvas-facing `getOp()` API should remain synchronous for decoded
-visible pages. Compression or Worker storage should be evaluated only after this traversal path
-separates background scans from interactive rendering.
+These measurements show that search and statistics may need a page-oriented traversal API with
+periodic event-loop yields before a compressed store becomes the product default. The
+Canvas-facing `getOp()` API should remain synchronous for decoded visible pages. The following
+prototype first restores the legacy interactive hierarchy so that its zstd replacement can be
+measured without changing both lookup policy and page representation at once.
+
+## Hierarchical page and operation caches
+
+The next prototype restores the lookup structure used by the existing `BigKeyValueStore` before
+changing the page codec. It keeps non-compressed compact JSON pages but adds the five legacy
+sampling spans (`1`, `8`, `64`, `512`, and `4096` operations), four decoded pages per span, and a
+shared 32,768-operation LRU. Each span uses 256 entries per page. Resolution rounding remains
+`2^(resolution + 1)` operations.
+
+An operation is written to every span that divides its ID. A zoomed-out lookup selects the
+coarsest matching span after rounding the ID, so sparse samples are adjacent within their page
+instead of forcing unrelated level-0 pages to be decoded. A regression test fixes this selection
+and verifies both the page LRU and operation LRU independently.
+
+The fixed Node.js 22 environment produced the following ranges over repeated 100,000-operation
+runs. The previous single-level serialized result remains in the table above for comparison.
+
+| Input and store | Parse (ms) | Warm 100k (ms) | Sequential 100k (ms) | Retained heap (MiB) | Peak after lookup (MiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| bundled / Hierarchical serialized | 103.88–116.07 | 8.16–9.13 | 24.83–30.01 | 8.90–8.91 | 37.23–37.51 |
+| synthetic / Hierarchical serialized | 421.33–424.13 | 7.73–7.90 | 640.48–650.62 | 21.34 | 134.42–135.35 |
+
+After parsing the synthetic input, 435 serialized pages contained 20,702,224 JSON characters and
+14 pages remained decoded. One sequential pass decoded 391 level-0 pages, 49 span-8 pages, and 7
+span-64 pages. No page was decoded more than once during the pass. This confirms that the
+hierarchy avoids page thrashing, while its geometric duplication raises retained heap only
+moderately compared with the single-level prototype.
+
+The 32,768-entry operation LRU improves repeated interactive access and lets the complete bundled
+trace remain warm. For a synthetic trace larger than the LRU, however, a full scan retains many
+decoded object graphs and increases both lookup time and sampled peak memory. The cache is retained
+because it is part of the legacy interactive algorithm; search and statistics should use a
+page-oriented path that does not fill the interactive operation cache if real-trace measurements
+show the same cost.
+
+The next isolated change will replace each JSON string page with an independent Zstandard frame.
+Compact JSON and the cache constants remain unchanged so that compression ratio, decode latency,
+and bundle cost can be measured without mixing in a binary schema, dictionary, prefetching, or
+cache tuning.

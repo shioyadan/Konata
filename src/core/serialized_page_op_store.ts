@@ -36,11 +36,23 @@ interface DecodedPage {
 export interface SerializedPageOpStoreOptions {
     pageSizeBits?: number;
     maxDecodedPages?: number;
+    maxCachedOps?: number;
+    levelSpans?: readonly number[];
+}
+
+export interface SerializedPageLevelMetrics {
+    readonly span: number;
+    readonly serializedPages: number;
+    readonly decodedPages: number;
+    readonly serializedCharacters: number;
+    readonly decodeCount: number;
 }
 
 const RETIRED_FLAG = 1;
 const FLUSH_FLAG = 2;
 const EOF_FLAG = 4;
+const DEFAULT_LEVEL_SPANS = [1, 8, 64, 512, 4096] as const;
+const DEFAULT_MAX_CACHED_OPS = 32768;
 
 function serializeOp(op: Op): StoredOp {
     const lanes: StoredLane[] = [];
@@ -132,113 +144,58 @@ function deserializeOp(stored: StoredOp): Op {
     return op;
 }
 
-// 完了Opを非圧縮JSON pageへ退避し、少数の展開済みpageだけを同期参照用に残す試作。
-export class SerializedPageOpStore implements MutableOpStore {
-    private readonly pageSize_: number;
-    private readonly maxDecodedPages_: number;
+// 8倍ずつ間引いたOpを独立したpage群へ保存し、縮小時の展開回数を抑える。
+class SerializedPageLevel {
     private readonly serializedPages_ = new Map<number, string>();
     private readonly decodedPages_ = new Map<number, DecodedPage>();
-    // Mapの挿入順をLRU順として使い、参照時には末尾へ入れ直す。
     private readonly decodedPageLRU_ = new Map<number, true>();
-    private readonly retiredOpIDs_: Array<number | undefined> = [];
-    private lastID_ = -1;
-    private lastRID_ = -1;
-    private opCount_ = 0;
+    private decodeCount_ = 0;
 
-    constructor(options: SerializedPageOpStoreOptions = {}) {
-        const pageSizeBits = options.pageSizeBits ?? 8;
-        const maxDecodedPages = options.maxDecodedPages ?? 4;
-        if (!Number.isInteger(pageSizeBits) || pageSizeBits < 0 || pageSizeBits > 30) {
-            throw new Error("pageSizeBits must be an integer between 0 and 30.");
-        }
-        if (!Number.isSafeInteger(maxDecodedPages) || maxDecodedPages < 1) {
-            throw new Error("maxDecodedPages must be a positive safe integer.");
-        }
-        this.pageSize_ = 2 ** pageSizeBits;
-        this.maxDecodedPages_ = maxDecodedPages;
-    }
+    constructor(
+        readonly span: number,
+        private readonly pageSize_: number,
+        private readonly maxDecodedPages_: number,
+    ) {}
 
-    get lastID(): number {
-        return this.lastID_;
-    }
-
-    get lastRID(): number {
-        return this.lastRID_;
-    }
-
-    get opCount(): number {
-        return this.opCount_;
-    }
-
-    get serializedPageCount(): number {
-        return this.serializedPages_.size;
-    }
-
-    get decodedPageCount(): number {
-        return this.decodedPages_.size;
-    }
-
-    get serializedCharacterCount(): number {
-        let count = 0;
+    get metrics(): SerializedPageLevelMetrics {
+        let serializedCharacters = 0;
         for (const serialized of this.serializedPages_.values()) {
-            count += serialized.length;
+            serializedCharacters += serialized.length;
         }
-        return count;
+        return {
+            span: this.span,
+            serializedPages: this.serializedPages_.size,
+            decodedPages: this.decodedPages_.size,
+            serializedCharacters,
+            decodeCount: this.decodeCount_,
+        };
     }
 
-    setOp(id: number, op: Op): void {
-        if (id < 0) {
-            return;
-        }
-        const pageIndex = this.pageIndex_(id);
+    setOp(blockID: number, op: Op): boolean {
+        const pageIndex = this.pageIndex_(blockID);
         const page = this.loadPage_(pageIndex);
-        const offset = id - pageIndex * this.pageSize_;
-        if (page.ops[offset] === undefined) {
-            this.opCount_++;
-        }
+        const offset = blockID - pageIndex * this.pageSize_;
+        const added = page.ops[offset] === undefined;
         page.ops[offset] = op;
         page.dirty = true;
-        this.lastID_ = Math.max(this.lastID_, id);
+        return added;
     }
 
-    getOp(id: number, resolutionLevel = 0): Op | undefined {
-        if (id < 0 || id > this.lastID_) {
-            return undefined;
-        }
-        const resolvedID = resolveOpID(id, resolutionLevel);
-        const pageIndex = this.pageIndex_(resolvedID);
+    getOp(blockID: number): Op | undefined {
+        const pageIndex = this.pageIndex_(blockID);
         const page = this.loadPage_(pageIndex);
-        return page.ops[resolvedID - pageIndex * this.pageSize_];
-    }
-
-    setRetiredOp(rid: number, op: Op): void {
-        if (rid < 0) {
-            return;
-        }
-        this.retiredOpIDs_[rid] = op.id;
-        this.lastRID_ = Math.max(this.lastRID_, rid);
-    }
-
-    getOpFromRID(rid: number, resolutionLevel = 0): Op | undefined {
-        if (rid < 0 || rid > this.lastRID_) {
-            return undefined;
-        }
-        const id = this.retiredOpIDs_[rid];
-        return id === undefined ? undefined : this.getOp(id, resolutionLevel);
+        return page.ops[blockID - pageIndex * this.pageSize_];
     }
 
     close(): void {
         this.serializedPages_.clear();
         this.decodedPages_.clear();
         this.decodedPageLRU_.clear();
-        this.retiredOpIDs_.length = 0;
-        this.lastID_ = -1;
-        this.lastRID_ = -1;
-        this.opCount_ = 0;
+        this.decodeCount_ = 0;
     }
 
-    private pageIndex_(id: number): number {
-        return Math.floor(id / this.pageSize_);
+    private pageIndex_(blockID: number): number {
+        return Math.floor(blockID / this.pageSize_);
     }
 
     private loadPage_(pageIndex: number): DecodedPage {
@@ -253,6 +210,7 @@ export class SerializedPageOpStore implements MutableOpStore {
         if (serialized !== undefined) {
             const storedOps = JSON.parse(serialized) as Array<StoredOp | null>;
             ops = storedOps.map((stored) => stored === null ? undefined : deserializeOp(stored));
+            this.decodeCount_++;
         }
         const page: DecodedPage = { ops, dirty: false };
         this.decodedPages_.set(pageIndex, page);
@@ -262,6 +220,7 @@ export class SerializedPageOpStore implements MutableOpStore {
     }
 
     private touchPage_(pageIndex: number): void {
+        // Mapの挿入順をLRU順とし、参照したpageを末尾へ入れ直す。
         this.decodedPageLRU_.delete(pageIndex);
         this.decodedPageLRU_.set(pageIndex, true);
     }
@@ -283,6 +242,168 @@ export class SerializedPageOpStore implements MutableOpStore {
                 this.serializedPages_.set(oldest, JSON.stringify(storedOps));
             }
             this.decodedPages_.delete(oldest);
+        }
+    }
+}
+
+// 旧BigKeyValueStoreと同じ多段pageとOp LRUを、非圧縮JSON pageで再現する試作。
+export class SerializedPageOpStore implements MutableOpStore {
+    private readonly levels_: readonly SerializedPageLevel[];
+    private readonly maxCachedOps_: number;
+    private readonly opCache_ = new Map<number, Op>();
+    private readonly retiredOpIDs_: Array<number | undefined> = [];
+    private lastID_ = -1;
+    private lastRID_ = -1;
+    private opCount_ = 0;
+    private opCacheAccessCount_ = 0;
+    private opCacheHitCount_ = 0;
+
+    constructor(options: SerializedPageOpStoreOptions = {}) {
+        const pageSizeBits = options.pageSizeBits ?? 8;
+        const maxDecodedPages = options.maxDecodedPages ?? 4;
+        const maxCachedOps = options.maxCachedOps ?? DEFAULT_MAX_CACHED_OPS;
+        const levelSpans = options.levelSpans ?? DEFAULT_LEVEL_SPANS;
+        if (!Number.isInteger(pageSizeBits) || pageSizeBits < 0 || pageSizeBits > 30) {
+            throw new Error("pageSizeBits must be an integer between 0 and 30.");
+        }
+        if (!Number.isSafeInteger(maxDecodedPages) || maxDecodedPages < 1) {
+            throw new Error("maxDecodedPages must be a positive safe integer.");
+        }
+        if (!Number.isSafeInteger(maxCachedOps) || maxCachedOps < 1) {
+            throw new Error("maxCachedOps must be a positive safe integer.");
+        }
+        if (levelSpans.length === 0 || levelSpans[0] !== 1 || levelSpans.some((span, index) =>
+            !Number.isSafeInteger(span) || span < 1 ||
+            (index > 0 &&
+                (span <= levelSpans[index - 1] || span % levelSpans[index - 1] !== 0)))) {
+            throw new Error("levelSpans must start at 1 and contain ascending integer multiples.");
+        }
+        const pageSize = 2 ** pageSizeBits;
+        this.levels_ = levelSpans.map((span) =>
+            new SerializedPageLevel(span, pageSize, maxDecodedPages));
+        this.maxCachedOps_ = maxCachedOps;
+    }
+
+    get lastID(): number {
+        return this.lastID_;
+    }
+
+    get lastRID(): number {
+        return this.lastRID_;
+    }
+
+    get opCount(): number {
+        return this.opCount_;
+    }
+
+    get serializedPageCount(): number {
+        return this.levelMetrics.reduce((sum, level) => sum + level.serializedPages, 0);
+    }
+
+    get decodedPageCount(): number {
+        return this.levelMetrics.reduce((sum, level) => sum + level.decodedPages, 0);
+    }
+
+    get serializedCharacterCount(): number {
+        return this.levelMetrics.reduce((sum, level) => sum + level.serializedCharacters, 0);
+    }
+
+    get levelMetrics(): readonly SerializedPageLevelMetrics[] {
+        return this.levels_.map((level) => level.metrics);
+    }
+
+    get opCacheAccessCount(): number {
+        return this.opCacheAccessCount_;
+    }
+
+    get opCacheHitCount(): number {
+        return this.opCacheHitCount_;
+    }
+
+    setOp(id: number, op: Op): void {
+        if (id < 0) {
+            return;
+        }
+        this.opCache_.delete(id);
+        if (this.levels_[0].setOp(id, op)) {
+            this.opCount_++;
+        }
+        for (let index = 1; index < this.levels_.length; index++) {
+            const level = this.levels_[index];
+            if (id % level.span === 0) {
+                level.setOp(id / level.span, op);
+            }
+        }
+        this.lastID_ = Math.max(this.lastID_, id);
+    }
+
+    getOp(id: number, resolutionLevel = 0): Op | undefined {
+        if (id < 0 || id > this.lastID_) {
+            return undefined;
+        }
+        const resolvedID = resolveOpID(id, resolutionLevel);
+        this.opCacheAccessCount_++;
+        const cached = this.opCache_.get(resolvedID);
+        if (cached !== undefined) {
+            this.opCacheHitCount_++;
+            this.touchCachedOp_(resolvedID, cached);
+            return cached;
+        }
+
+        const level = this.levelForID_(resolvedID);
+        const op = level.getOp(resolvedID / level.span);
+        if (op !== undefined) {
+            this.touchCachedOp_(resolvedID, op);
+        }
+        return op;
+    }
+
+    setRetiredOp(rid: number, op: Op): void {
+        if (rid < 0) {
+            return;
+        }
+        this.retiredOpIDs_[rid] = op.id;
+        this.lastRID_ = Math.max(this.lastRID_, rid);
+    }
+
+    getOpFromRID(rid: number, resolutionLevel = 0): Op | undefined {
+        if (rid < 0 || rid > this.lastRID_) {
+            return undefined;
+        }
+        const id = this.retiredOpIDs_[rid];
+        return id === undefined ? undefined : this.getOp(id, resolutionLevel);
+    }
+
+    close(): void {
+        for (const level of this.levels_) {
+            level.close();
+        }
+        this.opCache_.clear();
+        this.retiredOpIDs_.length = 0;
+        this.lastID_ = -1;
+        this.lastRID_ = -1;
+        this.opCount_ = 0;
+        this.opCacheAccessCount_ = 0;
+        this.opCacheHitCount_ = 0;
+    }
+
+    private levelForID_(id: number): SerializedPageLevel {
+        for (let index = this.levels_.length - 1; index >= 0; index--) {
+            if (id % this.levels_[index].span === 0) {
+                return this.levels_[index];
+            }
+        }
+        return this.levels_[0];
+    }
+
+    private touchCachedOp_(id: number, op: Op): void {
+        this.opCache_.delete(id);
+        this.opCache_.set(id, op);
+        if (this.opCache_.size > this.maxCachedOps_) {
+            const oldest = this.opCache_.keys().next().value as number | undefined;
+            if (oldest !== undefined) {
+                this.opCache_.delete(oldest);
+            }
         }
     }
 }

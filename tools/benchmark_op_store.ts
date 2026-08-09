@@ -49,6 +49,14 @@ interface StoreMetrics {
     serializedPages: number;
     decodedPages: number;
     serializedCharacters: number;
+    opCacheAccesses: number;
+    opCacheHits: number;
+    levels: readonly {
+        span: number;
+        serializedPages: number;
+        decodedPages: number;
+        decodeCount: number;
+    }[];
 }
 
 interface StoreCase {
@@ -105,6 +113,14 @@ function storeMetrics(store: MutableOpStore): StoreMetrics | undefined {
         serializedPages: store.serializedPageCount,
         decodedPages: store.decodedPageCount,
         serializedCharacters: store.serializedCharacterCount,
+        opCacheAccesses: store.opCacheAccessCount,
+        opCacheHits: store.opCacheHitCount,
+        levels: store.levelMetrics.map((level) => ({
+            span: level.span,
+            serializedPages: level.serializedPages,
+            decodedPages: level.decodedPages,
+            decodeCount: level.decodeCount,
+        })),
     };
 }
 
