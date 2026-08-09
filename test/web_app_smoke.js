@@ -548,6 +548,62 @@ async function run() {
         throw new Error(`Wheel zoom handling is incomplete: ${JSON.stringify(wheelZoomState)}`);
     }
 
+    // touch画面では2 pointer間の距離比を連続倍率へ変換し、browser gestureに渡さずzoomする。
+    const pinchZoomState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const viewer = document.querySelector(".viewer");
+        const pipeline = document.querySelector(".pipeline-pane");
+        const reset = [...document.querySelectorAll(".zoom-controls button")]
+            .find((button) => button.textContent?.trim() === "Reset");
+        if (!(viewer instanceof HTMLElement) ||
+            !(pipeline instanceof HTMLElement) ||
+            !(reset instanceof HTMLButtonElement)) {
+            throw new Error("The touch zoom controls were not found.");
+        }
+        // synthetic pointerにも製品コードと同じcapture寿命を与える。
+        const captured = new Set();
+        Object.defineProperties(viewer, {
+            setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => captured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
+        });
+        const rect = pipeline.getBoundingClientRect();
+        const dispatchPointer = (type, pointerId, x, buttons) => viewer.dispatchEvent(new PointerEvent(type, {
+            pointerId,
+            pointerType: "touch",
+            isPrimary: pointerId === 1,
+            button: type === "pointerdown" ? 0 : -1,
+            buttons,
+            clientX: rect.left + x,
+            clientY: rect.top + 200,
+            bubbles: true,
+            cancelable: true
+        }));
+        dispatchPointer("pointerdown", 1, 100, 1);
+        dispatchPointer("pointerdown", 2, 200, 1);
+        dispatchPointer("pointermove", 2, 300, 1);
+        dispatchPointer("pointerup", 2, 300, 0);
+        dispatchPointer("pointerup", 1, 100, 0);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const result = {
+                zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
+                capturedPointers: captured.size,
+                panning: viewer.classList.contains("is-panning"),
+                touchAction: getComputedStyle(viewer).touchAction
+            };
+            delete viewer.setPointerCapture;
+            delete viewer.hasPointerCapture;
+            delete viewer.releasePointerCapture;
+            reset.click();
+            requestAnimationFrame(() => resolve(result));
+        }));
+    })`);
+    if (pinchZoomState.zoom !== "200%" ||
+        pinchZoomState.capturedPointers !== 0 ||
+        pinchZoomState.panning ||
+        pinchZoomState.touchAction !== "none") {
+        throw new Error(`Pinch zoom handling is incomplete: ${JSON.stringify(pinchZoomState)}`);
+    }
+
     // 旧コマンドパレットの起動、履歴、正規表現の前後検索、ID移動を実画面で確認する。
     const commandState = await window.webContents.executeJavaScript(`(async () => {
         const setInput = (input, value) => {

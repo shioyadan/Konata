@@ -22,7 +22,7 @@ interface HighlightedText {
     readonly matched: boolean;
 }
 
-interface DragPosition {
+interface PointerPosition {
     readonly x: number;
     readonly y: number;
 }
@@ -95,7 +95,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
-    const dragPositionRef = useRef<DragPosition | null>(null);
+    const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
     const splitterDraggingRef = useRef(false);
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
@@ -204,24 +204,70 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (trace === null || event.button !== 0) {
             return;
         }
+        const positions = pointerPositionsRef.current;
+        // 3本目以降はgestureへ影響させず、1本panと2本pinchだけを扱う。
+        if (positions.size >= 2) {
+            return;
+        }
         event.currentTarget.setPointerCapture(event.pointerId);
-        dragPositionRef.current = { x: event.clientX, y: event.clientY };
+        positions.set(event.pointerId, { x: event.clientX, y: event.clientY });
         setIsPanning(true);
     };
 
     const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-        const previous = dragPositionRef.current;
-        if (previous === null) {
+        const positions = pointerPositionsRef.current;
+        const previous = positions.get(event.pointerId);
+        if (previous === undefined) {
             return;
         }
-        // 紙を掴む感覚に合わせ、pointer移動と逆向きへviewを進める。
-        onMutateView((target) => target.panPixels(previous.x - event.clientX, previous.y - event.clientY));
-        dragPositionRef.current = { x: event.clientX, y: event.clientY };
+        if (positions.size === 1) {
+            // 紙を掴む感覚に合わせ、pointer移動と逆向きへviewを進める。
+            onMutateView((target) => target.panPixels(previous.x - event.clientX, previous.y - event.clientY));
+            positions.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            return;
+        }
+
+        const previousPair = Array.from(positions.values());
+        positions.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        const currentPair = Array.from(positions.values());
+        const distance = (pair: PointerPosition[]) => Math.hypot(
+            pair[0].x - pair[1].x,
+            pair[0].y - pair[1].y,
+        );
+        const previousDistance = distance(previousPair);
+        const currentDistance = distance(currentPair);
+        if (previousDistance === 0 || currentDistance === 0) {
+            return;
+        }
+        const previousCenter = {
+            x: (previousPair[0].x + previousPair[1].x) / 2,
+            y: (previousPair[0].y + previousPair[1].y) / 2,
+        };
+        const currentCenter = {
+            x: (currentPair[0].x + currentPair[1].x) / 2,
+            y: (currentPair[0].y + currentPair[1].y) / 2,
+        };
+        const pipelineRect = pipelineCanvasRef.current?.getBoundingClientRect();
+        if (pipelineRect === undefined) {
+            return;
+        }
+        const factor = currentDistance / previousDistance;
+        onMutateView((target) => {
+            // 2点の中心移動もpanとして反映し、指の間にあった位置をzoom後も維持する。
+            target.panPixels(previousCenter.x - currentCenter.x, previousCenter.y - currentCenter.y);
+            target.zoomAbs(
+                // Rendererのscaleは2^-levelなので、距離比を連続したlevel差へ変換する。
+                target.zoomLevel - Math.log2(factor),
+                Math.max(0, currentCenter.x - pipelineRect.left),
+                Math.max(0, currentCenter.y - pipelineRect.top),
+            );
+        });
     };
 
     const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-        dragPositionRef.current = null;
-        setIsPanning(false);
+        const positions = pointerPositionsRef.current;
+        positions.delete(event.pointerId);
+        setIsPanning(positions.size > 0);
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
         }
@@ -258,7 +304,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         pane: "label" | "pipeline",
         event: ReactMouseEvent<HTMLCanvasElement>,
     ) => {
-        if (trace === null || dragPositionRef.current !== null) {
+        if (trace === null || pointerPositionsRef.current.size > 0) {
             setToolTip(null);
             return;
         }
