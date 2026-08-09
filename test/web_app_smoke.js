@@ -683,7 +683,8 @@ async function run() {
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         color.value = "Custom";
         color.dispatchEvent(new Event("change", {bubbles: true}));
-        textThreshold.value = "12";
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        inputSetter?.call(textThreshold, "12");
         textThreshold.dispatchEvent(new Event("input", {bubbles: true}));
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             split: split.checked,
@@ -759,6 +760,51 @@ async function run() {
         throw new Error(`gem5 trace rendering is incomplete: ${JSON.stringify(gem5State)}`);
     }
 
+    // 2枚を開いた後で、全Tab共通設定とgem5だけの設定を異なる値へ変更する。
+    const secondTabSettingsState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const split = document.querySelector('input[aria-label="Split lanes"]');
+        const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
+        const textThreshold = document.querySelector('input[aria-label="Text drawing threshold"]');
+        if (!(split instanceof HTMLInputElement) ||
+            !(arrows instanceof HTMLSelectElement) ||
+            !(theme instanceof HTMLSelectElement) ||
+            !(color instanceof HTMLSelectElement) ||
+            !(hideFlushed instanceof HTMLInputElement) ||
+            !(textThreshold instanceof HTMLInputElement)) {
+            throw new Error("The second tab view controls were not found.");
+        }
+        split.click();
+        arrows.value = "notShow";
+        arrows.dispatchEvent(new Event("change", {bubbles: true}));
+        theme.value = "dark";
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        color.value = "RoyalBlue";
+        color.dispatchEvent(new Event("change", {bubbles: true}));
+        hideFlushed.click();
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        inputSetter?.call(textThreshold, "14");
+        textThreshold.dispatchEvent(new Event("input", {bubbles: true}));
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            split: split.checked,
+            arrows: arrows.value,
+            theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
+            color: color.value,
+            hideFlushed: hideFlushed.checked,
+            textThreshold: textThreshold.value
+        })));
+    })`);
+    if (secondTabSettingsState.split ||
+        secondTabSettingsState.arrows !== "notShow" ||
+        secondTabSettingsState.theme !== "dark" ||
+        secondTabSettingsState.color !== "RoyalBlue" ||
+        !secondTabSettingsState.hideFlushed ||
+        secondTabSettingsState.textThreshold !== "14") {
+        throw new Error(`Second tab settings are incomplete: ${JSON.stringify(secondTabSettingsState)}`);
+    }
+
     // 旧tab barと同じく、traceとRenderer設定を保持して切り替え、active tabを閉じたら隣へ移る。
     const tabState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const tabButtons = [...document.querySelectorAll('[role="tab"]')];
@@ -772,11 +818,19 @@ async function run() {
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const root = document.querySelector(".trace-app");
             const split = document.querySelector('input[aria-label="Split lanes"]');
+            const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
+            const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
+            const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
+            const textThreshold = document.querySelector('input[aria-label="Text drawing threshold"]');
             const switched = {
                 fileName: root?.dataset.fileName ?? null,
                 opCount: Number(root?.dataset.opCount ?? -1),
                 theme: root?.dataset.theme ?? null,
                 split: split instanceof HTMLInputElement && split.checked,
+                arrows: arrows instanceof HTMLSelectElement ? arrows.value : null,
+                color: color instanceof HTMLSelectElement ? color.value : null,
+                hideFlushed: hideFlushed instanceof HTMLInputElement && hideFlushed.checked,
+                textThreshold: textThreshold instanceof HTMLInputElement ? textThreshold.value : null,
                 zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                 searchOpID: document.querySelector('.find-result')?.dataset.opId ?? null,
                 searchText: document.querySelector('.find-result')?.textContent ?? null
@@ -794,6 +848,10 @@ async function run() {
                     remainingOpCount: Number(remainingRoot?.dataset.opCount ?? -1),
                     remainingTheme: remainingRoot?.dataset.theme ?? null,
                     remainingSplit: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
+                    remainingArrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
+                    remainingColor: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
+                    remainingHideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
+                    remainingTextThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
                     remainingZoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                     remainingSearchOpID: document.querySelector('.find-result')?.dataset.opId ?? null
                 });
@@ -804,8 +862,12 @@ async function run() {
         tabState.initialSelected !== "gem5-basic.txt" ||
         tabState.switched.fileName !== "kanata-basic.txt" ||
         tabState.switched.opCount !== 2 ||
-        tabState.switched.theme !== "light" ||
-        !tabState.switched.split ||
+        tabState.switched.theme !== "dark" ||
+        tabState.switched.split ||
+        tabState.switched.arrows !== "notShow" ||
+        tabState.switched.color !== "Custom" ||
+        tabState.switched.hideFlushed ||
+        tabState.switched.textThreshold !== "14" ||
         tabState.switched.zoom !== "200%" ||
         tabState.switched.searchOpID !== "1" ||
         typeof tabState.switched.searchText !== "string" ||
@@ -814,8 +876,12 @@ async function run() {
         tabState.remainingSelected !== "gem5-basic.txt" ||
         tabState.remainingFileName !== "gem5-basic.txt" ||
         tabState.remainingOpCount !== 1 ||
-        tabState.remainingTheme !== "light" ||
-        !tabState.remainingSplit ||
+        tabState.remainingTheme !== "dark" ||
+        tabState.remainingSplit ||
+        tabState.remainingArrows !== "notShow" ||
+        tabState.remainingColor !== "RoyalBlue" ||
+        !tabState.remainingHideFlushed ||
+        tabState.remainingTextThreshold !== "14" ||
         tabState.remainingZoom !== "100%" ||
         tabState.remainingSearchOpID !== null) {
         throw new Error(`Trace tabs are incomplete: ${JSON.stringify(tabState)}`);

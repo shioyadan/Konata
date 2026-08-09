@@ -1,8 +1,40 @@
 import type { Op, ParsedTrace } from "./core/model";
-import { KonataRenderer } from "./renderer/konata_renderer";
+import {
+    DEP_ARROW_TYPE,
+    KonataRenderer,
+    type DependencyArrowType,
+    type RendererTheme,
+} from "./renderer/konata_renderer";
 
 export type LoadState = "idle" | "loading" | "ready" | "error";
 export type Operation = "load" | "search";
+export type DrawingThreshold =
+    | "drawTextThreshold"
+    | "drawDetailedlyThreshold"
+    | "drawDependencyThreshold"
+    | "drawFrameThreshold";
+
+export interface GlobalViewSettings {
+    readonly theme: RendererTheme;
+    readonly dependencyArrowType: DependencyArrowType;
+    readonly splitLanes: boolean;
+    readonly fixOpHeight: boolean;
+    readonly drawTextThreshold: number;
+    readonly drawDetailedlyThreshold: number;
+    readonly drawDependencyThreshold: number;
+    readonly drawFrameThreshold: number;
+}
+
+const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
+    theme: "dark",
+    dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
+    splitLanes: false,
+    fixOpHeight: false,
+    drawTextThreshold: 10,
+    drawDetailedlyThreshold: 1,
+    drawDependencyThreshold: 4,
+    drawFrameThreshold: 4,
+};
 
 export interface FindResult {
     readonly targetPattern: string;
@@ -48,6 +80,17 @@ export type Action =
         readonly message: string;
     }
     | { readonly type: "KONATA_FIND_HIDE_RESULT"; readonly tabID: number }
+    | { readonly type: "KONATA_CHANGE_UI_COLOR_THEME"; readonly theme: RendererTheme }
+    | { readonly type: "KONATA_SET_DEP_ARROW_TYPE"; readonly arrowType: DependencyArrowType }
+    | { readonly type: "KONATA_SPLIT_LANES"; readonly enabled: boolean }
+    | { readonly type: "KONATA_FIX_OP_HEIGHT"; readonly enabled: boolean }
+    | { readonly type: "KONATA_CHANGE_COLOR_SCHEME"; readonly tabID: number; readonly scheme: string }
+    | { readonly type: "KONATA_HIDE_FLUSHED_OPS"; readonly tabID: number; readonly enabled: boolean }
+    | {
+        readonly type: "KONATA_CHANGE_DRAWING_THRESHOLD";
+        readonly threshold: DrawingThreshold;
+        readonly value: number;
+    }
     // 現行UIのRenderer操作をそのまま保つための移行用action。同期scrollを戻す段階で必要な操作だけ具体化する。
     | {
         readonly type: "KONATA_MUTATE_VIEW";
@@ -59,7 +102,9 @@ export type Change =
     | { readonly type: "TAB_OPEN"; readonly tabID: number }
     | { readonly type: "TAB_UPDATE"; readonly tabID: number | null }
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
+    // nullは全TabのRendererへ同じ変更を適用したことを表す。
     | { readonly type: "PANE_CONTENT_UPDATE"; readonly tabID: number | null }
+    | { readonly type: "WINDOW_CSS_UPDATE" }
     | { readonly type: "PROGRESS_BAR_START"; readonly tabID: number; readonly operation: Operation }
     | {
         readonly type: "PROGRESS_BAR_UPDATE";
@@ -117,6 +162,7 @@ export class Tab {
 export interface StoreSnapshot {
     readonly tabs: readonly Readonly<Tab>[];
     readonly activeTabID: number | null;
+    readonly settings: Readonly<GlobalViewSettings>;
     readonly revision: number;
 }
 
@@ -126,7 +172,14 @@ export class Store {
     private readonly snapshotListeners_ = new Set<() => void>();
     private readonly changeListeners_ = new Set<(change: Change) => void>();
     private nextOpenedTabID_ = 0;
-    private snapshot_: StoreSnapshot = { tabs: [], activeTabID: null, revision: 0 };
+    private defaultColorScheme_ = "Auto";
+    private settings_: GlobalViewSettings = { ...DEFAULT_GLOBAL_VIEW_SETTINGS };
+    private snapshot_: StoreSnapshot = {
+        tabs: [],
+        activeTabID: null,
+        settings: this.settings_,
+        revision: 0,
+    };
 
     // 同じsnapshotを変更通知まで返すことで、ReactのuseSyncExternalStoreから安全に購読できる。
     readonly subscribe = (listener: () => void): (() => void) => {
@@ -153,6 +206,9 @@ export class Store {
     dispatch(action: Action): void {
         switch (action.type) {
         case "FILE_OPEN": {
+            // 新しいTabにも、その時点の全体設定を既存Tabと同じ値で適用する。
+            this.applyGlobalViewSettings_(action.renderer);
+            action.renderer.changeColorScheme(this.defaultColorScheme_);
             const tab = new Tab(this.nextOpenedTabID_++, action.fileName, action.renderer);
             this.tabs_.set(tab.id, tab);
             this.publish_(tab.id, [
@@ -319,6 +375,61 @@ export class Store {
             ]);
             return;
         }
+        case "KONATA_CHANGE_UI_COLOR_THEME": {
+            this.setGlobalViewSettings_({ ...this.settings_, theme: action.theme }, true);
+            return;
+        }
+        case "KONATA_SET_DEP_ARROW_TYPE": {
+            this.setGlobalViewSettings_({
+                ...this.settings_,
+                dependencyArrowType: action.arrowType,
+            });
+            return;
+        }
+        case "KONATA_SPLIT_LANES": {
+            this.setGlobalViewSettings_({ ...this.settings_, splitLanes: action.enabled });
+            return;
+        }
+        case "KONATA_FIX_OP_HEIGHT": {
+            this.setGlobalViewSettings_({ ...this.settings_, fixOpHeight: action.enabled });
+            return;
+        }
+        case "KONATA_CHANGE_COLOR_SCHEME": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            // 旧Configと同様に、選択値は対象Tabだけへ適用し、新しいTabの既定値にもする。
+            this.defaultColorScheme_ = action.scheme;
+            tab.renderer.changeColorScheme(action.scheme);
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "KONATA_HIDE_FLUSHED_OPS": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            const renderer = tab.renderer;
+            // 表示方式を変えても、現在の先頭命令とそのfetch位置を維持する。
+            const current = renderer.getOpFromPixelPositionY(0);
+            const rid = current?.rid ?? 0;
+            renderer.hideFlushedOps = action.enabled;
+            const op = renderer.getOpFromRID(rid);
+            if (op !== undefined) {
+                renderer.moveLogicalPosition([op.fetchedCycle, action.enabled ? rid : op.id]);
+            }
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "KONATA_CHANGE_DRAWING_THRESHOLD": {
+            this.setGlobalViewSettings_({ ...this.settings_, [action.threshold]: action.value });
+            return;
+        }
         case "KONATA_MUTATE_VIEW": {
             const tab = this.tabs_.get(action.tabID);
             if (tab === undefined) {
@@ -338,15 +449,45 @@ export class Store {
             tab.close();
         }
         this.tabs_.clear();
-        this.snapshot_ = { tabs: [], activeTabID: null, revision: this.snapshot_.revision + 1 };
+        this.snapshot_ = {
+            tabs: [],
+            activeTabID: null,
+            settings: this.settings_,
+            revision: this.snapshot_.revision + 1,
+        };
         this.snapshotListeners_.clear();
         this.changeListeners_.clear();
+    }
+
+    private setGlobalViewSettings_(settings: GlobalViewSettings, windowCSS = false): void {
+        this.settings_ = settings;
+        for (const tab of this.tabs_.values()) {
+            this.applyGlobalViewSettings_(tab.renderer);
+        }
+        const changes: Change[] = [{ type: "PANE_CONTENT_UPDATE", tabID: null }];
+        if (windowCSS) {
+            changes.unshift({ type: "WINDOW_CSS_UPDATE" });
+        }
+        this.publish_(this.snapshot_.activeTabID, changes);
+    }
+
+    private applyGlobalViewSettings_(renderer: KonataRenderer): void {
+        const settings = this.settings_;
+        renderer.setTheme(settings.theme);
+        renderer.dependencyArrowType = settings.dependencyArrowType;
+        renderer.splitLanes = settings.splitLanes;
+        renderer.fixOpHeight = settings.fixOpHeight;
+        renderer.drawTextThreshold = settings.drawTextThreshold;
+        renderer.drawDetailedlyThreshold = settings.drawDetailedlyThreshold;
+        renderer.drawDependencyThreshold = settings.drawDependencyThreshold;
+        renderer.drawFrameThreshold = settings.drawFrameThreshold;
     }
 
     private publish_(activeTabID: number | null, changes: readonly Change[]): void {
         this.snapshot_ = {
             tabs: Array.from(this.tabs_.values()),
             activeTabID,
+            settings: this.settings_,
             revision: this.snapshot_.revision + 1,
         };
         for (const listener of this.snapshotListeners_) {

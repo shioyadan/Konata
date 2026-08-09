@@ -25,13 +25,7 @@ import {
     type DependencyArrowType,
     type RendererTheme,
 } from "./renderer/konata_renderer";
-import { type FindResult, Store } from "./store";
-
-type DrawingThreshold =
-    | "drawTextThreshold"
-    | "drawDetailedlyThreshold"
-    | "drawDependencyThreshold"
-    | "drawFrameThreshold";
+import { type DrawingThreshold, type FindResult, Store } from "./store";
 
 interface ViewBookmark {
     readonly x: number;
@@ -46,21 +40,6 @@ const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawDependencyThreshold", "Dependency arrows"],
     ["drawFrameThreshold", "Frames"],
 ];
-
-function createTabRenderer(source: KonataRenderer): KonataRenderer {
-    const renderer = new KonataRenderer();
-    // 単一sheet版で新しいfileを開いた時と同じく、現在の表示設定を次のtabへ引き継ぐ。
-    renderer.setTheme(source.theme);
-    renderer.hideFlushedOps = source.hideFlushedOps;
-    renderer.splitLanes = source.splitLanes;
-    renderer.fixOpHeight = source.fixOpHeight;
-    renderer.changeColorScheme(source.colorScheme);
-    renderer.dependencyArrowType = source.dependencyArrowType;
-    for (const [key] of DRAWING_THRESHOLDS) {
-        renderer[key] = source[key];
-    }
-    return renderer;
-}
 
 const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
     { length: 10 },
@@ -128,7 +107,7 @@ export function App() {
     const statsRequestRef = useRef(0);
     const commandHistoryRef = useRef<string[]>([]);
 
-    const { tabs, activeTabID } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+    const { tabs, activeTabID, settings } = useSyncExternalStore(store.subscribe, store.getSnapshot);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [statsProgress, setStatsProgress] = useState<number | null>(null);
     const [statsValues, setStatsValues] = useState<Readonly<StatsValues> | null>(null);
@@ -198,7 +177,8 @@ export function App() {
     }, [resetCommandUI, resetStats, store]);
 
     useEffect(() => store.subscribeChange((change) => {
-        if (change.type === "PANE_CONTENT_UPDATE" && change.tabID === store.activeTab?.id) {
+        if (change.type === "PANE_CONTENT_UPDATE" &&
+            (change.tabID === null || change.tabID === store.activeTab?.id)) {
             setRenderVersion((version) => version + 1);
         }
     }), [store]);
@@ -210,11 +190,10 @@ export function App() {
     }, [store]);
 
     const loadFile = useCallback(async (file: File) => {
-        const sourceRenderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         store.dispatch({
             type: "FILE_OPEN",
             fileName: file.name,
-            renderer: createTabRenderer(sourceRenderer),
+            renderer: new KonataRenderer(),
         });
         const tab = store.activeTab;
         if (tab === null) {
@@ -540,16 +519,9 @@ export function App() {
     }, [bookmarks, mutateView]);
 
     const toggleHideFlushedOps = (enabled: boolean) => {
-        mutateView((renderer) => {
-            // 表示方式を変えても、現在の先頭命令とそのfetch位置を維持する。
-            const current = renderer.getOpFromPixelPositionY(0);
-            const rid = current?.rid ?? 0;
-            renderer.hideFlushedOps = enabled;
-            const op = renderer.getOpFromRID(rid);
-            if (op !== undefined) {
-                renderer.moveLogicalPosition([op.fetchedCycle, enabled ? rid : op.id]);
-            }
-        });
+        if (activeTab !== null) {
+            store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: activeTab.id, enabled });
+        }
     };
 
     const showStats = () => {
@@ -702,8 +674,8 @@ export function App() {
 
     return (
         <main
-            className={`trace-app theme-${renderer.theme}${isDraggingFile ? " is-dragging-file" : ""}`}
-            data-theme={renderer.theme}
+            className={`trace-app theme-${settings.theme}${isDraggingFile ? " is-dragging-file" : ""}`}
+            data-theme={settings.theme}
             data-load-state={loadState}
             data-file-name={fileName}
             data-op-count={trace?.opCount ?? 0}
@@ -769,9 +741,10 @@ export function App() {
                             Theme
                             <select
                                 aria-label="UI color theme"
-                                value={renderer.theme}
-                                onChange={(event) => mutateView((renderer) => {
-                                    renderer.setTheme(event.target.value as RendererTheme);
+                                value={settings.theme}
+                                onChange={(event) => store.dispatch({
+                                    type: "KONATA_CHANGE_UI_COLOR_THEME",
+                                    theme: event.target.value as RendererTheme,
                                 })}
                             >
                                 <option value="dark">Dark</option>
@@ -792,10 +765,11 @@ export function App() {
                             <input
                                 type="checkbox"
                                 aria-label="Split lanes"
-                                checked={renderer.splitLanes}
+                                checked={settings.splitLanes}
                                 disabled={trace === null}
-                                onChange={(event) => mutateView((renderer) => {
-                                    renderer.splitLanes = event.target.checked;
+                                onChange={(event) => store.dispatch({
+                                    type: "KONATA_SPLIT_LANES",
+                                    enabled: event.target.checked,
                                 })}
                             />
                             Split lanes
@@ -804,10 +778,11 @@ export function App() {
                             <input
                                 type="checkbox"
                                 aria-label="Fix op height"
-                                checked={renderer.fixOpHeight}
-                                disabled={trace === null || !renderer.splitLanes}
-                                onChange={(event) => mutateView((renderer) => {
-                                    renderer.fixOpHeight = event.target.checked;
+                                checked={settings.fixOpHeight}
+                                disabled={trace === null || !settings.splitLanes}
+                                onChange={(event) => store.dispatch({
+                                    type: "KONATA_FIX_OP_HEIGHT",
+                                    enabled: event.target.checked,
                                 })}
                             />
                             Fix op height
@@ -818,9 +793,15 @@ export function App() {
                                 aria-label="Pipeline color scheme"
                                 value={renderer.colorScheme}
                                 disabled={trace === null}
-                                onChange={(event) => mutateView((renderer) => {
-                                    renderer.changeColorScheme(event.target.value);
-                                })}
+                                onChange={(event) => {
+                                    if (activeTab !== null) {
+                                        store.dispatch({
+                                            type: "KONATA_CHANGE_COLOR_SCHEME",
+                                            tabID: activeTab.id,
+                                            scheme: event.target.value,
+                                        });
+                                    }
+                                }}
                             >
                                 <option>Auto</option>
                                 <option>Unique</option>
@@ -834,10 +815,11 @@ export function App() {
                             Dependency arrows
                             <select
                                 aria-label="Dependency arrow type"
-                                value={renderer.dependencyArrowType}
+                                value={settings.dependencyArrowType}
                                 disabled={trace === null}
-                                onChange={(event) => mutateView((renderer) => {
-                                    renderer.dependencyArrowType = event.target.value as DependencyArrowType;
+                                onChange={(event) => store.dispatch({
+                                    type: "KONATA_SET_DEP_ARROW_TYPE",
+                                    arrowType: event.target.value as DependencyArrowType,
                                 })}
                             >
                                 <option value={DEP_ARROW_TYPE.INSIDE_LINE}>Inside-line</option>
@@ -855,13 +837,15 @@ export function App() {
                                         min="0"
                                         step="0.5"
                                         aria-label={`${label} drawing threshold`}
-                                        value={renderer[key]}
+                                        value={settings[key]}
                                         disabled={trace === null}
                                         onChange={(event) => {
                                             const value = Number(event.target.value);
                                             if (Number.isFinite(value) && value >= 0) {
-                                                mutateView((renderer) => {
-                                                    renderer[key] = value;
+                                                store.dispatch({
+                                                    type: "KONATA_CHANGE_DRAWING_THRESHOLD",
+                                                    threshold: key,
+                                                    value,
                                                 });
                                             }
                                         }}

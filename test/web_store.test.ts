@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { Op, ParsedTrace, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
-import { KonataRenderer } from "../src/renderer/konata_renderer";
+import { DEP_ARROW_TYPE, KonataRenderer } from "../src/renderer/konata_renderer";
 import { type Change, Store } from "../src/store";
 
 function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpStore } {
@@ -156,6 +156,71 @@ test("Store keeps search context per tab and rejects stale search updates", () =
         change.type === "PROGRESS_BAR_UPDATE" && change.operation === "search"));
     assert.ok(changes.some((change) =>
         change.type === "PROGRESS_BAR_FINISH" && change.operation === "search"));
+
+    store.close();
+});
+
+test("Store separates global view settings from tab-specific settings", () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+
+    const firstRenderer = new KonataRenderer();
+    store.dispatch({ type: "FILE_OPEN", fileName: "first.log", renderer: firstRenderer });
+    const firstTab = store.activeTab;
+    assert.ok(firstTab !== null);
+    store.dispatch({
+        type: "KONATA_CHANGE_COLOR_SCHEME",
+        tabID: firstTab.id,
+        scheme: "Custom",
+    });
+    store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: firstTab.id, enabled: true });
+
+    store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "light" });
+    store.dispatch({
+        type: "KONATA_SET_DEP_ARROW_TYPE",
+        arrowType: DEP_ARROW_TYPE.LEFT_SIDE_CURVE,
+    });
+    store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
+    store.dispatch({ type: "KONATA_FIX_OP_HEIGHT", enabled: true });
+    store.dispatch({
+        type: "KONATA_CHANGE_DRAWING_THRESHOLD",
+        threshold: "drawTextThreshold",
+        value: 12,
+    });
+
+    const secondRenderer = new KonataRenderer();
+    store.dispatch({ type: "FILE_OPEN", fileName: "second.log", renderer: secondRenderer });
+    const secondTab = store.activeTab;
+    assert.ok(secondTab !== null);
+
+    // 全体設定は既存Rendererと新しいRendererの双方へ同じ値を適用する。
+    for (const renderer of [firstRenderer, secondRenderer]) {
+        assert.equal(renderer.theme, "light");
+        assert.equal(renderer.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
+        assert.equal(renderer.splitLanes, true);
+        assert.equal(renderer.fixOpHeight, true);
+        assert.equal(renderer.drawTextThreshold, 12);
+    }
+    assert.equal(store.getSnapshot().settings.theme, "light");
+    assert.ok(changes.some((change) => change.type === "WINDOW_CSS_UPDATE"));
+    assert.ok(changes.some((change) =>
+        change.type === "PANE_CONTENT_UPDATE" && change.tabID === null));
+
+    // 色方式は最後の選択を新規Tabの既定値にするが、変更対象は指定したTabだけに限る。
+    assert.equal(firstRenderer.colorScheme, "Custom");
+    assert.equal(secondRenderer.colorScheme, "Custom");
+    store.dispatch({
+        type: "KONATA_CHANGE_COLOR_SCHEME",
+        tabID: secondTab.id,
+        scheme: "RoyalBlue",
+    });
+    assert.equal(firstRenderer.colorScheme, "Custom");
+    assert.equal(secondRenderer.colorScheme, "RoyalBlue");
+
+    // flush非表示は旧Tabと同じく新規Tabへ引き継がず、各Tabで独立させる。
+    assert.equal(firstRenderer.hideFlushedOps, true);
+    assert.equal(secondRenderer.hideFlushedOps, false);
 
     store.close();
 });
