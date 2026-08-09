@@ -448,13 +448,8 @@ async function verifyApplicationMenu(window) {
 
         summary.click();
         await nextFrame();
-        const menuItems = [...panel.querySelectorAll(":scope > button, :scope > a")]
+        const menuItems = [...panel.querySelectorAll(":scope > button")]
             .map((item) => item.textContent?.trim() ?? "");
-        const menuLinks = [...panel.querySelectorAll(":scope > a")].map((link) => ({
-            href: link.getAttribute("href"),
-            target: link.getAttribute("target"),
-            rel: link.getAttribute("rel")
-        }));
         const menuVersion = panel.querySelector("small")?.textContent?.trim() ?? null;
         // 初期messageの半透明layerより手前にあり、menu項目を直接操作できることを確認する。
         const panelRect = panel.getBoundingClientRect();
@@ -472,10 +467,16 @@ async function verifyApplicationMenu(window) {
             title: about?.querySelector("h2")?.textContent ?? null,
             summary: [...(about?.querySelector(".about-summary")?.children ?? [])]
                 .map((element) => element.textContent?.trim() ?? "").join(" "),
+            authors: about?.querySelector(".about-authors")?.textContent?.trim() ?? null,
             values: [...(about?.querySelectorAll(".build-details dd") ?? [])]
                 .map((value) => value.textContent?.trim() ?? ""),
             links: [...(about?.querySelectorAll(".about-links a") ?? [])]
-                .map((link) => link.textContent?.trim() ?? ""),
+                .map((link) => ({
+                    text: link.textContent?.trim() ?? "",
+                    href: link.getAttribute("href"),
+                    target: link.getAttribute("target"),
+                    rel: link.getAttribute("rel")
+                })),
             backdropLayer: getComputedStyle(document.querySelector(".dialog-backdrop")).zIndex
         };
         about?.querySelector("button[aria-label^='Close']")?.click();
@@ -513,11 +514,11 @@ async function verifyApplicationMenu(window) {
 
         return {
             menuItems,
-            menuLinks,
             menuVersion,
             menuPanelOnTop,
             aboutState,
             shortcutState,
+            platform: navigator.platform,
             escapeCanceled,
             dialogClosedByEscape,
             menuClosedByOutsidePointer: !menu.open
@@ -648,24 +649,37 @@ async function run() {
     const applicationMenuState = await verifyApplicationMenu(window);
     if (JSON.stringify(applicationMenuState.menuItems) !== JSON.stringify([
         "About Konata",
-        "Keyboard shortcuts",
-        "GitHub Repository",
-        "License information"
+        "Keyboard shortcuts"
     ]) ||
-        applicationMenuState.menuLinks.some((link) =>
-            link.target !== "_blank" || !link.rel?.includes("noreferrer")) ||
         applicationMenuState.menuVersion !== `Version ${initialState.version}` ||
         !applicationMenuState.menuPanelOnTop ||
         applicationMenuState.aboutState.title !== "About Konata" ||
         applicationMenuState.aboutState.summary !== "Konata Pipeline visualization tool" ||
+        applicationMenuState.aboutState.authors !== "Ryota Shioya and Kojiro Izuoka" ||
         JSON.stringify(applicationMenuState.aboutState.values) !==
             JSON.stringify([initialState.version, initialState.commit, initialState.date]) ||
-        JSON.stringify(applicationMenuState.aboutState.links) !== JSON.stringify(["GitHub", "Licenses"]) ||
+        JSON.stringify(applicationMenuState.aboutState.links) !== JSON.stringify([
+            {
+                text: "GitHub",
+                href: "https://github.com/shioyadan/Konata",
+                target: "_blank",
+                rel: "noreferrer"
+            },
+            {
+                text: "License",
+                href: "https://github.com/shioyadan/Konata/blob/master/LICENSE.md",
+                target: "_blank",
+                rel: "noreferrer"
+            }
+        ]) ||
         applicationMenuState.aboutState.backdropLayer !== "30" ||
         applicationMenuState.shortcutState.title !== "Keyboard Shortcuts" ||
         applicationMenuState.shortcutState.entries.length !== 8 ||
         JSON.stringify(applicationMenuState.shortcutState.entries[0]) !==
-            JSON.stringify(["Open trace", "Ctrl/⌘+O"]) ||
+            JSON.stringify([
+                "Open trace",
+                `${applicationMenuState.platform.toLowerCase().startsWith("mac") ? "⌘" : "Ctrl"}+O`
+            ]) ||
         !applicationMenuState.escapeCanceled ||
         !applicationMenuState.dialogClosedByEscape ||
         !applicationMenuState.menuClosedByOutsidePointer) {

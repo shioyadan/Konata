@@ -414,8 +414,7 @@ button:disabled {
     box-shadow: var(--ui-panel-shadow);
 }
 
-.application-menu-panel button,
-.application-menu-panel a {
+.application-menu-panel button {
     display: flex;
     width: 100%;
     align-items: center;
@@ -430,8 +429,7 @@ button:disabled {
     white-space: nowrap;
 }
 
-.application-menu-panel button:hover,
-.application-menu-panel a:hover {
+.application-menu-panel button:hover {
     background: #38404d;
 }
 
@@ -849,6 +847,12 @@ button:disabled {
     font-size: 0.85rem;
 }
 
+.about-authors {
+    margin: -0.2rem 0 0;
+    color: #aeb5c0;
+    font-size: 0.8rem;
+}
+
 .build-details,
 .shortcut-list {
     margin: 0;
@@ -1259,14 +1263,12 @@ button:disabled {
     color: #555;
 }
 
-.theme-light .application-menu-panel button,
-.theme-light .application-menu-panel a {
+.theme-light .application-menu-panel button {
     background: transparent;
     color: #222;
 }
 
-.theme-light .application-menu-panel button:hover,
-.theme-light .application-menu-panel a:hover {
+.theme-light .application-menu-panel button:hover {
     background: #e5e8ed;
 }
 
@@ -1353,6 +1355,7 @@ button:disabled {
 }
 
 .theme-light .about-summary span,
+.theme-light .about-authors,
 .theme-light .build-details dt,
 .theme-light .shortcut-list dt {
     color: #555;

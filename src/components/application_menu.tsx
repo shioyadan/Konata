@@ -17,16 +17,20 @@ const LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE.md`;
 
 type ApplicationDialog = "about" | "shortcuts" | null;
 
-const SHORTCUTS: ReadonlyArray<readonly [string, string]> = [
-    ["Open trace", "Ctrl/⌘+O"],
-    ["Command palette", "F1 · Ctrl/⌘+Shift+P"],
-    ["Search", "Ctrl/⌘+F · F3 / Shift+F3"],
-    ["Move", "Arrow keys · Page Up / Page Down"],
-    ["Zoom", "+ / − · Ctrl/⌘+wheel"],
-    ["Go to bookmark", "0–9"],
-    ["Set bookmark", "Ctrl/⌘+0–9"],
-    ["Switch tab", "Ctrl/⌘+Tab"],
-];
+function getShortcuts(platform: string): ReadonlyArray<readonly [string, string]> {
+    // macOSでは実際のevent.metaKeyに合わせ、それ以外ではCtrlと表記する。
+    const commandKey = platform.toLowerCase().startsWith("mac") ? "⌘" : "Ctrl";
+    return [
+        ["Open trace", `${commandKey}+O`],
+        ["Command palette", `F1 · ${commandKey}+Shift+P`],
+        ["Search", `${commandKey}+F · F3 / Shift+F3`],
+        ["Move", "Arrow keys · Page Up / Page Down"],
+        ["Zoom", `+ / − · ${commandKey}+wheel`],
+        ["Go to bookmark", "0–9"],
+        ["Set bookmark", `${commandKey}+0–9`],
+        ["Switch tab", `${commandKey}+Tab`],
+    ];
+}
 
 interface InformationDialogProps {
     readonly type: Exclude<ApplicationDialog, null>;
@@ -36,6 +40,7 @@ interface InformationDialogProps {
 function InformationDialog({ type, onClose }: InformationDialogProps) {
     const isAbout = type === "about";
     const title = isAbout ? "About Konata" : "Keyboard Shortcuts";
+    const shortcuts = getShortcuts(navigator.platform);
     return (
         <div
             className="dialog-backdrop"
@@ -69,6 +74,7 @@ function InformationDialog({ type, onClose }: InformationDialogProps) {
                             <strong>Konata</strong>
                             <span>Pipeline visualization tool</span>
                         </div>
+                        <p className="about-authors">Ryota Shioya and Kojiro Izuoka</p>
                         <dl className="build-details">
                             <div>
                                 <dt>Version</dt>
@@ -88,13 +94,13 @@ function InformationDialog({ type, onClose }: InformationDialogProps) {
                                 <BsGithub aria-hidden="true" /> GitHub
                             </a>
                             <a href={LICENSE_URL} target="_blank" rel="noreferrer">
-                                <BsFileText aria-hidden="true" /> Licenses
+                                <BsFileText aria-hidden="true" /> License
                             </a>
                         </nav>
                     </>
                 ) : (
                     <dl className="shortcut-list">
-                        {SHORTCUTS.map(([operation, shortcut]) => (
+                        {shortcuts.map(([operation, shortcut]) => (
                             <div key={operation}>
                                 <dt>{operation}</dt>
                                 <dd>{shortcut}</dd>
@@ -143,8 +149,6 @@ export function ApplicationMenu() {
         menuRef.current?.removeAttribute("open");
         setDialog(type);
     };
-    const closeMenu = () => menuRef.current?.removeAttribute("open");
-
     return (
         <>
             <details ref={menuRef} className="application-menu">
@@ -159,12 +163,6 @@ export function ApplicationMenu() {
                     <button type="button" onClick={() => openDialog("shortcuts")}>
                         <BsKeyboard aria-hidden="true" /> Keyboard shortcuts
                     </button>
-                    <a href={REPOSITORY_URL} target="_blank" rel="noreferrer" onClick={closeMenu}>
-                        <BsGithub aria-hidden="true" /> GitHub Repository
-                    </a>
-                    <a href={LICENSE_URL} target="_blank" rel="noreferrer" onClick={closeMenu}>
-                        <BsFileText aria-hidden="true" /> License information
-                    </a>
                     <small>Version {__KONATA_VERSION__}</small>
                 </div>
             </details>
