@@ -1122,6 +1122,25 @@ async function run() {
 
     // 同じ単一HTMLを読み直しても保存値を復元し、壊れた値では安全に初期値へ戻ることを確認する。
     await window.loadFile(webFile);
+    const persistedCommandHistory = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 10));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "F1", bubbles: true, cancelable: true}));
+        await nextFrame();
+        const input = document.querySelector('.command-palette input');
+        if (!(input instanceof HTMLInputElement)) {
+            throw new Error("The restored command palette was not opened.");
+        }
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowUp", bubbles: true, cancelable: true}));
+        await nextFrame();
+        const command = input.value;
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        return command;
+    })()`);
+    if (persistedCommandHistory !== "j 0") {
+        throw new Error(`Command history persistence is incomplete: ${JSON.stringify(persistedCommandHistory)}`);
+    }
+
     const persistedBookmarkState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             slot2: document.querySelector('button[aria-label="Go to bookmark 2"]')?.nextElementSibling?.textContent ?? null,
@@ -1134,20 +1153,34 @@ async function run() {
         throw new Error(`Bookmark persistence is incomplete: ${JSON.stringify(persistedBookmarkState)}`);
     }
 
-    await window.webContents.executeJavaScript(
-        `localStorage.setItem("konata.bookmarks", "{broken")`,
-    );
+    await window.webContents.executeJavaScript(`(() => {
+        localStorage.setItem("konata.bookmarks", "{broken");
+        localStorage.setItem("konata.commandHistory", "{broken");
+    })()`);
     await window.loadFile(webFile);
-    const recoveredBookmarkState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+    const recoveredBookmarkState = await window.webContents.executeJavaScript(`(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "F1", bubbles: true, cancelable: true}));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const historyInput = document.querySelector('.command-palette input');
+        if (!(historyInput instanceof HTMLInputElement)) {
+            throw new Error("The recovered command palette was not opened.");
+        }
+        historyInput.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowUp", bubbles: true, cancelable: true}));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const commandHistory = historyInput.value;
+        historyInput.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        return {
             loadState: document.querySelector(".trace-app")?.dataset.loadState ?? null,
             slot2: document.querySelector('button[aria-label="Go to bookmark 2"]')?.nextElementSibling?.textContent ?? null,
-            slot3: document.querySelector('button[aria-label="Go to bookmark 3"]')?.nextElementSibling?.textContent ?? null
-        })));
-    })`);
+            slot3: document.querySelector('button[aria-label="Go to bookmark 3"]')?.nextElementSibling?.textContent ?? null,
+            commandHistory
+        };
+    })()`);
     if (recoveredBookmarkState.loadState !== "idle" ||
         recoveredBookmarkState.slot2 !== "2: x:0, y:0, zoom:0" ||
-        recoveredBookmarkState.slot3 !== "3: x:0, y:0, zoom:0") {
+        recoveredBookmarkState.slot3 !== "3: x:0, y:0, zoom:0" ||
+        recoveredBookmarkState.commandHistory !== "") {
         throw new Error(`Bookmark recovery is incomplete: ${JSON.stringify(recoveredBookmarkState)}`);
     }
 

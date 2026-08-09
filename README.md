@@ -96,7 +96,7 @@ l             Open the file picker
 ```
 
 Number keys `0`–`9` go to bookmarks. Ctrl/Command+`0`–`9` stores the current position and zoom in
-the corresponding slot. Bookmarks and view settings are saved in browser storage.
+the corresponding slot. Command history, bookmarks, and view settings are saved in browser storage.
 
 ### Current Web/Electron differences
 
@@ -105,7 +105,6 @@ the corresponding slot. Bookmarks and view settings are saved in browser storage
 | Local plain/gzip traces, tabs, search, bookmarks, Stats, and view settings | Supported | Supported |
 | Progressive parsing and drawing | Supported | Supported |
 | Adjust position | Toolbar crosshair | Pipeline context menu |
-| Command-palette history after restart | Not yet persisted | Supported |
 | Transparent overlay and synchronized scrolling | Not yet implemented | Supported |
 | Recent files and reload after an external file change | Not yet implemented | Supported |
 | Automatic loading from a path or URL query | Intentionally disabled | Local paths supported |

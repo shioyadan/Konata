@@ -88,7 +88,9 @@ const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
     () => ({ x: 0, y: 0, zoom: 0 }),
 );
 const BOOKMARK_STORAGE_KEY = "konata.bookmarks";
+const COMMAND_HISTORY_STORAGE_KEY = "konata.commandHistory";
 const VIEW_SETTINGS_STORAGE_KEY = "konata.viewSettings";
+const MAX_COMMAND_HISTORY = 20;
 // 旧版と同じ速度を保ち、操作方法だけに依存せず同じ補間を適用する。
 const ZOOM_ANIMATION_DURATION = 80;
 const SCROLL_ANIMATION_DURATION = 100;
@@ -205,6 +207,28 @@ function saveViewSettings(settings: Readonly<PersistedViewSettings>): void {
     }
 }
 
+function loadCommandHistory(): string[] {
+    try {
+        const value: unknown = JSON.parse(localStorage.getItem(COMMAND_HISTORY_STORAGE_KEY) ?? "null");
+        if (Array.isArray(value) && value.every((command) => typeof command === "string")) {
+            return value.slice(0, MAX_COMMAND_HISTORY);
+        }
+    }
+    catch {
+        // 保存値が壊れていてもpaletteの起動を妨げず、空の履歴から再開する。
+    }
+    return [];
+}
+
+function saveCommandHistory(history: readonly string[]): void {
+    try {
+        localStorage.setItem(COMMAND_HISTORY_STORAGE_KEY, JSON.stringify(history));
+    }
+    catch {
+        // 保存できなくても、現在のApp内の履歴はそのまま利用できる。
+    }
+}
+
 function isViewBookmark(value: unknown): value is ViewBookmark {
     if (typeof value !== "object" || value === null) {
         return false;
@@ -265,7 +289,11 @@ export function App() {
     }
     const store = storeRef.current;
     const statsRequestRef = useRef(0);
-    const commandHistoryRef = useRef<string[]>([]);
+    const commandHistoryRef = useRef<string[] | null>(null);
+    if (commandHistoryRef.current === null) {
+        commandHistoryRef.current = loadCommandHistory();
+    }
+    const commandHistory = commandHistoryRef.current;
     // timer IDなどの途中状態は表示結果ではないため、StoreではなくAppの寿命にだけ結び付ける。
     const viewAnimationRef = useRef<ViewAnimation | null>(null);
     const pendingScrollRef = useRef<PendingScroll | null>(null);
@@ -792,13 +820,14 @@ export function App() {
         }
 
         if (accepted) {
-            commandHistoryRef.current.unshift(command);
-            if (commandHistoryRef.current.length > 20) {
-                commandHistoryRef.current.pop();
+            commandHistory.unshift(command);
+            if (commandHistory.length > MAX_COMMAND_HISTORY) {
+                commandHistory.pop();
             }
+            saveCommandHistory(commandHistory);
         }
         setCommandPaletteInitial(null);
-    }, [findString, hideSearchResult, scrollTo, store]);
+    }, [commandHistory, findString, hideSearchResult, scrollTo, store]);
 
     const zoomAt = useCallback((factor: number, centerX: number, centerY: number) => {
         const tab = store.activeTab;
@@ -1090,7 +1119,7 @@ export function App() {
             {commandPaletteInitial !== null && (
                 <CommandPalette
                     initialCommand={commandPaletteInitial}
-                    history={commandHistoryRef.current}
+                    history={commandHistory}
                     onExecute={executeCommand}
                     onClose={() => setCommandPaletteInitial(null)}
                 />
