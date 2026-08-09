@@ -306,6 +306,36 @@ async function run() {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
 
+    // Ctrl+wheelはKonataのzoomだけに使い、browser標準のpage zoomへ同じeventを渡さない。
+    const wheelZoomState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const viewer = document.querySelector(".viewer");
+        const reset = [...document.querySelectorAll(".zoom-controls button")]
+            .find((button) => button.textContent?.trim() === "Reset");
+        if (!(viewer instanceof HTMLElement) || !(reset instanceof HTMLButtonElement)) {
+            throw new Error("The viewer zoom controls were not found.");
+        }
+        const event = new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: -1,
+            clientX: viewer.getBoundingClientRect().left + 400,
+            clientY: viewer.getBoundingClientRect().top + 200
+        });
+        const dispatched = viewer.dispatchEvent(event);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const zoom = document.querySelector(".zoom-controls output")?.textContent ?? null;
+            reset.click();
+            requestAnimationFrame(() => resolve({
+                canceled: !dispatched && event.defaultPrevented,
+                zoom
+            }));
+        }));
+    })`);
+    if (!wheelZoomState.canceled || wheelZoomState.zoom !== "200%") {
+        throw new Error(`Wheel zoom handling is incomplete: ${JSON.stringify(wheelZoomState)}`);
+    }
+
     // 旧コマンドパレットの起動、履歴、正規表現の前後検索、ID移動を実画面で確認する。
     const commandState = await window.webContents.executeJavaScript(`(async () => {
         const setInput = (input, value) => {

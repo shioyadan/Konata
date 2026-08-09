@@ -2,7 +2,6 @@ import {
     forwardRef,
     type MouseEvent as ReactMouseEvent,
     type PointerEvent,
-    type WheelEvent,
     useCallback,
     useImperativeHandle,
     useLayoutEffect,
@@ -135,7 +134,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         redraw();
     }, [redraw, renderVersion]);
 
-    const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const handleWheel = useCallback((event: WheelEvent) => {
         if (trace === null) {
             return;
         }
@@ -161,7 +160,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const differenceY = (event.deltaY > 0 ? 1 : -1) * 3 / renderer.zoomScale;
         const differenceX = renderer.adjustScrollDifferenceX(differenceY);
         onMutateView((target) => target.moveLogicalDifference([differenceX, differenceY], false));
-    };
+    }, [onMutateView, renderer, trace]);
+
+    useLayoutEffect(() => {
+        const viewer = viewerRef.current;
+        if (viewer === null) {
+            return;
+        }
+        // Reactのpassiveなwheel委譲ではCtrl+wheelのbrowser zoomを止められないため、ここだけ直接購読する。
+        viewer.addEventListener("wheel", handleWheel, { passive: false });
+        return () => viewer.removeEventListener("wheel", handleWheel);
+    }, [handleWheel]);
 
     const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
         if (trace === null || event.button !== 0) {
@@ -254,7 +263,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         <div
             ref={viewerRef}
             className={`viewer${isPanning ? " is-panning" : ""}`}
-            onWheel={handleWheel}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
