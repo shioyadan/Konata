@@ -8,93 +8,133 @@
 ![demo](https://github.com/shioyadan/Konata/wiki/images/konata.gif)
 
 
-## Installation
+## Run Konata
 
-There are two ways to launch Konata.
-If you fail to launch a pre-built binary, please try the second way.
+### Web application
 
-1. Extract an archive and launch an executable file (konata.exe or konata).
-    * Pre-built binaries are available from [here](https://github.com/shioyadan/Konata/releases).
-2. Launch from this repository.
-    1. Install node.js from https://nodejs.org
-    2. Clone this repository.
-    3. Launch install.bat (Windows) or install.sh (Linux/MacOS).
-    4. Launch Konata from konata.vbs (Windows) or konata.sh (Linux/MacOS).
+Open [Konata Web](https://shioyadan.github.io/Konata/), then choose or drop a plain-text or
+gzip-compressed Kanata/O3PipeView trace. The selected file is parsed locally in the browser and
+is not uploaded. The initial screen shows the application version, commit, and build date.
+
+The Web application is currently published from the `dev-v100` branch while the v1.0 migration
+is in progress. To build it locally, use the Docker development environment:
+
+```bash
+./docker/launch.sh make init
+./docker/launch.sh make production
+```
+
+The result is `dist-web/index.html`. It contains the application in one HTML file and can be
+copied to a static Web server. For development, `./docker/launch.sh make serve` starts a server at
+`http://127.0.0.1:8080`.
+
+### Reference Electron application
+
+The existing Electron application remains available during the Web migration. Pre-built binaries
+are available from [GitHub Releases](https://github.com/shioyadan/Konata/releases). From this
+repository, install the dependencies and run it with:
+
+```bash
+./docker/launch.sh make init
+./docker/launch.sh make run
+```
 
 
 ## Usage
 
-### Basic
+### Generate and open a trace
 
-1. Generate a trace log from gem5 with the O3 CPU model
-    * Execute gem5 with the following flags
-    * This example is from http://www.m5sim.org/Visualization
-    ```
-    $ ./build/ARM/gem5.opt \
-        --debug-flags=O3PipeView \
-        --debug-start=<first tick of interest> \
-        --debug-file=trace.out \
-        configs/example/se.py \
-        --cpu-type=detailed \
-        --caches -c <path to binary> \
-        -m <last cycle of interest>
-    ```
-2. Load a generated "trace.out" to Konata
-    * from a menu in a window or using drag&drop
-3. If you use ```O3CPUAll``` as well as ```O3PipeView``` as follows, Konata shows more detailed CPU log and visualizes dependency between instructions. 
-    ```
-    --debug-flags=O3PipeView,O3CPUAll
-    ```
+Generate a trace from gem5 with the O3 CPU model. This example is based on the
+[gem5 visualization documentation](http://www.m5sim.org/Visualization):
 
-### Keyboard
+```bash
+./build/ARM/gem5.opt \
+    --debug-flags=O3PipeView \
+    --debug-start=<first tick of interest> \
+    --debug-file=trace.out \
+    configs/example/se.py \
+    --cpu-type=detailed \
+    --caches -c <path to binary> \
+    -m <last cycle of interest>
+```
 
-* mouse wheel up, key up: scroll up
-* mouse wheel down, key down: scroll down
-* ctrl + mouse wheel up, key "+", ctrl+key up: zoom in
-* ctrl + mouse wheel down, key "-", ctrl+key down: zoom out
-* ctrl + f, F3, shift+F3: find a string 
-* F1, ctrl+shift+p: open a command palette
+Open `trace.out` with the Open button or drag and drop it onto Konata. Using `O3CPUAll` together
+with `O3PipeView` adds detailed CPU messages and instruction dependencies:
 
-### Tips
+```text
+--debug-flags=O3PipeView,O3CPUAll
+```
 
-* If you miss pipelines in a right pane, you can move to pipelines by click "Adjust position" in a right-click menu.
-* You can visually compare two traces as follows:
-    1. Load two trace files
-    2. Right-click and select "Synchronized school" & "Transparent mode"
-    3. Right-click and select a color scheme
-    4. Move to another tab and adjust a position with the transparent mode
-* If you cannot launch Konata, try to install the following runtimes (or try to install the latest Google Chrome, because it uses the same runtimes).
-    ```
-    sudo apt install \
-        libgconf-2-4 \
-        libgtk-3-0 \
-        libxss1 \
-        libnss3 \
-        libasound2 \
-        libx11-xcb1 \
-        libcanberra-gtk3-module \
-        libgbm-dev
-    ```
-* In ```O3CPUAll``` mode, Konata associates each line in trace.out with each instruction by tracking ```[sn:<serial number>]```. If you output custom log with the above serial information, Konata shows your custom log.
+In `O3CPUAll` mode, Konata associates messages with instructions by tracking
+`[sn:<serial number>]`. Custom log messages containing the same serial information are shown with
+the corresponding instruction.
+
+### Web controls
+
+The toolbar provides Open, Search, Bookmark, Stats, View, and zoom controls. View changes the
+theme, pipeline colors, dependency arrows, lane layout, flushed-op visibility, and drawing
+thresholds. Custom colors can be edited from the Custom color scheme.
+
+- Drag the canvas to pan. A horizontal trackpad wheel scrolls horizontally.
+- Use the mouse wheel or Up/Down keys to follow instructions vertically.
+- Use Ctrl/Command+wheel, `+`/`-`, or Ctrl/Command+Up/Down to zoom.
+- Double-click to zoom in; Shift+double-click zooms out. A two-pointer pinch also zooms.
+- Click an instruction label to align its fetch cycle with the left edge.
+- Use Adjust position (the crosshair beside Reset) when the pipeline is outside the viewport.
+  Adjust preserves the zoom; Reset restores both the position and zoom.
+- Click a tab with the middle mouse button to close it. Ctrl/Command+Tab moves between tabs.
+
+Search opens the command palette with `f ` prefilled. F3 and Shift+F3 move to the next and previous
+matches. F1 or Ctrl/Command+Shift+P opens the full palette, which accepts these commands:
+
+```text
+j  <op ID>    Jump to an operation ID
+jr <RID>      Jump to a retired operation ID
+f  <pattern>  Find a regular expression
+l             Open the file picker
+```
+
+Number keys `0`–`9` go to bookmarks. Ctrl/Command+`0`–`9` stores the current position and zoom in
+the corresponding slot. Bookmarks and view settings are saved in browser storage.
+
+### Current Web/Electron differences
+
+| Feature | Web application | Reference Electron application |
+| --- | --- | --- |
+| Local plain/gzip traces, tabs, search, bookmarks, Stats, and view settings | Supported | Supported |
+| Progressive parsing and drawing | Supported | Supported |
+| Adjust position | Toolbar crosshair | Pipeline context menu |
+| Configurable zoom-step factor | Uses the legacy default | Supported |
+| Command-palette history after restart | Not yet persisted | Supported |
+| Transparent overlay and synchronized scrolling | Not yet implemented | Supported |
+| Recent files and reload after an external file change | Not yet implemented | Supported |
+| Automatic loading from a path or URL query | Intentionally disabled | Local paths supported |
+
+The missing comparison functions are being redesigned instead of directly copying the transparent
+overlay. Remote-server/WSL reload and recent-file support will be considered together with a
+restricted read-only trace server. Arbitrary URL or path loading is not enabled in the Web build.
+
+On Linux, the Electron application may require additional Chromium runtime libraries. Installing a
+recent Google Chrome or the corresponding distribution packages usually provides them.
 
 
 ## Development
 
-The Docker environment is the recommended development environment. The launcher rebuilds
-the image when its Docker definition changes and runs the given command at the repository root.
+Docker is the recommended development environment. The launcher rebuilds its image when the Docker
+definition changes, bind-mounts this repository, and runs the given command at the repository root.
 
 ```bash
 # Install dependencies.
 ./docker/launch.sh make init
 
-# Run all type checks, parser tests, web smoke tests, and Electron smoke tests.
+# Run type checks, parser tests, Web tests, and the reference Electron smoke test.
 ./docker/launch.sh make check
 
-# Build the development web application or start its server.
+# Build or serve the development Web application.
 ./docker/launch.sh make
 ./docker/launch.sh make serve
 
-# Build the single-HTML production application.
+# Build the production single HTML file.
 ./docker/launch.sh make production
 
 # Measure the current Web OpStore without using large work/ traces.
@@ -104,18 +144,24 @@ the image when its Docker definition changes and runs the given command at the r
 ./docker/launch.sh
 ```
 
-`make serve` publishes the development server only at `http://127.0.0.1:8080`.
-All build and test operations are Make targets; npm scripts are not used.
+All build and test operations are Make targets; npm scripts are not used. To work without Docker,
+install Node.js 22.12 or later and run the same targets directly:
 
-To work without Docker, install Node.js 22.12 or later and run the same Make targets directly:
-
-```
+```bash
 make init          # Install dependencies
-make               # Build the development web application
-make serve         # Start the web development server
-make production    # Build the single-HTML production application
+make               # Build the development Web application
+make serve         # Start the Web development server
+make production    # Build dist-web/index.html
+make check         # Run the complete verification set
 make run           # Run the reference Electron application
 ```
+
+### GitHub Pages preview
+
+Pushing `dev-v100` runs `.github/workflows/pages.yml`. The workflow installs the locked dependencies
+with `npm ci`, invokes the existing Make verification targets, uploads `dist-web`, and deploys it to
+GitHub Pages. In the repository settings, Pages must use GitHub Actions and the `github-pages`
+environment must allow deployments from `dev-v100`.
 
 ## License
 
