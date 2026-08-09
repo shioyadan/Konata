@@ -408,6 +408,12 @@ button:disabled {
     font-size: 0.9rem;
 }
 
+.build-info {
+    margin-top: 0.35rem;
+    color: #858c99;
+    font-size: 0.75rem;
+}
+
 .operation-progress {
     position: absolute;
     z-index: 100;

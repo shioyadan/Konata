@@ -1,12 +1,33 @@
 "use strict";
 
+const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 const HtmlInlineScriptPlugin = require("html-inline-script-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const TerserPlugin = require("terser-webpack-plugin");
+const webpack = require("webpack");
+const packageJSON = require("./package.json");
+
+function getGitBuildInfo() {
+    try {
+        // 実行時刻ではなくcommit日を埋め込み、同じcommitからのbuild結果を安定させる。
+        const output = execFileSync(
+            "git",
+            ["show", "-s", "--format=%h%n%cs", "HEAD"],
+            { cwd: __dirname, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+        ).trim();
+        const [commit, date] = output.split("\n");
+        return { commit: commit || "unknown", date: date || "unknown" };
+    }
+    catch {
+        // .gitを含まないsource archiveからも単一HTMLを生成できるようにする。
+        return { commit: "unknown", date: "unknown" };
+    }
+}
 
 module.exports = (_env, argv) => {
     const isProduction = argv.mode === "production";
+    const gitBuildInfo = getGitBuildInfo();
 
     return {
         mode: isProduction ? "production" : "development",
@@ -50,6 +71,11 @@ module.exports = (_env, argv) => {
             ],
         },
         plugins: [
+            new webpack.DefinePlugin({
+                __KONATA_VERSION__: JSON.stringify(packageJSON.version),
+                __KONATA_COMMIT__: JSON.stringify(gitBuildInfo.commit),
+                __KONATA_COMMIT_DATE__: JSON.stringify(gitBuildInfo.date),
+            }),
             new HtmlWebpackPlugin({
                 template: "./src/index.html",
                 inject: "body",

@@ -13,6 +13,10 @@ import type { ParsedTrace } from "../core/model";
 import { KonataRenderer } from "../renderer/konata_renderer";
 import type { FindResult, LoadState } from "../store";
 
+declare const __KONATA_VERSION__: string;
+declare const __KONATA_COMMIT__: string;
+declare const __KONATA_COMMIT_DATE__: string;
+
 interface HighlightedText {
     readonly text: string;
     readonly matched: boolean;
@@ -338,6 +342,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 <div className="empty-state">
                     <strong>{loadState === "error" ? "The trace could not be opened." : "Drop a trace anywhere in this window."}</strong>
                     <span>{loadState === "error" ? "Choose another trace to try again." : "Plain text and gzip files are supported."}</span>
+                    <small
+                        className="build-info"
+                        data-version={__KONATA_VERSION__}
+                        data-commit={__KONATA_COMMIT__}
+                        data-date={__KONATA_COMMIT_DATE__}
+                    >
+                        Version {__KONATA_VERSION__} · Commit {__KONATA_COMMIT__} · {__KONATA_COMMIT_DATE__}
+                    </small>
                 </div>
             )}
             {toolTip !== null && (

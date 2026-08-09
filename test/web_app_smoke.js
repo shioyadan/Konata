@@ -362,6 +362,7 @@ async function run() {
     const initialState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const openButton = document.querySelector(".primary-button");
+            const buildInfo = document.querySelector(".build-info");
             resolve({
                 title: document.title,
                 headingCount: document.querySelectorAll(".app-toolbar h1").length,
@@ -369,7 +370,11 @@ async function run() {
                 rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
                 paneTitleCount: document.querySelectorAll(".pane-title").length,
                 openButtonColor: openButton === null ? null : getComputedStyle(openButton).backgroundColor,
-                canvasCount: document.querySelectorAll(".viewer canvas").length
+                canvasCount: document.querySelectorAll(".viewer canvas").length,
+                version: buildInfo?.dataset.version ?? null,
+                commit: buildInfo?.dataset.commit ?? null,
+                date: buildInfo?.dataset.date ?? null,
+                buildInfoText: buildInfo?.textContent?.trim() ?? null
             });
         }));
     })`);
@@ -379,7 +384,12 @@ async function run() {
         initialState.rootChildCount !== 1 ||
         initialState.paneTitleCount !== 0 ||
         initialState.openButtonColor !== "rgb(52, 74, 100)" ||
-        initialState.canvasCount !== 2) {
+        initialState.canvasCount !== 2 ||
+        initialState.version !== "1.0.0" ||
+        !/^[0-9a-f]+$/.test(initialState.commit ?? "") ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(initialState.date ?? "") ||
+        initialState.buildInfoText !==
+            `Version ${initialState.version} · Commit ${initialState.commit} · ${initialState.date}`) {
         throw new Error(`React initialization is incomplete: ${JSON.stringify(initialState)}`);
     }
 
