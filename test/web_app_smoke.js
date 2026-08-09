@@ -266,6 +266,44 @@ async function verifyClosedTabCancelsLoading(window) {
     })`);
 }
 
+async function moveSplitter(window, position) {
+    return window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const viewer = document.querySelector(".viewer");
+        const label = document.querySelector(".label-pane");
+        const pipeline = document.querySelector(".pipeline-pane");
+        const splitter = document.querySelector('[role="separator"][aria-label="Resize instruction labels"]');
+        if (!(viewer instanceof HTMLElement) ||
+            !(label instanceof HTMLElement) ||
+            !(pipeline instanceof HTMLElement) ||
+            !(splitter instanceof HTMLElement)) {
+            throw new Error("The trace pane splitter was not found.");
+        }
+        const viewerRect = viewer.getBoundingClientRect();
+        const splitterRect = splitter.getBoundingClientRect();
+        const initialLabelWidth = Math.round(label.getBoundingClientRect().width);
+        splitter.dispatchEvent(new MouseEvent("mousedown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: splitterRect.left + splitterRect.width / 2
+        }));
+        window.dispatchEvent(new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: viewerRect.left + ${position}
+        }));
+        window.dispatchEvent(new MouseEvent("mouseup", {bubbles: true}));
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            initialLabelWidth,
+            viewerWidth: Math.round(viewer.getBoundingClientRect().width),
+            labelWidth: Math.round(label.getBoundingClientRect().width),
+            splitterWidth: Math.round(splitter.getBoundingClientRect().width),
+            pipelineWidth: Math.round(pipeline.getBoundingClientRect().width),
+            position: splitter.getAttribute("aria-valuenow"),
+            cursor: getComputedStyle(splitter).cursor
+        })));
+    })`);
+}
+
 async function readRenderedState(window) {
     return window.webContents.executeJavaScript(`(() => {
         const root = document.querySelector(".trace-app");
@@ -717,6 +755,17 @@ async function run() {
     // reloadで空になったsheetへ、後続のView操作用traceを戻す。
     await dropFixture(window, plainFixture, "text/plain");
 
+    // 旧版と同じ10pxのsplitterをdragし、label/pipelineのCanvas領域が実際に変わることを確認する。
+    const firstSplitterState = await moveSplitter(window, 320);
+    if (firstSplitterState.initialLabelWidth !== 450 ||
+        firstSplitterState.labelWidth !== 320 ||
+        firstSplitterState.splitterWidth !== 10 ||
+        firstSplitterState.pipelineWidth !== firstSplitterState.viewerWidth - 330 ||
+        firstSplitterState.position !== "320" ||
+        firstSplitterState.cursor !== "col-resize") {
+        throw new Error(`Trace pane splitter is incomplete: ${JSON.stringify(firstSplitterState)}`);
+    }
+
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
     const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const split = document.querySelector('input[aria-label="Split lanes"]');
@@ -816,6 +865,15 @@ async function run() {
         gem5State.nonBackgroundPixels < 100) {
         throw new Error(`gem5 trace rendering is incomplete: ${JSON.stringify(gem5State)}`);
     }
+    // 新しいTabは直前の幅を引き継ぐが、移動後は既存Tabと独立して保持する。
+    const secondSplitterState = await moveSplitter(window, 280);
+    if (secondSplitterState.initialLabelWidth !== 320 ||
+        secondSplitterState.labelWidth !== 280 ||
+        secondSplitterState.splitterWidth !== 10 ||
+        secondSplitterState.pipelineWidth !== secondSplitterState.viewerWidth - 290 ||
+        secondSplitterState.position !== "280") {
+        throw new Error(`Second tab splitter is incomplete: ${JSON.stringify(secondSplitterState)}`);
+    }
 
     // 2枚を開いた後で、全Tab共通設定とgem5だけの設定を異なる値へ変更する。
     const secondTabSettingsState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
@@ -890,7 +948,8 @@ async function run() {
                 textThreshold: textThreshold instanceof HTMLInputElement ? textThreshold.value : null,
                 zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                 searchOpID: document.querySelector('.find-result')?.dataset.opId ?? null,
-                searchText: document.querySelector('.find-result')?.textContent ?? null
+                searchText: document.querySelector('.find-result')?.textContent ?? null,
+                labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
             };
             closePlain.click();
             requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -910,7 +969,8 @@ async function run() {
                     remainingHideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
                     remainingTextThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
                     remainingZoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
-                    remainingSearchOpID: document.querySelector('.find-result')?.dataset.opId ?? null
+                    remainingSearchOpID: document.querySelector('.find-result')?.dataset.opId ?? null,
+                    remainingLabelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
                 });
             }));
         }));
@@ -929,6 +989,7 @@ async function run() {
         tabState.switched.searchOpID !== "1" ||
         typeof tabState.switched.searchText !== "string" ||
         !tabState.switched.searchText.includes("consumer") ||
+        tabState.switched.labelWidth !== 320 ||
         tabState.remainingCount !== 1 ||
         tabState.remainingSelected !== "gem5-basic.txt" ||
         tabState.remainingFileName !== "gem5-basic.txt" ||
@@ -940,7 +1001,8 @@ async function run() {
         !tabState.remainingHideFlushed ||
         tabState.remainingTextThreshold !== "14" ||
         tabState.remainingZoom !== "100%" ||
-        tabState.remainingSearchOpID !== null) {
+        tabState.remainingSearchOpID !== null ||
+        tabState.remainingLabelWidth !== 280) {
         throw new Error(`Trace tabs are incomplete: ${JSON.stringify(tabState)}`);
     }
 

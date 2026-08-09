@@ -228,3 +228,30 @@ test("Store separates global view settings from tab-specific settings", () => {
 
     store.close();
 });
+
+test("Store keeps splitter positions per tab and carries the latest position to new tabs", () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "first.log", renderer: new KonataRenderer() });
+    const firstTab = store.activeTab;
+    assert.ok(firstTab !== null);
+    // 初期値450pxは旧Configに合わせ、移動後も対象Tabだけを書き換える。
+    assert.equal(firstTab.splitterPosition, 450);
+    store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: firstTab.id, position: 320 });
+    assert.equal(firstTab.splitterPosition, 320);
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "second.log", renderer: new KonataRenderer() });
+    const secondTab = store.activeTab;
+    assert.ok(secondTab !== null);
+    // 旧Configと同様、新しく開くTabは最後に選んだ幅から開始する。
+    assert.equal(secondTab.splitterPosition, 320);
+    store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: secondTab.id, position: 280 });
+    assert.equal(firstTab.splitterPosition, 320);
+    assert.equal(secondTab.splitterPosition, 280);
+    assert.ok(changes.some((change) =>
+        change.type === "PANE_SIZE_UPDATE" && change.tabID === secondTab.id));
+
+    store.close();
+});

@@ -25,7 +25,12 @@ import {
     type DependencyArrowType,
     type RendererTheme,
 } from "./renderer/konata_renderer";
-import { type DrawingThreshold, type FindResult, Store } from "./store";
+import {
+    DEFAULT_SPLITTER_POSITION,
+    type DrawingThreshold,
+    type FindResult,
+    Store,
+} from "./store";
 
 interface ViewBookmark {
     readonly x: number;
@@ -276,6 +281,13 @@ export function App() {
             return;
         }
         store.dispatch({ type: "KONATA_MUTATE_VIEW", tabID: tab.id, mutation });
+    }, [store]);
+
+    const moveSplitter = useCallback((position: number) => {
+        const tab = store.activeTab;
+        if (tab !== null) {
+            store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: tab.id, position });
+        }
     }, [store]);
 
     const openCommandPalette = useCallback((initialCommand: string) => {
@@ -925,6 +937,8 @@ export function App() {
                 loadState={loadState}
                 renderVersion={renderVersion}
                 findResult={findResult}
+                splitterPosition={activeTab?.splitterPosition ?? DEFAULT_SPLITTER_POSITION}
+                onMoveSplitter={moveSplitter}
                 onMutateView={mutateView}
                 onCloseFindResult={hideSearchResult}
             />

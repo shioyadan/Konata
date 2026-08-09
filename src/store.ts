@@ -14,6 +14,9 @@ export type DrawingThreshold =
     | "drawDependencyThreshold"
     | "drawFrameThreshold";
 
+// 旧Configの初期値を維持し、新しいTabだけは直前に選んだ幅を引き継ぐ。
+export const DEFAULT_SPLITTER_POSITION = 450;
+
 export interface GlobalViewSettings {
     readonly theme: RendererTheme;
     readonly dependencyArrowType: DependencyArrowType;
@@ -65,6 +68,7 @@ export type Action =
     }
     | { readonly type: "TAB_ACTIVATE"; readonly tabID: number }
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
+    | { readonly type: "PANE_SPLITTER_MOVE"; readonly tabID: number; readonly position: number }
     | { readonly type: "KONATA_FIND_START"; readonly tabID: number; readonly targetPattern: string }
     | {
         readonly type: "KONATA_FIND_PROGRESS";
@@ -102,6 +106,7 @@ export type Change =
     | { readonly type: "TAB_OPEN"; readonly tabID: number }
     | { readonly type: "TAB_UPDATE"; readonly tabID: number | null }
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
+    | { readonly type: "PANE_SIZE_UPDATE"; readonly tabID: number }
     // nullは全TabのRendererへ同じ変更を適用したことを表す。
     | { readonly type: "PANE_CONTENT_UPDATE"; readonly tabID: number | null }
     | { readonly type: "WINDOW_CSS_UPDATE" }
@@ -134,6 +139,7 @@ export class Tab {
         readonly id: number,
         readonly fileName: string,
         readonly renderer: KonataRenderer,
+        public splitterPosition = DEFAULT_SPLITTER_POSITION,
     ) {}
 
     get loadSignal(): AbortSignal {
@@ -180,6 +186,7 @@ export class Store {
     private readonly changeListeners_ = new Set<(change: Change) => void>();
     private nextOpenedTabID_ = 0;
     private defaultColorScheme_ = "Auto";
+    private defaultSplitterPosition_ = DEFAULT_SPLITTER_POSITION;
     private settings_: GlobalViewSettings = { ...DEFAULT_GLOBAL_VIEW_SETTINGS };
     private snapshot_: StoreSnapshot = {
         tabs: [],
@@ -216,7 +223,12 @@ export class Store {
             // 新しいTabにも、その時点の全体設定を既存Tabと同じ値で適用する。
             this.applyGlobalViewSettings_(action.renderer);
             action.renderer.changeColorScheme(this.defaultColorScheme_);
-            const tab = new Tab(this.nextOpenedTabID_++, action.fileName, action.renderer);
+            const tab = new Tab(
+                this.nextOpenedTabID_++,
+                action.fileName,
+                action.renderer,
+                this.defaultSplitterPosition_,
+            );
             this.tabs_.set(tab.id, tab);
             this.publish_(tab.id, [
                 { type: "TAB_OPEN", tabID: tab.id },
@@ -318,6 +330,20 @@ export class Store {
                 { type: "PROGRESS_BAR_FINISH", tabID: action.tabID, operation: "load" },
                 { type: "PROGRESS_BAR_FINISH", tabID: action.tabID, operation: "search" },
                 { type: "PANE_CONTENT_UPDATE", tabID: activeTabID },
+            ]);
+            return;
+        }
+        case "PANE_SPLITTER_MOVE": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined || !Number.isFinite(action.position)) {
+                return;
+            }
+            const position = Math.max(0, action.position);
+            tab.splitterPosition = position;
+            this.defaultSplitterPosition_ = position;
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_SIZE_UPDATE", tabID: tab.id },
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
             return;
         }

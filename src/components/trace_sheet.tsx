@@ -44,6 +44,8 @@ interface TraceSheetProps {
     readonly loadState: LoadState;
     readonly renderVersion: number;
     readonly findResult: FindResult | null;
+    readonly splitterPosition: number;
+    readonly onMoveSplitter: (position: number) => void;
     readonly onMutateView: (mutation: (renderer: KonataRenderer) => void) => void;
     readonly onCloseFindResult: () => void;
 }
@@ -77,6 +79,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     loadState,
     renderVersion,
     findResult,
+    splitterPosition,
+    onMoveSplitter,
     onMutateView,
     onCloseFindResult,
 }, ref) {
@@ -84,7 +88,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
     const dragPositionRef = useRef<DragPosition | null>(null);
+    const splitterDraggingRef = useRef(false);
     const [isPanning, setIsPanning] = useState(false);
+    const [isResizing, setIsResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
 
     const redraw = useCallback(() => {
@@ -124,6 +130,29 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     useLayoutEffect(() => {
         redraw();
     }, [redraw, renderVersion]);
+
+    useLayoutEffect(() => {
+        const handleMouseMove = (event: MouseEvent) => {
+            const viewer = viewerRef.current;
+            if (!splitterDraggingRef.current || viewer === null) {
+                return;
+            }
+            const rect = viewer.getBoundingClientRect();
+            // ウィンドウ外までdragしても、どちらかのpaneが負の幅にならないよう補正する。
+            const position = Math.min(Math.max(event.clientX - rect.left, 0), Math.max(0, rect.width - 10));
+            onMoveSplitter(position);
+        };
+        const handleMouseUp = () => {
+            splitterDraggingRef.current = false;
+            setIsResizing(false);
+        };
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("mouseup", handleMouseUp);
+        return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", handleMouseUp);
+        };
+    }, [onMoveSplitter]);
 
     const handleWheel = useCallback((event: WheelEvent) => {
         if (trace === null) {
@@ -253,7 +282,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     return (
         <div
             ref={viewerRef}
-            className={`viewer${isPanning ? " is-panning" : ""}`}
+            className={`viewer${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
+            style={{
+                gridTemplateColumns:
+                    `minmax(0, min(${splitterPosition}px, calc(100% - 10px))) 10px minmax(0, 1fr)`,
+            }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -271,6 +304,25 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     Instruction labels require canvas support.
                 </canvas>
             </section>
+            <div
+                className="pane-splitter"
+                role="separator"
+                aria-label="Resize instruction labels"
+                aria-orientation="vertical"
+                aria-valuemin={0}
+                aria-valuenow={Math.round(splitterPosition)}
+                onPointerDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => {
+                    if (event.button !== 0) {
+                        return;
+                    }
+                    // 旧splitter_windowと同じく、drag中はwindow側でmove/upを追跡する。
+                    splitterDraggingRef.current = true;
+                    setIsResizing(true);
+                    event.preventDefault();
+                    event.stopPropagation();
+                }}
+            />
             <section className="viewer-pane pipeline-pane" aria-label="Pipeline chart">
                 <canvas
                     ref={pipelineCanvasRef}

@@ -321,7 +321,6 @@ button:disabled {
     display: grid;
     min-height: 0;
     flex: 1;
-    grid-template-columns: minmax(18rem, 34%) minmax(0, 1fr);
     cursor: grab;
     touch-action: none;
     user-select: none;
@@ -339,8 +338,21 @@ button:disabled {
 }
 
 .label-pane {
+    background: #303340;
+}
+
+/* 旧window_splitterと同じ10px幅を確保し、label側と一体に見せる。 */
+.pane-splitter {
+    z-index: 3;
+    min-width: 10px;
     border-right: 1px solid #555b68;
     background: #303340;
+    cursor: col-resize;
+}
+
+.viewer.is-resizing,
+.viewer.is-resizing .pane-splitter {
+    cursor: col-resize;
 }
 
 .pipeline-pane {
@@ -674,6 +686,10 @@ button:disabled {
 }
 
 .theme-light .label-pane {
+    background: #f4f4f4;
+}
+
+.theme-light .pane-splitter {
     border-right-color: #ccc;
     background: #f4f4f4;
 }
@@ -736,7 +752,4 @@ button:disabled {
         order: 2;
     }
 
-    .viewer {
-        grid-template-columns: minmax(12rem, 44%) minmax(0, 1fr);
-    }
 }
