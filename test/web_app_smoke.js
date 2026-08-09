@@ -280,6 +280,70 @@ async function verifyClosedTabCancelsLoading(window) {
     })`);
 }
 
+async function verifyLoadErrorRecovery(window) {
+    return window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+        const target = document.querySelector(".trace-app");
+        if (target === null) {
+            reject(new Error("The trace drop target was not found."));
+            return;
+        }
+        const file = new File(["not a trace"], "unsupported.log", {type: "text/plain"});
+        const event = new Event("drop", {bubbles: true, cancelable: true});
+        Object.defineProperty(event, "dataTransfer", {value: {files: [file]}});
+        target.dispatchEvent(event);
+
+        const deadline = performance.now() + 2000;
+        const check = () => {
+            const root = document.querySelector(".trace-app");
+            if (root?.dataset.loadState === "error") {
+                const input = document.querySelector(".file-input");
+                const chooseButton = [...document.querySelectorAll(".empty-state button")]
+                    .find((button) => button.textContent?.trim() === "Choose another trace");
+                if (!(input instanceof HTMLInputElement) || !(chooseButton instanceof HTMLButtonElement)) {
+                    reject(new Error("The load error recovery controls were not found."));
+                    return;
+                }
+                let pickerRequested = false;
+                input.addEventListener("click", (clickEvent) => {
+                    // native pickerを開かず、再選択経路へ到達したことだけを検査する。
+                    pickerRequested = true;
+                    clickEvent.preventDefault();
+                }, {once: true});
+                chooseButton.click();
+                let shortcutPickerRequested = false;
+                input.addEventListener("click", (clickEvent) => {
+                    shortcutPickerRequested = true;
+                    clickEvent.preventDefault();
+                }, {once: true});
+                const shortcutEvent = new KeyboardEvent("keydown", {
+                    key: "o",
+                    ctrlKey: true,
+                    bubbles: true,
+                    cancelable: true
+                });
+                const shortcutDispatched = document.dispatchEvent(shortcutEvent);
+                const result = {
+                    title: document.querySelector(".empty-state strong")?.textContent ?? null,
+                    detail: document.querySelector(".empty-state span")?.textContent ?? null,
+                    status: document.querySelector(".status")?.textContent ?? null,
+                    pickerRequested,
+                    shortcutPickerRequested,
+                    shortcutCanceled: !shortcutDispatched && shortcutEvent.defaultPrevented
+                };
+                document.querySelector(".trace-tab-close")?.click();
+                resolve(result);
+                return;
+            }
+            if (performance.now() >= deadline) {
+                reject(new Error("Timed out while waiting for the load error state."));
+                return;
+            }
+            setTimeout(check, 5);
+        };
+        check();
+    })`);
+}
+
 async function moveSplitter(window, position) {
     return window.webContents.executeJavaScript(`new Promise((resolve) => {
         const viewer = document.querySelector(".viewer");
@@ -429,6 +493,18 @@ async function run() {
     const canceledLoadState = await verifyClosedTabCancelsLoading(window);
     if (!canceledLoadState.streamCanceled || !canceledLoadState.tabClosed) {
         throw new Error(`Closing a loading tab did not cancel its stream: ${JSON.stringify(canceledLoadState)}`);
+    }
+
+    // 読込み失敗を画面内に示し、同じfileの擬似reloadではなく再選択へ案内する。
+    const loadErrorState = await verifyLoadErrorRecovery(window);
+    if (loadErrorState.title !== "The trace could not be opened." ||
+        typeof loadErrorState.detail !== "string" ||
+        loadErrorState.detail === "" ||
+        loadErrorState.status !== loadErrorState.detail ||
+        !loadErrorState.pickerRequested ||
+        !loadErrorState.shortcutPickerRequested ||
+        !loadErrorState.shortcutCanceled) {
+        throw new Error(`Load error recovery is incomplete: ${JSON.stringify(loadErrorState)}`);
     }
 
     const plainFixture = path.join(__dirname, "fixtures", "kanata-basic.txt");

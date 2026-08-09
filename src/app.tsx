@@ -682,6 +682,11 @@ export function App() {
             if (commandPaletteInitial !== null) {
                 return;
             }
+            if (commandKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "o") {
+                fileInputRef.current?.click();
+                event.preventDefault();
+                return;
+            }
 
             if (event.key === "F1" ||
                 (commandKey && event.shiftKey && event.key.toLowerCase() === "p")) {
@@ -1017,12 +1022,14 @@ export function App() {
                 renderer={renderer}
                 trace={trace}
                 loadState={loadState}
+                errorMessage={errorMessage}
                 renderVersion={renderVersion}
                 findResult={findResult}
                 splitterPosition={activeTab?.splitterPosition ?? DEFAULT_SPLITTER_POSITION}
                 onMoveSplitter={moveSplitter}
                 onMutateView={mutateView}
                 onCloseFindResult={hideSearchResult}
+                onOpenTrace={() => fileInputRef.current?.click()}
             />
             {isStatsDialogOpen && (
                 <StatsDialog values={statsValues} error={statsError} onClose={closeStatsDialog} />

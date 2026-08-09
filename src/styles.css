@@ -419,6 +419,10 @@ button:disabled {
     font-size: 0.9rem;
 }
 
+.empty-state button {
+    margin-top: 0.35rem;
+}
+
 .build-info {
     margin-top: 0.35rem;
     color: #858c99;

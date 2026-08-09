@@ -46,12 +46,14 @@ interface TraceSheetProps {
     readonly renderer: KonataRenderer;
     readonly trace: ParsedTrace | null;
     readonly loadState: LoadState;
+    readonly errorMessage: string;
     readonly renderVersion: number;
     readonly findResult: FindResult | null;
     readonly splitterPosition: number;
     readonly onMoveSplitter: (position: number) => void;
     readonly onMutateView: (mutation: (renderer: KonataRenderer) => void) => void;
     readonly onCloseFindResult: () => void;
+    readonly onOpenTrace: () => void;
 }
 
 function highlightMatches(line: string, pattern: string): HighlightedText[] {
@@ -81,12 +83,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderer,
     trace,
     loadState,
+    errorMessage,
     renderVersion,
     findResult,
     splitterPosition,
     onMoveSplitter,
     onMutateView,
     onCloseFindResult,
+    onOpenTrace,
 }, ref) {
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -345,7 +349,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             {trace === null && loadState !== "loading" && (
                 <div className="empty-state">
                     <strong>{loadState === "error" ? "The trace could not be opened." : "Drop a trace anywhere in this window."}</strong>
-                    <span>{loadState === "error" ? "Choose another trace to try again." : "Plain text and gzip files are supported."}</span>
+                    <span>{loadState === "error" ? errorMessage : "Plain text and gzip files are supported."}</span>
+                    {loadState === "error" && (
+                        <button type="button" onClick={onOpenTrace}>Choose another trace</button>
+                    )}
                     <small
                         className="build-info"
                         data-version={__KONATA_VERSION__}
