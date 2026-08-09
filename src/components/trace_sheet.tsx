@@ -288,8 +288,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ref={viewerRef}
             className={`viewer${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
             style={{
-                gridTemplateColumns:
-                    `minmax(0, min(${splitterPosition}px, calc(100% - 10px))) 10px minmax(0, 1fr)`,
+                // trace公開前は操作対象がないためdividerを消し、初期画面を1枚のpaneとして見せる。
+                gridTemplateColumns: trace === null
+                    ? "0 minmax(0, 1fr)"
+                    : `minmax(0, min(${splitterPosition}px, calc(100% - 10px))) 10px minmax(0, 1fr)`,
             }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -308,25 +310,27 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     Instruction labels require canvas support.
                 </canvas>
             </section>
-            <div
-                className="pane-splitter"
-                role="separator"
-                aria-label="Resize instruction labels"
-                aria-orientation="vertical"
-                aria-valuemin={0}
-                aria-valuenow={Math.round(splitterPosition)}
-                onPointerDown={(event) => event.stopPropagation()}
-                onMouseDown={(event) => {
-                    if (event.button !== 0) {
-                        return;
-                    }
-                    // 旧splitter_windowと同じく、drag中はwindow側でmove/upを追跡する。
-                    splitterDraggingRef.current = true;
-                    setIsResizing(true);
-                    event.preventDefault();
-                    event.stopPropagation();
-                }}
-            />
+            {trace !== null && (
+                <div
+                    className="pane-splitter"
+                    role="separator"
+                    aria-label="Resize instruction labels"
+                    aria-orientation="vertical"
+                    aria-valuemin={0}
+                    aria-valuenow={Math.round(splitterPosition)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => {
+                        if (event.button !== 0) {
+                            return;
+                        }
+                        // 旧splitter_windowと同じく、drag中はwindow側でmove/upを追跡する。
+                        splitterDraggingRef.current = true;
+                        setIsResizing(true);
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }}
+                />
+            )}
             <section className="viewer-pane pipeline-pane" aria-label="Pipeline chart">
                 <canvas
                     ref={pipelineCanvasRef}

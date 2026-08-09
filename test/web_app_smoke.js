@@ -363,6 +363,9 @@ async function run() {
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const openButton = document.querySelector(".primary-button");
             const buildInfo = document.querySelector(".build-info");
+            const viewer = document.querySelector(".viewer");
+            const labelPane = document.querySelector(".label-pane");
+            const pipelinePane = document.querySelector(".pipeline-pane");
             resolve({
                 title: document.title,
                 headingCount: document.querySelectorAll(".app-toolbar h1").length,
@@ -371,6 +374,10 @@ async function run() {
                 paneTitleCount: document.querySelectorAll(".pane-title").length,
                 openButtonColor: openButton === null ? null : getComputedStyle(openButton).backgroundColor,
                 canvasCount: document.querySelectorAll(".viewer canvas").length,
+                splitterCount: document.querySelectorAll(".pane-splitter").length,
+                viewerWidth: Math.round(viewer?.getBoundingClientRect().width ?? -1),
+                labelWidth: Math.round(labelPane?.getBoundingClientRect().width ?? -1),
+                pipelineWidth: Math.round(pipelinePane?.getBoundingClientRect().width ?? -1),
                 version: buildInfo?.dataset.version ?? null,
                 commit: buildInfo?.dataset.commit ?? null,
                 date: buildInfo?.dataset.date ?? null,
@@ -385,6 +392,9 @@ async function run() {
         initialState.paneTitleCount !== 0 ||
         initialState.openButtonColor !== "rgb(52, 74, 100)" ||
         initialState.canvasCount !== 2 ||
+        initialState.splitterCount !== 0 ||
+        initialState.labelWidth !== 0 ||
+        initialState.pipelineWidth !== initialState.viewerWidth ||
         initialState.version !== "1.0.0" ||
         !/^[0-9a-f]+$/.test(initialState.commit ?? "") ||
         !/^\d{4}-\d{2}-\d{2}$/.test(initialState.date ?? "") ||
