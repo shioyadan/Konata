@@ -12,7 +12,6 @@ import { CommandPalette } from "./components/command_palette";
 import { StatsDialog } from "./components/stats_dialog";
 import { TabBar } from "./components/tab_bar";
 import {
-    type FindResult,
     TraceSheet,
     type TraceSheetHandle,
 } from "./components/trace_sheet";
@@ -26,7 +25,7 @@ import {
     type DependencyArrowType,
     type RendererTheme,
 } from "./renderer/konata_renderer";
-import { Store } from "./store";
+import { type FindResult, Store } from "./store";
 
 type DrawingThreshold =
     | "drawTextThreshold"
@@ -127,7 +126,6 @@ export function App() {
     }
     const store = storeRef.current;
     const statsRequestRef = useRef(0);
-    const searchRequestRef = useRef(0);
     const commandHistoryRef = useRef<string[]>([]);
 
     const { tabs, activeTabID } = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -138,8 +136,6 @@ export function App() {
     const [isStatsDialogOpen, setIsStatsDialogOpen] = useState(false);
     const [commandPaletteInitial, setCommandPaletteInitial] = useState<string | null>(null);
     const [commandMessage, setCommandMessage] = useState("");
-    const [searchProgress, setSearchProgress] = useState<number | null>(null);
-    const [findResult, setFindResult] = useState<FindResult | null>(null);
     // 旧版と同じ10枠だけを読み込み、設定全体を扱う新しい層は設けない。
     const [bookmarks, setBookmarks] = useState<readonly ViewBookmark[]>(loadBookmarks);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
@@ -152,6 +148,9 @@ export function App() {
     const progress = activeTab?.progress ?? 0;
     const errorMessage = activeTab?.errorMessage ?? "";
     const renderer = activeTab?.renderer ?? emptyRendererRef.current;
+    const searchProgress = activeTab?.findContext.progress ?? null;
+    const findResult = activeTab?.findContext.result ?? null;
+    const searchMessage = activeTab?.findContext.message ?? "";
 
     useEffect(() => {
         saveBookmarks(bookmarks);
@@ -165,13 +164,18 @@ export function App() {
         setIsStatsDialogOpen(false);
     }, []);
 
-    const resetSearch = useCallback(() => {
-        searchRequestRef.current++;
-        setSearchProgress(null);
-        setFindResult(null);
+    const resetCommandUI = useCallback(() => {
         setCommandMessage("");
         setCommandPaletteInitial(null);
     }, []);
+
+    const hideSearchResult = useCallback(() => {
+        const tab = store.activeTab;
+        if (tab !== null) {
+            store.dispatch({ type: "KONATA_FIND_HIDE_RESULT", tabID: tab.id });
+        }
+        resetCommandUI();
+    }, [resetCommandUI, store]);
 
     const activateTab = useCallback((id: number) => {
         const previousTabID = store.activeTab?.id ?? null;
@@ -179,19 +183,19 @@ export function App() {
         if (store.activeTab?.id === previousTabID) {
             return;
         }
-        // 検索結果とdialogはactive sheetだけに属し、tabをまたいで表示しない。
+        // dialogは閉じ、検索contextは切替先Tabが所有する値をそのまま表示する。
         resetStats();
-        resetSearch();
-    }, [resetSearch, resetStats, store]);
+        resetCommandUI();
+    }, [resetCommandUI, resetStats, store]);
 
     const closeTab = useCallback((id: number) => {
         const wasActive = store.activeTab?.id === id;
         store.dispatch({ type: "TAB_CLOSE", tabID: id });
         if (wasActive) {
             resetStats();
-            resetSearch();
+            resetCommandUI();
         }
-    }, [resetSearch, resetStats, store]);
+    }, [resetCommandUI, resetStats, store]);
 
     useEffect(() => store.subscribeChange((change) => {
         if (change.type === "PANE_CONTENT_UPDATE" && change.tabID === store.activeTab?.id) {
@@ -201,7 +205,6 @@ export function App() {
 
     useEffect(() => () => {
         statsRequestRef.current++;
-        searchRequestRef.current++;
         // StrictModeの初回cleanup時点ではtabがなく、実際のunmountではStoreが全tabを閉じる。
         store.close();
     }, [store]);
@@ -218,7 +221,7 @@ export function App() {
             return;
         }
         resetStats();
-        resetSearch();
+        resetCommandUI();
 
         let parsingTrace: ParsedTrace | null = null;
         try {
@@ -251,7 +254,7 @@ export function App() {
                 trace: parsingTrace,
             });
         }
-    }, [resetSearch, resetStats, store]);
+    }, [resetCommandUI, resetStats, store]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -307,12 +310,15 @@ export function App() {
             return;
         }
 
-        const requestID = ++searchRequestRef.current;
-        setSearchProgress(0);
-        setFindResult(null);
+        // viewportは検索開始時の対象Tabの値を使い、別Tabへ切り替わっても混同しない。
+        const viewport = traceSheetRef.current?.getViewportSize();
+        store.dispatch({ type: "KONATA_FIND_START", tabID: searchedTab.id, targetPattern: target });
+        const requestID = searchedTab.findContext.requestID;
         setCommandMessage("");
 
         void (async () => {
+            const isCanceled = () =>
+                searchedTab.findContext.requestID !== requestID || searchedTab.trace !== activeTrace;
             // 旧検索と同じく現在位置の次から始め、末尾では先頭へ折り返す。
             const lastOpID = activeTrace.lastID;
             let current = basePosition;
@@ -344,24 +350,32 @@ export function App() {
                 // 大きなtraceでもUI操作で新しい検索へ切り替えられるよう、旧版と同じ間隔でyieldする。
                 if (index % sleepPeriod === 0 && previousSleepTime + 100 < Date.now()) {
                     previousSleepTime = Date.now();
-                    if (searchRequestRef.current === requestID) {
-                        setSearchProgress(lastOpID > 0 ? index / lastOpID : 1);
-                    }
+                    store.dispatch({
+                        type: "KONATA_FIND_PROGRESS",
+                        tabID: searchedTab.id,
+                        requestID,
+                        progress: lastOpID > 0 ? index / lastOpID : 1,
+                    });
                     await new Promise((resolve) => setTimeout(resolve, 17));
-                    if (searchRequestRef.current !== requestID || store.activeTab !== searchedTab) {
+                    if (isCanceled()) {
                         return;
                     }
                 }
             }
 
             console.log(`Search finished: ${target}@${foundOp?.id ?? -1}, ${Date.now() - startTime} msec`);
-            if (searchRequestRef.current !== requestID || store.activeTab !== searchedTab) {
+            if (isCanceled()) {
                 return;
             }
-            setSearchProgress(null);
 
             if (foundOp === undefined) {
-                setCommandMessage(`"${target}" was not found.`);
+                store.dispatch({
+                    type: "KONATA_FIND_FINISH",
+                    tabID: searchedTab.id,
+                    requestID,
+                    result: null,
+                    message: `"${target}" was not found.`,
+                });
                 return;
             }
 
@@ -370,7 +384,6 @@ export function App() {
             const moveTo = renderer.getPositionYFromOp(foundOp);
             let left = viewPosition[0];
             let top = viewPosition[1];
-            const viewport = traceSheetRef.current?.getViewportSize();
             const pipelineWidth = viewport?.pipelineWidth ?? 800;
             const labelHeight = viewport?.labelHeight ?? 400;
 
@@ -384,21 +397,37 @@ export function App() {
             }
 
             const anchorOp = renderer.getVisibleOp(moveTo) ?? foundOp;
-            mutateView((targetRenderer) => targetRenderer.moveLogicalPosition([left, top]));
-            setFindResult({
+            const result: FindResult = {
                 targetPattern: target,
                 foundString: makeFindTargetString(foundOp),
                 op: foundOp,
                 anchorOp,
                 flushed: foundOp.flush,
+            };
+            store.dispatch({
+                type: "KONATA_MUTATE_VIEW",
+                tabID: searchedTab.id,
+                mutation: (targetRenderer) => targetRenderer.moveLogicalPosition([left, top]),
+            });
+            store.dispatch({
+                type: "KONATA_FIND_FINISH",
+                tabID: searchedTab.id,
+                requestID,
+                result,
+                message: "",
             });
         })().catch((error) => {
-            if (searchRequestRef.current === requestID) {
-                setSearchProgress(null);
-                setCommandMessage(error instanceof Error ? error.message : String(error));
+            if (searchedTab.findContext.requestID === requestID) {
+                store.dispatch({
+                    type: "KONATA_FIND_FINISH",
+                    tabID: searchedTab.id,
+                    requestID,
+                    result: null,
+                    message: error instanceof Error ? error.message : String(error),
+                });
             }
         });
-    }, [mutateView, store]);
+    }, [store]);
 
     const repeatSearch = useCallback((reverse: boolean) => {
         if (findResult === null) {
@@ -417,7 +446,7 @@ export function App() {
         const findMatch = command.match(/^f\s+(.+)$/);
 
         if (idMatch !== null) {
-            resetSearch();
+            hideSearchResult();
             const id = Number(idMatch[1]);
             const op = renderer.getVisibleOp(id);
             if (op === undefined) {
@@ -429,7 +458,7 @@ export function App() {
             accepted = true;
         }
         else if (ridMatch !== null) {
-            resetSearch();
+            hideSearchResult();
             const rid = Number(ridMatch[1]);
             const op = renderer.getOpFromRID(rid);
             const y = renderer.getPositionYFromRID(rid);
@@ -461,7 +490,7 @@ export function App() {
             }
         }
         setCommandPaletteInitial(null);
-    }, [findString, mutateView, resetSearch, store]);
+    }, [findString, hideSearchResult, mutateView, store]);
 
     const zoomAtCenter = useCallback((factor: number) => {
         const viewport = traceSheetRef.current?.getViewportSize();
@@ -606,9 +635,7 @@ export function App() {
                 repeatSearch(event.shiftKey);
             }
             else if (event.key === "Escape" || event.key === "Enter") {
-                searchRequestRef.current++;
-                setSearchProgress(null);
-                setFindResult(null);
+                hideSearchResult();
             }
             else if (event.key === "ArrowUp") {
                 zoomKey ? zoomAtCenter(2) : moveVertical(-1, !event.shiftKey);
@@ -647,8 +674,8 @@ export function App() {
         };
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [commandPaletteInitial, goToBookmark, isStatsDialogOpen, moveHorizontal, moveVertical,
-        openCommandPalette, repeatSearch, setBookmark, trace, zoomAtCenter]);
+    }, [commandPaletteInitial, goToBookmark, hideSearchResult, isStatsDialogOpen, moveHorizontal,
+        moveVertical, openCommandPalette, repeatSearch, setBookmark, trace, zoomAtCenter]);
 
     let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
     if (loadState === "loading") {
@@ -660,8 +687,9 @@ export function App() {
     else if (loadState === "error") {
         statusMessage = errorMessage;
     }
-    if (commandMessage !== "") {
-        statusMessage = commandMessage;
+    const visibleMessage = commandMessage !== "" ? commandMessage : searchMessage;
+    if (visibleMessage !== "") {
+        statusMessage = visibleMessage;
     }
 
     const operation = loadState === "loading"
@@ -868,7 +896,7 @@ export function App() {
                         </details>
                     </div>
                 </details>
-                <p className={`status ${commandMessage === "" ? `status-${loadState}` : "status-error"}`} role="status">
+                <p className={`status ${visibleMessage === "" ? `status-${loadState}` : "status-error"}`} role="status">
                     {statusMessage}
                 </p>
                 {operation !== null && (
@@ -900,7 +928,7 @@ export function App() {
                 renderVersion={renderVersion}
                 findResult={findResult}
                 onMutateView={mutateView}
-                onCloseFindResult={() => setFindResult(null)}
+                onCloseFindResult={hideSearchResult}
             />
             {isStatsDialogOpen && (
                 <StatsDialog values={statsValues} error={statsError} onClose={closeStatsDialog} />

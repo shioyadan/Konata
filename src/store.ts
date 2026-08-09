@@ -1,7 +1,24 @@
-import type { ParsedTrace } from "./core/model";
+import type { Op, ParsedTrace } from "./core/model";
 import { KonataRenderer } from "./renderer/konata_renderer";
 
 export type LoadState = "idle" | "loading" | "ready" | "error";
+export type Operation = "load" | "search";
+
+export interface FindResult {
+    readonly targetPattern: string;
+    readonly foundString: string;
+    readonly op: Op;
+    readonly anchorOp: Op;
+    readonly flushed: boolean;
+}
+
+export interface FindContext {
+    targetPattern: string;
+    requestID: number;
+    progress: number | null;
+    result: FindResult | null;
+    message: string;
+}
 
 export type Action =
     | { readonly type: "FILE_OPEN"; readonly fileName: string; readonly renderer: KonataRenderer }
@@ -16,6 +33,21 @@ export type Action =
     }
     | { readonly type: "TAB_ACTIVATE"; readonly tabID: number }
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
+    | { readonly type: "KONATA_FIND_START"; readonly tabID: number; readonly targetPattern: string }
+    | {
+        readonly type: "KONATA_FIND_PROGRESS";
+        readonly tabID: number;
+        readonly requestID: number;
+        readonly progress: number;
+    }
+    | {
+        readonly type: "KONATA_FIND_FINISH";
+        readonly tabID: number;
+        readonly requestID: number;
+        readonly result: FindResult | null;
+        readonly message: string;
+    }
+    | { readonly type: "KONATA_FIND_HIDE_RESULT"; readonly tabID: number }
     // 現行UIのRenderer操作をそのまま保つための移行用action。同期scrollを戻す段階で必要な操作だけ具体化する。
     | {
         readonly type: "KONATA_MUTATE_VIEW";
@@ -28,14 +60,14 @@ export type Change =
     | { readonly type: "TAB_UPDATE"; readonly tabID: number | null }
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
     | { readonly type: "PANE_CONTENT_UPDATE"; readonly tabID: number | null }
-    | { readonly type: "PROGRESS_BAR_START"; readonly tabID: number; readonly operation: "load" }
+    | { readonly type: "PROGRESS_BAR_START"; readonly tabID: number; readonly operation: Operation }
     | {
         readonly type: "PROGRESS_BAR_UPDATE";
         readonly tabID: number;
-        readonly operation: "load";
+        readonly operation: Operation;
         readonly progress: number;
     }
-    | { readonly type: "PROGRESS_BAR_FINISH"; readonly tabID: number; readonly operation: "load" };
+    | { readonly type: "PROGRESS_BAR_FINISH"; readonly tabID: number; readonly operation: Operation };
 
 // 旧Tabと同じく、1つの入力、その命令列、Renderer状態を同じ寿命で所有する。
 export class Tab {
@@ -43,6 +75,14 @@ export class Tab {
     loadState: LoadState = "loading";
     progress = 0;
     errorMessage = "";
+    // 旧Tabと同じく、検索結果と取消IDはtraceごとに独立して保持する。
+    readonly findContext: FindContext = {
+        targetPattern: "",
+        requestID: 0,
+        progress: null,
+        result: null,
+        message: "",
+    };
 
     constructor(
         readonly id: number,
@@ -63,6 +103,11 @@ export class Tab {
     close(): void {
         const trace = this.trace;
         this.trace = null;
+        // Tabを参照して動作中の非同期検索を止め、Opへの参照もtraceと同時に外す。
+        this.findContext.requestID++;
+        this.findContext.progress = null;
+        this.findContext.result = null;
+        this.findContext.message = "";
         // Renderer側の参照も外し、このtabを閉じるだけでtrace全体を回収できるようにする。
         this.renderer.setTrace(null);
         trace?.close();
@@ -208,7 +253,69 @@ export class Store {
                 { type: "TAB_CLOSE", tabID: action.tabID },
                 { type: "TAB_UPDATE", tabID: activeTabID },
                 { type: "PROGRESS_BAR_FINISH", tabID: action.tabID, operation: "load" },
+                { type: "PROGRESS_BAR_FINISH", tabID: action.tabID, operation: "search" },
                 { type: "PANE_CONTENT_UPDATE", tabID: activeTabID },
+            ]);
+            return;
+        }
+        case "KONATA_FIND_START": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            const context = tab.findContext;
+            context.targetPattern = action.targetPattern;
+            context.requestID++;
+            context.progress = 0;
+            context.result = null;
+            context.message = "";
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PROGRESS_BAR_START", tabID: tab.id, operation: "search" },
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "KONATA_FIND_PROGRESS": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined || tab.findContext.requestID !== action.requestID) {
+                return;
+            }
+            tab.findContext.progress = action.progress;
+            this.publish_(this.snapshot_.activeTabID, [{
+                type: "PROGRESS_BAR_UPDATE",
+                tabID: tab.id,
+                operation: "search",
+                progress: action.progress,
+            }]);
+            return;
+        }
+        case "KONATA_FIND_FINISH": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined || tab.findContext.requestID !== action.requestID) {
+                return;
+            }
+            tab.findContext.progress = null;
+            tab.findContext.result = action.result;
+            tab.findContext.message = action.message;
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PROGRESS_BAR_FINISH", tabID: tab.id, operation: "search" },
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "KONATA_FIND_HIDE_RESULT": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            const context = tab.findContext;
+            context.requestID++;
+            context.progress = null;
+            context.result = null;
+            context.message = "";
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PROGRESS_BAR_FINISH", tabID: tab.id, operation: "search" },
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
             return;
         }

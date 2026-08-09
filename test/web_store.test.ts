@@ -83,3 +83,79 @@ test("Store rejects a delayed trace update after its tab is closed", () => {
     assert.equal(store.activeTab, null);
     assert.equal(store.getSnapshot().tabs.length, 0);
 });
+
+test("Store keeps search context per tab and rejects stale search updates", () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "first.log", renderer: new KonataRenderer() });
+    const firstTab = store.activeTab;
+    assert.ok(firstTab !== null);
+    const first = createTrace("first.log");
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: firstTab.id, trace: first.trace });
+    const foundOp = first.trace.getOp(0);
+    assert.ok(foundOp !== undefined);
+
+    store.dispatch({ type: "KONATA_FIND_START", tabID: firstTab.id, targetPattern: "first" });
+    const firstRequestID = firstTab.findContext.requestID;
+    store.dispatch({
+        type: "KONATA_FIND_PROGRESS",
+        tabID: firstTab.id,
+        requestID: firstRequestID,
+        progress: 0.5,
+    });
+    store.dispatch({
+        type: "KONATA_FIND_FINISH",
+        tabID: firstTab.id,
+        requestID: firstRequestID,
+        result: {
+            targetPattern: "first",
+            foundString: "first result",
+            op: foundOp,
+            anchorOp: foundOp,
+            flushed: false,
+        },
+        message: "",
+    });
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "second.log", renderer: new KonataRenderer() });
+    const secondTab = store.activeTab;
+    assert.ok(secondTab !== null);
+    // 新しいTabには別のcontextを作り、元のTabへ戻ると検索条件と結果を復元する。
+    assert.equal(secondTab.findContext.result, null);
+    store.dispatch({ type: "TAB_ACTIVATE", tabID: firstTab.id });
+    assert.equal(store.activeTab?.findContext.targetPattern, "first");
+    assert.equal(store.activeTab?.findContext.result?.foundString, "first result");
+
+    store.dispatch({ type: "KONATA_FIND_START", tabID: firstTab.id, targetPattern: "new" });
+    const secondRequestID = firstTab.findContext.requestID;
+    // 新しい検索開始後に前の結果が到着しても、request IDが異なる更新は採用しない。
+    store.dispatch({
+        type: "KONATA_FIND_FINISH",
+        tabID: firstTab.id,
+        requestID: firstRequestID,
+        result: {
+            targetPattern: "stale",
+            foundString: "stale result",
+            op: foundOp,
+            anchorOp: foundOp,
+            flushed: false,
+        },
+        message: "",
+    });
+    assert.equal(firstTab.findContext.requestID, secondRequestID);
+    assert.equal(firstTab.findContext.result, null);
+    assert.equal(firstTab.findContext.progress, 0);
+
+    store.dispatch({ type: "KONATA_FIND_HIDE_RESULT", tabID: firstTab.id });
+    assert.equal(firstTab.findContext.progress, null);
+    assert.ok(changes.some((change) =>
+        change.type === "PROGRESS_BAR_START" && change.operation === "search"));
+    assert.ok(changes.some((change) =>
+        change.type === "PROGRESS_BAR_UPDATE" && change.operation === "search"));
+    assert.ok(changes.some((change) =>
+        change.type === "PROGRESS_BAR_FINISH" && change.operation === "search"));
+
+    store.close();
+});

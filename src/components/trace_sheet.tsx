@@ -9,17 +9,9 @@ import {
     useState,
 } from "react";
 
-import type { Op, ParsedTrace } from "../core/model";
+import type { ParsedTrace } from "../core/model";
 import { KonataRenderer } from "../renderer/konata_renderer";
-import type { LoadState } from "../store";
-
-export interface FindResult {
-    readonly targetPattern: string;
-    readonly foundString: string;
-    readonly op: Op;
-    readonly anchorOp: Op;
-    readonly flushed: boolean;
-}
+import type { FindResult, LoadState } from "../store";
 
 interface HighlightedText {
     readonly text: string;

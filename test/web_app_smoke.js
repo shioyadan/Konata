@@ -713,6 +713,40 @@ async function run() {
         requestAnimationFrame(() => requestAnimationFrame(resolve));
     })`);
 
+    // 検索結果を残したまま別traceを開き、Tabを戻した時に同じ結果が復元されることを後で確認する。
+    const persistentSearchState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 10));
+        document.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "f",
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true
+        }));
+        await nextFrame();
+        const input = document.querySelector('.command-palette input');
+        if (!(input instanceof HTMLInputElement)) {
+            throw new Error("The command palette was not opened for the persistent search.");
+        }
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(input, "f consumer");
+        input.dispatchEvent(new Event("input", {bubbles: true}));
+        await nextFrame();
+        input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+
+        const deadline = performance.now() + 2000;
+        while (performance.now() < deadline) {
+            const result = document.querySelector('.find-result');
+            if (result instanceof HTMLElement && result.dataset.opId === "1") {
+                return {opID: result.dataset.opId, text: result.textContent ?? ""};
+            }
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        throw new Error("Timed out while waiting for the persistent search result.");
+    })()`);
+    if (persistentSearchState.opID !== "1" || !persistentSearchState.text.includes("consumer")) {
+        throw new Error(`Persistent search setup is incomplete: ${JSON.stringify(persistentSearchState)}`);
+    }
+
     // Kanataとして不一致になった入力をgem5 Parserで開き直し、同じCanvasへ表示できることを確認する。
     const gem5Fixture = path.join(__dirname, "fixtures", "gem5-basic.txt");
     await dropFixture(window, gem5Fixture, "text/plain");
@@ -743,7 +777,9 @@ async function run() {
                 opCount: Number(root?.dataset.opCount ?? -1),
                 theme: root?.dataset.theme ?? null,
                 split: split instanceof HTMLInputElement && split.checked,
-                zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
+                zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
+                searchOpID: document.querySelector('.find-result')?.dataset.opId ?? null,
+                searchText: document.querySelector('.find-result')?.textContent ?? null
             };
             closePlain.click();
             requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -758,7 +794,8 @@ async function run() {
                     remainingOpCount: Number(remainingRoot?.dataset.opCount ?? -1),
                     remainingTheme: remainingRoot?.dataset.theme ?? null,
                     remainingSplit: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
-                    remainingZoom: document.querySelector(".zoom-controls output")?.textContent ?? null
+                    remainingZoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
+                    remainingSearchOpID: document.querySelector('.find-result')?.dataset.opId ?? null
                 });
             }));
         }));
@@ -770,13 +807,17 @@ async function run() {
         tabState.switched.theme !== "light" ||
         !tabState.switched.split ||
         tabState.switched.zoom !== "200%" ||
+        tabState.switched.searchOpID !== "1" ||
+        typeof tabState.switched.searchText !== "string" ||
+        !tabState.switched.searchText.includes("consumer") ||
         tabState.remainingCount !== 1 ||
         tabState.remainingSelected !== "gem5-basic.txt" ||
         tabState.remainingFileName !== "gem5-basic.txt" ||
         tabState.remainingOpCount !== 1 ||
         tabState.remainingTheme !== "light" ||
         !tabState.remainingSplit ||
-        tabState.remainingZoom !== "100%") {
+        tabState.remainingZoom !== "100%" ||
+        tabState.remainingSearchOpID !== null) {
         throw new Error(`Trace tabs are incomplete: ${JSON.stringify(tabState)}`);
     }
 
