@@ -8,6 +8,7 @@ WEBPACK := ./node_modules/.bin/webpack
 TSC := ./node_modules/.bin/tsc
 TSX := ./node_modules/.bin/tsx
 BENCHMARK_OPS ?= 100000
+BENCHMARK_TRACE ?=
 
 .PHONY: all production check versions run init test typecheck serve web-render-smoke \
 	web-smoke production-smoke electron-smoke electron-package-smoke benchmark-op-store \
@@ -77,7 +78,7 @@ typecheck:
 
 # 通常checkから分離し、store方式を同じ入力・同じ指標で比較するためにだけ実行する。
 benchmark-op-store:
-	node --expose-gc --import tsx tools/benchmark_op_store.ts --ops $(BENCHMARK_OPS)
+	node --expose-gc --import tsx tools/benchmark_op_store.ts --ops $(BENCHMARK_OPS) $(if $(BENCHMARK_TRACE),--trace $(BENCHMARK_TRACE))
 
 serve:
 	$(WEBPACK) serve --mode development

@@ -263,18 +263,36 @@ function parseOpCount(args: string[]): number {
     return opCount;
 }
 
+function parseTracePath(args: string[]): string | undefined {
+    const optionIndex = args.indexOf("--trace");
+    if (optionIndex === -1) {
+        return undefined;
+    }
+    const value = args[optionIndex + 1];
+    if (value === undefined || value.startsWith("--")) {
+        throw new Error("--trace must be followed by a trace file path.");
+    }
+    const tracePath = path.resolve(value);
+    if (!fs.statSync(tracePath).isFile()) {
+        throw new Error(`--trace does not refer to a file: ${value}`);
+    }
+    return tracePath;
+}
+
 async function main(): Promise<void> {
     if (garbageCollector === undefined) {
         throw new Error("The benchmark must run with --expose-gc.");
     }
-    const opCount = parseOpCount(process.argv.slice(2));
+    const args = process.argv.slice(2);
+    const opCount = parseOpCount(args);
+    const tracePath = parseTracePath(args);
     const samplePath = path.resolve(import.meta.dirname, "..", "docs", "kanata-sample-2.log.gz");
     const stores: StoreCase[] = [
         { name: "ArrayOpStore", create: () => new ArrayOpStore() },
         { name: "HierarchicalJsonOpStore", create: () => new SerializedPageOpStore() },
         { name: "HierarchicalZstdOpStore", create: () => SerializedPageOpStore.createZstd() },
     ];
-    const inputs = [
+    const defaultInputs = [
         {
             name: "bundled-gzip",
             create: () => fileFromPath(samplePath, "application/gzip"),
@@ -284,6 +302,14 @@ async function main(): Promise<void> {
             create: () => createSyntheticTrace(opCount),
         },
     ];
+    // work/以下の大きな実traceは、明示的に指定した場合だけbenchmark対象にする。
+    const inputs = tracePath === undefined ? defaultInputs : [{
+        name: `real-${path.basename(tracePath)}`,
+        create: () => fileFromPath(
+            tracePath,
+            /\.gz$/i.test(tracePath) ? "application/gzip" : "text/plain",
+        ),
+    }];
 
     for (const input of inputs) {
         for (const store of stores) {

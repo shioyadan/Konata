@@ -25,6 +25,7 @@ Run the benchmark through Make in the fixed Node.js 22 Docker environment:
 ```bash
 ./docker/launch.sh make benchmark-op-store
 ./docker/launch.sh make benchmark-op-store BENCHMARK_OPS=200000
+./docker/launch.sh make benchmark-op-store BENCHMARK_TRACE=work/vis.c0.log
 ```
 
 The default run parses two inputs:
@@ -39,8 +40,8 @@ is sampled at the same progress boundaries for every implementation, after parsi
 garbage-collection results can vary between runs, so store implementations must be compared in the
 same environment and should be run more than once.
 
-This benchmark is deliberately excluded from `make check`. It does not access traces under
-`work/`; those larger files require an explicit benchmark decision.
+This benchmark is deliberately excluded from `make check`. Its default run does not access traces
+under `work/`; setting `BENCHMARK_TRACE` explicitly runs only that trace against the three stores.
 
 ## ArrayOpStore baseline
 
@@ -193,3 +194,29 @@ codec. It adds no external runtime file or network request. The browser smoke te
 incremental Kanata rendering, cancellation, unsupported-input cleanup, gem5 fallback, search,
 statistics, zoomed rendering, multiple tabs, and tab closure all using the zstd store. The legacy
 Electron application remains on its separate existing storage path.
+
+## Real trace measurement
+
+The first real-trace run used the explicitly selected `work/vis.c0.log`: a 70,585,952-byte Kanata
+trace with 4,853,322 lines and 100,379 comparatively rich operations. It was measured twice with
+`BENCHMARK_TRACE`; the file remains outside the repository and the default benchmark never reads
+it.
+
+| Store | Parse (ms) | Warm 100k (ms) | Sequential 100k (ms) | Retained heap (MiB) | Sampled peak heap (MiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Array | 2,755.20–2,865.75 | 4.09–6.05 | 1.44–3.66 | 250.29 | 279.42–281.80 |
+| Hierarchical JSON | 3,223.70–3,265.79 | 16.82–19.31 | 1,005.53–1,023.70 | 85.75 | 374.20–375.54 |
+| Hierarchical zstd | 3,431.49–3,432.38 | 24.10–26.37 | 1,167.77–1,210.21 | 6.78–6.79 | 184.59–184.60 |
+
+At parse completion, zstd stored 83,226,604 JSON characters in 10,164,901 bytes, a payload
+reduction of about 88%. The maximum full-page serialization time was 4.06–4.60 ms and maximum
+reconstruction time was 7.39–7.75 ms. The retained heap returned to about 8.5 MiB after closing the
+trace. This validates the existing page and cache constants for initial interactive use without
+adding asynchronous compression or changing the hierarchy.
+
+The complete scan still reconstructs every operation and fills the 32,768-entry interactive
+operation cache. It therefore takes about 1.2 seconds and raises the sampled heap from about 15 MiB
+after parsing to about 185 MiB. Search and statistics already yield periodically, but a measured
+case now exists for giving sequential scans a path that uses decoded page LRU without populating
+the interactive operation LRU. That change should preserve the normal renderer lookup algorithm
+and be measured separately rather than reducing the cache globally.
