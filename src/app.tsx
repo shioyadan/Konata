@@ -62,9 +62,11 @@ const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
 );
 const BOOKMARK_STORAGE_KEY = "konata.bookmarks";
 const VIEW_SETTINGS_STORAGE_KEY = "konata.viewSettings";
-const ZOOM_ANIMATION_DURATION = 80;
-const SCROLL_ANIMATION_DURATION = 100;
-const BOOKMARK_ANIMATION_DURATION = 200;
+// 移動元と移動先を目で追える長さにしつつ、連続操作を妨げない範囲に収める。
+const ZOOM_ANIMATION_DURATION = 200;
+const SCROLL_ANIMATION_DURATION = 200;
+const BOOKMARK_ANIMATION_DURATION = 260;
+const BOOKMARK_ZOOM_ANIMATION_DURATION = 220;
 const PIPELINE_COLOR_SCHEMES = new Set([
     "Auto",
     "Unique",
@@ -243,14 +245,6 @@ export function App() {
         cancelViewAnimation();
         traceSheetRef.current?.clearToolTip();
         const tabID = tab.id;
-        if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-            store.dispatch({
-                type: "KONATA_MUTATE_VIEW",
-                tabID,
-                mutation: (renderer) => apply(renderer, 1),
-            });
-            return;
-        }
 
         const animation: ViewAnimation = {
             tabID,
@@ -269,7 +263,10 @@ export function App() {
                 return;
             }
 
-            const progress = Math.min(1, (now - animation.startedAt) / animation.duration);
+            const progress = Math.max(
+                0,
+                Math.min(1, (now - animation.startedAt) / animation.duration),
+            );
             store.dispatch({
                 type: "KONATA_MUTATE_VIEW",
                 tabID: animation.tabID,
@@ -675,20 +672,24 @@ export function App() {
         setCommandPaletteInitial(null);
     }, [findString, hideSearchResult, scrollTo, store]);
 
-    const zoomAtCenter = useCallback((factor: number) => {
-        const viewport = traceSheetRef.current?.getViewportSize();
-        if (viewport === undefined || factor === 1) {
+    const zoomAt = useCallback((factor: number, centerX: number, centerY: number) => {
+        const renderer = store.activeTab?.renderer;
+        if (renderer === undefined || factor === 1) {
             return;
         }
-        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const fromLevel = renderer.zoomLevel;
         const toLevel = fromLevel + (factor > 1 ? -1 : 1);
-        const centerX = viewport.pipelineWidth / 2;
-        const centerY = viewport.pipelineHeight / 2;
         startViewAnimation(ZOOM_ANIMATION_DURATION, (target, progress) => {
             target.zoomAbs(fromLevel + (toLevel - fromLevel) * progress, centerX, centerY);
         });
     }, [startViewAnimation, store]);
+
+    const zoomAtCenter = useCallback((factor: number) => {
+        const viewport = traceSheetRef.current?.getViewportSize();
+        if (viewport !== undefined) {
+            zoomAt(factor, viewport.pipelineWidth / 2, viewport.pipelineHeight / 2);
+        }
+    }, [zoomAt]);
 
     const moveVertical = useCallback((delta: number, adjust: boolean) => {
         const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
@@ -723,10 +724,10 @@ export function App() {
         const [fromX, fromY] = renderer.viewPosition;
         const fromZoom = renderer.zoomLevel;
         startViewAnimation(BOOKMARK_ANIMATION_DURATION, (target, progress) => {
-            // 旧版同様、scrollは200ms、zoomは160msで進め、座標補正は行わない。
+            // 旧版同様にscrollとzoomを並行させ、bookmark座標をずらす補正は行わない。
             const zoomProgress = Math.min(
                 1,
-                progress * BOOKMARK_ANIMATION_DURATION / (ZOOM_ANIMATION_DURATION / 0.5),
+                progress * BOOKMARK_ANIMATION_DURATION / BOOKMARK_ZOOM_ANIMATION_DURATION,
             );
             target.zoomAbs(
                 fromZoom + (bookmark.zoom - fromZoom) * zoomProgress,
@@ -740,6 +741,19 @@ export function App() {
             ]);
         });
     }, [bookmarks, startViewAnimation, store]);
+
+    const resetView = useCallback(() => {
+        const renderer = store.activeTab?.renderer;
+        if (renderer === undefined) {
+            return;
+        }
+        const [fromX, fromY] = renderer.viewPosition;
+        const fromZoom = renderer.zoomLevel;
+        startViewAnimation(BOOKMARK_ANIMATION_DURATION, (target, progress) => {
+            target.zoomAbs(fromZoom * (1 - progress), 0, 0, false);
+            target.moveLogicalPosition([fromX * (1 - progress), fromY * (1 - progress)]);
+        });
+    }, [startViewAnimation, store]);
 
     const toggleHideFlushedOps = (enabled: boolean) => {
         if (activeTab !== null) {
@@ -975,7 +989,7 @@ export function App() {
                     <button
                         type="button"
                         disabled={trace === null}
-                        onClick={() => mutateView((renderer) => renderer.resetView())}
+                        onClick={resetView}
                     >
                         Reset
                     </button>
@@ -1155,6 +1169,8 @@ export function App() {
                 splitterPosition={activeTab?.splitterPosition ?? DEFAULT_SPLITTER_POSITION}
                 onMoveSplitter={moveSplitter}
                 onMutateView={mutateView}
+                onScrollView={scrollTo}
+                onZoomView={zoomAt}
                 onCloseFindResult={hideSearchResult}
                 onOpenTrace={() => fileInputRef.current?.click()}
             />

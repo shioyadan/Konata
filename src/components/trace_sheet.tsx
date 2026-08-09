@@ -52,6 +52,8 @@ interface TraceSheetProps {
     readonly splitterPosition: number;
     readonly onMoveSplitter: (position: number) => void;
     readonly onMutateView: (mutation: (renderer: KonataRenderer) => void) => void;
+    readonly onScrollView: (position: readonly [number, number]) => void;
+    readonly onZoomView: (factor: number, centerX: number, centerY: number) => void;
     readonly onCloseFindResult: () => void;
     readonly onOpenTrace: () => void;
 }
@@ -89,6 +91,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     splitterPosition,
     onMoveSplitter,
     onMutateView,
+    onScrollView,
+    onZoomView,
     onCloseFindResult,
     onOpenTrace,
 }, ref) {
@@ -171,24 +175,23 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             const rect = pipelineCanvasRef.current?.getBoundingClientRect();
             const x = rect === undefined ? 0 : Math.max(0, event.clientX - rect.left);
             const y = rect === undefined ? 0 : Math.max(0, event.clientY - rect.top);
-            onMutateView((target) => target.zoomAt(event.deltaY < 0 ? 1.2 : 1 / 1.2, x, y));
+            onZoomView(event.deltaY < 0 ? 1.2 : 1 / 1.2, x, y);
             return;
         }
 
+        const [fromX, fromY] = renderer.viewPosition;
         if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
             // trackpadの横移動は、旧キーボード横移動と同じ6cycle単位へ対応させる。
-            onMutateView((target) => target.moveLogicalDifference([
-                (event.deltaX > 0 ? 1 : -1) * 6 / target.zoomScale,
-                0,
-            ], false));
+            const differenceX = (event.deltaX > 0 ? 1 : -1) * 6 / renderer.zoomScale;
+            onScrollView([fromX + differenceX, fromY]);
             return;
         }
 
         // 旧wheel操作と同じ3命令単位で移動し、左端を命令のfetch位置へ追従させる。
         const differenceY = (event.deltaY > 0 ? 1 : -1) * 3 / renderer.zoomScale;
         const differenceX = renderer.adjustScrollDifferenceX(differenceY);
-        onMutateView((target) => target.moveLogicalDifference([differenceX, differenceY], false));
-    }, [onMutateView, renderer, trace]);
+        onScrollView([fromX + differenceX, fromY + differenceY]);
+    }, [onScrollView, onZoomView, renderer, trace]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
@@ -278,11 +281,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const rect = event.currentTarget.getBoundingClientRect();
-        onMutateView((target) => target.zoomAt(
+        onZoomView(
             event.shiftKey ? 1 / 2 : 2,
             event.clientX - rect.left,
             event.clientY - rect.top,
-        ));
+        );
     };
 
     const handleLabelClick = (event: ReactMouseEvent<HTMLCanvasElement>) => {
@@ -293,10 +296,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const op = renderer.getOpFromPixelPositionY(event.clientY - rect.top);
         if (op !== undefined) {
             // 旧label paneと同様、縦位置は変えず、選んだ命令のfetch cycleだけを左端へ合わせる。
-            onMutateView((target) => target.moveLogicalPosition([
+            onScrollView([
                 op.fetchedCycle,
-                target.viewPosition[1],
-            ]));
+                renderer.viewPosition[1],
+            ]);
         }
     };
 
