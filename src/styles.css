@@ -39,7 +39,8 @@ button:hover:not(:disabled) {
 }
 
 button:focus-visible,
-.view-controls > summary:focus-visible {
+.view-controls > summary:focus-visible,
+.bookmark-controls > summary:focus-visible {
     outline: 2px solid var(--ui-accent);
     outline-offset: 2px;
 }
@@ -349,11 +350,13 @@ button:disabled {
     text-align: center;
 }
 
-.view-controls {
+.view-controls,
+.bookmark-controls {
     position: relative;
 }
 
-.view-controls > summary {
+.view-controls > summary,
+.bookmark-controls > summary {
     display: inline-flex;
     width: auto;
     height: 2.5rem;
@@ -365,21 +368,25 @@ button:disabled {
     list-style: none;
 }
 
-.view-controls > summary:hover {
+.view-controls > summary:hover,
+.bookmark-controls > summary:hover {
     border-color: transparent;
     background: rgb(255 255 255 / 8%);
 }
 
-.view-controls > summary svg {
+.view-controls > summary svg,
+.bookmark-controls > summary svg {
     width: 1.2rem;
     height: 1.2rem;
 }
 
-.view-controls > summary::-webkit-details-marker {
+.view-controls > summary::-webkit-details-marker,
+.bookmark-controls > summary::-webkit-details-marker {
     display: none;
 }
 
-.view-controls-panel {
+.view-controls-panel,
+.bookmark-controls-panel {
     position: absolute;
     z-index: 10;
     top: calc(100% + 0.5rem);
@@ -395,6 +402,10 @@ button:disabled {
     background: #282e38;
     box-shadow: var(--ui-panel-shadow);
     overflow-y: auto;
+}
+
+.bookmark-controls-panel {
+    min-width: 19rem;
 }
 
 .view-controls-panel label {
@@ -435,19 +446,16 @@ button:disabled {
     padding: 0.25rem 0.65rem;
 }
 
-.drawing-thresholds,
-.bookmark-controls {
+.drawing-thresholds {
     padding-top: 0.65rem;
     border-top: 1px solid #3f4754;
 }
 
-.drawing-thresholds > summary,
-.bookmark-controls > summary {
+.drawing-thresholds > summary {
     cursor: pointer;
 }
 
-.drawing-thresholds[open] > summary,
-.bookmark-controls[open] > summary {
+.drawing-thresholds[open] > summary {
     margin-bottom: 0.55rem;
 }
 
@@ -455,7 +463,7 @@ button:disabled {
     margin-top: 0.45rem;
 }
 
-.bookmark-controls > p {
+.bookmark-controls-panel > p {
     margin: 0 0 0.45rem;
     color: #b8bec9;
     font-size: 0.75rem;
@@ -983,14 +991,16 @@ button:disabled {
 }
 
 .theme-light button,
-.theme-light .view-controls > summary {
+.theme-light .view-controls > summary,
+.theme-light .bookmark-controls > summary {
     border-color: #999;
     background: #f4f4f4;
     color: #222;
 }
 
 .theme-light button:hover:not(:disabled),
-.theme-light .view-controls > summary:hover {
+.theme-light .view-controls > summary:hover,
+.theme-light .bookmark-controls > summary:hover {
     border-color: #355f91;
     background: #e8e8e8;
 }
@@ -1018,14 +1028,16 @@ button:disabled {
 
 /* Light toolbarでもOpenの青だけを強調し、他の操作は低い明度差で示す。 */
 .theme-light .app-toolbar > .toolbar-action:not(.primary-button),
-.theme-light .view-controls > summary.toolbar-action {
+.theme-light .view-controls > summary.toolbar-action,
+.theme-light .bookmark-controls > summary.toolbar-action {
     border-color: transparent;
     background: transparent;
     color: #d9dde6;
 }
 
 .theme-light .app-toolbar > .toolbar-action:not(.primary-button):hover:not(:disabled),
-.theme-light .view-controls > summary.toolbar-action:hover {
+.theme-light .view-controls > summary.toolbar-action:hover,
+.theme-light .bookmark-controls > summary.toolbar-action:hover {
     border-color: transparent;
     background: rgb(255 255 255 / 12%);
     color: #fff;
@@ -1059,7 +1071,8 @@ button:disabled {
     color: #ffd4d4;
 }
 
-.theme-light .view-controls-panel {
+.theme-light .view-controls-panel,
+.theme-light .bookmark-controls-panel {
     border-color: #b9c0ca;
     background: #f7f8fa;
     box-shadow: 0 1rem 2.8rem rgb(44 50 66 / 24%);
@@ -1072,12 +1085,11 @@ button:disabled {
     color: #222;
 }
 
-.theme-light .drawing-thresholds,
-.theme-light .bookmark-controls {
+.theme-light .drawing-thresholds {
     border-top-color: #ccc;
 }
 
-.theme-light .bookmark-controls > p {
+.theme-light .bookmark-controls-panel > p {
     color: #555;
 }
 

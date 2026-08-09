@@ -10,8 +10,10 @@ import {
 import {
     BsArrowCounterclockwise,
     BsBarChart,
+    BsBookmark,
     BsFolder2Open,
     BsPencil,
+    BsSearch,
     BsSliders,
     BsZoomIn,
     BsZoomOut,
@@ -242,6 +244,7 @@ function makeFindTargetString(op: Op): string {
 
 export function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const bookmarkControlsRef = useRef<HTMLDetailsElement>(null);
     const viewControlsRef = useRef<HTMLDetailsElement>(null);
     const traceSheetRef = useRef<TraceSheetHandle>(null);
     const emptyRendererRef = useRef(new KonataRenderer());
@@ -1044,10 +1047,11 @@ export function App() {
             data-op-count={trace?.opCount ?? 0}
             data-lane-count={trace?.laneNames.size ?? 0}
             onClick={(event) => {
-                const viewControls = viewControlsRef.current;
                 // nativeのdetailsは外側clickで閉じないため、panel外だけを明示的に閉じる。
-                if (viewControls?.open && !viewControls.contains(event.target as Node)) {
-                    viewControls.open = false;
+                for (const controls of [bookmarkControlsRef.current, viewControlsRef.current]) {
+                    if (controls?.open && !controls.contains(event.target as Node)) {
+                        controls.open = false;
+                    }
                 }
             }}
             onDragEnter={(event) => {
@@ -1095,12 +1099,49 @@ export function App() {
                 <button
                     className="button-with-icon toolbar-action"
                     type="button"
-                    disabled={trace === null || loadState === "loading" || statsProgress !== null || searchProgress !== null}
-                    onClick={showStats}
+                    aria-label="Search trace"
+                    title="Search trace"
+                    disabled={trace === null || loadState === "loading"}
+                    onClick={() => openCommandPalette("f ")}
                 >
-                    <BsBarChart aria-hidden="true" />
-                    <span>Stats</span>
+                    <BsSearch aria-hidden="true" />
+                    <span>Search</span>
                 </button>
+                <details ref={bookmarkControlsRef} className="bookmark-controls">
+                    <summary
+                        className="toolbar-action"
+                        aria-label="Bookmarks"
+                        title="Bookmarks"
+                        onClick={() => viewControlsRef.current?.removeAttribute("open")}
+                    >
+                        <BsBookmark aria-hidden="true" />
+                        <span>Bookmark</span>
+                    </summary>
+                    <div className="bookmark-controls-panel">
+                        <p>0–9: Go · Ctrl/⌘+0–9: Set</p>
+                        {bookmarks.map((bookmark, index) => (
+                            <div className="bookmark-row" key={index}>
+                                <button
+                                    type="button"
+                                    aria-label={`Go to bookmark ${index}`}
+                                    disabled={trace === null}
+                                    onClick={() => goToBookmark(index)}
+                                >
+                                    Go
+                                </button>
+                                <output>{index}: x:{bookmark.x}, y:{bookmark.y}, zoom:{bookmark.zoom}</output>
+                                <button
+                                    type="button"
+                                    aria-label={`Set bookmark ${index}`}
+                                    disabled={trace === null}
+                                    onClick={() => setBookmark(index)}
+                                >
+                                    Set
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </details>
                 <div className="zoom-controls" aria-label="Zoom controls">
                     <button
                         className="icon-button"
@@ -1135,8 +1176,22 @@ export function App() {
                         <span className="visually-hidden">Reset</span>
                     </button>
                 </div>
+                <button
+                    className="button-with-icon toolbar-action"
+                    type="button"
+                    disabled={trace === null || loadState === "loading" || statsProgress !== null || searchProgress !== null}
+                    onClick={showStats}
+                >
+                    <BsBarChart aria-hidden="true" />
+                    <span>Stats</span>
+                </button>
                 <details ref={viewControlsRef} className="view-controls">
-                    <summary className="toolbar-action" aria-label="View settings" title="View settings">
+                    <summary
+                        className="toolbar-action"
+                        aria-label="View settings"
+                        title="View settings"
+                        onClick={() => bookmarkControlsRef.current?.removeAttribute("open")}
+                    >
                         <BsSliders aria-hidden="true" />
                         <span>View</span>
                     </summary>
@@ -1270,31 +1325,6 @@ export function App() {
                                         }}
                                     />
                                 </label>
-                            ))}
-                        </details>
-                        <details className="bookmark-controls">
-                            <summary>Bookmarks</summary>
-                            <p>0–9: Go · Ctrl/⌘+0–9: Set</p>
-                            {bookmarks.map((bookmark, index) => (
-                                <div className="bookmark-row" key={index}>
-                                    <button
-                                        type="button"
-                                        aria-label={`Go to bookmark ${index}`}
-                                        disabled={trace === null}
-                                        onClick={() => goToBookmark(index)}
-                                    >
-                                        Go
-                                    </button>
-                                    <output>{index}: x:{bookmark.x}, y:{bookmark.y}, zoom:{bookmark.zoom}</output>
-                                    <button
-                                        type="button"
-                                        aria-label={`Set bookmark ${index}`}
-                                        disabled={trace === null}
-                                        onClick={() => setBookmark(index)}
-                                    >
-                                        Set
-                                    </button>
-                                </div>
                             ))}
                         </details>
                     </div>

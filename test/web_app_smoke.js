@@ -451,6 +451,15 @@ async function run() {
             const viewer = document.querySelector(".viewer");
             const labelPane = document.querySelector(".label-pane");
             const pipelinePane = document.querySelector(".pipeline-pane");
+            const toolbar = document.querySelector(".app-toolbar");
+            const toolbarSequence = [...(toolbar?.children ?? [])].map((element) => {
+                if (element.classList.contains("zoom-controls")) {
+                    return "Zoom";
+                }
+                return element.matches("button.toolbar-action")
+                    ? element.querySelector("span")?.textContent ?? null
+                    : element.querySelector(":scope > summary.toolbar-action span")?.textContent ?? null;
+            }).filter((label) => label !== null);
             resolve({
                 title: document.title,
                 headingCount: document.querySelectorAll(".app-toolbar h1").length,
@@ -465,10 +474,14 @@ async function run() {
                 openLabelColor: getComputedStyle(openButton?.querySelector("span")).color,
                 openButtonText: openButton?.textContent?.trim() ?? null,
                 mainActionIconCount: document.querySelectorAll(".app-toolbar > .button-with-icon > svg").length,
+                toolbarSequence,
                 zoomIconCount: document.querySelectorAll(".zoom-controls .icon-button > svg").length,
                 zoomLabels: [...document.querySelectorAll(".zoom-controls .icon-button")]
                     .map((button) => button.getAttribute("aria-label")),
                 viewSettingsIcon: document.querySelector('.view-controls > summary[aria-label="View settings"] > svg') !== null,
+                bookmarkPanelTopLevel:
+                    document.querySelector(".app-toolbar > .bookmark-controls > .bookmark-controls-panel") !== null,
+                bookmarkInViewPanel: document.querySelector(".view-controls-panel .bookmark-controls") !== null,
                 canvasCount: document.querySelectorAll(".viewer canvas").length,
                 splitterCount: document.querySelectorAll(".pane-splitter").length,
                 viewerWidth: Math.round(viewer?.getBoundingClientRect().width ?? -1),
@@ -493,10 +506,14 @@ async function run() {
         initialState.openLabelSize > 11 ||
         initialState.openLabelColor !== "rgb(147, 168, 188)" ||
         initialState.openButtonText !== "Open" ||
-        initialState.mainActionIconCount !== 2 ||
+        initialState.mainActionIconCount !== 3 ||
+        JSON.stringify(initialState.toolbarSequence) !==
+            JSON.stringify(["Open", "Search", "Bookmark", "Zoom", "Stats", "View"]) ||
         initialState.zoomIconCount !== 3 ||
         JSON.stringify(initialState.zoomLabels) !== JSON.stringify(["Zoom out", "Zoom in", "Reset view"]) ||
         !initialState.viewSettingsIcon ||
+        !initialState.bookmarkPanelTopLevel ||
+        initialState.bookmarkInViewPanel ||
         initialState.canvasCount !== 2 ||
         initialState.splitterCount !== 0 ||
         initialState.labelWidth !== 0 ||
@@ -781,7 +798,16 @@ async function run() {
             await nextFrame();
         };
 
-        const searchInput = await openPalette({key: "f", ctrlKey: true, bubbles: true, cancelable: true});
+        const searchButton = document.querySelector('button[aria-label="Search trace"]');
+        if (!(searchButton instanceof HTMLButtonElement) || searchButton.querySelector("svg") === null) {
+            throw new Error("The toolbar search button was not found.");
+        }
+        searchButton.click();
+        await nextFrame();
+        const searchInput = document.querySelector('.command-palette input');
+        if (!(searchInput instanceof HTMLInputElement)) {
+            throw new Error("The toolbar search button did not open the command palette.");
+        }
         const prefilled = searchInput.value;
         const hints = [...document.querySelectorAll('.command-hint code')].map((hint) => hint.textContent);
         await execute(searchInput, "f execute|consumer");
@@ -965,6 +991,20 @@ async function run() {
 
     // 旧版と同じ数字キーでの移動とCtrl/Command+数字での設定を、表示中のslot値とCanvasで確認する。
     const bookmarkState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const bookmarkControls = document.querySelector(".bookmark-controls");
+        const bookmarkSummary = bookmarkControls?.querySelector(":scope > summary");
+        if (!(bookmarkControls instanceof HTMLDetailsElement) || !(bookmarkSummary instanceof HTMLElement)) {
+            throw new Error("The toolbar bookmark controls were not found.");
+        }
+        bookmarkSummary.click();
+        await nextFrame();
+        const opensFromToolbar = bookmarkControls.open &&
+            bookmarkControls.parentElement?.classList.contains("app-toolbar") === true;
+        document.querySelector(".pipeline-pane")?.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+        await nextFrame();
+        const closesOutside = !bookmarkControls.open;
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         if (!(reset instanceof HTMLButtonElement)) {
@@ -1002,13 +1042,17 @@ async function run() {
         }));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
+            opensFromToolbar,
+            closesOutside,
             slot: slot?.textContent ?? null,
             goButtons: document.querySelectorAll('button[aria-label^="Go to bookmark "]').length,
             setButtons: document.querySelectorAll('button[aria-label^="Set bookmark "]').length,
             toolTip: document.querySelector('[role="tooltip"]')?.textContent ?? null
         };
     })()`);
-    if (bookmarkState.slot !== "2: x:6, y:0, zoom:0" ||
+    if (!bookmarkState.opensFromToolbar ||
+        !bookmarkState.closesOutside ||
+        bookmarkState.slot !== "2: x:6, y:0, zoom:0" ||
         bookmarkState.goButtons !== 10 ||
         bookmarkState.setButtons !== 10 ||
         typeof bookmarkState.toolTip !== "string" ||
