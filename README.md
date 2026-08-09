@@ -73,7 +73,8 @@ the corresponding instruction.
 
 The toolbar provides Open, Search, Bookmark, Stats, View, and zoom controls. View changes the
 theme, pipeline colors, dependency arrows, lane layout, flushed-op visibility, and drawing
-thresholds. Custom colors can be edited from the Custom color scheme.
+thresholds. Zoom fineness values greater than 1 make each zoom step smaller. Custom colors can be
+edited from the Custom color scheme.
 
 - Drag the canvas to pan. A horizontal trackpad wheel scrolls horizontally.
 - Use the mouse wheel or Up/Down keys to follow instructions vertically.
@@ -104,7 +105,6 @@ the corresponding slot. Bookmarks and view settings are saved in browser storage
 | Local plain/gzip traces, tabs, search, bookmarks, Stats, and view settings | Supported | Supported |
 | Progressive parsing and drawing | Supported | Supported |
 | Adjust position | Toolbar crosshair | Pipeline context menu |
-| Configurable zoom-step factor | Uses the legacy default | Supported |
 | Command-palette history after restart | Not yet persisted | Supported |
 | Transparent overlay and synchronized scrolling | Not yet implemented | Supported |
 | Recent files and reload after an external file change | Not yet implemented | Supported |

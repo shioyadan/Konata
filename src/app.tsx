@@ -107,6 +107,10 @@ function isNonNegativeFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
+function isPositiveFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
 function isCustomColorComponent(value: unknown): value is CustomColorComponent {
     return value === "auto" ||
         (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100);
@@ -143,6 +147,10 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         return null;
     }
     const settings = value as Partial<Record<keyof PersistedViewSettings, unknown>>;
+    // 既存Web版の保存値にはzoom factorがないため、他の設定を保ったまま旧既定値を補う。
+    const drawZoomFactor = settings.drawZoomFactor === undefined
+        ? DEFAULT_PERSISTED_VIEW_SETTINGS.drawZoomFactor
+        : settings.drawZoomFactor;
     if ((settings.theme !== "dark" && settings.theme !== "light") ||
         typeof settings.colorScheme !== "string" ||
         !PIPELINE_COLOR_SCHEMES.has(settings.colorScheme) ||
@@ -153,7 +161,8 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         !isNonNegativeFiniteNumber(settings.drawTextThreshold) ||
         !isNonNegativeFiniteNumber(settings.drawDetailedlyThreshold) ||
         !isNonNegativeFiniteNumber(settings.drawDependencyThreshold) ||
-        !isNonNegativeFiniteNumber(settings.drawFrameThreshold)) {
+        !isNonNegativeFiniteNumber(settings.drawFrameThreshold) ||
+        !isPositiveFiniteNumber(drawZoomFactor)) {
         return null;
     }
     return {
@@ -169,6 +178,7 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         drawDetailedlyThreshold: settings.drawDetailedlyThreshold,
         drawDependencyThreshold: settings.drawDependencyThreshold,
         drawFrameThreshold: settings.drawFrameThreshold,
+        drawZoomFactor,
     };
 }
 
@@ -800,12 +810,14 @@ export function App() {
         const pending = pendingZoomRef.current;
         // wheelなどが次のframeより速く届いても、各1段分を失わず目標倍率へ積み上げる。
         const baseLevel = pending?.tabID === tab.id ? pending.level : fromLevel;
-        const toLevel = renderer.clampZoomLevel(baseLevel + (factor > 1 ? -1 : 1));
+        // 旧drawZoomFactorと同じく、値を大きくすると1操作あたりの倍率変化を細かくする。
+        const zoomStep = 1 / settings.drawZoomFactor;
+        const toLevel = renderer.clampZoomLevel(baseLevel + (factor > 1 ? -zoomStep : zoomStep));
         startViewAnimation(ZOOM_ANIMATION_DURATION, (target, progress) => {
             target.zoomAbs(fromLevel + (toLevel - fromLevel) * progress, centerX, centerY);
         });
         pendingZoomRef.current = { tabID: tab.id, level: toLevel };
-    }, [startViewAnimation, store]);
+    }, [settings.drawZoomFactor, startViewAnimation, store]);
 
     const zoomAtCenter = useCallback((factor: number) => {
         const viewport = traceSheetRef.current?.getViewportSize();
@@ -1302,6 +1314,22 @@ export function App() {
                                 </label>
                             ))}
                         </details>
+                        <label title="Higher values make each zoom step smaller.">
+                            Zoom fineness
+                            <input
+                                type="number"
+                                min="0.1"
+                                step="0.1"
+                                aria-label="Zoom fineness"
+                                value={settings.drawZoomFactor}
+                                onChange={(event) => {
+                                    const value = Number(event.target.value);
+                                    if (Number.isFinite(value) && value > 0) {
+                                        store.dispatch({ type: "KONATA_CHANGE_ZOOM_FACTOR", value });
+                                    }
+                                }}
+                            />
+                        </label>
                     </div>
                 </details>
                 <div className="zoom-controls" aria-label="Zoom controls">

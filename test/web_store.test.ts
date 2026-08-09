@@ -200,6 +200,7 @@ test("Store restores and publishes persistent view settings", () => {
         drawDetailedlyThreshold: 2,
         drawDependencyThreshold: 5,
         drawFrameThreshold: 6,
+        drawZoomFactor: 1.5,
     });
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
@@ -207,6 +208,7 @@ test("Store restores and publishes persistent view settings", () => {
     assert.equal(restored.theme, "light");
     assert.equal(restored.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
     assert.equal(restored.drawTextThreshold, 11);
+    assert.equal(restored.drawZoomFactor, 1.5);
     // lane分割と固定高さは旧Configの保存対象ではなく、再起動時には初期値へ戻る。
     assert.equal(restored.splitLanes, false);
     assert.equal(restored.fixOpHeight, false);
@@ -233,6 +235,7 @@ test("Store restores and publishes persistent view settings", () => {
         defaultColor: { ...DEFAULT_CUSTOM_COLOR_SCHEME.defaultColor, h: 210 },
     };
     store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });
+    store.dispatch({ type: "KONATA_CHANGE_ZOOM_FACTOR", value: 2 });
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({ type: "KONATA_FIX_OP_HEIGHT", enabled: true });
     store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
@@ -247,9 +250,10 @@ test("Store restores and publishes persistent view settings", () => {
         drawDetailedlyThreshold: 2,
         drawDependencyThreshold: 5,
         drawFrameThreshold: 6,
+        drawZoomFactor: 2,
     });
     // Tab固有設定や旧Storeだけの一時設定では、永続化通知を増やさない。
-    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 6);
+    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 7);
 
     store.close();
 });

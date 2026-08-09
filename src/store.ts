@@ -29,6 +29,7 @@ export interface GlobalViewSettings {
     readonly drawDetailedlyThreshold: number;
     readonly drawDependencyThreshold: number;
     readonly drawFrameThreshold: number;
+    readonly drawZoomFactor: number;
 }
 
 const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
@@ -41,6 +42,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     drawDetailedlyThreshold: 1,
     drawDependencyThreshold: 4,
     drawFrameThreshold: 4,
+    drawZoomFactor: 1,
 };
 
 // 旧Configが再起動後も復元していた表示設定だけをlocalStorage境界へ公開する。
@@ -54,6 +56,7 @@ export interface PersistedViewSettings {
     readonly drawDetailedlyThreshold: number;
     readonly drawDependencyThreshold: number;
     readonly drawFrameThreshold: number;
+    readonly drawZoomFactor: number;
 }
 
 export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = {
@@ -66,6 +69,7 @@ export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = 
     drawDetailedlyThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawDetailedlyThreshold,
     drawDependencyThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawDependencyThreshold,
     drawFrameThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawFrameThreshold,
+    drawZoomFactor: DEFAULT_GLOBAL_VIEW_SETTINGS.drawZoomFactor,
 };
 
 export interface FindResult {
@@ -129,6 +133,7 @@ export type Action =
         readonly threshold: DrawingThreshold;
         readonly value: number;
     }
+    | { readonly type: "KONATA_CHANGE_ZOOM_FACTOR"; readonly value: number }
     // 現行UIのRenderer操作をそのまま保つための移行用action。同期scrollを戻す段階で必要な操作だけ具体化する。
     | {
         readonly type: "KONATA_MUTATE_VIEW";
@@ -237,6 +242,7 @@ export class Store {
             drawDetailedlyThreshold: viewSettings.drawDetailedlyThreshold,
             drawDependencyThreshold: viewSettings.drawDependencyThreshold,
             drawFrameThreshold: viewSettings.drawFrameThreshold,
+            drawZoomFactor: viewSettings.drawZoomFactor,
         };
         this.snapshot_ = {
             tabs: [],
@@ -279,6 +285,7 @@ export class Store {
             drawDetailedlyThreshold: this.settings_.drawDetailedlyThreshold,
             drawDependencyThreshold: this.settings_.drawDependencyThreshold,
             drawFrameThreshold: this.settings_.drawFrameThreshold,
+            drawZoomFactor: this.settings_.drawZoomFactor,
         };
     }
 
@@ -549,6 +556,17 @@ export class Store {
         case "KONATA_CHANGE_DRAWING_THRESHOLD": {
             this.setGlobalViewSettings_(
                 { ...this.settings_, [action.threshold]: action.value },
+                false,
+                true,
+            );
+            return;
+        }
+        case "KONATA_CHANGE_ZOOM_FACTOR": {
+            if (!Number.isFinite(action.value) || action.value <= 0) {
+                return;
+            }
+            this.setGlobalViewSettings_(
+                { ...this.settings_, drawZoomFactor: action.value },
                 false,
                 true,
             );
