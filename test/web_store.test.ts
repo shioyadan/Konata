@@ -63,6 +63,27 @@ test("Store owns tab traces, renderers, activation, and close", () => {
     assert.equal(store.getSnapshot().tabs.length, 0);
 });
 
+test("Store moves the active tab forward and backward without reordering tabs", () => {
+    const store = new Store();
+    for (const fileName of ["first.log", "second.log", "third.log"]) {
+        store.dispatch({ type: "FILE_OPEN", fileName, renderer: new KonataRenderer() });
+    }
+
+    const tabIDs = store.getSnapshot().tabs.map((tab) => tab.id);
+    assert.equal(store.activeTab?.fileName, "third.log");
+    // 末尾の次は先頭へ、先頭の前は末尾へ戻る旧TAB_MOVEの循環を固定する。
+    store.dispatch({ type: "TAB_MOVE", next: true });
+    assert.equal(store.activeTab?.fileName, "first.log");
+    store.dispatch({ type: "TAB_MOVE", next: false });
+    assert.equal(store.activeTab?.fileName, "third.log");
+    store.dispatch({ type: "TAB_MOVE", next: false });
+    assert.equal(store.activeTab?.fileName, "second.log");
+    // active Tabだけを変更し、表示順そのものは変更しない。
+    assert.deepEqual(store.getSnapshot().tabs.map((tab) => tab.id), tabIDs);
+
+    store.close();
+});
+
 test("Store rejects a delayed trace update after its tab is closed", () => {
     const store = new Store();
     store.dispatch({ type: "FILE_OPEN", fileName: "closed.log", renderer: new KonataRenderer() });

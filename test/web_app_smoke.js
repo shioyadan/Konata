@@ -954,6 +954,37 @@ async function run() {
         throw new Error(`Second tab settings are incomplete: ${JSON.stringify(secondTabSettingsState)}`);
     }
 
+    // 旧native menuのTAB_MOVEと同じく、前後ショートカットがTab順の端で循環する。
+    const tabShortcutState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const dispatchShortcut = async (shiftKey) => {
+            const event = new KeyboardEvent("keydown", {
+                key: "Tab",
+                ctrlKey: true,
+                shiftKey,
+                bubbles: true,
+                cancelable: true
+            });
+            const dispatched = document.dispatchEvent(event);
+            await nextFrame();
+            return {
+                canceled: !dispatched && event.defaultPrevented,
+                selected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null
+            };
+        };
+        return {
+            next: await dispatchShortcut(false),
+            previous: await dispatchShortcut(true)
+        };
+    })()`);
+    if (!tabShortcutState.next.canceled ||
+        tabShortcutState.next.selected !== "kanata-basic.txt" ||
+        !tabShortcutState.previous.canceled ||
+        tabShortcutState.previous.selected !== "gem5-basic.txt") {
+        throw new Error(`Trace tab shortcuts are incomplete: ${JSON.stringify(tabShortcutState)}`);
+    }
+
     // traceとRenderer設定を保持して切り替え、middle clickでactive tabを閉じたら隣へ移る。
     const tabState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const tabButtons = [...document.querySelectorAll('[role="tab"]')];

@@ -172,6 +172,17 @@ export function App() {
         resetCommandUI();
     }, [resetCommandUI, resetStats, store]);
 
+    const moveTab = useCallback((next: boolean): boolean => {
+        const previousTabID = store.activeTab?.id ?? null;
+        store.dispatch({ type: "TAB_MOVE", next });
+        if (store.activeTab?.id === previousTabID) {
+            return false;
+        }
+        resetStats();
+        resetCommandUI();
+        return true;
+    }, [resetCommandUI, resetStats, store]);
+
     const closeTab = useCallback((id: number) => {
         const wasActive = store.activeTab?.id === id;
         store.dispatch({ type: "TAB_CLOSE", tabID: id });
@@ -603,11 +614,16 @@ export function App() {
                 }
                 return;
             }
+            const commandKey = event.ctrlKey || event.metaKey;
+            // browserが予約する環境では届かないが、受け取れた場合は旧native menuと同じ操作にする。
+            if (commandKey && !event.altKey && event.key === "Tab" && moveTab(!event.shiftKey)) {
+                event.preventDefault();
+                return;
+            }
             if (commandPaletteInitial !== null) {
                 return;
             }
 
-            const commandKey = event.ctrlKey || event.metaKey;
             if (event.key === "F1" ||
                 (commandKey && event.shiftKey && event.key.toLowerCase() === "p")) {
                 openCommandPalette("");
@@ -673,7 +689,7 @@ export function App() {
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
     }, [commandPaletteInitial, goToBookmark, hideSearchResult, isStatsDialogOpen, moveHorizontal,
-        moveVertical, openCommandPalette, repeatSearch, setBookmark, trace, zoomAtCenter]);
+        moveTab, moveVertical, openCommandPalette, repeatSearch, setBookmark, trace, zoomAtCenter]);
 
     let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
     if (loadState === "loading") {
