@@ -39,6 +39,29 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     drawFrameThreshold: 4,
 };
 
+// 旧Configが再起動後も復元していた表示設定だけをlocalStorage境界へ公開する。
+export interface PersistedViewSettings {
+    readonly theme: RendererTheme;
+    readonly colorScheme: string;
+    readonly splitterPosition: number;
+    readonly dependencyArrowType: DependencyArrowType;
+    readonly drawTextThreshold: number;
+    readonly drawDetailedlyThreshold: number;
+    readonly drawDependencyThreshold: number;
+    readonly drawFrameThreshold: number;
+}
+
+export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = {
+    theme: DEFAULT_GLOBAL_VIEW_SETTINGS.theme,
+    colorScheme: "Auto",
+    splitterPosition: DEFAULT_SPLITTER_POSITION,
+    dependencyArrowType: DEFAULT_GLOBAL_VIEW_SETTINGS.dependencyArrowType,
+    drawTextThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawTextThreshold,
+    drawDetailedlyThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawDetailedlyThreshold,
+    drawDependencyThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawDependencyThreshold,
+    drawFrameThreshold: DEFAULT_GLOBAL_VIEW_SETTINGS.drawFrameThreshold,
+};
+
 export interface FindResult {
     readonly targetPattern: string;
     readonly foundString: string;
@@ -108,6 +131,7 @@ export type Change =
     | { readonly type: "TAB_UPDATE"; readonly tabID: number | null }
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
     | { readonly type: "PANE_SIZE_UPDATE"; readonly tabID: number }
+    | { readonly type: "VIEW_SETTINGS_UPDATE" }
     // nullは全TabのRendererへ同じ変更を適用したことを表す。
     | { readonly type: "PANE_CONTENT_UPDATE"; readonly tabID: number | null }
     | { readonly type: "WINDOW_CSS_UPDATE" }
@@ -186,15 +210,30 @@ export class Store {
     private readonly snapshotListeners_ = new Set<() => void>();
     private readonly changeListeners_ = new Set<(change: Change) => void>();
     private nextOpenedTabID_ = 0;
-    private defaultColorScheme_ = "Auto";
-    private defaultSplitterPosition_ = DEFAULT_SPLITTER_POSITION;
-    private settings_: GlobalViewSettings = { ...DEFAULT_GLOBAL_VIEW_SETTINGS };
-    private snapshot_: StoreSnapshot = {
-        tabs: [],
-        activeTabID: null,
-        settings: this.settings_,
-        revision: 0,
-    };
+    private defaultColorScheme_: string;
+    private defaultSplitterPosition_: number;
+    private settings_: GlobalViewSettings;
+    private snapshot_: StoreSnapshot;
+
+    constructor(viewSettings: Readonly<PersistedViewSettings> = DEFAULT_PERSISTED_VIEW_SETTINGS) {
+        this.defaultColorScheme_ = viewSettings.colorScheme;
+        this.defaultSplitterPosition_ = viewSettings.splitterPosition;
+        this.settings_ = {
+            ...DEFAULT_GLOBAL_VIEW_SETTINGS,
+            theme: viewSettings.theme,
+            dependencyArrowType: viewSettings.dependencyArrowType,
+            drawTextThreshold: viewSettings.drawTextThreshold,
+            drawDetailedlyThreshold: viewSettings.drawDetailedlyThreshold,
+            drawDependencyThreshold: viewSettings.drawDependencyThreshold,
+            drawFrameThreshold: viewSettings.drawFrameThreshold,
+        };
+        this.snapshot_ = {
+            tabs: [],
+            activeTabID: null,
+            settings: this.settings_,
+            revision: 0,
+        };
+    }
 
     // 同じsnapshotを変更通知まで返すことで、ReactのuseSyncExternalStoreから安全に購読できる。
     readonly subscribe = (listener: () => void): (() => void) => {
@@ -216,6 +255,19 @@ export class Store {
     get activeTab(): Tab | null {
         const id = this.snapshot_.activeTabID;
         return id === null ? null : this.tabs_.get(id) ?? null;
+    }
+
+    get persistedViewSettings(): PersistedViewSettings {
+        return {
+            theme: this.settings_.theme,
+            colorScheme: this.defaultColorScheme_,
+            splitterPosition: this.defaultSplitterPosition_,
+            dependencyArrowType: this.settings_.dependencyArrowType,
+            drawTextThreshold: this.settings_.drawTextThreshold,
+            drawDetailedlyThreshold: this.settings_.drawDetailedlyThreshold,
+            drawDependencyThreshold: this.settings_.drawDependencyThreshold,
+            drawFrameThreshold: this.settings_.drawFrameThreshold,
+        };
     }
 
     dispatch(action: Action): void {
@@ -355,6 +407,7 @@ export class Store {
             tab.splitterPosition = position;
             this.defaultSplitterPosition_ = position;
             this.publish_(this.snapshot_.activeTabID, [
+                { type: "VIEW_SETTINGS_UPDATE" },
                 { type: "PANE_SIZE_UPDATE", tabID: tab.id },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
@@ -422,14 +475,14 @@ export class Store {
             return;
         }
         case "KONATA_CHANGE_UI_COLOR_THEME": {
-            this.setGlobalViewSettings_({ ...this.settings_, theme: action.theme }, true);
+            this.setGlobalViewSettings_({ ...this.settings_, theme: action.theme }, true, true);
             return;
         }
         case "KONATA_SET_DEP_ARROW_TYPE": {
             this.setGlobalViewSettings_({
                 ...this.settings_,
                 dependencyArrowType: action.arrowType,
-            });
+            }, false, true);
             return;
         }
         case "KONATA_SPLIT_LANES": {
@@ -449,6 +502,7 @@ export class Store {
             this.defaultColorScheme_ = action.scheme;
             tab.renderer.changeColorScheme(action.scheme);
             this.publish_(this.snapshot_.activeTabID, [
+                { type: "VIEW_SETTINGS_UPDATE" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
             return;
@@ -473,7 +527,11 @@ export class Store {
             return;
         }
         case "KONATA_CHANGE_DRAWING_THRESHOLD": {
-            this.setGlobalViewSettings_({ ...this.settings_, [action.threshold]: action.value });
+            this.setGlobalViewSettings_(
+                { ...this.settings_, [action.threshold]: action.value },
+                false,
+                true,
+            );
             return;
         }
         case "KONATA_MUTATE_VIEW": {
@@ -505,12 +563,19 @@ export class Store {
         this.changeListeners_.clear();
     }
 
-    private setGlobalViewSettings_(settings: GlobalViewSettings, windowCSS = false): void {
+    private setGlobalViewSettings_(
+        settings: GlobalViewSettings,
+        windowCSS = false,
+        persist = false,
+    ): void {
         this.settings_ = settings;
         for (const tab of this.tabs_.values()) {
             this.applyGlobalViewSettings_(tab.renderer);
         }
         const changes: Change[] = [{ type: "PANE_CONTENT_UPDATE", tabID: null }];
+        if (persist) {
+            changes.unshift({ type: "VIEW_SETTINGS_UPDATE" });
+        }
         if (windowCSS) {
             changes.unshift({ type: "WINDOW_CSS_UPDATE" });
         }

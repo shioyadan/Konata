@@ -26,9 +26,11 @@ import {
     type RendererTheme,
 } from "./renderer/konata_renderer";
 import {
+    DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
     type DrawingThreshold,
     type FindResult,
+    type PersistedViewSettings,
     Store,
 } from "./store";
 
@@ -51,6 +53,59 @@ const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
     () => ({ x: 0, y: 0, zoom: 0 }),
 );
 const BOOKMARK_STORAGE_KEY = "konata.bookmarks";
+const VIEW_SETTINGS_STORAGE_KEY = "konata.viewSettings";
+const PIPELINE_COLOR_SCHEMES = new Set([
+    "Auto",
+    "Unique",
+    "ThreadID",
+    "Orange",
+    "RoyalBlue",
+    "Custom",
+]);
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isPersistedViewSettings(value: unknown): value is PersistedViewSettings {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const settings = value as Partial<Record<keyof PersistedViewSettings, unknown>>;
+    return (settings.theme === "dark" || settings.theme === "light") &&
+        typeof settings.colorScheme === "string" &&
+        PIPELINE_COLOR_SCHEMES.has(settings.colorScheme) &&
+        isNonNegativeFiniteNumber(settings.splitterPosition) &&
+        (settings.dependencyArrowType === DEP_ARROW_TYPE.INSIDE_LINE ||
+            settings.dependencyArrowType === DEP_ARROW_TYPE.LEFT_SIDE_CURVE ||
+            settings.dependencyArrowType === DEP_ARROW_TYPE.NOT_SHOW) &&
+        isNonNegativeFiniteNumber(settings.drawTextThreshold) &&
+        isNonNegativeFiniteNumber(settings.drawDetailedlyThreshold) &&
+        isNonNegativeFiniteNumber(settings.drawDependencyThreshold) &&
+        isNonNegativeFiniteNumber(settings.drawFrameThreshold);
+}
+
+function loadViewSettings(): Readonly<PersistedViewSettings> {
+    try {
+        const value: unknown = JSON.parse(localStorage.getItem(VIEW_SETTINGS_STORAGE_KEY) ?? "null");
+        if (isPersistedViewSettings(value)) {
+            return value;
+        }
+    }
+    catch {
+        // file://でstorageを利用できない場合や保存値が壊れていても、起動は妨げない。
+    }
+    return DEFAULT_PERSISTED_VIEW_SETTINGS;
+}
+
+function saveViewSettings(settings: Readonly<PersistedViewSettings>): void {
+    try {
+        localStorage.setItem(VIEW_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    }
+    catch {
+        // 保存できなくても、現在のStore内では変更した表示設定をそのまま利用できる。
+    }
+}
 
 function isViewBookmark(value: unknown): value is ViewBookmark {
     if (typeof value !== "object" || value === null) {
@@ -106,7 +161,7 @@ export function App() {
     const emptyRendererRef = useRef(new KonataRenderer());
     const storeRef = useRef<Store | null>(null);
     if (storeRef.current === null) {
-        storeRef.current = new Store();
+        storeRef.current = new Store(loadViewSettings());
     }
     const store = storeRef.current;
     const statsRequestRef = useRef(0);
@@ -193,6 +248,9 @@ export function App() {
     }, [resetCommandUI, resetStats, store]);
 
     useEffect(() => store.subscribeChange((change) => {
+        if (change.type === "VIEW_SETTINGS_UPDATE") {
+            saveViewSettings(store.persistedViewSettings);
+        }
         if (change.type === "PANE_CONTENT_UPDATE" &&
             (change.tabID === null || change.tabID === store.activeTab?.id)) {
             setRenderVersion((version) => version + 1);

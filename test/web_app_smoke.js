@@ -1135,7 +1135,85 @@ async function run() {
         throw new Error(`Zoom rendering is incomplete: ${JSON.stringify(zoomedState)}`);
     }
 
-    console.log(`Web smoke test passed: ${JSON.stringify(zoomedState)}`);
+    // 非既定のthemeを保存し、旧Config対象外のlane分割は保存値へ混ぜない。
+    const viewSettingsSetupState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        const split = document.querySelector('input[aria-label="Split lanes"]');
+        if (!(theme instanceof HTMLSelectElement) || !(split instanceof HTMLInputElement)) {
+            throw new Error("The view settings controls were not found.");
+        }
+        theme.value = "light";
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        split.click();
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
+            resolve({
+                theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
+                split: split.checked,
+                stored,
+                storesSplitLanes: stored !== null && "splitLanes" in stored
+            });
+        }));
+    })`);
+    if (viewSettingsSetupState.theme !== "light" ||
+        !viewSettingsSetupState.split ||
+        viewSettingsSetupState.stored?.theme !== "light" ||
+        viewSettingsSetupState.stored?.colorScheme !== "RoyalBlue" ||
+        viewSettingsSetupState.stored?.splitterPosition !== 280 ||
+        viewSettingsSetupState.stored?.dependencyArrowType !== "notShow" ||
+        viewSettingsSetupState.stored?.drawTextThreshold !== 14 ||
+        viewSettingsSetupState.storesSplitLanes) {
+        throw new Error(`View settings setup is incomplete: ${JSON.stringify(viewSettingsSetupState)}`);
+    }
+
+    await window.loadFile(webFile);
+    await dropFixture(window, plainFixture, "text/plain");
+    const persistedViewSettingsState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
+            split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
+            fixed: document.querySelector('input[aria-label="Fix op height"]')?.checked ?? null,
+            arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
+            color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
+            hideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
+            textThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
+            labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
+        })));
+    })`);
+    if (persistedViewSettingsState.theme !== "light" ||
+        persistedViewSettingsState.split ||
+        persistedViewSettingsState.fixed ||
+        persistedViewSettingsState.arrows !== "notShow" ||
+        persistedViewSettingsState.color !== "RoyalBlue" ||
+        persistedViewSettingsState.hideFlushed ||
+        persistedViewSettingsState.textThreshold !== "14" ||
+        persistedViewSettingsState.labelWidth !== 280) {
+        throw new Error(`View settings persistence is incomplete: ${JSON.stringify(persistedViewSettingsState)}`);
+    }
+
+    await window.webContents.executeJavaScript(
+        `localStorage.setItem("konata.viewSettings", "{broken")`,
+    );
+    await window.loadFile(webFile);
+    await dropFixture(window, plainFixture, "text/plain");
+    const recoveredViewSettingsState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
+            arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
+            color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
+            textThreshold: document.querySelector('input[aria-label="Text drawing threshold"]')?.value ?? null,
+            labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
+        })));
+    })`);
+    if (recoveredViewSettingsState.theme !== "dark" ||
+        recoveredViewSettingsState.arrows !== "insideLine" ||
+        recoveredViewSettingsState.color !== "Auto" ||
+        recoveredViewSettingsState.textThreshold !== "10" ||
+        recoveredViewSettingsState.labelWidth !== 450) {
+        throw new Error(`View settings recovery is incomplete: ${JSON.stringify(recoveredViewSettingsState)}`);
+    }
+
+    console.log(`Web smoke test passed: ${JSON.stringify(recoveredViewSettingsState)}`);
     window.destroy();
 }
 
