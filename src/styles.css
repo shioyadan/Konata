@@ -342,6 +342,13 @@ button:disabled {
     background: #343b47;
 }
 
+.zoom-separator {
+    width: 1px;
+    height: 1.25rem;
+    margin: 0 0.12rem;
+    background: #3f4754;
+}
+
 .zoom-controls output {
     min-width: 3.4rem;
     color: #d4d8df;
@@ -1060,6 +1067,10 @@ button:disabled {
 
 .theme-light .zoom-controls .icon-button:hover:not(:disabled) {
     background: rgb(255 255 255 / 12%);
+}
+
+.theme-light .zoom-separator {
+    background: rgb(255 255 255 / 24%);
 }
 
 .theme-light .status {

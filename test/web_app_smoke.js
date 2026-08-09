@@ -476,6 +476,12 @@ async function run() {
                 mainActionIconCount: document.querySelectorAll(".app-toolbar > .button-with-icon > svg").length,
                 toolbarSequence,
                 zoomIconCount: document.querySelectorAll(".zoom-controls .icon-button > svg").length,
+                zoomSeparatorCount: document.querySelectorAll(".zoom-controls > .zoom-separator").length,
+                zoomSeparatorPlacement:
+                    document.querySelector('button[aria-label="Zoom in"]')?.nextElementSibling
+                        ?.classList.contains("zoom-separator") === true &&
+                    document.querySelector(".zoom-separator")?.nextElementSibling
+                        ?.getAttribute("aria-label") === "Adjust position",
                 zoomLabels: [...document.querySelectorAll(".zoom-controls .icon-button")]
                     .map((button) => button.getAttribute("aria-label")),
                 viewSettingsIcon: document.querySelector('.view-controls > summary[aria-label="View settings"] > svg') !== null,
@@ -510,6 +516,8 @@ async function run() {
         JSON.stringify(initialState.toolbarSequence) !==
             JSON.stringify(["Open", "Search", "Bookmark", "Stats", "View", "Zoom"]) ||
         initialState.zoomIconCount !== 4 ||
+        initialState.zoomSeparatorCount !== 1 ||
+        !initialState.zoomSeparatorPlacement ||
         JSON.stringify(initialState.zoomLabels) !==
             JSON.stringify(["Zoom out", "Zoom in", "Adjust position", "Reset view"]) ||
         !initialState.viewSettingsIcon ||

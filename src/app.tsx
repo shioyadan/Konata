@@ -1326,6 +1326,7 @@ export function App() {
                     >
                         <BsZoomIn aria-hidden="true" />
                     </button>
+                    <span className="zoom-separator" aria-hidden="true" />
                     <button
                         className="icon-button"
                         type="button"
