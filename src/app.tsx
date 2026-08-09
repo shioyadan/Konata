@@ -40,6 +40,14 @@ interface ViewBookmark {
     readonly zoom: number;
 }
 
+interface ViewAnimation {
+    readonly tabID: number;
+    readonly startedAt: number;
+    readonly duration: number;
+    readonly apply: (renderer: KonataRenderer, progress: number) => void;
+    frameID: number;
+}
+
 // 旧Settings dialogで変更できた描画閾値だけを、既存View panelへそのまま並べる。
 const DRAWING_THRESHOLDS: ReadonlyArray<readonly [DrawingThreshold, string]> = [
     ["drawTextThreshold", "Text"],
@@ -54,6 +62,9 @@ const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
 );
 const BOOKMARK_STORAGE_KEY = "konata.bookmarks";
 const VIEW_SETTINGS_STORAGE_KEY = "konata.viewSettings";
+const ZOOM_ANIMATION_DURATION = 80;
+const SCROLL_ANIMATION_DURATION = 100;
+const BOOKMARK_ANIMATION_DURATION = 200;
 const PIPELINE_COLOR_SCHEMES = new Set([
     "Auto",
     "Unique",
@@ -167,6 +178,8 @@ export function App() {
     const store = storeRef.current;
     const statsRequestRef = useRef(0);
     const commandHistoryRef = useRef<string[]>([]);
+    // timer IDなどの途中状態は表示結果ではないため、StoreではなくAppの寿命にだけ結び付ける。
+    const viewAnimationRef = useRef<ViewAnimation | null>(null);
 
     const { tabs, activeTabID, settings } = useSyncExternalStore(store.subscribe, store.getSnapshot);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -209,6 +222,71 @@ export function App() {
         setCommandPaletteInitial(null);
     }, []);
 
+    const cancelViewAnimation = useCallback(() => {
+        const animation = viewAnimationRef.current;
+        if (animation === null) {
+            return;
+        }
+        cancelAnimationFrame(animation.frameID);
+        viewAnimationRef.current = null;
+    }, []);
+
+    const startViewAnimation = useCallback((
+        duration: number,
+        apply: (renderer: KonataRenderer, progress: number) => void,
+    ) => {
+        const tab = store.activeTab;
+        if (tab === null) {
+            return;
+        }
+
+        cancelViewAnimation();
+        traceSheetRef.current?.clearToolTip();
+        const tabID = tab.id;
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            store.dispatch({
+                type: "KONATA_MUTATE_VIEW",
+                tabID,
+                mutation: (renderer) => apply(renderer, 1),
+            });
+            return;
+        }
+
+        const animation: ViewAnimation = {
+            tabID,
+            startedAt: performance.now(),
+            duration,
+            apply,
+            frameID: 0,
+        };
+        const animate = (now: number) => {
+            if (viewAnimationRef.current !== animation) {
+                return;
+            }
+            // Tab切替後に、以前のRendererを画面外で動かし続けない。
+            if (store.activeTab?.id !== animation.tabID) {
+                viewAnimationRef.current = null;
+                return;
+            }
+
+            const progress = Math.min(1, (now - animation.startedAt) / animation.duration);
+            store.dispatch({
+                type: "KONATA_MUTATE_VIEW",
+                tabID: animation.tabID,
+                mutation: (renderer) => animation.apply(renderer, progress),
+            });
+            if (progress >= 1) {
+                viewAnimationRef.current = null;
+            }
+            else {
+                animation.frameID = requestAnimationFrame(animate);
+            }
+        };
+
+        viewAnimationRef.current = animation;
+        animation.frameID = requestAnimationFrame(animate);
+    }, [cancelViewAnimation, store]);
+
     const hideSearchResult = useCallback(() => {
         const tab = store.activeTab;
         if (tab !== null) {
@@ -219,6 +297,7 @@ export function App() {
 
     const activateTab = useCallback((id: number) => {
         const previousTabID = store.activeTab?.id ?? null;
+        cancelViewAnimation();
         store.dispatch({ type: "TAB_ACTIVATE", tabID: id });
         if (store.activeTab?.id === previousTabID) {
             return;
@@ -226,10 +305,11 @@ export function App() {
         // dialogは閉じ、検索contextは切替先Tabが所有する値をそのまま表示する。
         resetStats();
         resetCommandUI();
-    }, [resetCommandUI, resetStats, store]);
+    }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
 
     const moveTab = useCallback((next: boolean): boolean => {
         const previousTabID = store.activeTab?.id ?? null;
+        cancelViewAnimation();
         store.dispatch({ type: "TAB_MOVE", next });
         if (store.activeTab?.id === previousTabID) {
             return false;
@@ -237,16 +317,19 @@ export function App() {
         resetStats();
         resetCommandUI();
         return true;
-    }, [resetCommandUI, resetStats, store]);
+    }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
 
     const closeTab = useCallback((id: number) => {
         const wasActive = store.activeTab?.id === id;
+        if (wasActive) {
+            cancelViewAnimation();
+        }
         store.dispatch({ type: "TAB_CLOSE", tabID: id });
         if (wasActive) {
             resetStats();
             resetCommandUI();
         }
-    }, [resetCommandUI, resetStats, store]);
+    }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
 
     useEffect(() => store.subscribeChange((change) => {
         if (change.type === "VIEW_SETTINGS_UPDATE") {
@@ -260,11 +343,13 @@ export function App() {
 
     useEffect(() => () => {
         statsRequestRef.current++;
+        cancelViewAnimation();
         // StrictModeの初回cleanup時点ではtabがなく、実際のunmountではStoreが全tabを閉じる。
         store.close();
-    }, [store]);
+    }, [cancelViewAnimation, store]);
 
     const loadFile = useCallback(async (file: File) => {
+        cancelViewAnimation();
         store.dispatch({
             type: "FILE_OPEN",
             fileName: file.name,
@@ -322,7 +407,7 @@ export function App() {
                 trace: parsingTrace,
             });
         }
-    }, [resetCommandUI, resetStats, store]);
+    }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -343,6 +428,8 @@ export function App() {
     };
 
     const mutateView = useCallback((mutation: (renderer: KonataRenderer) => void) => {
+        // drag、wheel、pinchなどの直接操作は、途中の値を起点に即座に引き継ぐ。
+        cancelViewAnimation();
         traceSheetRef.current?.clearToolTip();
         const tab = store.activeTab;
         if (tab === null) {
@@ -351,7 +438,22 @@ export function App() {
             return;
         }
         store.dispatch({ type: "KONATA_MUTATE_VIEW", tabID: tab.id, mutation });
-    }, [store]);
+    }, [cancelViewAnimation, store]);
+
+    const scrollTo = useCallback((position: readonly [number, number]) => {
+        const renderer = store.activeTab?.renderer;
+        if (renderer === undefined) {
+            return;
+        }
+        const [fromX, fromY] = renderer.viewPosition;
+        const [toX, toY] = position;
+        startViewAnimation(SCROLL_ANIMATION_DURATION, (target, progress) => {
+            target.moveLogicalPosition([
+                fromX + (toX - fromX) * progress,
+                fromY + (toY - fromY) * progress,
+            ]);
+        });
+    }, [startViewAnimation, store]);
 
     const moveSplitter = useCallback((position: number) => {
         const tab = store.activeTab;
@@ -479,11 +581,17 @@ export function App() {
                 anchorOp,
                 flushed: foundOp.flush,
             };
-            store.dispatch({
-                type: "KONATA_MUTATE_VIEW",
-                tabID: searchedTab.id,
-                mutation: (targetRenderer) => targetRenderer.moveLogicalPosition([left, top]),
-            });
+            if (store.activeTab?.id === searchedTab.id) {
+                scrollTo([left, top]);
+            }
+            else {
+                // 非表示Tabではrunnerを維持せず、再表示時に最終位置だけを復元する。
+                store.dispatch({
+                    type: "KONATA_MUTATE_VIEW",
+                    tabID: searchedTab.id,
+                    mutation: (targetRenderer) => targetRenderer.moveLogicalPosition([left, top]),
+                });
+            }
             store.dispatch({
                 type: "KONATA_FIND_FINISH",
                 tabID: searchedTab.id,
@@ -502,7 +610,7 @@ export function App() {
                 });
             }
         });
-    }, [store]);
+    }, [scrollTo, store]);
 
     const repeatSearch = useCallback((reverse: boolean) => {
         if (findResult === null) {
@@ -528,7 +636,7 @@ export function App() {
                 setCommandMessage(`Op ${id} was not found.`);
             }
             else {
-                mutateView((targetRenderer) => targetRenderer.moveLogicalPosition([op.fetchedCycle, id]));
+                scrollTo([op.fetchedCycle, id]);
             }
             accepted = true;
         }
@@ -541,7 +649,7 @@ export function App() {
                 setCommandMessage(`Retired op ${rid} was not found.`);
             }
             else {
-                mutateView((targetRenderer) => targetRenderer.moveLogicalPosition([op.fetchedCycle, y]));
+                scrollTo([op.fetchedCycle, y]);
             }
             accepted = true;
         }
@@ -565,33 +673,37 @@ export function App() {
             }
         }
         setCommandPaletteInitial(null);
-    }, [findString, hideSearchResult, mutateView, store]);
+    }, [findString, hideSearchResult, scrollTo, store]);
 
     const zoomAtCenter = useCallback((factor: number) => {
         const viewport = traceSheetRef.current?.getViewportSize();
-        if (viewport === undefined) {
+        if (viewport === undefined || factor === 1) {
             return;
         }
-        mutateView((renderer) => renderer.zoomAt(
-            factor,
-            viewport.pipelineWidth / 2,
-            viewport.pipelineHeight / 2,
-        ));
-    }, [mutateView]);
+        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
+        const fromLevel = renderer.zoomLevel;
+        const toLevel = fromLevel + (factor > 1 ? -1 : 1);
+        const centerX = viewport.pipelineWidth / 2;
+        const centerY = viewport.pipelineHeight / 2;
+        startViewAnimation(ZOOM_ANIMATION_DURATION, (target, progress) => {
+            target.zoomAbs(fromLevel + (toLevel - fromLevel) * progress, centerX, centerY);
+        });
+    }, [startViewAnimation, store]);
 
     const moveVertical = useCallback((delta: number, adjust: boolean) => {
         const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const differenceY = delta * 3 / renderer.zoomScale;
         const differenceX = adjust ? renderer.adjustScrollDifferenceX(differenceY) : 0;
-        mutateView((target) => target.moveLogicalDifference([differenceX, differenceY], false));
-    }, [mutateView, store]);
+        const [fromX, fromY] = renderer.viewPosition;
+        scrollTo([fromX + differenceX, fromY + differenceY]);
+    }, [scrollTo, store]);
 
     const moveHorizontal = useCallback((delta: number) => {
-        mutateView((renderer) => renderer.moveLogicalDifference([
-            delta * 6 / renderer.zoomScale,
-            0,
-        ], false));
-    }, [mutateView]);
+        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
+        const [fromX, fromY] = renderer.viewPosition;
+        const differenceX = delta * 6 / renderer.zoomScale;
+        scrollTo([fromX + differenceX, fromY]);
+    }, [scrollTo, store]);
 
     const setBookmark = useCallback((index: number) => {
         const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
@@ -607,12 +719,27 @@ export function App() {
         if (bookmark === undefined) {
             return;
         }
-        mutateView((renderer) => {
-            // Web版はanimationを挟まず、旧版と同じ最終座標と倍率へ直接移動する。
-            renderer.zoomAbs(bookmark.zoom, bookmark.x, bookmark.y, false);
-            renderer.moveLogicalPosition([bookmark.x, bookmark.y]);
+        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
+        const [fromX, fromY] = renderer.viewPosition;
+        const fromZoom = renderer.zoomLevel;
+        startViewAnimation(BOOKMARK_ANIMATION_DURATION, (target, progress) => {
+            // 旧版同様、scrollは200ms、zoomは160msで進め、座標補正は行わない。
+            const zoomProgress = Math.min(
+                1,
+                progress * BOOKMARK_ANIMATION_DURATION / (ZOOM_ANIMATION_DURATION / 0.5),
+            );
+            target.zoomAbs(
+                fromZoom + (bookmark.zoom - fromZoom) * zoomProgress,
+                bookmark.x,
+                bookmark.y,
+                false,
+            );
+            target.moveLogicalPosition([
+                fromX + (bookmark.x - fromX) * progress,
+                fromY + (bookmark.y - fromY) * progress,
+            ]);
         });
-    }, [bookmarks, mutateView]);
+    }, [bookmarks, startViewAnimation, store]);
 
     const toggleHideFlushedOps = (enabled: boolean) => {
         if (activeTab !== null) {

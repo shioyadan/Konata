@@ -418,6 +418,13 @@ async function readRenderedState(window) {
     })()`);
 }
 
+async function waitForViewAnimation(window, delay = 250) {
+    // 製品側の短いrequestAnimationFrame補間が完了し、Reactが反映するまで待つ。
+    await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        setTimeout(() => requestAnimationFrame(resolve), ${delay});
+    })`);
+}
+
 async function run() {
     // 製品Web版と同じくNode integrationを使わないRendererで検証する。
     const window = new BrowserWindow({
@@ -428,11 +435,12 @@ async function run() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
+            // 非表示windowでも製品と同じrequestAnimationFrame補間を通常速度で検査する。
+            backgroundThrottling: false,
             // bookmark検査を実環境の保存値から隔離し、同じprocess内のreloadでは維持する。
             partition: "web-smoke",
         },
     });
-
     const webFile = path.join(__dirname, "..", "dist-web", "index.html");
     await window.loadFile(webFile);
 
@@ -662,6 +670,8 @@ async function run() {
         await nextFrame();
         const history = historyInput.value;
         await execute(historyInput, "j 1");
+        await new Promise((resolve) => setTimeout(resolve, 140));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
 
         const pipeline = document.querySelector(".pipeline-pane canvas");
         if (!(pipeline instanceof HTMLCanvasElement)) {
@@ -679,6 +689,8 @@ async function run() {
         // 後続のCanvas操作テストが従来どおり先頭位置から始まるよう戻す。
         const restoreInput = await openPalette({key: "F1", bubbles: true, cancelable: true});
         await execute(restoreInput, "j 0");
+        await new Promise((resolve) => setTimeout(resolve, 140));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         return {prefilled, hints, firstResult, nextResult, previousResult, history, jumpToolTip};
     })()`);
     if (commandState.prefilled !== "f " ||
@@ -793,8 +805,10 @@ async function run() {
     }
 
     // 旧版の左右キーは1回につき6cycle移動する。右へ動かした後、後続テスト用に左へ戻す。
-    const keyboardToolTip = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+    const keyboardToolTip = await window.webContents.executeJavaScript(`(async () => {
         document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true}));
+        await new Promise((resolve) => setTimeout(resolve, 140));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         const pipeline = document.querySelector(".pipeline-pane canvas");
         if (!(pipeline instanceof HTMLCanvasElement)) {
             throw new Error("The pipeline canvas was not found.");
@@ -805,18 +819,19 @@ async function run() {
             clientX: rect.left + 8,
             clientY: rect.top + 8
         }));
-        requestAnimationFrame(() => {
-            const text = document.querySelector('[role="tooltip"]')?.textContent ?? null;
-            document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft", bubbles: true}));
-            resolve(text);
-        });
-    })`);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const text = document.querySelector('[role="tooltip"]')?.textContent ?? null;
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft", bubbles: true}));
+        await new Promise((resolve) => setTimeout(resolve, 140));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        return text;
+    })()`);
     if (typeof keyboardToolTip !== "string" || !keyboardToolTip.startsWith("[9, 0]")) {
         throw new Error(`Keyboard navigation is incomplete: ${JSON.stringify(keyboardToolTip)}`);
     }
 
     // 旧版と同じ数字キーでの移動とCtrl/Command+数字での設定を、表示中のslot値とCanvasで確認する。
-    const bookmarkState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+    const bookmarkState = await window.webContents.executeJavaScript(`(async () => {
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         if (!(reset instanceof HTMLButtonElement)) {
@@ -824,35 +839,40 @@ async function run() {
         }
         reset.click();
         document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        // scroll完了後の座標をbookmarkへ保存する。
+        await new Promise((resolve) => setTimeout(resolve, 140));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         document.dispatchEvent(new KeyboardEvent("keydown", {
             key: "2",
             ctrlKey: true,
             bubbles: true,
             cancelable: true
         }));
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-            const slot = document.querySelector('button[aria-label="Go to bookmark 2"]')?.nextElementSibling;
-            document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
-            document.dispatchEvent(new KeyboardEvent("keydown", {key: "2", bubbles: true, cancelable: true}));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const slot = document.querySelector('button[aria-label="Go to bookmark 2"]')?.nextElementSibling;
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "2", bubbles: true, cancelable: true}));
+        await new Promise((resolve) => setTimeout(resolve, 240));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
 
-            const pipeline = document.querySelector(".pipeline-pane canvas");
-            if (!(pipeline instanceof HTMLCanvasElement)) {
-                throw new Error("The pipeline canvas was not found.");
-            }
-            const rect = pipeline.getBoundingClientRect();
-            pipeline.dispatchEvent(new MouseEvent("mousemove", {
-                bubbles: true,
-                clientX: rect.left + 8,
-                clientY: rect.top + 8
-            }));
-            requestAnimationFrame(() => resolve({
-                slot: slot?.textContent ?? null,
-                goButtons: document.querySelectorAll('button[aria-label^="Go to bookmark "]').length,
-                setButtons: document.querySelectorAll('button[aria-label^="Set bookmark "]').length,
-                toolTip: document.querySelector('[role="tooltip"]')?.textContent ?? null
-            }));
+        const pipeline = document.querySelector(".pipeline-pane canvas");
+        if (!(pipeline instanceof HTMLCanvasElement)) {
+            throw new Error("The pipeline canvas was not found.");
+        }
+        const rect = pipeline.getBoundingClientRect();
+        pipeline.dispatchEvent(new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: rect.left + 8,
+            clientY: rect.top + 8
         }));
-    })`);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        return {
+            slot: slot?.textContent ?? null,
+            goButtons: document.querySelectorAll('button[aria-label^="Go to bookmark "]').length,
+            setButtons: document.querySelectorAll('button[aria-label^="Set bookmark "]').length,
+            toolTip: document.querySelector('[role="tooltip"]')?.textContent ?? null
+        };
+    })()`);
     if (bookmarkState.slot !== "2: x:6, y:0, zoom:0" ||
         bookmarkState.goButtons !== 10 ||
         bookmarkState.setButtons !== 10 ||
@@ -861,7 +881,7 @@ async function run() {
         throw new Error(`Bookmarks are incomplete: ${JSON.stringify(bookmarkState)}`);
     }
 
-    const bookmarkZoomState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+    const bookmarkZoomState = await window.webContents.executeJavaScript(`(async () => {
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         const zoomIn = document.querySelector('button[aria-label="Zoom in"]');
@@ -869,22 +889,26 @@ async function run() {
             throw new Error("The zoom controls were not found.");
         }
         zoomIn.click();
+        // zoom完了後の倍率を保存する。
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         document.dispatchEvent(new KeyboardEvent("keydown", {
             key: "3",
             ctrlKey: true,
             bubbles: true,
             cancelable: true
         }));
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-            const slot = document.querySelector('button[aria-label="Go to bookmark 3"]')?.nextElementSibling;
-            reset.click();
-            document.dispatchEvent(new KeyboardEvent("keydown", {key: "3", bubbles: true, cancelable: true}));
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve({
-                slot: slot?.textContent ?? null,
-                zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
-            })));
-        }));
-    })`);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const slot = document.querySelector('button[aria-label="Go to bookmark 3"]')?.nextElementSibling;
+        reset.click();
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "3", bubbles: true, cancelable: true}));
+        await new Promise((resolve) => setTimeout(resolve, 240));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        return {
+            slot: slot?.textContent ?? null,
+            zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
+        };
+    })()`);
     if (typeof bookmarkZoomState.slot !== "string" ||
         !bookmarkZoomState.slot.endsWith("zoom:-1") ||
         bookmarkZoomState.zoom !== "200%") {
@@ -1019,10 +1043,10 @@ async function run() {
     }
 
     // tab固有のRenderer状態として倍率も保持されるよう、別traceを開く前に変更する。
-    await window.webContents.executeJavaScript(`new Promise((resolve) => {
-        document.querySelector('button[aria-label="Zoom in"]')?.click();
-        requestAnimationFrame(() => requestAnimationFrame(resolve));
-    })`);
+    await window.webContents.executeJavaScript(
+        `document.querySelector('button[aria-label="Zoom in"]')?.click()`,
+    );
+    await waitForViewAnimation(window, 140);
 
     // 検索結果を残したまま別traceを開き、Tabを戻した時に同じ結果が復元されることを後で確認する。
     const persistentSearchState = await window.webContents.executeJavaScript(`(async () => {
@@ -1295,11 +1319,17 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
-    // toolbar操作もRendererへ届き、旧Rendererの1段階zoom（100%→200%）で再描画されることを確認する。
-    await window.webContents.executeJavaScript(`new Promise((resolve) => {
+    // toolbar操作は即時に飛ばず、旧Rendererの1段階zoom（100%→200%）へ補間する。
+    const zoomAnimationStart = await window.webContents.executeJavaScript(`(() => {
+        const output = document.querySelector(".zoom-controls output");
+        const before = output?.textContent ?? null;
         document.querySelector('button[aria-label="Zoom in"]')?.click();
-        requestAnimationFrame(() => requestAnimationFrame(resolve));
-    })`);
+        return {before, immediatelyAfter: output?.textContent ?? null};
+    })()`);
+    if (zoomAnimationStart.before !== "100%" || zoomAnimationStart.immediatelyAfter !== "100%") {
+        throw new Error(`Zoom animation started incorrectly: ${JSON.stringify(zoomAnimationStart)}`);
+    }
+    await waitForViewAnimation(window, 140);
     const zoomedState = await readRenderedState(window);
     if (zoomedState.zoom !== "200%" || zoomedState.nonBackgroundPixels < 100) {
         throw new Error(`Zoom rendering is incomplete: ${JSON.stringify(zoomedState)}`);
