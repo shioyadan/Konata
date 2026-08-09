@@ -260,10 +260,13 @@ async function run() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
+            // bookmark検査を実環境の保存値から隔離し、同じprocess内のreloadでは維持する。
+            partition: "web-smoke",
         },
     });
 
-    await window.loadFile(path.join(__dirname, "..", "dist-web", "index.html"));
+    const webFile = path.join(__dirname, "..", "dist-web", "index.html");
+    await window.loadFile(webFile);
 
     // Reactの初期描画とCSS適用を、file読み込み前にも独立して確認する。
     const initialState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
@@ -622,6 +625,40 @@ async function run() {
         bookmarkZoomState.zoom !== "200%") {
         throw new Error(`Bookmark zoom is incomplete: ${JSON.stringify(bookmarkZoomState)}`);
     }
+
+    // 同じ単一HTMLを読み直しても保存値を復元し、壊れた値では安全に初期値へ戻ることを確認する。
+    await window.loadFile(webFile);
+    const persistedBookmarkState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            slot2: document.querySelector('button[aria-label="Go to bookmark 2"]')?.nextElementSibling?.textContent ?? null,
+            slot3: document.querySelector('button[aria-label="Go to bookmark 3"]')?.nextElementSibling?.textContent ?? null
+        })));
+    })`);
+    if (persistedBookmarkState.slot2 !== "2: x:6, y:0, zoom:0" ||
+        typeof persistedBookmarkState.slot3 !== "string" ||
+        !persistedBookmarkState.slot3.endsWith("zoom:-1")) {
+        throw new Error(`Bookmark persistence is incomplete: ${JSON.stringify(persistedBookmarkState)}`);
+    }
+
+    await window.webContents.executeJavaScript(
+        `localStorage.setItem("konata.bookmarks", "{broken")`,
+    );
+    await window.loadFile(webFile);
+    const recoveredBookmarkState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            loadState: document.querySelector(".trace-app")?.dataset.loadState ?? null,
+            slot2: document.querySelector('button[aria-label="Go to bookmark 2"]')?.nextElementSibling?.textContent ?? null,
+            slot3: document.querySelector('button[aria-label="Go to bookmark 3"]')?.nextElementSibling?.textContent ?? null
+        })));
+    })`);
+    if (recoveredBookmarkState.loadState !== "idle" ||
+        recoveredBookmarkState.slot2 !== "2: x:0, y:0, zoom:0" ||
+        recoveredBookmarkState.slot3 !== "3: x:0, y:0, zoom:0") {
+        throw new Error(`Bookmark recovery is incomplete: ${JSON.stringify(recoveredBookmarkState)}`);
+    }
+
+    // reloadで空になったsheetへ、後続のView操作用traceを戻す。
+    await dropFixture(window, plainFixture, "text/plain");
 
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
     const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {

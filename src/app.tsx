@@ -43,6 +43,41 @@ const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
     { length: 10 },
     () => ({ x: 0, y: 0, zoom: 0 }),
 );
+const BOOKMARK_STORAGE_KEY = "konata.bookmarks";
+
+function isViewBookmark(value: unknown): value is ViewBookmark {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const bookmark = value as Partial<Record<keyof ViewBookmark, unknown>>;
+    return typeof bookmark.x === "number" && Number.isFinite(bookmark.x) &&
+        typeof bookmark.y === "number" && Number.isFinite(bookmark.y) &&
+        typeof bookmark.zoom === "number" && Number.isFinite(bookmark.zoom);
+}
+
+function loadBookmarks(): readonly ViewBookmark[] {
+    try {
+        const value: unknown = JSON.parse(localStorage.getItem(BOOKMARK_STORAGE_KEY) ?? "null");
+        if (Array.isArray(value) &&
+            value.length === INITIAL_BOOKMARKS.length &&
+            value.every(isViewBookmark)) {
+            return value;
+        }
+    }
+    catch {
+        // file://でstorageを利用できない場合や保存値が壊れていても、起動は妨げない。
+    }
+    return INITIAL_BOOKMARKS;
+}
+
+function saveBookmarks(bookmarks: readonly ViewBookmark[]): void {
+    try {
+        localStorage.setItem(BOOKMARK_STORAGE_KEY, JSON.stringify(bookmarks));
+    }
+    catch {
+        // bookmarkを保存できなくても、現在の画面内ではそのまま利用できる。
+    }
+}
 
 // 旧Storeと同じく、命令の見出し・詳細・全stage labelを正規表現検索の対象にする。
 function makeFindTargetString(op: Op): string {
@@ -83,10 +118,14 @@ export function App() {
     const [commandMessage, setCommandMessage] = useState("");
     const [searchProgress, setSearchProgress] = useState<number | null>(null);
     const [findResult, setFindResult] = useState<FindResult | null>(null);
-    // 永続化は設定全体と分けて判断し、まず旧版と同じ10枠をアプリ内で共有する。
-    const [bookmarks, setBookmarks] = useState(INITIAL_BOOKMARKS);
+    // 旧版と同じ10枠だけを読み込み、設定全体を扱う新しい層は設けない。
+    const [bookmarks, setBookmarks] = useState<readonly ViewBookmark[]>(loadBookmarks);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
+
+    useEffect(() => {
+        saveBookmarks(bookmarks);
+    }, [bookmarks]);
 
     const resetStats = useCallback(() => {
         statsRequestRef.current++;
