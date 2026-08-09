@@ -10,6 +10,8 @@ import {
 } from "./model";
 import { ArrayOpStore, type MutableOpStore } from "./op_store";
 
+class TraceCommandError extends Error {}
+
 export class OnikiriParser {
     readonly name = "OnikiriParser";
     // Rをまだ受け取っていない命令と、表示対象として確定した命令を分けて保持する。
@@ -78,7 +80,18 @@ export class OnikiriParser {
         }
 
         const args = line.split("\t");
-        this.parseCommand_(args);
+        try {
+            this.parseCommand_(args);
+        }
+        catch (error) {
+            // 1行の破損で残りのtraceを失わず、安全に無視できるcommand errorは警告に留める。
+            if (error instanceof TraceCommandError) {
+                this.warning_(error.message);
+            }
+            else {
+                throw error;
+            }
+        }
         this.currentLine_++;
     }
 
@@ -90,6 +103,11 @@ export class OnikiriParser {
         if (command === "C") {
             this.requireArguments_(args, 2, command);
             this.currentCycle_ += this.parseInteger_(args[1], command);
+            return;
+        }
+        if (command.length !== 1 || !"ILSERW".includes(command)) {
+            // 旧Parserと同じく、改行を含むlabelの後半など未知の行は警告して読み飛ばす。
+            this.warning_(`Unknown command: ${command}`);
             return;
         }
 
@@ -123,9 +141,6 @@ export class OnikiriParser {
             break;
         case "W":
             this.parseDependencyCommand_(id, op, args);
-            break;
-        default:
-            this.warning_(`Unknown command: ${command}`);
             break;
         }
 
@@ -245,10 +260,13 @@ export class OnikiriParser {
     private parseRetireCommand_(id: number, op: Op | undefined, args: string[]): void {
         this.requireArguments_(args, 4, "R");
         const target = this.requireOp_(id, op, "R");
-        target.rid = this.parseInteger_(args[2], "R");
+        const rid = this.parseInteger_(args[2], "R");
+        const flush = this.parseInteger_(args[3], "R") === 1;
+        // 全fieldの検査後に反映し、不正なRを警告した場合に途中状態を残さない。
+        target.rid = rid;
         target.retiredCycle = this.currentCycle_;
-        target.flush = this.parseInteger_(args[3], "R") === 1;
-        target.retired = !target.flush;
+        target.flush = flush;
+        target.retired = !flush;
 
         // 閉じていない最後のstageはretire/flush cycleで閉じる。
         for (const lane of target.lanes.values()) {
@@ -355,6 +373,6 @@ export class OnikiriParser {
     }
 
     private fail_(message: string): never {
-        throw new Error(`Line ${this.currentLine_}: ${message}`);
+        throw new TraceCommandError(message);
     }
 }

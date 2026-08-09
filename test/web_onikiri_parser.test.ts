@@ -122,19 +122,37 @@ test("Web Onikiri parser streams concurrent Zstandard traces", async () => {
     assert.equal(secondTrace.opCount, 2);
 });
 
-test("Web Onikiri parser rejects an ID redefined after retirement", async () => {
-    // 完了済みOpをstore境界の背後へ移しても、同じIDのIを新規命令として受理してはならない。
+test("Web Onikiri parser warns and continues after invalid command lines", async () => {
+    // 実traceにある改行されたlabel後半、数値不正、ID再定義を無視しても、後続の正常命令は保持する。
     const contents = [
         "Kanata\t0004",
         "I\t0\t10\t0",
+        "L\t0\t1\tvector detail",
+        " = VFMV( p416:0x0 )",
+        "C\tinvalid",
         "R\t0\t0\t0",
         "I\t0\t11\t0",
+        "I\t1\t12\t0",
+        "C\t1",
+        "R\t1\t1\t0",
     ].join("\n");
-    const file = new File([contents], "redefined.log", { type: "text/plain" });
-    await assert.rejects(
-        new OnikiriParser().parse(file),
-        /0 is redefined by an I command/,
-    );
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message) => warnings.push(String(message));
+    const trace = await new OnikiriParser().parse(
+        new File([contents], "warnings.log", { type: "text/plain" }),
+    ).finally(() => {
+        console.warn = originalWarn;
+    });
+
+    assert.equal(trace.opCount, 2);
+    assert.equal(trace.lastCycle, 1);
+    assert.equal(trace.getOp(0)?.gid, 10);
+    assert.equal(trace.getOp(0)?.labelDetail, "vector detail");
+    assert.equal(trace.getOp(1)?.gid, 12);
+    assert.ok(warnings.some((warning) => warning.includes("Unknown command:  = VFMV")));
+    assert.ok(warnings.some((warning) => warning.includes("C contains an invalid number")));
+    assert.ok(warnings.some((warning) => warning.includes("0 is redefined")));
 });
 
 test("Web Onikiri parser does not publish a trace before accepting its header", async () => {
