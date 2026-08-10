@@ -47,19 +47,25 @@ export class OnikiriParser {
             onUpdate?.(trace);
         };
 
-        for await (const line of reader.lines((progress) => {
-            onProgress?.(progress);
-            if (formatConfirmed) {
-                updateTrace();
-            }
-        }, signal)) {
-            this.parseLine_(line);
-            if (!formatConfirmed) {
-                // 先頭headerが受理されるまで公開せず、gem5 fallback時に空のKanata traceを見せない。
-                formatConfirmed = true;
-                updateTrace();
-            }
-        }
+        await reader.readLines(
+            (line) => {
+                // FileLineReaderは同じ入力chunk内の行を同期的に渡す。ここをasyncにすると
+                // 行ごとのPromiseを再び作るため、parseLine_まで同じcall stackで完了させる。
+                this.parseLine_(line);
+                if (!formatConfirmed) {
+                    // 先頭headerが受理されるまで公開せず、gem5 fallback時に空のKanata traceを見せない。
+                    formatConfirmed = true;
+                    updateTrace();
+                }
+            },
+            (progress) => {
+                onProgress?.(progress);
+                if (formatConfirmed) {
+                    updateTrace();
+                }
+            },
+            signal,
+        );
         if (reader.canceled) {
             // 呼び出し側へ返らないtraceはParser側で解放する。Tab側ですでに閉じていてもcloseは安全である。
             trace.close();

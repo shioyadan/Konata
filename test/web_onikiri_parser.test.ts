@@ -23,11 +23,43 @@ test("Web line reader preserves long UTF-8 lines across bounded decode chunks", 
     const longLine = `${"a".repeat(8 * 1024 - 1)}あ`;
     const file = new File([`${longLine}\r\ntail`], "utf8-boundary.log", { type: "text/plain" });
     const lines: string[] = [];
-    for await (const line of new FileLineReader(file).lines()) {
-        lines.push(line);
-    }
+    await new FileLineReader(file).readLines((line) => lines.push(line));
 
     assert.deepEqual(lines, [longLine, "tail"]);
+});
+
+test("Web line reader parses lines synchronously between browser yields", async () => {
+    const source = `${Array.from({ length: 8193 }, (_, index) => `line-${index}`).join("\n")}\n`;
+    const file = new File([source], "callback.log", { type: "text/plain" });
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream<Uint8Array>({
+        start(controller) {
+            // 全行を同じstream chunkへ入れ、chunk取得によるawaitが行間に混ざらない条件を作る。
+            controller.enqueue(new TextEncoder().encode(source));
+            controller.close();
+        },
+    }) });
+
+    let lineCount = 0;
+    let browserYielded = false;
+    await new FileLineReader(file).readLines((line) => {
+        assert.equal(line, `line-${lineCount}`);
+        lineCount++;
+        if (lineCount === 1) {
+            queueMicrotask(() => {
+                browserYielded = true;
+            });
+        }
+        if (lineCount === 8192) {
+            // 先頭8,192行は1つの同期loopで処理し、行ごとのPromise／microtaskを挟まない。
+            assert.equal(browserYielded, false);
+        }
+        if (lineCount === 8193) {
+            // 定期間隔ではMessageChannelへ制御を返し、描画とcancelを処理可能にする。
+            assert.equal(browserYielded, true);
+        }
+    });
+
+    assert.equal(lineCount, 8193);
 });
 
 test("Web Onikiri parser preserves core commands for a plain-text trace", async () => {

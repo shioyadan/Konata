@@ -1,12 +1,16 @@
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
 export type ProgressCallback = (progress: number) => void;
+type LineCallback = (line: string) => void;
 
 let zstdStreamTail = Promise.resolve();
 
 // 部分文字列がzstd等の大きな展開chunk全体を保持しないよう、文字列化する単位だけを制限する。
 // 入力streamや展開器のchunkは分割せず、UTF-8境界は同じTextDecoderのstream状態で引き継ぐ。
 const DECODE_CHUNK_SIZE = 8 * 1024;
+// この間隔では進捗通知だけでなく、描画・入力・AbortSignalへ制御を返す。
+// 大きくすると読込み中の操作応答が落ち、小さくするとtask切替の負担が増えるため、実測済みの値を維持する。
+const YIELD_LINE_INTERVAL = 8192;
 
 async function acquireZstdStream(): Promise<() => void> {
     // Zstd.load()はsingletonなので、複数Tabのstream状態が混ざらないよう読込み単位で直列化する。
@@ -63,7 +67,11 @@ export class FileLineReader {
         return this.canceled_;
     }
 
-    async *lines(onProgress?: ProgressCallback, signal?: AbortSignal): AsyncGenerator<string> {
+    async readLines(
+        onLine: LineCallback,
+        onProgress?: ProgressCallback,
+        signal?: AbortSignal,
+    ): Promise<void> {
         if (signal?.aborted) {
             this.canceled_ = true;
             return;
@@ -134,28 +142,40 @@ export class FileLineReader {
                     buffer += decoder.decode(value.subarray(offset, offset + DECODE_CHUNK_SIZE), { stream: true });
                     let lineStart = 0;
                     let newline = buffer.indexOf("\n", lineStart);
-                    while (newline !== -1) {
+                    while (newline !== -1 && !this.canceled_) {
                         let line = buffer.slice(lineStart, newline);
                         if (line.endsWith("\r")) {
                             line = line.slice(0, -1);
                         }
-                        yield line;
+
+                        // ここは意図的に同期callbackとして呼ぶ。async generatorで1行ずつyieldすると、
+                        // consumer側のfor-awaitを含めて行ごとに複数の短命Promiseが作られる。数百万行の
+                        // traceではこれがminor GCを頻発させるため、非同期境界はstreamのchunk取得と
+                        // 下記の定期yieldだけに限定する。onLine側もasyncにせず、その場でparseを終えること。
+                        onLine(line);
                         lineCount++;
                         lineStart = newline + 1;
 
-                        // 大きい入力でも描画とキャンセル操作へ定期的に制御を戻す。
-                        if (lineCount % 8192 === 0) {
+                        if (lineCount % YIELD_LINE_INTERVAL === 0) {
+                            // awaitをまたぐ前に処理済みの接頭部分を外す。大きなbufferを保持したまま
+                            // browserへ制御を返さず、8 KiB decodeによるbacking string制限も維持する。
+                            buffer = buffer.slice(lineStart);
+                            lineStart = 0;
                             onProgress?.(this.progress);
                             await yieldToBrowser();
                         }
                         newline = buffer.indexOf("\n", lineStart);
                     }
                     buffer = buffer.slice(lineStart);
+                    if (this.canceled_) {
+                        break;
+                    }
                 }
             }
 
             if (!this.canceled_ && buffer.length > 0) {
-                yield buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer;
+                // EOF直前に改行がなくても、従来どおり最後の1行としてParserへ渡す。
+                onLine(buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer);
             }
             if (!this.canceled_) {
                 this.bytesRead_ = this.file.size;

@@ -86,19 +86,25 @@ export class Gem5O3PipeViewParser {
             onUpdate?.(trace);
         };
 
-        for await (const line of reader.lines((progress) => {
-            onProgress?.(progress);
-            if (formatPublished) {
-                updateTrace();
-            }
-        }, signal)) {
-            this.parseLine_(line);
-            if (!formatPublished && this.isGem5O3PipeView_) {
-                // 最初のO3PipeView recordまでは追加ログの可能性があり、形式確定後だけ公開する。
-                formatPublished = true;
-                updateTrace();
-            }
-        }
+        await reader.readLines(
+            (line) => {
+                // 行ごとのPromiseを作らないことが大規模traceのGC負荷に直結するため、
+                // FileLineReaderから受けた行はasync処理を挟まず、その場で解析する。
+                this.parseLine_(line);
+                if (!formatPublished && this.isGem5O3PipeView_) {
+                    // 最初のO3PipeView recordまでは追加ログの可能性があり、形式確定後だけ公開する。
+                    formatPublished = true;
+                    updateTrace();
+                }
+            },
+            (progress) => {
+                onProgress?.(progress);
+                if (formatPublished) {
+                    updateTrace();
+                }
+            },
+            signal,
+        );
         if (reader.canceled) {
             // cancel時には最終drainを行わず、途中までの命令をそのまま解放する。
             trace.close();
