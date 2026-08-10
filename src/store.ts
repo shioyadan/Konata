@@ -10,7 +10,7 @@ import {
 
 export type LoadState = "idle" | "loading" | "ready" | "error";
 export type Operation = "load" | "search";
-export type ComparisonMode = "baseline" | "overlay" | "candidate" | "difference";
+export type ComparisonMode = "baseline" | "overlay" | "candidate";
 export type MinimumLaneHeightKey =
     | "textLabelMinimumLaneHeight"
     | "stageDetailMinimumLaneHeight"

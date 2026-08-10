@@ -166,20 +166,23 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             candidateLayerCanvasRef.current = candidateLayer;
             const width = pipelineCanvas.clientWidth;
             const height = pipelineCanvas.clientHeight;
-            const baselineColorScheme = comparisonMode === "overlay"
-                ? COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE
-                : COMPARISON_COLOR_SCHEME.DIFFERENCE;
-            const candidateColorScheme = comparisonMode === "overlay"
-                ? COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE
-                : COMPARISON_COLOR_SCHEME.DIFFERENCE;
-            baselineRenderer.drawPipeline(baselineLayer, width, height, baselineColorScheme);
-            renderer.drawPipeline(candidateLayer, width, height, candidateColorScheme);
+            baselineRenderer.drawPipeline(
+                baselineLayer,
+                width,
+                height,
+                COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
+            );
+            renderer.drawPipeline(
+                candidateLayer,
+                width,
+                height,
+                COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
+            );
             renderer.composePipelineLayers(
                 pipelineCanvas,
                 baselineLayer,
                 candidateLayer,
-                comparisonMode === "overlay" ? comparisonOpacity : 1,
-                comparisonMode === "overlay" ? "source-over" : "difference",
+                comparisonOpacity,
             );
         }
     }, [baselineRenderer, comparisonMode, comparisonOpacity, displayRenderer, renderer]);

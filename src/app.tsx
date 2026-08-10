@@ -1541,7 +1541,6 @@ export function App() {
                             ["baseline", "A"],
                             ["overlay", "Overlay"],
                             ["candidate", "B"],
-                            ["difference", "Difference"],
                         ] as const).map(([mode, label]) => (
                             <button
                                 type="button"

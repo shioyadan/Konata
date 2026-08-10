@@ -1910,7 +1910,7 @@ async function run() {
         throw new Error(`Trace tab shortcuts are incomplete: ${JSON.stringify(tabShortcutState)}`);
     }
 
-    // 比較Tabは元の2つを残し、同じ表示領域をA/B・overlay・differenceで切り替える。
+    // 比較Tabは元の2つを残し、同じ表示領域をA・overlay・Bで切り替える。
     const comparisonState = await window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -1920,7 +1920,8 @@ async function run() {
             if (args[0] instanceof HTMLCanvasElement) {
                 comparisonLayerCompositions.push({
                     opacity: this.globalAlpha,
-                    operation: this.globalCompositeOperation
+                    operation: this.globalCompositeOperation,
+                    filter: this.filter
                 });
             }
             return Reflect.apply(originalDrawImage, this, args);
@@ -1944,12 +1945,12 @@ async function run() {
         const comparisonTab = document.querySelector('.trace-tab.is-active');
         const modeButtons = [...document.querySelectorAll('.comparison-mode-controls button')];
         const baselineMode = modeButtons.find((button) => button.textContent?.trim() === "A");
+        const overlayMode = modeButtons.find((button) => button.textContent?.trim() === "Overlay");
         const candidateMode = modeButtons.find((button) => button.textContent?.trim() === "B");
-        const difference = modeButtons.find((button) => button.textContent?.trim() === "Difference");
         const alignToA = document.querySelector('button[aria-label="Align Candidate to A"]');
         if (!(baselineMode instanceof HTMLButtonElement) ||
+            !(overlayMode instanceof HTMLButtonElement) ||
             !(candidateMode instanceof HTMLButtonElement) ||
-            !(difference instanceof HTMLButtonElement) ||
             !(alignToA instanceof HTMLButtonElement)) {
             throw new Error("The comparison modes were not found.");
         }
@@ -1961,6 +1962,9 @@ async function run() {
             title: comparisonTab?.querySelector('[role="tab"]')?.textContent?.trim() ?? null,
             tabTooltip: comparisonTab?.querySelector('[role="tab"]')?.getAttribute('title') ?? null,
             canvasCount: document.querySelectorAll('.comparison-result-canvas').length,
+            modeLabels: modeButtons
+                .filter((button) => button.hasAttribute("aria-pressed"))
+                .map((button) => button.textContent?.trim() ?? null),
             activeMode: document.querySelector('.comparison-mode-controls button.is-active')?.textContent?.trim() ?? null,
             opacity: document.querySelector('input[aria-label="Comparison opacity"]')?.value ?? null,
             alignLabel: alignToA.textContent?.trim() ?? null,
@@ -1998,12 +2002,12 @@ async function run() {
         const baselineLabelToolTip = await readLabelToolTip(baselineMode);
         const candidateLabelToolTip = await readLabelToolTip(candidateMode);
         comparisonLayerCompositions = [];
-        difference.click();
+        overlayMode.click();
         await nextFrame();
-        const differenceState = {
+        const finalOverlayState = {
             activeMode: document.querySelector('.comparison-mode-controls button.is-active')?.textContent?.trim() ?? null,
             canvasMode: document.querySelector('.comparison-result-canvas')?.dataset.comparisonMode ?? null,
-            layerCompositions: comparisonLayerCompositions.slice(-3),
+            layerCompositions: comparisonLayerCompositions.slice(-2),
             baselineLabelToolTip,
             candidateLabelToolTip
         };
@@ -2012,7 +2016,7 @@ async function run() {
         CanvasRenderingContext2D.prototype.drawImage = originalDrawImage;
         return {
             initial,
-            differenceState,
+            finalOverlayState,
             remainingCount: document.querySelectorAll('[role="tab"]').length,
             remainingSelected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null
         };
@@ -2024,6 +2028,7 @@ async function run() {
         comparisonState.initial.title !== "gem5-basic.txt ↔ kanata-basic.txt" ||
         comparisonState.initial.tabTooltip !== "A: gem5-basic.txt\nB: kanata-basic.txt" ||
         comparisonState.initial.canvasCount !== 1 ||
+        JSON.stringify(comparisonState.initial.modeLabels) !== JSON.stringify(["A", "Overlay", "B"]) ||
         comparisonState.initial.activeMode !== "Overlay" ||
         comparisonState.initial.opacity !== "0.5" ||
         comparisonState.initial.alignLabel !== "Align to A" ||
@@ -2033,17 +2038,16 @@ async function run() {
         Math.abs(comparisonState.initial.comparisonControlHeight -
             comparisonState.initial.zoomControlHeight) > 0.1 ||
         JSON.stringify(comparisonState.initial.overlayLayerCompositions) !== JSON.stringify([
-            {opacity: 1, operation: "source-over"},
-            {opacity: 0.5, operation: "source-over"}
+            {opacity: 1, operation: "source-over", filter: "none"},
+            {opacity: 0.5, operation: "source-over", filter: "none"}
         ]) ||
-        comparisonState.differenceState.activeMode !== "Difference" ||
-        comparisonState.differenceState.canvasMode !== "difference" ||
-        !comparisonState.differenceState.baselineLabelToolTip?.includes("add r1, r2") ||
-        !comparisonState.differenceState.candidateLabelToolTip?.includes("producer\nname") ||
-        JSON.stringify(comparisonState.differenceState.layerCompositions) !== JSON.stringify([
-            {opacity: 1, operation: "source-over"},
-            {opacity: 1, operation: "difference"},
-            {opacity: 0.2, operation: "screen"}
+        comparisonState.finalOverlayState.activeMode !== "Overlay" ||
+        comparisonState.finalOverlayState.canvasMode !== "overlay" ||
+        !comparisonState.finalOverlayState.baselineLabelToolTip?.includes("add r1, r2") ||
+        !comparisonState.finalOverlayState.candidateLabelToolTip?.includes("producer\nname") ||
+        JSON.stringify(comparisonState.finalOverlayState.layerCompositions) !== JSON.stringify([
+            {opacity: 1, operation: "source-over", filter: "none"},
+            {opacity: 0.5, operation: "source-over", filter: "none"}
         ]) ||
         comparisonState.remainingCount !== 2 ||
         comparisonState.remainingSelected !== "gem5-basic.txt") {

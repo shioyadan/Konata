@@ -24,11 +24,10 @@ export const DEP_ARROW_TYPE = {
 export type DependencyArrowType = typeof DEP_ARROW_TYPE[keyof typeof DEP_ARROW_TYPE];
 export type RendererTheme = "dark" | "light";
 
-// 比較用の配色はView設定へ保存せず、Overlay/Differenceの描画中だけ使う。
+// 比較用の配色はView設定へ保存せず、Overlayの描画中だけ使う。
 export const COMPARISON_COLOR_SCHEME = {
     OVERLAY_BASELINE: "__comparison_overlay_baseline",
     OVERLAY_CANDIDATE: "__comparison_overlay_candidate",
-    DIFFERENCE: "__comparison_difference",
 } as const;
 
 export type CustomColorComponent = number | "auto";
@@ -90,8 +89,6 @@ export class KonataRenderer {
     private static readonly ZOOM_RATIO = 1;
     private static readonly MAX_ZOOM_LEVEL = 24;
     private static readonly LANE_HEIGHT_MARGIN = 2;
-    // Differenceでも位置関係を追えるよう、差分画像へ薄く残すAの濃さ。
-    private static readonly DIFFERENCE_CONTEXT_OPACITY = 0.2;
     // Canvasの矩形をpixel境界へ合わせ、ぼけを抑える補正値。
     private static readonly PIXEL_ADJUST = 0.5;
 
@@ -520,7 +517,6 @@ export class KonataRenderer {
         baselineCanvas: HTMLCanvasElement,
         candidateCanvas: HTMLCanvasElement,
         opacity: number,
-        operation: GlobalCompositeOperation,
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas);
         const context = pipelineCanvas.getContext("2d");
@@ -535,14 +531,7 @@ export class KonataRenderer {
             context.globalCompositeOperation = "source-over";
             context.drawImage(baselineCanvas, 0, 0, pipelineSize.width, pipelineSize.height);
             context.globalAlpha = opacity;
-            context.globalCompositeOperation = operation;
             context.drawImage(candidateCanvas, 0, 0, pipelineSize.width, pipelineSize.height);
-            if (operation === "difference") {
-                // 純粋な差分の明るさは保ちつつ、一致部分をAの薄い基準像として残す。
-                context.globalAlpha = KonataRenderer.DIFFERENCE_CONTEXT_OPACITY;
-                context.globalCompositeOperation = "screen";
-                context.drawImage(baselineCanvas, 0, 0, pipelineSize.width, pipelineSize.height);
-            }
         }
         finally {
             context.restore();
@@ -1015,8 +1004,7 @@ export class KonataRenderer {
 
     private isComparisonColorScheme_(colorScheme: string): boolean {
         return colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE ||
-            colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE ||
-            colorScheme === COMPARISON_COLOR_SCHEME.DIFFERENCE;
+            colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE;
     }
 
     private getComparisonOverviewColor_(colorScheme: string): string {
@@ -1026,9 +1014,7 @@ export class KonataRenderer {
         if (colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE) {
             return this.theme_ === "dark" ? "rgb(225,165,75)" : "rgb(230,175,105)";
         }
-        return this.isComparisonColorScheme_(colorScheme)
-            ? (this.theme_ === "dark" ? "hsl(0,0%,82%)" : "hsl(0,0%,22%)")
-            : "#888888";
+        return "#888888";
     }
 
     private getComparisonStageColor_(
@@ -1037,14 +1023,6 @@ export class KonataRenderer {
         stageName: string,
         isBegin: boolean,
     ): string {
-        if (colorScheme === COMPARISON_COLOR_SCHEME.DIFFERENCE) {
-            // 同一部分を完全に打ち消し、形の違いだけを明るく残すためA/Bを同じ無彩色にする。
-            const lightness = this.theme_ === "dark"
-                ? (isBegin ? 88 : 70)
-                : (isBegin ? 18 : 35);
-            return `hsl(0,0%,${lightness}%)`;
-        }
-
         // stage名から両traceで同じ特徴量を作り、Aには加算、Bには減算する。
         // 同じstage同士はopacity 0.5で必ず無彩色になり、違うstageだけに色差が残る。
         let hash = 2166136261;

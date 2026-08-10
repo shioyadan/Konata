@@ -125,9 +125,9 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     // 比較開始時は各元Tabの位置を保ち、overlayに必要な倍率だけを揃える。
     assert.deepEqual(comparison.baselineRenderer.viewPosition, [12, 0]);
     assert.equal(comparison.baselineRenderer.zoomLevel, -1);
-    store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "difference" });
+    store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "baseline" });
     store.dispatch({ type: "COMPARISON_SET_OPACITY", tabID: comparison.id, opacity: 2 });
-    assert.equal(comparison.mode, "difference");
+    assert.equal(comparison.mode, "baseline");
     assert.equal(comparison.opacity, 1);
     store.dispatch({ type: "COMPARISON_ALIGN_TO_BASELINE", tabID: comparison.id });
     // まずAをAdjust positionでRID 0のfetchへ戻し、Bの同じRIDも左上へ置く。
