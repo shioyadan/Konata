@@ -13,7 +13,6 @@ import {
     BsBookmark,
     BsCrosshair,
     BsFolder2Open,
-    BsJournalText,
     BsPencil,
     BsSearch,
     BsSliders,
@@ -611,8 +610,11 @@ export function App() {
                 store.dispatch({ type: "FILE_LOAD_TRACE", tabID: tab.id, trace: partialTrace });
             };
             let parsedTrace: ParsedTrace;
+            let parserName = "OnikiriParser";
+            let parsingStartedAt = 0;
             try {
                 unpublishedStore = await PagedOpStore.createZstd();
+                parsingStartedAt = performance.now();
                 parsedTrace = await new OnikiriParser(unpublishedStore).parse(
                     file,
                     updateProgress,
@@ -627,6 +629,8 @@ export function App() {
                 }
                 closeUnpublishedStore();
                 unpublishedStore = await PagedOpStore.createZstd();
+                parserName = "Gem5O3PipeViewParser";
+                parsingStartedAt = performance.now();
                 parsedTrace = await new Gem5O3PipeViewParser(unpublishedStore).parse(
                     file,
                     updateProgress,
@@ -634,6 +638,8 @@ export function App() {
                     tab.loadSignal,
                 );
             }
+            // 旧Parserと同じ形式で、展開と解析を含む成功Parserの所要時間をconsoleとLogへ残す。
+            console.log(`Parsed (${parserName}): ${Math.round(performance.now() - parsingStartedAt)} ms`);
             // 空入力などを除き通常はupdateTraceで所有権が移るが、完了値もtrace自身がstoreを所有する。
             unpublishedStore = null;
             store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: parsedTrace });
@@ -1336,25 +1342,6 @@ export function App() {
                     <BsBarChart aria-hidden="true" />
                     <span>Stats</span>
                 </button>
-                <button
-                    className="button-with-icon toolbar-action log-toolbar-action"
-                    type="button"
-                    aria-label="Application log"
-                    aria-pressed={isLogPaneOpen}
-                    title="Application log"
-                    onClick={isLogPaneOpen ? closeLogPane : openLogPane}
-                >
-                    <BsJournalText aria-hidden="true" />
-                    <span>Log</span>
-                    {unreadLogCount > 0 && (
-                        <span
-                            className="log-unread-badge"
-                            aria-label={`${unreadLogCount} unread log messages`}
-                        >
-                            {unreadLogCount > 99 ? "99+" : unreadLogCount}
-                        </span>
-                    )}
-                </button>
                 <details ref={viewControlsRef} className="view-controls">
                     <summary
                         className="toolbar-action"
@@ -1565,7 +1552,7 @@ export function App() {
                 <p className={`status ${visibleMessage === "" ? `status-${loadState}` : "status-error"}`} role="status">
                     {statusMessage}
                 </p>
-                <ApplicationMenu />
+                <ApplicationMenu unreadLogCount={unreadLogCount} onOpenLog={openLogPane} />
                 {operation !== null && (
                     <div
                         className={`operation-progress ${operation.type}`}

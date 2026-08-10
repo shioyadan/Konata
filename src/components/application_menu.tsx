@@ -3,6 +3,7 @@ import {
     BsFileText,
     BsGithub,
     BsInfoCircle,
+    BsJournalText,
     BsKeyboard,
     BsList,
     BsX,
@@ -16,6 +17,11 @@ const REPOSITORY_URL = "https://github.com/shioyadan/Konata";
 const LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE.md`;
 
 type ApplicationDialog = "about" | "shortcuts" | null;
+
+interface ApplicationMenuProps {
+    readonly unreadLogCount: number;
+    readonly onOpenLog: () => void;
+}
 
 function getShortcuts(platform: string): ReadonlyArray<readonly [string, string]> {
     // macOSでは実際のevent.metaKeyに合わせ、それ以外ではCtrlと表記する。
@@ -113,7 +119,7 @@ function InformationDialog({ type, onClose }: InformationDialogProps) {
     );
 }
 
-export function ApplicationMenu() {
+export function ApplicationMenu({ unreadLogCount, onOpenLog }: ApplicationMenuProps) {
     const menuRef = useRef<HTMLDetailsElement>(null);
     const [dialog, setDialog] = useState<ApplicationDialog>(null);
 
@@ -149,6 +155,10 @@ export function ApplicationMenu() {
         menuRef.current?.removeAttribute("open");
         setDialog(type);
     };
+    const openLog = () => {
+        menuRef.current?.removeAttribute("open");
+        onOpenLog();
+    };
     return (
         <>
             <details ref={menuRef} className="application-menu">
@@ -157,11 +167,22 @@ export function ApplicationMenu() {
                     <span>Menu</span>
                 </summary>
                 <div className="application-menu-panel">
-                    <button type="button" onClick={() => openDialog("about")}>
-                        <BsInfoCircle aria-hidden="true" /> About Konata
+                    <button type="button" aria-label="Application log" onClick={openLog}>
+                        <BsJournalText aria-hidden="true" /> Application log
+                        {unreadLogCount > 0 && (
+                            <span
+                                className="application-menu-count"
+                                aria-label={`${unreadLogCount} unread log messages`}
+                            >
+                                {unreadLogCount > 99 ? "99+" : unreadLogCount}
+                            </span>
+                        )}
                     </button>
                     <button type="button" onClick={() => openDialog("shortcuts")}>
                         <BsKeyboard aria-hidden="true" /> Keyboard shortcuts
+                    </button>
+                    <button type="button" onClick={() => openDialog("about")}>
+                        <BsInfoCircle aria-hidden="true" /> About Konata
                     </button>
                     <small>Version {__KONATA_VERSION__}</small>
                 </div>

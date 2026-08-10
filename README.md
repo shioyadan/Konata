@@ -72,10 +72,10 @@ the corresponding instruction.
 
 ### Web controls
 
-The toolbar provides Open, Search, Bookmark, Stats, Log, View, and zoom controls. Log opens a
-resizable pane at the bottom of the window for messages that are also written to the browser
-console. View changes the theme, pipeline colors, dependency arrows, lane layout, flushed-op
-visibility, and the minimum
+The toolbar provides Open, Search, Bookmark, Stats, View, and zoom controls. Application log in
+the rightmost menu opens a resizable pane at the bottom of the window for messages that are also
+written to the browser console. View changes the theme, pipeline colors, dependency arrows, lane
+layout, flushed-op visibility, and the minimum
 lane heights used for drawing details. Zoom steps per 2× controls how many input steps double or
 halve the view. Custom colors can be edited from the Custom color scheme.
 

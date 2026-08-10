@@ -450,6 +450,8 @@ async function verifyApplicationMenu(window) {
         await nextFrame();
         const menuItems = [...panel.querySelectorAll(":scope > button")]
             .map((item) => item.textContent?.trim() ?? "");
+        const getMenuItem = (label) => [...panel.querySelectorAll(":scope > button")]
+            .find((item) => item.textContent?.trim() === label);
         const menuVersion = panel.querySelector("small")?.textContent?.trim() ?? null;
         // 初期messageの半透明layerより手前にあり、menu項目を直接操作できることを確認する。
         const panelRect = panel.getBoundingClientRect();
@@ -459,7 +461,7 @@ async function verifyApplicationMenu(window) {
         ));
 
         // Aboutは初期画面と同じbuild情報を、作業中にも確認できる入口として検査する。
-        panel.querySelector("button")?.click();
+        getMenuItem("About Konata")?.click();
         await nextFrame();
         await nextFrame();
         const about = document.querySelector(".about-dialog");
@@ -485,7 +487,7 @@ async function verifyApplicationMenu(window) {
         // shortcut一覧とEscapeによる閉じ方を、menu本体とは独立して確認する。
         summary.click();
         await nextFrame();
-        panel.querySelectorAll(":scope > button")[1]?.click();
+        getMenuItem("Keyboard shortcuts")?.click();
         await nextFrame();
         await nextFrame();
         const shortcuts = document.querySelector(".shortcuts-dialog");
@@ -530,13 +532,20 @@ async function verifyLogPane(window) {
     return window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const menu = document.querySelector(".application-menu");
+        const summary = menu?.querySelector(":scope > summary");
         const button = document.querySelector('button[aria-label="Application log"]');
         const viewer = document.querySelector(".viewer");
-        if (!(button instanceof HTMLButtonElement) || !(viewer instanceof HTMLElement)) {
+        if (!(menu instanceof HTMLDetailsElement) ||
+            !(summary instanceof HTMLElement) ||
+            !(button instanceof HTMLButtonElement) ||
+            !(viewer instanceof HTMLElement)) {
             throw new Error("The application log control was not found.");
         }
 
         // 以前のmessageに依存せず、閉じた状態から未読数を検査する。
+        summary.click();
+        await nextFrame();
         button.click();
         await nextFrame();
         document.querySelector('button[aria-label="Clear logs"]')?.click();
@@ -548,8 +557,10 @@ async function verifyLogPane(window) {
         console.warn("Log pane smoke warning");
         console.error("Log pane smoke error");
         await nextFrame();
-        const unread = document.querySelector(".log-unread-badge")?.textContent ?? null;
+        const unread = document.querySelector(".application-menu-count")?.textContent ?? null;
 
+        summary.click();
+        await nextFrame();
         button.click();
         await nextFrame();
         const pane = document.querySelector(".log-pane");
@@ -563,6 +574,9 @@ async function verifyLogPane(window) {
         if (!(resizer instanceof HTMLElement)) {
             throw new Error("The application log resizer was not found.");
         }
+        const resizerStyle = getComputedStyle(resizer);
+        const resizerBackground = resizerStyle.backgroundColor;
+        const resizerBorder = resizerStyle.borderTopColor;
         resizer.dispatchEvent(new KeyboardEvent("keydown", {
             key: "ArrowUp",
             bubbles: true,
@@ -571,7 +585,7 @@ async function verifyLogPane(window) {
         await nextFrame();
         const resizedPaneHeight = pane?.getBoundingClientRect().height ?? -1;
         const copyEnabled = !(document.querySelector('button[aria-label="Copy logs"]')?.disabled ?? true);
-        const unreadCleared = document.querySelector(".log-unread-badge") === null;
+        const unreadCleared = document.querySelector(".application-menu-count") === null;
 
         document.querySelector('button[aria-label="Clear logs"]')?.click();
         await nextFrame();
@@ -590,6 +604,8 @@ async function verifyLogPane(window) {
             openedViewerHeight,
             initialPaneHeight,
             resizedPaneHeight,
+            resizerBackground,
+            resizerBorder,
             restoredViewerHeight: viewer.getBoundingClientRect().height,
             closed: document.querySelector(".log-pane") === null
         };
@@ -691,9 +707,9 @@ async function run() {
         initialState.openLabelSize > 11 ||
         initialState.openLabelColor !== "rgb(147, 168, 188)" ||
         initialState.openButtonText !== "Open" ||
-        initialState.mainActionIconCount !== 4 ||
+        initialState.mainActionIconCount !== 3 ||
         JSON.stringify(initialState.toolbarSequence) !==
-            JSON.stringify(["Open", "Search", "Bookmark", "Stats", "Log", "View", "Zoom", "Menu"]) ||
+            JSON.stringify(["Open", "Search", "Bookmark", "Stats", "View", "Zoom", "Menu"]) ||
         initialState.zoomIconCount !== 4 ||
         initialState.zoomSeparatorCount !== 1 ||
         !initialState.zoomSeparatorPlacement ||
@@ -718,8 +734,9 @@ async function run() {
 
     const applicationMenuState = await verifyApplicationMenu(window);
     if (JSON.stringify(applicationMenuState.menuItems) !== JSON.stringify([
-        "About Konata",
-        "Keyboard shortcuts"
+        "Application log",
+        "Keyboard shortcuts",
+        "About Konata"
     ]) ||
         applicationMenuState.menuVersion !== `Version ${initialState.version}` ||
         !applicationMenuState.menuPanelOnTop ||
@@ -768,6 +785,8 @@ async function run() {
         !logPaneState.cleared ||
         logPaneState.openedViewerHeight >= logPaneState.initialViewerHeight ||
         logPaneState.resizedPaneHeight <= logPaneState.initialPaneHeight ||
+        logPaneState.resizerBackground !== "rgb(28, 32, 39)" ||
+        logPaneState.resizerBorder !== "rgb(52, 59, 70)" ||
         logPaneState.restoredViewerHeight !== logPaneState.initialViewerHeight ||
         !logPaneState.closed) {
         throw new Error(`Application log pane is incomplete: ${JSON.stringify(logPaneState)}`);
@@ -780,6 +799,25 @@ async function run() {
         incrementalState.progressLayers?.progress !== "100" ||
         incrementalState.progressLayers?.splitter !== "0") {
         throw new Error(`Incremental trace rendering is incomplete: ${JSON.stringify(incrementalState)}`);
+    }
+
+    const parserTimingLog = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const menu = document.querySelector(".application-menu");
+        menu?.querySelector(":scope > summary")?.click();
+        await nextFrame();
+        menu?.querySelector('button[aria-label="Application log"]')?.click();
+        await nextFrame();
+        const message = [...document.querySelectorAll(".log-entry pre")]
+            .map((entry) => entry.textContent ?? "")
+            .findLast((entry) => entry.startsWith("Parsed (OnikiriParser):")) ?? null;
+        document.querySelector('button[aria-label="Close application log"]')?.click();
+        await nextFrame();
+        return message;
+    })()`);
+    if (!/^Parsed \(OnikiriParser\): \d+ ms$/.test(parserTimingLog ?? "")) {
+        throw new Error(`Parser timing was not written to the application log: ${parserTimingLog}`);
     }
 
     const canceledLoadState = await verifyClosedTabCancelsLoading(window);

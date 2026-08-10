@@ -240,20 +240,14 @@ button:disabled {
     color: #b4c5d6;
 }
 
-.log-toolbar-action {
-    position: relative;
-}
-
-.toolbar-action .log-unread-badge {
-    position: absolute;
-    top: 0.05rem;
-    right: 0.05rem;
-    min-width: 1rem;
+.application-menu-count {
+    min-width: 1.1rem;
+    margin-left: auto;
     padding: 0.12rem 0.24rem;
     border-radius: 999px;
     background: #c05b55;
     color: #fff;
-    font-size: 0.55rem;
+    font-size: 0.65rem;
     font-weight: 700;
     line-height: 1;
     text-align: center;
@@ -657,14 +651,16 @@ button:disabled {
 .log-pane-resizer {
     height: 5px;
     flex: 0 0 5px;
-    background: #303743;
+    border-top: 1px solid #343b46;
+    background: #1c2027;
     cursor: row-resize;
     touch-action: none;
 }
 
 .log-pane-resizer:hover,
 .log-pane-resizer:focus-visible {
-    background: var(--ui-accent);
+    border-top-color: #454d5a;
+    background: #242a33;
     outline: 0;
 }
 
@@ -1457,12 +1453,14 @@ button:disabled {
 }
 
 .theme-light .log-pane-resizer {
-    background: #c7cdd6;
+    border-top-color: #d5dae1;
+    background: #f3f5f8;
 }
 
 .theme-light .log-pane-resizer:hover,
 .theme-light .log-pane-resizer:focus-visible {
-    background: #557da8;
+    border-top-color: #c3c9d1;
+    background: #e9ecf0;
 }
 
 .theme-light .log-pane > header {
