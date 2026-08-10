@@ -32,7 +32,7 @@ import {
 import type { Op, ParsedTrace } from "./core/model";
 import { Gem5O3PipeViewParser } from "./core/gem5_o3_pipe_view_parser";
 import { OnikiriParser } from "./core/onikiri_parser";
-import { SerializedPageOpStore } from "./core/serialized_page_op_store";
+import { PagedOpStore } from "./core/paged_op_store";
 import { calculateStats, type StatsValues } from "./core/stats";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -521,7 +521,7 @@ export function App() {
 
         let parsingTrace: ParsedTrace | null = null;
         // Parserが形式を確定してtraceを公開するまでは、Appが未公開storeの解放を受け持つ。
-        let unpublishedStore: SerializedPageOpStore | null = null;
+        let unpublishedStore: PagedOpStore | null = null;
         const closeUnpublishedStore = () => {
             unpublishedStore?.close();
             unpublishedStore = null;
@@ -544,7 +544,7 @@ export function App() {
             };
             let parsedTrace: ParsedTrace;
             try {
-                unpublishedStore = await SerializedPageOpStore.createZstd();
+                unpublishedStore = await PagedOpStore.createZstd();
                 parsedTrace = await new OnikiriParser(unpublishedStore).parse(
                     file,
                     updateProgress,
@@ -558,7 +558,7 @@ export function App() {
                     throw error;
                 }
                 closeUnpublishedStore();
-                unpublishedStore = await SerializedPageOpStore.createZstd();
+                unpublishedStore = await PagedOpStore.createZstd();
                 parsedTrace = await new Gem5O3PipeViewParser(unpublishedStore).parse(
                     file,
                     updateProgress,

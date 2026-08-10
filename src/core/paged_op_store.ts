@@ -1,3 +1,17 @@
+// 大きなtraceのOpを、旧BigKeyValueStoreと同じ多段pageで保持する。
+//
+// PagedOpStore
+//   ├─ span 1, 8, 64, ... ごとのOpPageLevel
+//   │    ├─ JSONまたはzstdへ退避したpage
+//   │    └─ 最大数を制限した展開済みpage LRU
+//   └─ 描画で繰り返し参照するOpのLRU
+//
+// setOp()はIDが各spanで割り切れるlevelへOpを書き、縮小表示時は最も粗い有効levelから
+// 取得する。これにより、離れたOpを描くために細かいpageを大量展開することを避ける。
+// 展開済みpageが上限を超えると、dirty pageをJSON.stringify()で保存し、必要ならpage単位の
+// 独立したzstd frameへ圧縮して元のOp参照を切る。getOp()は必要なpageだけを同期的に戻すため、
+// Renderer側の同期APIは旧版のまま維持できる。OpのJSON変換規則自体はmodel.tsに置く。
+
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
 import { Op, type OpJSON } from "./model";
@@ -21,14 +35,14 @@ interface PageCodec {
     decode(payload: StoredPagePayload): string;
 }
 
-export interface SerializedPageOpStoreOptions {
+export interface PagedOpStoreOptions {
     pageSizeBits?: number;
     maxDecodedPages?: number;
     maxCachedOps?: number;
     levelSpans?: readonly number[];
 }
 
-export interface SerializedPageLevelMetrics {
+export interface OpPageLevelMetrics {
     readonly span: number;
     readonly serializedPages: number;
     readonly decodedPages: number;
@@ -74,7 +88,7 @@ function createZstdPageCodec(zstd: Zstd): PageCodec {
 }
 
 // 8倍ずつ間引いたOpを独立したpage群へ保存し、縮小時の展開回数を抑える。
-class SerializedPageLevel {
+class OpPageLevel {
     private readonly serializedPages_ = new Map<number, StoredPage>();
     private readonly decodedPages_ = new Map<number, DecodedPage>();
     private readonly decodedPageLRU_ = new Map<number, true>();
@@ -92,7 +106,7 @@ class SerializedPageLevel {
         private readonly codec_: PageCodec,
     ) {}
 
-    get metrics(): SerializedPageLevelMetrics {
+    get metrics(): OpPageLevelMetrics {
         let serializedCharacters = 0;
         let storedSize = 0;
         for (const stored of this.serializedPages_.values()) {
@@ -211,8 +225,8 @@ class SerializedPageLevel {
 }
 
 // 旧BigKeyValueStoreと同じ多段pageとOp LRUを、JSONまたはzstd pageで再現する試作。
-export class SerializedPageOpStore implements MutableOpStore {
-    private readonly levels_: readonly SerializedPageLevel[];
+export class PagedOpStore implements MutableOpStore {
+    private readonly levels_: readonly OpPageLevel[];
     private readonly maxCachedOps_: number;
     private readonly opCache_ = new Map<number, Op>();
     private readonly retiredOpIDs_: Array<number | undefined> = [];
@@ -223,7 +237,7 @@ export class SerializedPageOpStore implements MutableOpStore {
     private opCacheHitCount_ = 0;
 
     constructor(
-        options: SerializedPageOpStoreOptions = {},
+        options: PagedOpStoreOptions = {},
         private readonly pageCodec_: PageCodec = jsonPageCodec,
     ) {
         const pageSizeBits = options.pageSizeBits ?? 8;
@@ -247,13 +261,13 @@ export class SerializedPageOpStore implements MutableOpStore {
         }
         const pageSize = 2 ** pageSizeBits;
         this.levels_ = levelSpans.map((span) =>
-            new SerializedPageLevel(span, pageSize, maxDecodedPages, pageCodec_));
+            new OpPageLevel(span, pageSize, maxDecodedPages, pageCodec_));
         this.maxCachedOps_ = maxCachedOps;
     }
 
-    static async createZstd(options: SerializedPageOpStoreOptions = {}): Promise<SerializedPageOpStore> {
+    static async createZstd(options: PagedOpStoreOptions = {}): Promise<PagedOpStore> {
         // WASMのcompileだけを非同期で済ませ、描画時の同期getOp()は維持する。
-        return new SerializedPageOpStore(options, createZstdPageCodec(await Zstd.load()));
+        return new PagedOpStore(options, createZstdPageCodec(await Zstd.load()));
     }
 
     get pageCodec(): "json" | "zstd" {
@@ -288,7 +302,7 @@ export class SerializedPageOpStore implements MutableOpStore {
         return this.levelMetrics.reduce((sum, level) => sum + level.storedSize, 0);
     }
 
-    get levelMetrics(): readonly SerializedPageLevelMetrics[] {
+    get levelMetrics(): readonly OpPageLevelMetrics[] {
         return this.levels_.map((level) => level.metrics);
     }
 
@@ -375,7 +389,7 @@ export class SerializedPageOpStore implements MutableOpStore {
         this.opCacheHitCount_ = 0;
     }
 
-    private levelForID_(id: number): SerializedPageLevel {
+    private levelForID_(id: number): OpPageLevel {
         for (let index = this.levels_.length - 1; index >= 0; index--) {
             if (id % this.levels_[index].span === 0) {
                 return this.levels_[index];

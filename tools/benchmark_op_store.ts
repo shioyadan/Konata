@@ -6,7 +6,7 @@ import { performance } from "node:perf_hooks";
 import type { ParsedTrace } from "../src/core/model";
 import { OnikiriParser } from "../src/core/onikiri_parser";
 import { ArrayOpStore, type MutableOpStore } from "../src/core/op_store";
-import { SerializedPageOpStore } from "../src/core/serialized_page_op_store";
+import { PagedOpStore } from "../src/core/paged_op_store";
 
 interface MemorySnapshot {
     heapUsed: number;
@@ -118,7 +118,7 @@ function createSyntheticTrace(opCount: number): File {
 }
 
 function storeMetrics(store: MutableOpStore): StoreMetrics | undefined {
-    if (!(store instanceof SerializedPageOpStore)) {
+    if (!(store instanceof PagedOpStore)) {
         return undefined;
     }
     return {
@@ -314,8 +314,8 @@ async function main(): Promise<void> {
     const samplePath = path.resolve(import.meta.dirname, "..", "docs", "kanata-sample-2.log.gz");
     const stores: StoreCase[] = [
         { name: "ArrayOpStore", create: () => new ArrayOpStore() },
-        { name: "HierarchicalJsonOpStore", create: () => new SerializedPageOpStore() },
-        { name: "HierarchicalZstdOpStore", create: () => SerializedPageOpStore.createZstd() },
+        { name: "PagedJsonOpStore", create: () => new PagedOpStore() },
+        { name: "PagedZstdOpStore", create: () => PagedOpStore.createZstd() },
     ];
     const defaultInputs = [
         {

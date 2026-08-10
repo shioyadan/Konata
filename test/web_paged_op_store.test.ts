@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { Dependency, Lane, Op, Stage } from "../src/core/model";
 import { OnikiriParser } from "../src/core/onikiri_parser";
-import { SerializedPageOpStore } from "../src/core/serialized_page_op_store";
+import { PagedOpStore } from "../src/core/paged_op_store";
 
 function createComplexOp(): Op {
     const op = new Op();
@@ -57,9 +57,9 @@ function createComplexOp(): Op {
     return op;
 }
 
-test("SerializedPageOpStore restores the complete mutable Op model", () => {
+test("PagedOpStore restores the complete mutable Op model", () => {
     // 1 Op/page、展開page 1枚に制限し、別IDの追加で必ずserialize/deserializeを通す。
-    const store = new SerializedPageOpStore({
+    const store = new PagedOpStore({
         pageSizeBits: 0,
         maxDecodedPages: 1,
         levelSpans: [1],
@@ -147,9 +147,9 @@ test("SerializedPageOpStore restores the complete mutable Op model", () => {
     assert.equal(store.getOp(0)?.labelDetail, "detail\nline; updated");
 });
 
-test("SerializedPageOpStore stores independently decodable Zstandard pages", async () => {
+test("PagedOpStore stores independently decodable Zstandard pages", async () => {
     // 既存のpage退避条件は変えず、保存表現だけをzstd frameへ差し替えて往復を確認する。
-    const store = await SerializedPageOpStore.createZstd({
+    const store = await PagedOpStore.createZstd({
         pageSizeBits: 0,
         maxDecodedPages: 1,
         levelSpans: [1],
@@ -169,9 +169,9 @@ test("SerializedPageOpStore stores independently decodable Zstandard pages", asy
     assert.equal(store.levelMetrics[0].decodeCount, 1);
 });
 
-test("SerializedPageOpStore uses coarse pages and both LRU layers", () => {
+test("PagedOpStore uses coarse pages and both LRU layers", () => {
     // 1 Op/pageにすると、最後のID以外は必ずserialize済みになる。
-    const store = new SerializedPageOpStore({
+    const store = new PagedOpStore({
         pageSizeBits: 0,
         maxDecodedPages: 1,
         maxCachedOps: 1,
@@ -225,7 +225,7 @@ test("OnikiriParser preserves post-retire updates through serialized pages", asy
     const bytes = new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength);
     const file = new File([bytes], "kanata-basic.txt", { type: "text/plain" });
     // 1 Op/pageにしてid=1のretire時にid=0を追い出し、末尾のretire後Lで再展開させる。
-    const store = new SerializedPageOpStore({
+    const store = new PagedOpStore({
         pageSizeBits: 0,
         maxDecodedPages: 1,
         levelSpans: [1],
@@ -254,7 +254,7 @@ test("OnikiriParser writes dependencies back to an evicted producer page", async
         "R\t2\t2\t0",
     ].join("\n");
     const file = new File([contents], "stored-producer.log", { type: "text/plain" });
-    const store = new SerializedPageOpStore({
+    const store = new PagedOpStore({
         pageSizeBits: 0,
         maxDecodedPages: 1,
         levelSpans: [1],
