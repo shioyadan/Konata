@@ -34,7 +34,7 @@ function createComplexOp(): Op {
     fetch.startCycle = 3;
     fetch.endCycle = 5;
     mainLane.stages.push(fetch);
-    op.lanes["0"] = mainLane;
+    op.lanes[0] = mainLane;
 
     const subLane = new Lane();
     subLane.level = 1;
@@ -44,15 +44,15 @@ function createComplexOp(): Op {
     execute.startCycle = 6;
     execute.endCycle = 9;
     subLane.stages.push(execute);
-    op.lanes["1"] = subLane;
+    op.lanes[1] = subLane;
 
-    const prototypeLane = new Lane();
-    const prototypeStage = new Stage();
-    prototypeStage.name = "P";
-    prototypeStage.startCycle = 7;
-    prototypeStage.endCycle = 8;
-    prototypeLane.stages.push(prototypeStage);
-    op.lanes["__proto__"] = prototypeLane;
+    const thirdLane = new Lane();
+    const thirdStage = new Stage();
+    thirdStage.name = "P";
+    thirdStage.startCycle = 7;
+    thirdStage.endCycle = 8;
+    thirdLane.stages.push(thirdStage);
+    op.lanes[2] = thirdLane;
     op.lastParsedStage = execute;
     return op;
 }
@@ -113,16 +113,16 @@ test("PagedOpStore restores the complete mutable Op model", () => {
         },
     );
     assert.deepEqual(
-        Object.entries(restored.lanes).map(([name, lane]) => ({
-            name,
+        restored.lanes.map((lane, laneID) => lane === null ? null : ({
+            laneID,
             level: lane.level,
             stages: lane.stages.map((stage) => ({ ...stage })),
         })),
         [
-            { name: "0", level: 2, stages: [{ name: "F", labels: "", startCycle: 3, endCycle: 5 }] },
-            { name: "1", level: 1, stages: [{ name: "X", labels: "ALU", startCycle: 6, endCycle: 9 }] },
+            { laneID: 0, level: 2, stages: [{ name: "F", labels: "", startCycle: 3, endCycle: 5 }] },
+            { laneID: 1, level: 1, stages: [{ name: "X", labels: "ALU", startCycle: 6, endCycle: 9 }] },
             {
-                name: "__proto__",
+                laneID: 2,
                 level: 0,
                 stages: [{ name: "P", labels: "", startCycle: 7, endCycle: 8 }],
             },
@@ -135,8 +135,7 @@ test("PagedOpStore restores the complete mutable Op model", () => {
         { opID: 9, type: 2, cycle: 10 },
     ]);
     // lastParsedStageは値が同じ別objectではなく、復元したlane内Stageへの参照に戻す。
-    assert.equal(Object.getPrototypeOf(restored.lanes), null);
-    assert.equal(restored.lastParsedStage, restored.lanes["1"]?.stages[0]);
+    assert.equal(restored.lastParsedStage, restored.lanes[1]?.stages[0]);
     assert.equal(store.getOpFromRID(2), restored);
     assert.equal(store.getOp(1, 1), restored);
 

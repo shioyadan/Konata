@@ -16,7 +16,7 @@ function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpSt
     const opStore = new ArrayOpStore();
     opStore.setOp(op.id, op);
     return {
-        trace: new ParsedTrace(fileName, opStore, new Set(), new StageLevelMap(), 0),
+        trace: new ParsedTrace(fileName, opStore, new StageLevelMap(), 0),
         opStore,
     };
 }

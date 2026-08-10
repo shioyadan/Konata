@@ -97,7 +97,7 @@ test("calculateStats preserves detector fallback and legacy ID bounds", async ()
     const last = op(" bne skipped-last-op ", true);
     last.id = 1_003;
     store.setOp(last.id, last);
-    const trace = new ParsedTrace("stats.log", store, new Set(), new StageLevelMap(), 10);
+    const trace = new ParsedTrace("stats.log", store, new StageLevelMap(), 10);
 
     const values = await calculateStats(trace);
 
@@ -115,7 +115,7 @@ test("calculateStats yields at the legacy progress interval", async () => {
         store.setOp(id, value);
     }
     store.setRetiredOp(0, value);
-    const trace = new ParsedTrace("large.log", store, new Set(), new StageLevelMap(), 50_003);
+    const trace = new ParsedTrace("large.log", store, new StageLevelMap(), 50_003);
     const updates: Array<[number, number]> = [];
 
     const values = await calculateStats(trace, (progress, count) => updates.push([progress, count]));
@@ -130,7 +130,7 @@ test("calculateStats stops when its trace is replaced", async () => {
     const value = op(" add x1, x2 ", true);
     value.id = 0;
     store.setOp(0, value);
-    const trace = new ParsedTrace("closed.log", store, new Set(), new StageLevelMap(), 1);
+    const trace = new ParsedTrace("closed.log", store, new StageLevelMap(), 1);
 
     const values = await calculateStats(trace, undefined, () => true);
 

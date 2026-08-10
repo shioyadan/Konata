@@ -84,12 +84,14 @@ test("Web Onikiri parser preserves core commands for a plain-text trace", async 
     const consumer = trace.getOp(1);
     assert.ok(producer);
     assert.ok(consumer);
+    const mainLaneID = trace.stageLevelMap.getLaneID("0");
+    assert.notEqual(mainLaneID, undefined);
 
     // 文字列の\\nは表示用改行へ戻し、retire後の追加ラベルも警告しつつ保持する。
     assert.equal(producer.labelName, "producer\nname");
     assert.equal(producer.labelDetail, "producer detail; post-retire detail");
     assert.deepEqual(
-        producer.lanes["0"]?.stages.map((stage) => ({
+        producer.lanes[mainLaneID]?.stages.map((stage) => ({
             name: stage.name,
             labels: stage.labels,
             startCycle: stage.startCycle,
@@ -114,13 +116,16 @@ test("Web Onikiri parser preserves core commands for a plain-text trace", async 
     assert.equal(trace.getOpFromRID(0), producer);
 });
 
-test("Web Onikiri parser stores arbitrary lane names in a prototype-free object", async () => {
+test("Web Onikiri parser assigns stable IDs to arbitrary lane names", async () => {
     const contents = [
         "Kanata\t0004",
         "I\t0\t10\t0",
-        "S\t0\t__proto__\tF",
+        "S\t0\tz\tF",
         "C\t1",
-        "E\t0\t__proto__\tF",
+        "E\t0\tz\tF",
+        "S\t0\t__proto__\tX",
+        "C\t1",
+        "E\t0\t__proto__\tX",
         "R\t0\t0\t0",
     ].join("\n");
     const trace = await new OnikiriParser().parse(
@@ -129,10 +134,16 @@ test("Web Onikiri parser stores arbitrary lane names in a prototype-free object"
     const op = trace.getOp(0);
     assert.ok(op);
 
-    // lane名はtrace由来なので、Object.prototype上の名前でもprototype変更として扱わない。
-    assert.equal(Object.getPrototypeOf(op.lanes), null);
-    assert.equal(op.lanes["__proto__"]?.stages[0].name, "F");
-    assert.deepEqual(Object.keys(op.lanes), ["__proto__"]);
+    // 保存用IDは初出順で固定し、後から名前順で前に来るlaneが増えても変更しない。
+    const zLaneID = trace.stageLevelMap.getLaneID("z");
+    const prototypeLaneID = trace.stageLevelMap.getLaneID("__proto__");
+    assert.equal(zLaneID, 0);
+    assert.equal(prototypeLaneID, 1);
+    assert.equal(trace.stageLevelMap.getLanePosition(zLaneID), 1);
+    assert.equal(trace.stageLevelMap.getLanePosition(prototypeLaneID), 0);
+    assert.deepEqual(trace.laneNames, ["z", "__proto__"]);
+    assert.equal(op.lanes[zLaneID]?.stages[0].name, "F");
+    assert.equal(op.lanes[prototypeLaneID]?.stages[0].name, "X");
 });
 
 test("Web Onikiri parser streams the bundled gzip sample", async () => {

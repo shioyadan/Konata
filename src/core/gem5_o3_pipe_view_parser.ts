@@ -1,11 +1,11 @@
 import { FileLineReader, type ProgressCallback } from "./file_line_reader";
 import {
     Dependency,
-    Lane,
     Op,
     ParsedTrace,
     Stage,
     StageLevelMap,
+    getOrCreateLane,
     type TraceUpdateCallback,
 } from "./model";
 import { ArrayOpStore, type MutableOpStore } from "./op_store";
@@ -55,7 +55,6 @@ export class Gem5O3PipeViewParser {
     private parsingExLogLastGID_ = -1;
     private readonly dependencyTable_ = new Map<string, Op>();
 
-    private readonly laneNames_ = new Set<string>();
     private readonly stageLevelMap_ = new StageLevelMap();
     private ticksPerClock_ = -1;
     private cycleBegin_ = -1;
@@ -76,7 +75,6 @@ export class Gem5O3PipeViewParser {
         const trace = new ParsedTrace(
             file.name,
             this.opStore_,
-            this.laneNames_,
             this.stageLevelMap_,
             this.currentCycle_,
         );
@@ -196,7 +194,10 @@ export class Gem5O3PipeViewParser {
 
             ticks.add(op.fetchedCycle);
             ticks.add(op.retiredCycle);
-            for (const lane of Object.values(op.lanes)) {
+            for (const lane of op.lanes) {
+                if (lane === null) {
+                    continue;
+                }
                 for (const stage of lane.stages) {
                     ticks.add(stage.startCycle);
                     ticks.add(stage.endCycle);
@@ -312,7 +313,10 @@ export class Gem5O3PipeViewParser {
             op.consCycle = op.consCycle / this.ticksPerClock_ - this.cycleBegin_;
         }
 
-        for (const lane of Object.values(op.lanes)) {
+        for (const lane of op.lanes) {
+            if (lane === null) {
+                continue;
+            }
             for (const stage of lane.stages) {
                 stage.startCycle = stage.startCycle / this.ticksPerClock_ - this.cycleBegin_;
                 stage.endCycle = stage.endCycle / this.ticksPerClock_ - this.cycleBegin_;
@@ -389,11 +393,8 @@ export class Gem5O3PipeViewParser {
         this.currentInstructionTick_ = tick;
 
         const laneName = "0";
-        let lane = op.lanes[laneName];
-        if (lane === undefined) {
-            lane = new Lane();
-            op.lanes[laneName] = lane;
-        }
+        const laneID = this.stageLevelMap_.getOrCreateLaneID(laneName);
+        const lane = getOrCreateLane(op, laneID);
         const stage = new Stage();
         stage.name = stageName;
         stage.startCycle = tick;
@@ -411,7 +412,6 @@ export class Gem5O3PipeViewParser {
             op.prodCycle = tick;
         }
 
-        this.laneNames_.add(laneName);
         this.stageLevelMap_.update(laneName, stageName, lane);
     }
 
@@ -422,9 +422,10 @@ export class Gem5O3PipeViewParser {
             return;
         }
 
-        const lane = op.lanes["0"];
+        const laneID = this.stageLevelMap_.getLaneID("0");
+        const lane = laneID === undefined ? null : op.lanes[laneID];
         const stageName = op.lastParsedStage?.name;
-        if (lane === undefined || stageName === undefined) {
+        if (lane === null || lane === undefined || stageName === undefined) {
             return;
         }
         op.lastParsedCycle = tick;
@@ -460,7 +461,10 @@ export class Gem5O3PipeViewParser {
         this.unescapeLabels_(op);
 
         // 閉じていないstageはretireまたはflush tickで閉じる。
-        for (const lane of Object.values(op.lanes)) {
+        for (const lane of op.lanes) {
+            if (lane === null) {
+                continue;
+            }
             for (const stage of lane.stages) {
                 if (stage.endCycle === 0) {
                     stage.endCycle = tick;
@@ -568,7 +572,10 @@ export class Gem5O3PipeViewParser {
         // 文字列としての\nを表示用改行へ戻す。replaceはV8のcons string平坦化も兼ねる。
         op.labelName = op.labelName.replace(/\\n/g, "\n");
         op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
-        for (const lane of Object.values(op.lanes)) {
+        for (const lane of op.lanes) {
+            if (lane === null) {
+                continue;
+            }
             for (const stage of lane.stages) {
                 stage.labels = stage.labels.replace(/\\n/g, "\n");
             }

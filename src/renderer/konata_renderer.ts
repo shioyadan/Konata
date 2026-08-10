@@ -443,7 +443,10 @@ export class KonataRenderer {
         // 同じcycleに複数laneが重なっている場合は、stage名をカンマ区切りで並べる。
         let stageText = "";
         let first = true;
-        for (const lane of Object.values(op.lanes)) {
+        for (const lane of op.lanes) {
+            if (lane === null) {
+                continue;
+            }
             for (const stage of lane.stages) {
                 const endCycle = stage.endCycle === stage.startCycle
                     ? stage.endCycle + 1
@@ -677,11 +680,15 @@ export class KonataRenderer {
         if (this.canDrawDetailedly_) {
             context.strokeStyle = this.style_.pipelinePane.borderColor;
             const laneNum = Math.max(1, this.trace_?.stageLevelMap.laneNum ?? 1);
-            for (const laneName of Object.keys(op.lanes)) {
+            for (let laneID = 0; laneID < op.lanes.length; laneID++) {
+                if (op.lanes[laneID] === null) {
+                    continue;
+                }
                 const laneTop = this.splitLanes_
-                    ? logicalY + (this.trace_?.stageLevelMap.getLaneID(laneName) ?? 0) / laneNum
+                    ? logicalY +
+                        (this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0) / laneNum
                     : logicalY;
-                this.drawLane_(op, laneTop, startCycle, endCycle, context, laneName);
+                this.drawLane_(op, laneTop, startCycle, endCycle, context, laneID);
             }
         }
         else {
@@ -707,10 +714,10 @@ export class KonataRenderer {
         startCycle: number,
         endCycle: number,
         context: CanvasRenderingContext2D,
-        laneName: string,
+        laneID: number,
     ): void {
-        const lane = op.lanes[laneName];
-        if (lane === undefined) {
+        const lane = op.lanes[laneID];
+        if (lane === null || lane === undefined) {
             return;
         }
         context.font = this.stageFont_;
@@ -737,8 +744,8 @@ export class KonataRenderer {
 
             // 旧Rendererはstageの開始色と終了色を上下方向のgradientとして描く。
             const gradient = context.createLinearGradient(0, top, 0, top + this.laneHeight_);
-            gradient.addColorStop(0, this.getStageColor_(laneName, stage.name, true, op));
-            gradient.addColorStop(1, this.getStageColor_(laneName, stage.name, false, op));
+            gradient.addColorStop(0, this.getStageColor_(laneID, stage.name, true, op));
+            gradient.addColorStop(1, this.getStageColor_(laneID, stage.name, false, op));
             context.fillStyle = gradient;
             context.fillRect(left, rectTop, right - left, rectHeight);
 
@@ -874,13 +881,14 @@ export class KonataRenderer {
         context.fill();
     }
 
-    private getStageColor_(laneName: string, stageName: string, isBegin: boolean, op: Op): string {
+    private getStageColor_(laneID: number, stageName: string, isBegin: boolean, op: Op): string {
+        const laneName = this.trace_?.stageLevelMap.getLaneName(laneID) ?? String(laneID);
         if (this.colorScheme_ === "Auto" || this.colorScheme_ === "Unique") {
             if (stageName === "f" || stageName === "stl") {
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
             const stageLevel = this.trace_?.stageLevelMap.get(laneName, stageName);
-            const laneID = this.trace_?.stageLevelMap.getLaneID(laneName) ?? 0;
+            const lanePosition = this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0;
             const level = this.colorScheme_ === "Auto"
                 ? stageLevel?.appearance ?? 0
                 : stageLevel?.unique ?? 0;
@@ -888,7 +896,7 @@ export class KonataRenderer {
             const rate = Number(isBegin ? color.hRateBegin : color.hRateEnd);
             const saturation = Number(isBegin ? color.sBegin : color.sEnd);
             const lightness = Number(isBegin ? color.lBegin : color.lEnd);
-            const hue = (250 - level * rate + laneID * 28 * 8 + 3600) % 360;
+            const hue = (250 - level * rate + lanePosition * 28 * 8 + 3600) % 360;
             return `hsl(${hue},${saturation}%,${lightness}%)`;
         }
 

@@ -22,10 +22,10 @@ export class Dependency {
 }
 
 // Opは基本的にそのままJSONへ保存する。JSONではobject同士の参照だけを表現できないため、
-// lastParsedStageに限ってlane名と配列内の位置へ置き換える。
-type StoredStagePosition = [laneName: string, stageIndex: number] | null;
+// lastParsedStageに限ってlane IDと配列内の位置へ置き換える。
+type StoredStagePosition = [laneID: number, stageIndex: number] | null;
 export type OpJSON = Omit<Op, "lanes" | "prods" | "cons" | "lastParsedStage" | "toJSON"> & {
-    lanes: Record<string, Lane>;
+    lanes: Array<Lane | null>;
     prods: Dependency[];
     cons: Dependency[];
     lastParsedStage: StoredStagePosition;
@@ -43,10 +43,9 @@ export class Op {
     flush = false;
     // Rコマンドがないままファイル終端へ達した命令を表す。
     eof = false;
-    // 各命令が持つlaneは少数で、名前による取得・追加・列挙だけに使う。
-    // 旧版と同じobjectなら命令ごとのMap割当てと保存時の変換が不要になる。
-    // trace由来の"__proto__"等も通常のkeyとして扱えるようprototypeを持たせない。
-    readonly lanes = Object.create(null) as Record<string, Lane>;
+    // lane名はtrace全体で一度だけIDへ変換し、各OpはそのIDをindexとするdataだけを持つ。
+    // laneを持たないindexはnullとし、JSON round-tripの前後で同じ配列形状を維持する。
+    readonly lanes: Array<Lane | null> = [];
     fetchedCycle = -1;
     retiredCycle = -1;
     // Iコマンドが現れた行番号。
@@ -69,12 +68,16 @@ export class Op {
         // JSON.stringifyがこのmethodを自動的に呼ぶ。通常のfieldは列挙して変換せず、
         // Opへfieldを追加した場合にもobject spreadでそのまま保存されるようにする。
         let lastParsedStage: StoredStagePosition = null;
-        for (const [laneName, lane] of Object.entries(this.lanes)) {
+        for (let laneID = 0; laneID < this.lanes.length; laneID++) {
+            const lane = this.lanes[laneID];
+            if (lane === null) {
+                continue;
+            }
             const stageIndex = this.lastParsedStage === null
                 ? -1
                 : lane.stages.indexOf(this.lastParsedStage);
             if (stageIndex !== -1) {
-                lastParsedStage = [laneName, stageIndex];
+                lastParsedStage = [laneID, stageIndex];
                 break;
             }
         }
@@ -85,20 +88,34 @@ export class Op {
         const { lanes, prods, cons, lastParsedStage, ...fields } = stored;
 
         // Lane、Stage、Dependencyはmethodを持たないdataなので、JSON.parseが作ったobjectを
-        // そのまま利用する。Opだけは初期値とprototypeなしのlane辞書を得るため作り直す。
+        // そのまま利用する。Opだけはclassの既定値を得るため作り直す。
         const op = Object.assign(new Op(), fields);
-        Object.assign(op.lanes, lanes);
+        op.lanes.push(...lanes);
         op.prods.push(...prods);
         op.cons.push(...cons);
 
         if (lastParsedStage !== null) {
-            const [laneName, stageIndex] = lastParsedStage;
+            const [laneID, stageIndex] = lastParsedStage;
             // 別のStageを生成せず、lanes内にある同一objectへの参照を復元する。Parserは
             // retire後に現れるtype=2のL commandも、この参照を通してStageへ追記する。
-            op.lastParsedStage = op.lanes[laneName]?.stages[stageIndex] ?? null;
+            op.lastParsedStage = op.lanes[laneID]?.stages[stageIndex] ?? null;
         }
         return op;
     }
+}
+
+export function getOrCreateLane(op: Op, laneID: number): Lane {
+    // 新しいlane IDが途中で増えても、未使用indexを明示的なnullで埋める。配列の穴は
+    // JSON.stringifyでnullになるため、最初から同じdata形状にしておく。
+    while (op.lanes.length <= laneID) {
+        op.lanes.push(null);
+    }
+    let lane = op.lanes[laneID];
+    if (lane === null) {
+        lane = new Lane();
+        op.lanes[laneID] = lane;
+    }
+    return lane;
 }
 
 export interface StageLevel {
@@ -110,18 +127,36 @@ export interface StageLevel {
 
 export class StageLevelMap {
     private readonly levels_ = new Map<string, Map<string, StageLevel>>();
+    private readonly laneNames_: string[] = [];
     private readonly laneIDs_ = new Map<string, number>();
+    private readonly lanePositions_: number[] = [];
+
+    getOrCreateLaneID(laneName: string): number {
+        const current = this.laneIDs_.get(laneName);
+        if (current !== undefined) {
+            return current;
+        }
+
+        // 保存用IDは初出時に固定する。表示順は別に再計算するため、読み込み途中で
+        // 名前順が変わっても、既存Opのlanes indexを書き換える必要はない。
+        const laneID = this.laneNames_.length;
+        this.laneNames_.push(laneName);
+        this.laneIDs_.set(laneName, laneID);
+        [...this.laneNames_].sort().forEach((name, position) => {
+            const sortedLaneID = this.laneIDs_.get(name);
+            if (sortedLaneID !== undefined) {
+                this.lanePositions_[sortedLaneID] = position;
+            }
+        });
+        return laneID;
+    }
 
     update(laneName: string, stageName: string, lane: Lane): void {
+        this.getOrCreateLaneID(laneName);
         let laneLevels = this.levels_.get(laneName);
         if (laneLevels === undefined) {
             laneLevels = new Map<string, StageLevel>();
             this.levels_.set(laneName, laneLevels);
-
-            // laneが増えたため、lane名順になるようIDを振り直す。
-            const laneNames = [...this.levels_.keys()].sort();
-            this.laneIDs_.clear();
-            laneNames.forEach((name, index) => this.laneIDs_.set(name, index));
         }
 
         const current = laneLevels.get(stageName);
@@ -149,8 +184,20 @@ export class StageLevelMap {
         return [...(this.levels_.get(laneName)?.keys() ?? [])];
     }
 
-    getLaneID(laneName: string): number {
-        return this.laneIDs_.get(laneName) ?? 0;
+    getLaneID(laneName: string): number | undefined {
+        return this.laneIDs_.get(laneName);
+    }
+
+    getLaneName(laneID: number): string | undefined {
+        return this.laneNames_[laneID];
+    }
+
+    getLanePosition(laneID: number): number {
+        return this.lanePositions_[laneID] ?? 0;
+    }
+
+    get laneNames(): readonly string[] {
+        return this.laneNames_;
     }
 
     get laneNum(): number {
@@ -162,10 +209,13 @@ export class ParsedTrace {
     constructor(
         readonly fileName: string,
         readonly opStore: OpStore,
-        readonly laneNames: ReadonlySet<string>,
         readonly stageLevelMap: StageLevelMap,
         private lastCycle_: number,
     ) {}
+
+    get laneNames(): readonly string[] {
+        return this.stageLevelMap.laneNames;
+    }
 
     get lastCycle(): number {
         return this.lastCycle_;

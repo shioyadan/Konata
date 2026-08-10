@@ -304,7 +304,10 @@ function saveBookmarks(bookmarks: readonly ViewBookmark[]): void {
 function makeFindTargetString(op: Op): string {
     let labelString =
         `${op.id}: s${op.gid} (t${op.tid}: r${op.rid}) ${op.labelName}\n${op.labelDetail}`;
-    for (const lane of Object.values(op.lanes)) {
+    for (const lane of op.lanes) {
+        if (lane === null) {
+            continue;
+        }
         for (const stage of lane.stages) {
             if (stage.labels !== "") {
                 labelString += `\n${stage.labels}`;
@@ -1126,7 +1129,7 @@ export function App() {
         statusMessage = `Loading ${fileName}… ${Math.round(progress * 100)}%`;
     }
     else if (loadState === "ready" && trace !== null) {
-        statusMessage = `${trace.opCount.toLocaleString()} ops · ${trace.lastCycle.toLocaleString()} cycles · ${trace.laneNames.size.toLocaleString()} lanes`;
+        statusMessage = `${trace.opCount.toLocaleString()} ops · ${trace.lastCycle.toLocaleString()} cycles · ${trace.laneNames.length.toLocaleString()} lanes`;
     }
     else if (loadState === "error") {
         statusMessage = errorMessage;
@@ -1151,7 +1154,7 @@ export function App() {
             data-load-state={loadState}
             data-file-name={fileName}
             data-op-count={trace?.opCount ?? 0}
-            data-lane-count={trace?.laneNames.size ?? 0}
+            data-lane-count={trace?.laneNames.length ?? 0}
             onClick={(event) => {
                 // nativeのdetailsは外側clickで閉じないため、panel外だけを明示的に閉じる。
                 for (const controls of [bookmarkControlsRef.current, viewControlsRef.current]) {

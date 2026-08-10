@@ -1,11 +1,11 @@
 import { FileLineReader, type ProgressCallback } from "./file_line_reader";
 import {
     Dependency,
-    Lane,
     Op,
     ParsedTrace,
     Stage,
     StageLevelMap,
+    getOrCreateLane,
     type TraceUpdateCallback,
 } from "./model";
 import { ArrayOpStore, type MutableOpStore } from "./op_store";
@@ -16,7 +16,6 @@ export class OnikiriParser {
     readonly name = "OnikiriParser";
     // Rをまだ受け取っていない命令と、表示対象として確定した命令を分けて保持する。
     private readonly activeOps_ = new Map<number, Op>();
-    private readonly laneNames_ = new Set<string>();
     private readonly stageLevelMap_ = new StageLevelMap();
     // 現在の行番号と、現在読み出し中のcycle。
     private currentLine_ = 1;
@@ -37,7 +36,6 @@ export class OnikiriParser {
         const trace = new ParsedTrace(
             file.name,
             this.opStore_,
-            this.laneNames_,
             this.stageLevelMap_,
             this.currentCycle_,
         );
@@ -204,11 +202,8 @@ export class OnikiriParser {
         const target = this.requireOp_(id, op, "S");
         const laneName = this.parseName_(args[2]);
         const stageName = this.parseName_(args[3]);
-        let lane = target.lanes[laneName];
-        if (lane === undefined) {
-            lane = new Lane();
-            target.lanes[laneName] = lane;
-        }
+        const laneID = this.stageLevelMap_.getOrCreateLaneID(laneName);
+        const lane = getOrCreateLane(target, laneID);
 
         // 同じlaneの最後のstageが閉じられていなければ、新しいSのcycleで自動的に閉じる。
         const previous = lane.stages[lane.stages.length - 1];
@@ -226,7 +221,6 @@ export class OnikiriParser {
         if (/X/.test(stageName)) {
             target.consCycle = this.currentCycle_;
         }
-        this.laneNames_.add(laneName);
         this.stageLevelMap_.update(laneName, stageName, lane);
     }
 
@@ -237,8 +231,9 @@ export class OnikiriParser {
     }
 
     private closeStage_(id: number, laneName: string, stageName: string, op: Op): void {
-        const lane = op.lanes[laneName];
-        if (lane === undefined) {
+        const laneID = this.stageLevelMap_.getLaneID(laneName);
+        const lane = laneID === undefined ? null : op.lanes[laneID];
+        if (lane === null || lane === undefined) {
             this.fail_(`Lane ${laneName} is not defined for op ${id}.`);
         }
 
@@ -275,7 +270,10 @@ export class OnikiriParser {
         target.retired = !flush;
 
         // 閉じていない最後のstageはretire/flush cycleで閉じる。
-        for (const lane of Object.values(target.lanes)) {
+        for (const lane of target.lanes) {
+            if (lane === null) {
+                continue;
+            }
             const stage = lane.stages[lane.stages.length - 1];
             if (stage === undefined) {
                 continue;
@@ -335,7 +333,10 @@ export class OnikiriParser {
         // 旧実装では命令あたりのメモリ使用量を抑える効果も担っていた。
         op.labelName = op.labelName.replace(/\\n/g, "\n");
         op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
-        for (const lane of Object.values(op.lanes)) {
+        for (const lane of op.lanes) {
+            if (lane === null) {
+                continue;
+            }
             for (const stage of lane.stages) {
                 stage.labels = stage.labels.replace(/\\n/g, "\n");
             }

@@ -29,6 +29,8 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
 
     const op = trace.getOp(0);
     assert.ok(op);
+    const mainLaneID = trace.stageLevelMap.getLaneID("0");
+    assert.notEqual(mainLaneID, undefined);
     // 最小tick差分1000を1 cycleとし、先頭tickをcycle 0へ合わせる現行仕様を固定する。
     assert.deepEqual(
         {
@@ -57,7 +59,7 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
     assert.equal(op.labelName, "0x00001000:  add r1, r2");
     // 新stageの開始tickで直前stageを閉じ、retireはCmを閉じるだけでRtを追加しない。
     assert.deepEqual(
-        op.lanes["0"]?.stages.map((stage) => [stage.name, stage.startCycle, stage.endCycle]),
+        op.lanes[mainLaneID]?.stages.map((stage) => [stage.name, stage.startCycle, stage.endCycle]),
         [
             ["F", 0, 1],
             ["Dc", 1, 2],
@@ -150,13 +152,15 @@ test("Web gem5 parser restores dependencies from rename logs", async () => {
     const consumer = trace.getOp(1);
     assert.ok(producer);
     assert.ok(consumer);
+    const mainLaneID = trace.stageLevelMap.getLaneID("0");
+    assert.notEqual(mainLaneID, undefined);
 
     // 同じphysical registerへのrenameをproducer/consumerの両方向へ結び付ける。
     assert.deepEqual(consumer.prods.map((dependency) => dependency.opID), [0]);
     assert.deepEqual(producer.cons.map((dependency) => dependency.opID), [1]);
     // 追加ログ原文は、その時点で開いていたstageのtooltipにも残す。
-    assert.match(producer.lanes["0"]?.stages[0].labels ?? "", /Renaming arch reg 1/);
-    assert.match(consumer.lanes["0"]?.stages[0].labels ?? "", /Looking up IntRegClass/);
+    assert.match(producer.lanes[mainLaneID]?.stages[0].labels ?? "", /Renaming arch reg 1/);
+    assert.match(consumer.lanes[mainLaneID]?.stages[0].labels ?? "", /Looking up IntRegClass/);
 });
 
 test("Web gem5 parser cancels its input stream through an AbortSignal", async () => {
