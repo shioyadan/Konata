@@ -21,6 +21,16 @@ export class Dependency {
     ) {}
 }
 
+// Opは基本的にそのままJSONへ保存する。JSONではobject同士の参照だけを表現できないため、
+// lastParsedStageに限ってlane名と配列内の位置へ置き換える。
+type StoredStagePosition = [laneName: string, stageIndex: number] | null;
+export type OpJSON = Omit<Op, "lanes" | "prods" | "cons" | "lastParsedStage" | "toJSON"> & {
+    lanes: Record<string, Lane>;
+    prods: Dependency[];
+    cons: Dependency[];
+    lastParsedStage: StoredStagePosition;
+};
+
 export class Op {
     // ファイル内でのID。Konata内ではこのIDによって命令を識別する。
     id = -1;
@@ -54,6 +64,41 @@ export class Op {
     // 依存線を実行stageの始点と終点へ描くために使用する。
     prodCycle = -1;
     consCycle = -1;
+
+    toJSON(): OpJSON {
+        // JSON.stringifyがこのmethodを自動的に呼ぶ。通常のfieldは列挙して変換せず、
+        // Opへfieldを追加した場合にもobject spreadでそのまま保存されるようにする。
+        let lastParsedStage: StoredStagePosition = null;
+        for (const [laneName, lane] of Object.entries(this.lanes)) {
+            const stageIndex = this.lastParsedStage === null
+                ? -1
+                : lane.stages.indexOf(this.lastParsedStage);
+            if (stageIndex !== -1) {
+                lastParsedStage = [laneName, stageIndex];
+                break;
+            }
+        }
+        return { ...this, lastParsedStage };
+    }
+
+    static fromJSON(stored: OpJSON): Op {
+        const { lanes, prods, cons, lastParsedStage, ...fields } = stored;
+
+        // Lane、Stage、Dependencyはmethodを持たないdataなので、JSON.parseが作ったobjectを
+        // そのまま利用する。Opだけは初期値とprototypeなしのlane辞書を得るため作り直す。
+        const op = Object.assign(new Op(), fields);
+        Object.assign(op.lanes, lanes);
+        op.prods.push(...prods);
+        op.cons.push(...cons);
+
+        if (lastParsedStage !== null) {
+            const [laneName, stageIndex] = lastParsedStage;
+            // 別のStageを生成せず、lanes内にある同一objectへの参照を復元する。Parserは
+            // retire後に現れるtype=2のL commandも、この参照を通してStageへ追記する。
+            op.lastParsedStage = op.lanes[laneName]?.stages[stageIndex] ?? null;
+        }
+        return op;
+    }
 }
 
 export interface StageLevel {

@@ -1,29 +1,7 @@
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
-import { Op } from "./model";
+import { Op, type OpJSON } from "./model";
 import { resolveOpID, type MutableOpStore } from "./op_store";
-
-// Op本体のfield名は省略せず、型を見れば保存内容が分かる形にする。一方、StageやDependencyは
-// trace全体では非常に多数になる。これらまでfield名付きobjectにすると、zstdで保存するbyte数は
-// あまり増えなくても、復元後のJSON文字列が約2倍になりJSON.parseと全件走査が遅くなった。
-// そのため、個数の多い内側の値だけは、意味を型名に残した固定長tupleで保存する。
-type StoredStage = [name: string, labels: string, startCycle: number, endCycle: number];
-type StoredLane = [level: number, stages: StoredStage[]];
-type StoredDependency = [opID: number, type: number, cycle: number];
-
-// lastParsedStageはlanes内のStageそのものを指す。JSONにはobjectの参照関係を保存できないため、
-// lane名と配列内の位置に置き換え、復元時に同じStage objectへの参照へ戻す。
-type StoredStagePosition = [laneName: string, stageIndex: number] | null;
-
-// lanesの表はlive modelと同じobject表現を維持する。これによりMapとの相互変換をなくし、
-// lane名もJSONのkeyとしてそのまま読める。Op本体は通常のfield名を残すため、Opへfieldを
-// 追加したときに、この保存形式だけに短縮名やbit flagを追加する必要もない。
-type StoredOp = Omit<Op, "lanes" | "prods" | "cons" | "lastParsedStage"> & {
-    lanes: Record<string, StoredLane>;
-    prods: StoredDependency[];
-    cons: StoredDependency[];
-    lastParsedStage: StoredStagePosition;
-};
 
 interface DecodedPage {
     readonly ops: Array<Op | undefined>;
@@ -93,65 +71,6 @@ function createZstdPageCodec(zstd: Zstd): PageCodec {
             return decoder.decode(zstd.decompress(payload));
         },
     };
-}
-
-function serializeOp(op: Op): StoredOp {
-    // trace中のlane名には"__proto__"も入り得る。通常のobject literalへ代入するとprototypeを
-    // 特別扱いする実装があるため、live modelと同じprototypeなしの辞書へ保存する。
-    const lanes = Object.create(null) as Record<string, StoredLane>;
-    let lastParsedStage: StoredStagePosition = null;
-    for (const [laneName, lane] of Object.entries(op.lanes)) {
-        lanes[laneName] = [
-            lane.level,
-            lane.stages.map((stage) => [
-                stage.name,
-                stage.labels,
-                stage.startCycle,
-                stage.endCycle,
-            ]),
-        ];
-        const stageIndex = op.lastParsedStage === null ? -1 : lane.stages.indexOf(op.lastParsedStage);
-        if (stageIndex !== -1) {
-            // type=2のLがretire後に現れても、lane内の同じStageへ追記できるよう位置を保存する。
-            lastParsedStage = [laneName, stageIndex];
-        }
-    }
-    return {
-        ...op,
-        lanes,
-        prods: op.prods.map((dependency) => [dependency.opID, dependency.type, dependency.cycle]),
-        cons: op.cons.map((dependency) => [dependency.opID, dependency.type, dependency.cycle]),
-        lastParsedStage,
-    };
-}
-
-function deserializeOp(stored: StoredOp): Op {
-    const { lanes, prods, cons, lastParsedStage, ...fields } = stored;
-    // idやlabel等の通常fieldはまとめて戻し、保存形式のためだけのfield別変換を増やさない。
-    // lanes、依存関係、Stage参照だけは、JSON化で失われたobject構造を以下で復元する。
-    const op = Object.assign(new Op(), fields);
-    for (const [laneName, [level, stages]] of Object.entries(lanes)) {
-        // LaneとStageはmethodを持たないdata objectなので、constructorを呼んで一項目ずつ
-        // 代入する必要はない。簡潔なobject生成に留め、元のmodelと同じ形を作る。
-        op.lanes[laneName] = {
-            level,
-            stages: stages.map(([name, labels, startCycle, endCycle]) => ({
-                name,
-                labels,
-                startCycle,
-                endCycle,
-            })),
-        };
-    }
-    op.prods.push(...prods.map(([opID, type, cycle]) => ({ opID, type, cycle })));
-    op.cons.push(...cons.map(([opID, type, cycle]) => ({ opID, type, cycle })));
-    if (lastParsedStage !== null) {
-        const [laneName, stageIndex] = lastParsedStage;
-        // 新しいStageを作らず、lanesへ入れたobjectを指すことが重要。Parserは後から現れる
-        // type=2のL commandを、この参照を通して直前のStageへ追記する。
-        op.lastParsedStage = op.lanes[laneName]?.stages[stageIndex] ?? null;
-    }
-    return op;
 }
 
 // 8倍ずつ間引いたOpを独立したpage群へ保存し、縮小時の展開回数を抑える。
@@ -241,8 +160,8 @@ class SerializedPageLevel {
         if (storedPage !== undefined) {
             const start = performance.now();
             const serialized = this.codec_.decode(storedPage.payload);
-            const storedOps = JSON.parse(serialized) as Array<StoredOp | null>;
-            ops = storedOps.map((stored) => stored === null ? undefined : deserializeOp(stored));
+            const storedOps = JSON.parse(serialized) as Array<OpJSON | null>;
+            ops = storedOps.map((stored) => stored === null ? undefined : Op.fromJSON(stored));
             const milliseconds = performance.now() - start;
             this.decodeCount_++;
             this.decodeMilliseconds_ += milliseconds;
@@ -275,8 +194,8 @@ class SerializedPageLevel {
             if (page.dirty || !this.serializedPages_.has(oldest)) {
                 // undefinedの穴はJSONでnullになり、page内offsetを維持できる。
                 const start = performance.now();
-                const storedOps = page.ops.map((op) => op === undefined ? null : serializeOp(op));
-                const serialized = JSON.stringify(storedOps);
+                // Op.toJSON()が自動的に使われるため、旧版と同じくpageを直接JSON化する。
+                const serialized = JSON.stringify(page.ops);
                 this.serializedPages_.set(oldest, {
                     payload: this.codec_.encode(serialized),
                     serializedCharacters: serialized.length,
