@@ -62,6 +62,26 @@ test("Web line reader parses lines synchronously between browser yields", async 
     assert.equal(lineCount, 8193);
 });
 
+test("Web line reader corrects compressed progress for decompressed data awaiting parsing", async () => {
+    const source = `${Array.from({ length: 16385 }, () => "C\t0").join("\n")}\n`;
+    const compressed = (await Zstd.load()).compress(new TextEncoder().encode(source));
+    const file = new File([compressed], "progress.log.zst");
+    const progressValues: number[] = [];
+    let lineCount = 0;
+
+    await new FileLineReader(file).readLines(
+        () => lineCount++,
+        (progress) => progressValues.push(progress),
+    );
+
+    assert.equal(lineCount, 16385);
+    assert.ok(progressValues.length >= 3);
+    // 圧縮入力をすべて展開器へ渡していても、最初の8,192行時点では解析待ちを差し引く。
+    assert.ok(progressValues[0] > 0 && progressValues[0] < 0.75);
+    assert.ok(progressValues.every((progress, index) => index === 0 || progress >= progressValues[index - 1]));
+    assert.equal(progressValues.at(-1), 0.99);
+});
+
 test("Web Onikiri parser preserves core commands for a plain-text trace", async () => {
     // I/L/S/E/R/W/Cを組み合わせたfixtureで、browser用のarray storeでも旧Parserと
     // 同じ命令寿命、stage、ラベル、依存関係が復元されることを確認する。
@@ -158,7 +178,7 @@ test("Web Onikiri parser streams the bundled gzip sample", async () => {
     assert.equal(trace.opCount, 4041);
     assert.deepEqual([...trace.laneNames].sort(), ["0", "1"]);
     assert.equal(trace.stageLevelMap.laneNum, 2);
-    assert.equal(progressValues.at(-1), 1);
+    assert.equal(progressValues.at(-1), 0.99);
 
     const first = trace.getOp(0);
     const last = trace.getOp(trace.lastID);
@@ -196,7 +216,7 @@ test("Web Onikiri parser streams concurrent Zstandard traces", async () => {
     assert.equal(trace.opCount, 2);
     assert.deepEqual([...trace.laneNames].sort(), ["0", "1"]);
     assert.equal(trace.getOp(0)?.labelName, "producer\nname");
-    assert.equal(progressValues.at(-1), 1);
+    assert.equal(progressValues.at(-1), 0.99);
     assert.equal(secondTrace.opCount, 2);
 });
 

@@ -11,6 +11,8 @@ const DECODE_CHUNK_SIZE = 8 * 1024;
 // この間隔では進捗通知だけでなく、描画・入力・AbortSignalへ制御を返す。
 // 大きくすると読込み中の操作応答が落ち、小さくするとtask切替の負担が増えるため、実測済みの値を維持する。
 const YIELD_LINE_INTERVAL = 8192;
+// 圧縮入力はReader完了後にもParserの終端処理が残るため、100%はFILE_LOAD_FINISHへ予約する。
+const MAX_COMPRESSED_PROGRESS = 0.99;
 
 async function acquireZstdStream(): Promise<() => void> {
     // Zstd.load()はsingletonなので、複数Tabのstream状態が混ざらないよう読込み単位で直列化する。
@@ -51,16 +53,34 @@ function yieldToBrowser(): Promise<void> {
 
 export class FileLineReader {
     private reader_: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    private bytesRead_ = 0;
+    private inputBytesRead_ = 0;
+    private decompressedBytesReceived_ = 0;
+    private decompressedBytesProcessed_ = 0;
+    private reportedProgress_ = 0;
     private canceled_ = false;
+    private readonly isCompressed_: boolean;
 
-    constructor(readonly file: File) {}
+    constructor(readonly file: File) {
+        this.isCompressed_ = /\.(?:gz|zst(?:d)?)$/i.test(file.name) ||
+            file.type === "application/gzip" || file.type === "application/zstd";
+    }
 
     get progress(): number {
         if (this.file.size === 0) {
             return 1;
         }
-        return Math.min(1, this.bytesRead_ / this.file.size);
+        const inputProgress = Math.min(1, this.inputBytesRead_ / this.file.size);
+        if (!this.isCompressed_ || this.decompressedBytesReceived_ === 0) {
+            return inputProgress;
+        }
+
+        // 展開器へ渡した圧縮入力が先行しても、受取済み展開データのうちParserへ渡し終えた
+        // 割合を掛け、展開後chunkの処理待ちを100%到達前の進捗へ反映する。
+        const processedRatio = Math.min(
+            1,
+            this.decompressedBytesProcessed_ / this.decompressedBytesReceived_,
+        );
+        return inputProgress * processedRatio;
     }
 
     get canceled(): boolean {
@@ -85,8 +105,8 @@ export class FileLineReader {
 
         const countedStream = this.file.stream().pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
             transform: (chunk, controller) => {
-                // gzip/zstdでも圧縮前のFileサイズを基準に進捗を表示するため、展開前に数える。
-                this.bytesRead_ += chunk.byteLength;
+                // gzip/zstdでは選択された圧縮済みFileサイズを分母にするため、展開前に数える。
+                this.inputBytesRead_ += chunk.byteLength;
                 controller.enqueue(chunk);
             },
         }));
@@ -137,9 +157,11 @@ export class FileLineReader {
                     buffer += decoder.decode();
                     break;
                 }
+                this.decompressedBytesReceived_ += value.byteLength;
 
                 for (let offset = 0; offset < value.byteLength; offset += DECODE_CHUNK_SIZE) {
-                    buffer += decoder.decode(value.subarray(offset, offset + DECODE_CHUNK_SIZE), { stream: true });
+                    const decodeChunk = value.subarray(offset, offset + DECODE_CHUNK_SIZE);
+                    buffer += decoder.decode(decodeChunk, { stream: true });
                     let lineStart = 0;
                     let newline = buffer.indexOf("\n", lineStart);
                     while (newline !== -1 && !this.canceled_) {
@@ -161,12 +183,13 @@ export class FileLineReader {
                             // browserへ制御を返さず、8 KiB decodeによるbacking string制限も維持する。
                             buffer = buffer.slice(lineStart);
                             lineStart = 0;
-                            onProgress?.(this.progress);
+                            this.notifyProgress_(onProgress);
                             await yieldToBrowser();
                         }
                         newline = buffer.indexOf("\n", lineStart);
                     }
                     buffer = buffer.slice(lineStart);
+                    this.decompressedBytesProcessed_ += decodeChunk.byteLength;
                     if (this.canceled_) {
                         break;
                     }
@@ -178,8 +201,8 @@ export class FileLineReader {
                 onLine(buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer);
             }
             if (!this.canceled_) {
-                this.bytesRead_ = this.file.size;
-                onProgress?.(1);
+                this.inputBytesRead_ = this.file.size;
+                this.notifyProgress_(onProgress);
             }
         }
         finally {
@@ -204,5 +227,14 @@ export class FileLineReader {
             await this.reader_.cancel();
             this.reader_ = null;
         }
+    }
+
+    private notifyProgress_(onProgress?: ProgressCallback): void {
+        const progress = Math.min(
+            this.isCompressed_ ? MAX_COMPRESSED_PROGRESS : 1,
+            this.progress,
+        );
+        this.reportedProgress_ = Math.max(this.reportedProgress_, progress);
+        onProgress?.(this.reportedProgress_);
     }
 }
