@@ -188,6 +188,7 @@ async function verifyIncrementalRendering(window) {
         const deadline = performance.now() + 5000;
         let partialPixels = 0;
         let progressLayers = null;
+        let loadingStatus = null;
         const check = () => {
             const root = document.querySelector(".trace-app");
             const state = root?.dataset.loadState;
@@ -197,6 +198,11 @@ async function verifyIncrementalRendering(window) {
                 const toolbar = document.querySelector(".app-toolbar");
                 const progress = document.querySelector(".operation-progress");
                 const splitter = document.querySelector(".pane-splitter");
+                const status = document.querySelector(".status-loading");
+                loadingStatus = {
+                    text: status?.textContent ?? null,
+                    role: status?.getAttribute("role") ?? null
+                };
                 if (toolbar instanceof HTMLElement &&
                     progress instanceof HTMLElement &&
                     splitter instanceof HTMLElement) {
@@ -220,7 +226,7 @@ async function verifyIncrementalRendering(window) {
                 }
             }
             if (state === "ready" && opCount === 2) {
-                resolve({partialPixels, finalOpCount: opCount, progressLayers});
+                resolve({partialPixels, finalOpCount: opCount, progressLayers, loadingStatus});
                 return;
             }
             if (state === "error") {
@@ -335,6 +341,11 @@ async function verifyLoadErrorRecovery(window) {
                     title: document.querySelector(".empty-state strong")?.textContent ?? null,
                     detail: document.querySelector(".empty-state span")?.textContent ?? null,
                     status: document.querySelector(".status")?.textContent ?? null,
+                    statusType: document.querySelector(".status")?.classList.contains("status-error") === true
+                        ? "error"
+                        : null,
+                    statusIcon: document.querySelector(".status > svg") !== null,
+                    statusRole: document.querySelector(".status")?.getAttribute("role") ?? null,
                     pickerRequested,
                     shortcutPickerRequested,
                     shortcutCanceled: !shortcutDispatched && shortcutEvent.defaultPrevented
@@ -414,6 +425,9 @@ async function readRenderedState(window) {
 
         return {
             status: document.querySelector(".status")?.textContent ?? null,
+            statusType: ["loading", "ready", "error"]
+                .find((type) => document.querySelector(".status")?.classList.contains("status-" + type)) ?? null,
+            statusIcon: document.querySelector(".status > svg") !== null,
             rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
             loadState: root?.dataset.loadState ?? null,
             fileName: root?.dataset.fileName ?? null,
@@ -656,6 +670,7 @@ async function run() {
                 title: document.title,
                 headingCount: document.querySelectorAll(".app-toolbar h1").length,
                 status: document.querySelector(".status")?.textContent ?? null,
+                statusSpacer: document.querySelector(".status-spacer") !== null,
                 fileAccept: document.querySelector(".file-input")?.getAttribute("accept") ?? null,
                 emptyTitle: document.querySelector(".empty-state strong")?.textContent ?? null,
                 emptyDetail: document.querySelector(".empty-state span")?.textContent ?? null,
@@ -707,7 +722,8 @@ async function run() {
     })`);
     if (initialState.title !== "Konata" ||
         initialState.headingCount !== 0 ||
-        initialState.status !== "Open or drop a Kanata or gem5 O3PipeView trace." ||
+        initialState.status !== null ||
+        !initialState.statusSpacer ||
         initialState.fileAccept !==
             ".log,.txt,.gz,.zst,.zstd,text/plain,application/gzip,application/zstd" ||
         initialState.emptyTitle !==
@@ -721,11 +737,11 @@ async function run() {
         initialState.rootChildCount !== 1 ||
         initialState.paneTitleCount !== 0 ||
         initialState.openButtonColor !== "rgba(0, 0, 0, 0)" ||
-        initialState.openButtonForeground !== "rgb(143, 193, 244)" ||
+        initialState.openButtonForeground !== "rgb(255, 255, 255)" ||
         initialState.openButtonDirection !== "column" ||
         initialState.openIconSize < 19 ||
         initialState.openLabelSize > 11 ||
-        initialState.openLabelColor !== "rgb(147, 168, 188)" ||
+        initialState.openLabelColor !== "rgb(255, 255, 255)" ||
         initialState.openButtonText !== "Open" ||
         initialState.mainActionIconCount !== 3 ||
         JSON.stringify(initialState.toolbarSequence) !==
@@ -815,6 +831,8 @@ async function run() {
     const incrementalState = await verifyIncrementalRendering(window);
     if (incrementalState.partialPixels < 100 ||
         incrementalState.finalOpCount !== 2 ||
+        !incrementalState.loadingStatus?.text?.startsWith("Loading incremental.log…") ||
+        incrementalState.loadingStatus?.role !== "status" ||
         incrementalState.progressLayers?.toolbar !== "3" ||
         incrementalState.progressLayers?.progress !== "100" ||
         incrementalState.progressLayers?.splitter !== "0") {
@@ -851,6 +869,9 @@ async function run() {
         typeof loadErrorState.detail !== "string" ||
         loadErrorState.detail === "" ||
         loadErrorState.status !== loadErrorState.detail ||
+        loadErrorState.statusType !== "error" ||
+        !loadErrorState.statusIcon ||
+        loadErrorState.statusRole !== "alert" ||
         !loadErrorState.pickerRequested ||
         !loadErrorState.shortcutPickerRequested ||
         !loadErrorState.shortcutCanceled) {
@@ -864,6 +885,9 @@ async function run() {
         plainState.fileName !== "kanata-basic.txt" ||
         plainState.opCount !== 2 ||
         plainState.laneCount !== 2 ||
+        plainState.status !== "Loaded · 2 ops · 5 cycles · 2 lanes" ||
+        plainState.statusType !== "ready" ||
+        plainState.statusIcon ||
         plainState.nonBackgroundPixels < 100) {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
@@ -1636,8 +1660,8 @@ async function run() {
         viewControlState.toolbarBackground !== "rgb(82, 92, 125)" ||
         viewControlState.toolbarShadow !== "none" ||
         viewControlState.primaryButtonBackground !== "rgba(0, 0, 0, 0)" ||
-        viewControlState.primaryButtonColor !== "rgb(203, 229, 255)" ||
-        viewControlState.primaryButtonLabelColor !== "rgb(192, 203, 217)" ||
+        viewControlState.primaryButtonColor !== "rgb(255, 255, 255)" ||
+        viewControlState.primaryButtonLabelColor !== "rgb(255, 255, 255)" ||
         viewControlState.secondaryButtonBackground !== "rgba(0, 0, 0, 0)" ||
         viewControlState.secondaryButtonColor !== "rgb(217, 221, 230)" ||
         viewControlState.viewButtonBackground !== viewControlState.secondaryButtonBackground ||
@@ -1705,6 +1729,8 @@ async function run() {
         gem5State.fileName !== "gem5-basic.txt" ||
         gem5State.opCount !== 1 ||
         gem5State.laneCount !== 1 ||
+        gem5State.statusType !== "ready" ||
+        gem5State.statusIcon ||
         gem5State.nonBackgroundPixels < 100) {
         throw new Error(`gem5 trace rendering is incomplete: ${JSON.stringify(gem5State)}`);
     }

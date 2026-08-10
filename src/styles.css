@@ -222,22 +222,22 @@ button:disabled {
     border: 0;
     background: transparent;
     box-shadow: none;
-    color: #8fc1f4;
+    color: #fff;
 }
 
 .primary-button.toolbar-action span {
-    color: #93a8bc;
+    color: #fff;
     font-weight: 600;
 }
 
 .primary-button.toolbar-action:hover:not(:disabled) {
     border-color: transparent;
     background: rgb(121 164 211 / 13%);
-    color: #acd3f8;
+    color: #fff;
 }
 
 .primary-button.toolbar-action:hover:not(:disabled) span {
-    color: #b4c5d6;
+    color: #fff;
 }
 
 .application-menu-count {
@@ -573,22 +573,40 @@ button:disabled {
 }
 
 .status {
+    display: inline-flex;
     min-width: 0;
+    max-width: min(34rem, 48vw);
     margin: 0 0 0 auto;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0;
+    color: #c8ced7;
+    font-size: 0.78rem;
+    line-height: 1.2;
+}
+
+.status-spacer {
+    margin-left: auto;
+}
+
+.status > svg {
+    width: 0.82rem;
+    height: 0.82rem;
+    flex: 0 0 auto;
+}
+
+.status-message {
+    min-width: 0;
     overflow: hidden;
-    padding: 0.28rem 0.55rem;
-    border: 1px solid #343b46;
-    border-radius: var(--ui-control-radius);
-    background: #1c2027;
-    color: #bfc5cf;
-    font-size: 0.82rem;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+.status-loading {
+    color: #fff;
+}
+
 .status-error {
-    border-color: rgb(196 91 91 / 45%);
-    background: rgb(101 38 38 / 28%);
     color: #ff9a91;
 }
 
@@ -1302,21 +1320,21 @@ button:disabled {
     border-color: transparent;
     background: transparent;
     box-shadow: none;
-    color: #cbe5ff;
+    color: #fff;
 }
 
 .theme-light .primary-button.toolbar-action span {
-    color: #c0cbd9;
+    color: #fff;
 }
 
 .theme-light .primary-button:hover:not(:disabled) {
     border-color: transparent;
     background: rgb(216 235 255 / 14%);
-    color: #e2f1ff;
+    color: #fff;
 }
 
 .theme-light .primary-button.toolbar-action:hover:not(:disabled) span {
-    color: #e2e8ef;
+    color: #fff;
 }
 
 /* Light toolbarでもOpenの青だけを強調し、他の操作は低い明度差で示す。 */
@@ -1359,11 +1377,6 @@ button:disabled {
 
 .theme-light .zoom-separator {
     background: rgb(255 255 255 / 24%);
-}
-
-.theme-light .status {
-    border-color: rgb(255 255 255 / 18%);
-    background: rgb(28 33 49 / 18%);
 }
 
 .theme-light .status-error {

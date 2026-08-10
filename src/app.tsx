@@ -12,6 +12,7 @@ import {
     BsBarChart,
     BsBookmark,
     BsCrosshair,
+    BsExclamationTriangleFill,
     BsFolder2Open,
     BsPencil,
     BsSearch,
@@ -1212,19 +1213,24 @@ export function App() {
         isStatsDialogOpen, moveHorizontal, moveTab, moveVertical, openCommandPalette, repeatSearch,
         setBookmark, trace, zoomAtCenter]);
 
-    let statusMessage = "Open or drop a Kanata or gem5 O3PipeView trace.";
+    let statusMessage = "";
+    let statusType: "loading" | "ready" | "error" | null = null;
     if (loadState === "loading") {
         statusMessage = `Loading ${fileName}… ${Math.round(progress * 100)}%`;
+        statusType = "loading";
     }
     else if (loadState === "ready" && trace !== null) {
-        statusMessage = `${trace.opCount.toLocaleString()} ops · ${trace.lastCycle.toLocaleString()} cycles · ${trace.laneNames.length.toLocaleString()} lanes`;
+        statusMessage = `Loaded · ${trace.opCount.toLocaleString()} ops · ${trace.lastCycle.toLocaleString()} cycles · ${trace.laneNames.length.toLocaleString()} lanes`;
+        statusType = "ready";
     }
     else if (loadState === "error") {
         statusMessage = errorMessage;
+        statusType = "error";
     }
     const visibleMessage = commandMessage !== "" ? commandMessage : searchMessage;
     if (visibleMessage !== "") {
         statusMessage = visibleMessage;
+        statusType = "error";
     }
 
     const operation = loadState === "loading"
@@ -1565,9 +1571,18 @@ export function App() {
                         <span className="visually-hidden">Reset</span>
                     </button>
                 </div>
-                <p className={`status ${visibleMessage === "" ? `status-${loadState}` : "status-error"}`} role="status">
-                    {statusMessage}
-                </p>
+                {statusType === null ? (
+                    <span className="status-spacer" aria-hidden="true" />
+                ) : (
+                    <p
+                        className={`status status-${statusType}`}
+                        role={statusType === "error" ? "alert" : "status"}
+                        title={statusMessage}
+                    >
+                        {statusType === "error" && <BsExclamationTriangleFill aria-hidden="true" />}
+                        <span className="status-message">{statusMessage}</span>
+                    </p>
+                )}
                 <ApplicationMenu unreadLogCount={unreadLogCount} onOpenLog={openLogPane} />
                 {operation !== null && (
                     <div
