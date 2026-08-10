@@ -1974,6 +1974,12 @@ async function run() {
                 ?.getBoundingClientRect().height ?? -1,
             zoomControlHeight: document.querySelector('.zoom-controls')
                 ?.getBoundingClientRect().height ?? -1,
+            comparisonColor: (() => {
+                const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
+                return color instanceof HTMLSelectElement
+                    ? {value: color.value, disabled: color.disabled}
+                    : null;
+            })(),
             overlayLayerCompositions: comparisonLayerCompositions.slice(-2)
         };
         comparisonLayerCompositions = [];
@@ -1984,6 +1990,7 @@ async function run() {
             throw new Error("The comparison label canvas was not found.");
         }
         const readLabelToolTip = async (modeButton) => {
+            comparisonLayerCompositions = [];
             modeButton.click();
             await nextFrame();
             const rect = labelCanvas.getBoundingClientRect();
@@ -1996,7 +2003,10 @@ async function run() {
             const text = document.querySelector('[role="tooltip"]')?.textContent ?? null;
             labelCanvas.dispatchEvent(new MouseEvent("mouseleave", {bubbles: true}));
             await nextFrame();
-            return text;
+            return {
+                text,
+                layerCompositions: comparisonLayerCompositions.slice(-2)
+            };
         };
         // A/B単独表示では、左側ラベルとtooltipも選択したtraceへ切り替わる。
         const baselineLabelToolTip = await readLabelToolTip(baselineMode);
@@ -2008,8 +2018,10 @@ async function run() {
             activeMode: document.querySelector('.comparison-mode-controls button.is-active')?.textContent?.trim() ?? null,
             canvasMode: document.querySelector('.comparison-result-canvas')?.dataset.comparisonMode ?? null,
             layerCompositions: comparisonLayerCompositions.slice(-2),
-            baselineLabelToolTip,
-            candidateLabelToolTip
+            baselineLabelToolTip: baselineLabelToolTip.text,
+            candidateLabelToolTip: candidateLabelToolTip.text,
+            baselineLayerCompositions: baselineLabelToolTip.layerCompositions,
+            candidateLayerCompositions: candidateLabelToolTip.layerCompositions
         };
         document.querySelector('.trace-tab.is-active .trace-tab-close')?.click();
         await nextFrame();
@@ -2037,6 +2049,10 @@ async function run() {
         comparisonState.initial.status !== "A: gem5-basic.txt ↔ B: kanata-basic.txt" ||
         Math.abs(comparisonState.initial.comparisonControlHeight -
             comparisonState.initial.zoomControlHeight) > 0.1 ||
+        JSON.stringify(comparisonState.initial.comparisonColor) !== JSON.stringify({
+            value: "Comparison",
+            disabled: true
+        }) ||
         JSON.stringify(comparisonState.initial.overlayLayerCompositions) !== JSON.stringify([
             {opacity: 1, operation: "source-over", filter: "none"},
             {opacity: 0.5, operation: "source-over", filter: "none"}
@@ -2045,6 +2061,14 @@ async function run() {
         comparisonState.finalOverlayState.canvasMode !== "overlay" ||
         !comparisonState.finalOverlayState.baselineLabelToolTip?.includes("add r1, r2") ||
         !comparisonState.finalOverlayState.candidateLabelToolTip?.includes("producer\nname") ||
+        JSON.stringify(comparisonState.finalOverlayState.baselineLayerCompositions) !== JSON.stringify([
+            {opacity: 1, operation: "source-over", filter: "none"},
+            {opacity: 0.2, operation: "source-over", filter: "none"}
+        ]) ||
+        JSON.stringify(comparisonState.finalOverlayState.candidateLayerCompositions) !== JSON.stringify([
+            {opacity: 1, operation: "source-over", filter: "none"},
+            {opacity: 0.2, operation: "source-over", filter: "none"}
+        ]) ||
         JSON.stringify(comparisonState.finalOverlayState.layerCompositions) !== JSON.stringify([
             {opacity: 1, operation: "source-over", filter: "none"},
             {opacity: 0.5, operation: "source-over", filter: "none"}

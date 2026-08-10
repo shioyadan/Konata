@@ -24,10 +24,11 @@ export const DEP_ARROW_TYPE = {
 export type DependencyArrowType = typeof DEP_ARROW_TYPE[keyof typeof DEP_ARROW_TYPE];
 export type RendererTheme = "dark" | "light";
 
-// 比較用の配色はView設定へ保存せず、Overlayの描画中だけ使う。
+// 比較用の配色はView設定へ保存せず、比較表示の描画中だけ使う。
 export const COMPARISON_COLOR_SCHEME = {
     OVERLAY_BASELINE: "__comparison_overlay_baseline",
     OVERLAY_CANDIDATE: "__comparison_overlay_candidate",
+    REFERENCE: "__comparison_reference",
 } as const;
 
 export type CustomColorComponent = number | "auto";
@@ -99,6 +100,7 @@ export class KonataRenderer {
     private theme_: RendererTheme = "dark";
     private colorScheme_ = "Auto";
     private renderingColorScheme_: string | null = null;
+    private renderingReference_ = false;
     private customColorSchemes_: Readonly<Record<string, CustomColorScheme>> = DEFAULT_CUSTOM_COLOR_SCHEMES;
     private dependencyArrowType_: DependencyArrowType = DEP_ARROW_TYPE.INSIDE_LINE;
     private splitLanes_ = false;
@@ -498,17 +500,21 @@ export class KonataRenderer {
         width?: number,
         height?: number,
         colorScheme?: string,
+        referenceOnly = false,
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas, width, height);
         this.updateScaleParameter_();
         const previousColorScheme = this.renderingColorScheme_;
+        const previousReference = this.renderingReference_;
         this.renderingColorScheme_ = colorScheme ?? null;
+        this.renderingReference_ = referenceOnly;
         try {
-            // 比較色は一時的な描画条件に留め、Viewで選んだ通常色を変更しない。
+            // 比較色と参照表示は一時的な描画条件に留め、通常のView設定を変更しない。
             this.drawPipeline_(pipelineCanvas, pipelineSize);
         }
         finally {
             this.renderingColorScheme_ = previousColorScheme;
+            this.renderingReference_ = previousReference;
         }
     }
 
@@ -652,8 +658,14 @@ export class KonataRenderer {
         if (context === null) {
             return;
         }
-        context.fillStyle = this.style_.pipelinePane.backgroundColor;
-        context.fillRect(0, 0, size.width, size.height);
+        if (this.renderingReference_) {
+            // 前回の参照形状を残さず、背景は透明なまま主表示へ重ねられるようにする。
+            context.clearRect(0, 0, size.width, size.height);
+        }
+        else {
+            context.fillStyle = this.style_.pipelinePane.backgroundColor;
+            context.fillRect(0, 0, size.width, size.height);
+        }
         if (this.trace_ === null) {
             return;
         }
@@ -667,8 +679,10 @@ export class KonataRenderer {
         let offsetY = 0;
         if (top < 0) {
             const bottom = Math.min(size.height, -top * this.opHeight_ + KonataRenderer.PIXEL_ADJUST);
-            context.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
-            context.fillRect(0, 0, size.width, bottom);
+            if (!this.renderingReference_) {
+                context.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
+                context.fillRect(0, 0, size.width, bottom);
+            }
             if (bottom >= size.height) {
                 return;
             }
@@ -680,7 +694,7 @@ export class KonataRenderer {
         const step = this.opHeight_ < 0.25 ? Math.max(1, this.drawingInterval_) : 1;
         for (let y = Math.floor(top); y < top + logicalHeight; y += step) {
             const pixelY = y - top + offsetY;
-            if (this.canDrawFrame_ && y % 2 === 0) {
+            if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
                 const fillTop = pixelY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
                 context.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
                 context.fillRect(0, fillTop, size.width, this.opHeight_);
@@ -699,13 +713,13 @@ export class KonataRenderer {
             }
         }
 
-        if (this.dependencyArrowType_ !== DEP_ARROW_TYPE.NOT_SHOW) {
+        if (!this.renderingReference_ && this.dependencyArrowType_ !== DEP_ARROW_TYPE.NOT_SHOW) {
             this.drawDependency_(offsetY, top, left, logicalHeight, context);
         }
 
         // 最終命令より下へはみ出した領域もinvalid色で描く。
         const bottomOuterHeight = top - offsetY + logicalHeight - 1 - this.getVisibleBottom();
-        if (bottomOuterHeight > 0) {
+        if (!this.renderingReference_ && bottomOuterHeight > 0) {
             const begin = Math.max(
                 0,
                 size.height - bottomOuterHeight * this.opHeight_ + KonataRenderer.PIXEL_ADJUST,
@@ -766,7 +780,7 @@ export class KonataRenderer {
                 right = left + 1;
             }
             context.fillRect(left, laneTop, right - left, laneHeight);
-            if (op.flush) {
+            if (!this.renderingReference_ && op.flush) {
                 context.fillStyle = this.style_.pipelinePane.flushedRegionColor;
                 context.fillRect(left, laneTop, right - left, laneHeight);
             }
@@ -815,12 +829,12 @@ export class KonataRenderer {
             context.fillStyle = gradient;
             context.fillRect(left, rectTop, right - left, rectHeight);
 
-            if (this.canDrawFrame_) {
+            if (!this.renderingReference_ && this.canDrawFrame_) {
                 context.lineWidth = Number(this.style_.pipelinePane.borderWeight);
                 context.strokeRect(left, rectTop, right - left, rectHeight);
             }
 
-            if (this.canDrawText_) {
+            if (!this.renderingReference_ && this.canDrawText_) {
                 context.fillStyle = this.style_.pipelinePane.fontColor;
                 const textTop =
                     top +
@@ -846,7 +860,7 @@ export class KonataRenderer {
                 context.fillText(stage.name, textLeft + margin, textTop);
             }
 
-            if (op.flush) {
+            if (!this.renderingReference_ && op.flush) {
                 context.fillStyle = this.style_.pipelinePane.flushedRegionColor;
                 context.fillRect(left, rectTop, right - left, rectHeight);
             }
@@ -1004,7 +1018,8 @@ export class KonataRenderer {
 
     private isComparisonColorScheme_(colorScheme: string): boolean {
         return colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE ||
-            colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE;
+            colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE ||
+            colorScheme === COMPARISON_COLOR_SCHEME.REFERENCE;
     }
 
     private getComparisonOverviewColor_(colorScheme: string): string {
@@ -1013,6 +1028,9 @@ export class KonataRenderer {
         }
         if (colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE) {
             return this.theme_ === "dark" ? "rgb(225,165,75)" : "rgb(230,175,105)";
+        }
+        if (colorScheme === COMPARISON_COLOR_SCHEME.REFERENCE) {
+            return this.theme_ === "dark" ? "rgb(210,210,210)" : "rgb(70,70,70)";
         }
         return "#888888";
     }
@@ -1023,6 +1041,10 @@ export class KonataRenderer {
         stageName: string,
         isBegin: boolean,
     ): string {
+        if (colorScheme === COMPARISON_COLOR_SCHEME.REFERENCE) {
+            return this.theme_ === "dark" ? "rgb(210,210,210)" : "rgb(70,70,70)";
+        }
+
         // stage名から両traceで同じ特徴量を作り、Aには加算、Bには減算する。
         // 同じstage同士はopacity 0.5で必ず無彩色になり、違うstageだけに色差が残る。
         let hash = 2166136261;

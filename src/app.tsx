@@ -66,7 +66,7 @@ interface ViewAnimation {
     readonly tabID: number;
     readonly startedAt: number;
     readonly duration: number;
-    readonly apply: (renderer: KonataRenderer, progress: number) => void;
+    readonly apply?: (renderer: KonataRenderer, progress: number) => void;
     readonly baselineApply?: (renderer: KonataRenderer, progress: number) => void;
     frameID: number;
 }
@@ -478,6 +478,7 @@ export function App() {
         duration: number,
         apply: (renderer: KonataRenderer, progress: number) => void,
         baselineApply?: (renderer: KonataRenderer, progress: number) => void,
+        comparisonTarget: "selected" | "both" = "selected",
     ) => {
         const tab = store.activeTab;
         if (tab === null) {
@@ -487,13 +488,18 @@ export function App() {
         cancelViewAnimation();
         traceSheetRef.current?.clearToolTip();
         const tabID = tab.id;
+        const comparison = tab.kind === "comparison" ? tab : null;
+        const applyCandidate = comparison === null ||
+            comparisonTarget === "both" || comparison.mode !== "baseline";
+        const applyBaseline = comparison !== null &&
+            (comparisonTarget === "both" || comparison.mode !== "candidate");
 
         const animation: ViewAnimation = {
             tabID,
             startedAt: performance.now(),
             duration,
-            apply,
-            baselineApply,
+            apply: applyCandidate ? apply : undefined,
+            baselineApply: applyBaseline ? (baselineApply ?? apply) : undefined,
             frameID: 0,
         };
         const animate = (now: number) => {
@@ -512,13 +518,17 @@ export function App() {
                 0,
                 Math.min(1, (now - animation.startedAt) / animation.duration),
             );
+            const apply = animation.apply;
+            const baselineApply = animation.baselineApply;
             store.dispatch({
                 type: "KONATA_MUTATE_VIEW",
                 tabID: animation.tabID,
-                mutation: (renderer) => animation.apply(renderer, progress),
-                // 単純なzoomなどは同じ操作を使い、絶対座標を含むscrollだけ別の起点を使う。
-                baselineMutation: (renderer) =>
-                    (animation.baselineApply ?? animation.apply)(renderer, progress),
+                mutation: apply === undefined
+                    ? undefined
+                    : (renderer) => apply(renderer, progress),
+                baselineMutation: baselineApply === undefined
+                    ? undefined
+                    : (renderer) => baselineApply(renderer, progress),
             });
             if (progress >= 1) {
                 viewAnimationRef.current = null;
@@ -703,7 +713,10 @@ export function App() {
         }
     };
 
-    const mutateView = useCallback((mutation: (renderer: KonataRenderer) => void) => {
+    const mutateView = useCallback((
+        mutation: (renderer: KonataRenderer) => void,
+        synchronizeComparison = false,
+    ) => {
         // drag、pinchなど入力自体が連続する操作は、途中の値を起点に即座に引き継ぐ。
         cancelViewAnimation();
         traceSheetRef.current?.clearToolTip();
@@ -713,12 +726,16 @@ export function App() {
             setRenderVersion((version) => version + 1);
             return;
         }
+        const comparison = tab.kind === "comparison" ? tab : null;
+        const mutateCandidate = comparison === null ||
+            synchronizeComparison || comparison.mode !== "baseline";
+        const mutateBaseline = comparison !== null &&
+            (synchronizeComparison || comparison.mode !== "candidate");
         store.dispatch({
             type: "KONATA_MUTATE_VIEW",
             tabID: tab.id,
-            mutation,
-            // panとpinchは各Rendererの現在位置へ同じ相対操作を加える。
-            baselineMutation: mutation,
+            mutation: mutateCandidate ? mutation : undefined,
+            baselineMutation: mutateBaseline ? mutation : undefined,
         });
     }, [cancelViewAnimation, store]);
 
@@ -732,14 +749,18 @@ export function App() {
         }
         const renderer = tab.renderer;
         const [fromX, fromY] = renderer.viewPosition;
-        const [toX, toY] = position;
         const baselineRenderer = tab.kind === "comparison" ? tab.baselineRenderer : null;
         const [baselineFromX, baselineFromY] = baselineRenderer?.viewPosition ?? [0, 0];
-        // 明示的な行先がなければ、Candidateと同じ論理座標差だけBaselineを動かす。
-        const [baselineToX, baselineToY] = baselinePosition ?? [
-            baselineFromX + toX - fromX,
-            baselineFromY + toY - fromY,
-        ];
+        const baselineSelected = tab.kind === "comparison" && tab.mode === "baseline";
+        // positionは現在の主表示の絶対座標として受け取る。OverlayではBを基準にし、
+        // Aには同じ論理座標差を加えることで、手動で作ったずれを維持する。
+        const [toX, toY] = baselineSelected ? [fromX, fromY] : position;
+        const [baselineToX, baselineToY] = baselinePosition ?? (baselineSelected
+            ? position
+            : [
+                baselineFromX + toX - fromX,
+                baselineFromY + toY - fromY,
+            ]);
         startViewAnimation(SCROLL_ANIMATION_DURATION, (target, progress) => {
             target.moveLogicalPosition([
                 fromX + (toX - fromX) * progress,
@@ -768,7 +789,7 @@ export function App() {
         const differenceX = adjustHorizontal
             ? tab.renderer.adjustScrollDifferenceXAt([baseX, baseY], difference[1])
             : difference[0];
-        const target: readonly [number, number] = [
+        const candidateTarget: readonly [number, number] = [
             baseX + differenceX,
             baseY + difference[1],
         ];
@@ -791,18 +812,25 @@ export function App() {
         }
 
         // 連続入力は未到達の終点へ加算し、現在の描画位置から滑らかに引き直す。
-        scrollTo(target, baselineTarget);
+        const selectedTarget = tab.kind === "comparison" && tab.mode === "baseline"
+            ? (baselineTarget ?? candidateTarget)
+            : candidateTarget;
+        scrollTo(selectedTarget, baselineTarget);
         pendingScrollRef.current = {
             tabID: tab.id,
-            position: target,
+            position: candidateTarget,
             baselinePosition: baselineTarget,
         };
     }, [scrollTo, store]);
 
     const adjustPosition = useCallback(() => {
-        const target = store.activeTab?.renderer.getAdjustedViewPosition();
+        const tab = store.activeTab;
+        const renderer = tab?.kind === "comparison" && tab.mode === "baseline"
+            ? tab.baselineRenderer
+            : tab?.renderer;
+        const target = renderer?.getAdjustedViewPosition();
         if (target !== null && target !== undefined) {
-            // 見失った位置からの移動経路が分かるよう、通常scrollと同じ補間を使う。
+            // A/B単独表示では主表示だけを戻し、参照側とのずれを位置合わせに利用できるようにする。
             scrollTo(target);
         }
     }, [scrollTo, store]);
@@ -1070,7 +1098,7 @@ export function App() {
         const toLevel = renderer.clampZoomLevel(baseLevel + (factor > 1 ? -zoomStep : zoomStep));
         startViewAnimation(ZOOM_ANIMATION_DURATION, (target, progress) => {
             target.zoomAbs(fromLevel + (toLevel - fromLevel) * progress, centerX, centerY);
-        });
+        }, undefined, "both");
         pendingZoomRef.current = { tabID: tab.id, level: toLevel };
     }, [settings.drawZoomFactor, startViewAnimation, store]);
 
@@ -1147,7 +1175,7 @@ export function App() {
                 baselineFromX + differenceX * progress,
                 baselineFromY + differenceY * progress,
             ]);
-        });
+        }, "both");
     }, [bookmarks, startViewAnimation, store]);
 
     const resetView = useCallback(() => {
@@ -1171,7 +1199,7 @@ export function App() {
                 baselineFromX - fromX * progress,
                 baselineFromY - fromY * progress,
             ]);
-        });
+        }, "both");
     }, [startViewAnimation, store]);
 
     const toggleHideFlushedOps = (enabled: boolean) => {
@@ -1552,11 +1580,14 @@ export function App() {
                                         ? comparisonTab.candidateFileName
                                         : label}
                                 key={mode}
-                                onClick={() => store.dispatch({
-                                    type: "COMPARISON_SET_MODE",
-                                    tabID: comparisonTab.id,
-                                    mode,
-                                })}
+                                onClick={() => {
+                                    cancelViewAnimation();
+                                    store.dispatch({
+                                        type: "COMPARISON_SET_MODE",
+                                        tabID: comparisonTab.id,
+                                        mode,
+                                    });
+                                }}
                             >
                                 {label}
                             </button>
@@ -1664,12 +1695,14 @@ export function App() {
                             Fix op height
                         </label>
                         <div className="custom-color-control">
-                            <label title="Choose how pipeline stages are colored.">
+                            <label title={comparisonTab === null
+                                ? "Choose how pipeline stages are colored."
+                                : "Comparison colors are fixed so A and B remain distinguishable."}>
                                 Color
                                 <select
                                     aria-label="Pipeline color scheme"
-                                    value={renderer.colorScheme}
-                                    disabled={trace === null}
+                                    value={comparisonTab === null ? renderer.colorScheme : "Comparison"}
+                                    disabled={trace === null || comparisonTab !== null}
                                     onChange={(event) => {
                                         if (activeTab !== null) {
                                             store.dispatch({
@@ -1680,6 +1713,7 @@ export function App() {
                                         }
                                     }}
                                 >
+                                    {comparisonTab !== null && <option>Comparison</option>}
                                     <option>Auto</option>
                                     <option>Unique</option>
                                     <option>ThreadID</option>
@@ -1688,7 +1722,7 @@ export function App() {
                                     <option>Custom</option>
                                 </select>
                             </label>
-                            {renderer.colorScheme === "Custom" && (
+                            {comparisonTab === null && renderer.colorScheme === "Custom" && (
                                 <button
                                     className="button-with-icon"
                                     type="button"

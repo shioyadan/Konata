@@ -110,7 +110,7 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     assert.equal(comparison.trace, candidate.trace);
     assert.notEqual(comparison.baselineRenderer, baselineTab.renderer);
     assert.notEqual(comparison.renderer, candidateTab.renderer);
-    // 比較TabのA/B単独表示は、それぞれの元Tabで選んだ通常配色から開始する。
+    // Renderer自身には元Tabの通常配色を引き継ぎ、比較専用色は描画時だけ上書きする。
     assert.equal(comparison.baselineRenderer.colorScheme, "RoyalBlue");
     assert.equal(comparison.renderer.colorScheme, "Custom");
     store.dispatch({
@@ -118,7 +118,7 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
         tabID: comparison.id,
         scheme: "DarkOrange",
     });
-    // 比較TabのViewで変更した後は、A/B単独表示へ同じ通常配色を反映する。
+    // Store上の通常配色はA/Bへ同時に反映し、比較専用色から通常表示へ戻せるようにする。
     assert.equal(comparison.baselineRenderer.colorScheme, "DarkOrange");
     assert.equal(comparison.renderer.colorScheme, "DarkOrange");
     assert.deepEqual(comparison.renderer.viewPosition, [25, 8]);
@@ -142,6 +142,23 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     // RIDを探し直さず、両Rendererの現在位置へ同じ移動量を加える。
     assert.deepEqual(comparison.renderer.viewPosition, [22, 3]);
     assert.deepEqual(comparison.baselineRenderer.viewPosition, [12, 3]);
+    store.dispatch({
+        type: "KONATA_MUTATE_VIEW",
+        tabID: comparison.id,
+        baselineMutation: (renderer) => renderer.moveLogicalDifference([1, 0], false),
+    });
+    // A単独表示のpanはAだけを動かし、薄いBを位置合わせの基準として残す。
+    assert.deepEqual(comparison.renderer.viewPosition, [22, 3]);
+    assert.deepEqual(comparison.baselineRenderer.viewPosition, [13, 3]);
+    store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "candidate" });
+    store.dispatch({
+        type: "KONATA_MUTATE_VIEW",
+        tabID: comparison.id,
+        mutation: (renderer) => renderer.moveLogicalDifference([0, 2], false),
+    });
+    // B単独表示では逆にBだけを動かせる。
+    assert.deepEqual(comparison.renderer.viewPosition, [22, 5]);
+    assert.deepEqual(comparison.baselineRenderer.viewPosition, [13, 3]);
 
     // 元Tabを両方閉じても、比較Tabがretainした同じTrace／OpStoreは利用可能なままにする。
     store.dispatch({ type: "TAB_CLOSE", tabID: baselineTab.id });

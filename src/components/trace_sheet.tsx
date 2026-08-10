@@ -34,6 +34,9 @@ interface CanvasToolTip {
     readonly text: string;
 }
 
+// A/B単独表示では、位置合わせ用の反対側だけを控えめに重ねる。
+const COMPARISON_REFERENCE_OPACITY = 0.2;
+
 export interface TraceSheetHandle {
     clearToolTip(): void;
     resetPipelineCanvas(): void;
@@ -58,7 +61,10 @@ interface TraceSheetProps {
     } | null;
     readonly splitterPosition: number;
     readonly onMoveSplitter: (position: number) => void;
-    readonly onMutateView: (mutation: (renderer: KonataRenderer) => void) => void;
+    readonly onMutateView: (
+        mutation: (renderer: KonataRenderer) => void,
+        synchronizeComparison?: boolean,
+    ) => void;
     readonly onMoveView: (difference: readonly [number, number], adjustHorizontal: boolean) => void;
     readonly onScrollView: (position: readonly [number, number]) => void;
     readonly onZoomView: (factor: number, centerX: number, centerY: number) => void;
@@ -150,15 +156,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
             displayRenderer.drawLabel(labelCanvas);
             pipelineCanvas.dataset.comparisonMode = comparisonMode;
-            if (comparisonMode === "candidate") {
-                renderer.drawPipeline(pipelineCanvas);
-                return;
-            }
-            if (comparisonMode === "baseline") {
-                baselineRenderer.drawPipeline(pipelineCanvas);
-                return;
-            }
-
             // A/Bをそれぞれ不透明な完成画像にしてから、表示Canvasへ全体を一度だけ合成する。
             const baselineLayer = baselineLayerCanvasRef.current ?? document.createElement("canvas");
             const candidateLayer = candidateLayerCanvasRef.current ?? document.createElement("canvas");
@@ -166,24 +163,56 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             candidateLayerCanvasRef.current = candidateLayer;
             const width = pipelineCanvas.clientWidth;
             const height = pipelineCanvas.clientHeight;
-            baselineRenderer.drawPipeline(
-                baselineLayer,
-                width,
-                height,
-                COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
-            );
-            renderer.drawPipeline(
-                candidateLayer,
-                width,
-                height,
-                COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
-            );
-            renderer.composePipelineLayers(
-                pipelineCanvas,
-                baselineLayer,
-                candidateLayer,
-                comparisonOpacity,
-            );
+            if (comparisonMode === "baseline") {
+                baselineRenderer.drawPipeline(
+                    baselineLayer,
+                    width,
+                    height,
+                    COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
+                );
+                renderer.drawPipeline(
+                    candidateLayer,
+                    width,
+                    height,
+                    COMPARISON_COLOR_SCHEME.REFERENCE,
+                    true,
+                );
+                renderer.composePipelineLayers(
+                    pipelineCanvas, baselineLayer, candidateLayer, COMPARISON_REFERENCE_OPACITY);
+            }
+            else if (comparisonMode === "candidate") {
+                renderer.drawPipeline(
+                    candidateLayer,
+                    width,
+                    height,
+                    COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
+                );
+                baselineRenderer.drawPipeline(
+                    baselineLayer,
+                    width,
+                    height,
+                    COMPARISON_COLOR_SCHEME.REFERENCE,
+                    true,
+                );
+                renderer.composePipelineLayers(
+                    pipelineCanvas, candidateLayer, baselineLayer, COMPARISON_REFERENCE_OPACITY);
+            }
+            else {
+                baselineRenderer.drawPipeline(
+                    baselineLayer,
+                    width,
+                    height,
+                    COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
+                );
+                renderer.drawPipeline(
+                    candidateLayer,
+                    width,
+                    height,
+                    COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
+                );
+                renderer.composePipelineLayers(
+                    pipelineCanvas, baselineLayer, candidateLayer, comparisonOpacity);
+            }
         }
     }, [baselineRenderer, comparisonMode, comparisonOpacity, displayRenderer, renderer]);
 
@@ -338,7 +367,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 Math.max(0, currentCenter.x - pipelineRect.left),
                 Math.max(0, currentCenter.y - pipelineRect.top),
             );
-        });
+        }, true);
     };
 
     const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
@@ -369,11 +398,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const rect = event.currentTarget.getBoundingClientRect();
         const op = displayRenderer.getOpFromPixelPositionY(event.clientY - rect.top);
         if (op !== undefined) {
-            // A/Bの現在位置が異なる場合も、選択側をfetch cycleへ動かす差分だけ同期する。
-            const differenceX = op.fetchedCycle - displayRenderer.viewPosition[0];
+            // A/B単独表示では、ラベルを選んだ側だけをその命令のfetch cycleへ動かす。
             onScrollView([
-                renderer.viewPosition[0] + differenceX,
-                renderer.viewPosition[1],
+                op.fetchedCycle,
+                displayRenderer.viewPosition[1],
             ]);
         }
     };

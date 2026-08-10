@@ -17,12 +17,16 @@ interface RecordedGradient {
 
 interface RecordedContext {
     readonly fillTexts: Array<[string, number, number]>;
+    readonly fillRects: Array<[number, number, number, number]>;
+    readonly clearRects: Array<[number, number, number, number]>;
     readonly gradients: RecordedGradient[];
     readonly context: CanvasRenderingContext2D;
 }
 
 function createRecordedContext(): RecordedContext {
     const fillTexts: Array<[string, number, number]> = [];
+    const fillRects: Array<[number, number, number, number]> = [];
+    const clearRects: Array<[number, number, number, number]> = [];
     const gradients: RecordedGradient[] = [];
     const context = {
         fillStyle: "",
@@ -30,7 +34,12 @@ function createRecordedContext(): RecordedContext {
         lineWidth: 1,
         font: "",
         setTransform() {},
-        fillRect() {},
+        fillRect(x: number, y: number, width: number, height: number) {
+            fillRects.push([x, y, width, height]);
+        },
+        clearRect(x: number, y: number, width: number, height: number) {
+            clearRects.push([x, y, width, height]);
+        },
         strokeRect() {},
         beginPath() {},
         moveTo() {},
@@ -51,7 +60,7 @@ function createRecordedContext(): RecordedContext {
             };
         },
     } as unknown as CanvasRenderingContext2D;
-    return { fillTexts, gradients, context };
+    return { fillTexts, fillRects, clearRects, gradients, context };
 }
 
 function createCanvas(context: CanvasRenderingContext2D, width = 320, height = 96): HTMLCanvasElement {
@@ -274,6 +283,30 @@ test("Web renderer uses comparison colors without changing the View color scheme
     assert.ok(changedSum.some((component) => Math.abs(component - 280) >= 20));
     // 一時配色で描いた後も、A/B単独表示とView欄には元の選択が残る。
     assert.equal(renderer.colorScheme, "Custom");
+});
+
+test("Web renderer draws a transparent gray reference for single-side comparison", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    renderer.setTrace(trace);
+    const reference = createRecordedContext();
+
+    renderer.drawPipeline(
+        createCanvas(reference.context),
+        undefined,
+        undefined,
+        COMPARISON_COLOR_SCHEME.REFERENCE,
+        true,
+    );
+
+    // 参照側は背景、stage名、枠線を省き、位置合わせに必要なstage形状だけを灰色で残す。
+    assert.deepEqual(reference.clearRects, [[0, 0, 320, 96]]);
+    assert.equal(reference.fillRects.length, 1);
+    assert.deepEqual(reference.fillTexts, []);
+    assert.deepEqual(reference.gradients[0]?.stops, [
+        [0, "rgb(210,210,210)"],
+        [1, "rgb(210,210,210)"],
+    ]);
 });
 
 test("Web renderer keeps minimum lane heights configurable", () => {

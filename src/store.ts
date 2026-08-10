@@ -147,7 +147,7 @@ export type Action =
     | {
         readonly type: "KONATA_MUTATE_VIEW";
         readonly tabID: number;
-        readonly mutation: (renderer: KonataRenderer) => void;
+        readonly mutation?: (renderer: KonataRenderer) => void;
         // 比較表示では、各Rendererの現在位置を起点にした操作を別々に渡す。
         readonly baselineMutation?: (renderer: KonataRenderer) => void;
     };
@@ -770,7 +770,7 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
-            action.mutation(tab.renderer);
+            action.mutation?.(tab.renderer);
             if (tab.kind === "comparison" && action.baselineMutation !== undefined) {
                 action.baselineMutation(tab.baselineRenderer);
             }
