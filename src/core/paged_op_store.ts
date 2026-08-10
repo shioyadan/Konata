@@ -34,6 +34,7 @@ interface PageCodec {
     readonly name: "json" | "zstd";
     encode(serialized: string): StoredPagePayload;
     decode(payload: StoredPagePayload): string;
+    close(): void;
 }
 
 export interface PagedOpStoreOptions {
@@ -70,20 +71,55 @@ const jsonPageCodec: PageCodec = {
         }
         return payload;
     },
+    close: () => undefined,
 };
 
 function createZstdPageCodec(zstd: Zstd): PageCodec {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
+    let encodeBuffer = new Uint8Array(0);
+
+    const encode = (serialized: string): Uint8Array => {
+        // TextEncoder.encode()はpageごとに一時Uint8Arrayを作る。Chromiumではこの確保と
+        // UTF-8変換が大きなtraceの読込み時間を占めるため、最大page用のbufferを再利用する。
+        // JSONは通常ASCIIが中心なので、まず1 UTF-16 code unitあたり1 byteだけを確保する。
+        if (encodeBuffer.byteLength < serialized.length) {
+            encodeBuffer = new Uint8Array(serialized.length);
+        }
+
+        let encoded = encoder.encodeInto(serialized, encodeBuffer);
+        if (encoded.read !== serialized.length) {
+            // Unicodeを含む場合は、変換済み部分の実byte数と、未読部分のUTF-8上限から拡張する。
+            // surrogate pairも2 code unitsで最大4 bytesなので、3 bytes/code unitで不足しない。
+            const requiredCapacity = encoded.written + (serialized.length - encoded.read) * 3;
+            encodeBuffer = new Uint8Array(requiredCapacity);
+            encoded = encoder.encodeInto(serialized, encodeBuffer);
+        }
+        if (encoded.read !== serialized.length) {
+            throw new Error("The operation page could not be encoded as UTF-8.");
+        }
+
+        // compress()は同期的にWASMへ入力をコピーする。返却後は同じ作業bufferを次のpageで
+        // 上書きでき、各pageが保持する圧縮済みUint8Arrayは互いに独立したままになる。
+        return zstd.compress(
+            encodeBuffer.subarray(0, encoded.written),
+            ZSTD_COMPRESSION_LEVEL,
+        );
+    };
+
     return {
         name: "zstd",
         // pageは独立したframeにし、表示に必要なpageだけを同期的に復元できるようにする。
-        encode: (serialized) => zstd.compress(encoder.encode(serialized), ZSTD_COMPRESSION_LEVEL),
+        encode,
         decode: (payload) => {
             if (!(payload instanceof Uint8Array)) {
                 throw new Error("Expected a Zstandard page.");
             }
             return decoder.decode(zstd.decompress(payload));
+        },
+        close: () => {
+            // close後もStoreが参照される場合に、最大page用の作業bufferだけを残さない。
+            encodeBuffer = new Uint8Array(0);
         },
     };
 }
@@ -383,6 +419,7 @@ export class PagedOpStore implements MutableOpStore {
         for (const level of this.levels_) {
             level.close();
         }
+        this.pageCodec_.close();
         this.opCache_.clear();
         this.retiredOpIDs_.length = 0;
         this.lastID_ = -1;

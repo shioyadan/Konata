@@ -159,18 +159,28 @@ test("PagedOpStore stores independently decodable Zstandard pages", async () => 
         levelSpans: [1],
     });
     const original = createComplexOp();
+    // 日本語とsurrogate pairを含め、文字数と同じ初期bufferでは不足する経路を通す。
+    original.labelName = "命令🙂";
+    original.labelDetail = "詳細🙂\n行";
     store.setOp(original.id, original);
     const other = new Op();
     other.id = 1;
+    // 先に圧縮したpageより大きな後続pageでbufferを拡張・上書きしても、以前のframeは独立している。
+    other.labelDetail = "larger ASCII page ".repeat(100);
     store.setOp(other.id, other);
+    const third = new Op();
+    third.id = 2;
+    store.setOp(third.id, third);
 
     const metrics = store.levelMetrics[0];
     assert.equal(store.pageCodec, "zstd");
-    assert.equal(metrics.serializedPages, 1);
-    assert.equal(metrics.serializeCount, 1);
+    assert.equal(metrics.serializedPages, 2);
+    assert.equal(metrics.serializeCount, 2);
     assert.ok(metrics.storedSize < metrics.serializedCharacters);
+    assert.equal(store.getOp(0)?.labelName, original.labelName);
     assert.equal(store.getOp(0)?.labelDetail, original.labelDetail);
-    assert.equal(store.levelMetrics[0].decodeCount, 1);
+    assert.equal(store.getOp(1)?.labelDetail, other.labelDetail);
+    assert.equal(store.levelMetrics[0].decodeCount, 2);
 });
 
 test("PagedOpStore uses coarse pages and both LRU layers", () => {
