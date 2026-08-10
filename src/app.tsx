@@ -1572,7 +1572,8 @@ export function App() {
                         ] as const).map(([mode, label]) => (
                             <button
                                 type="button"
-                                className={comparisonTab.mode === mode ? "is-active" : undefined}
+                                className={`comparison-mode-button comparison-mode-${mode}${
+                                    comparisonTab.mode === mode ? " is-active" : ""}`}
                                 aria-pressed={comparisonTab.mode === mode}
                                 title={mode === "baseline"
                                     ? comparisonTab.baselineFileName

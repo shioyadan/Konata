@@ -535,6 +535,26 @@ button:disabled {
     color: #fff;
 }
 
+.comparison-mode-controls button.comparison-mode-baseline {
+    background: rgb(45 118 196 / 18%);
+    color: #91c5f8;
+}
+
+.comparison-mode-controls button.comparison-mode-baseline.is-active {
+    background: #2f669d;
+    color: #fff;
+}
+
+.comparison-mode-controls button.comparison-mode-candidate {
+    background: rgb(190 66 70 / 18%);
+    color: #f3a09a;
+}
+
+.comparison-mode-controls button.comparison-mode-candidate.is-active {
+    background: #91434a;
+    color: #fff;
+}
+
 .comparison-mode-controls button.comparison-align-button {
     margin-left: 0.15rem;
     padding-left: 0.55rem;
@@ -1609,8 +1629,24 @@ button:disabled {
     background: #46506d;
 }
 
+.theme-light .comparison-mode-controls button:not(.comparison-mode-baseline):not(.comparison-mode-candidate) {
+    border-color: transparent;
+    background: transparent;
+    color: #e7ebf3;
+}
+
+.theme-light .comparison-mode-controls button.comparison-mode-overlay.is-active {
+    background: #405a78;
+    color: #fff;
+}
+
+.theme-light .comparison-mode-controls button:not(.is-active):hover:not(:disabled) {
+    background: rgb(255 255 255 / 12%);
+    color: #fff;
+}
+
 .theme-light .comparison-mode-controls button.comparison-align-button {
-    border-left-color: #68738f;
+    border-left-color: rgb(255 255 255 / 24%);
     color: #fff;
 }
 

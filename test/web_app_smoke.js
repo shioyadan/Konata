@@ -1993,6 +1993,7 @@ async function run() {
             comparisonLayerCompositions = [];
             modeButton.click();
             await nextFrame();
+            const modeStyle = getComputedStyle(modeButton);
             const rect = labelCanvas.getBoundingClientRect();
             labelCanvas.dispatchEvent(new MouseEvent("mousemove", {
                 clientX: rect.left + 8,
@@ -2005,6 +2006,8 @@ async function run() {
             await nextFrame();
             return {
                 text,
+                color: modeStyle.color,
+                background: modeStyle.backgroundColor,
                 layerCompositions: comparisonLayerCompositions.slice(-2)
             };
         };
@@ -2020,15 +2023,43 @@ async function run() {
             layerCompositions: comparisonLayerCompositions.slice(-2),
             baselineLabelToolTip: baselineLabelToolTip.text,
             candidateLabelToolTip: candidateLabelToolTip.text,
+            baselineModeColor: baselineLabelToolTip.color,
+            baselineModeBackground: baselineLabelToolTip.background,
+            candidateModeColor: candidateLabelToolTip.color,
+            candidateModeBackground: candidateLabelToolTip.background,
             baselineLayerCompositions: baselineLabelToolTip.layerCompositions,
             candidateLayerCompositions: candidateLabelToolTip.layerCompositions
         };
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        if (!(theme instanceof HTMLSelectElement)) {
+            throw new Error("The comparison theme control was not found.");
+        }
+        theme.value = "light";
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        const lightAlignStyle = getComputedStyle(alignToA);
+        const lightControlsStyle = getComputedStyle(alignToA.parentElement);
+        const lightBaselineStyle = getComputedStyle(baselineMode);
+        const lightCandidateStyle = getComputedStyle(candidateMode);
+        const lightAlign = {
+            color: lightAlignStyle.color,
+            background: lightAlignStyle.backgroundColor,
+            controlsBackground: lightControlsStyle.backgroundColor,
+            baselineColor: lightBaselineStyle.color,
+            baselineBackground: lightBaselineStyle.backgroundColor,
+            candidateColor: lightCandidateStyle.color,
+            candidateBackground: lightCandidateStyle.backgroundColor
+        };
+        theme.value = "dark";
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
         document.querySelector('.trace-tab.is-active .trace-tab-close')?.click();
         await nextFrame();
         CanvasRenderingContext2D.prototype.drawImage = originalDrawImage;
         return {
             initial,
             finalOverlayState,
+            lightAlign,
             remainingCount: document.querySelectorAll('[role="tab"]').length,
             remainingSelected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null
         };
@@ -2061,6 +2092,10 @@ async function run() {
         comparisonState.finalOverlayState.canvasMode !== "overlay" ||
         !comparisonState.finalOverlayState.baselineLabelToolTip?.includes("add r1, r2") ||
         !comparisonState.finalOverlayState.candidateLabelToolTip?.includes("producer\nname") ||
+        comparisonState.finalOverlayState.baselineModeColor !== "rgb(255, 255, 255)" ||
+        comparisonState.finalOverlayState.baselineModeBackground !== "rgb(47, 102, 157)" ||
+        comparisonState.finalOverlayState.candidateModeColor !== "rgb(255, 255, 255)" ||
+        comparisonState.finalOverlayState.candidateModeBackground !== "rgb(145, 67, 74)" ||
         JSON.stringify(comparisonState.finalOverlayState.baselineLayerCompositions) !== JSON.stringify([
             {opacity: 1, operation: "source-over", filter: "none"},
             {opacity: 0.2, operation: "source-over", filter: "none"}
@@ -2073,6 +2108,13 @@ async function run() {
             {opacity: 1, operation: "source-over", filter: "none"},
             {opacity: 0.5, operation: "source-over", filter: "none"}
         ]) ||
+        comparisonState.lightAlign.color !== "rgb(231, 235, 243)" ||
+        comparisonState.lightAlign.background !== "rgba(0, 0, 0, 0)" ||
+        comparisonState.lightAlign.controlsBackground !== "rgb(70, 80, 109)" ||
+        comparisonState.lightAlign.baselineColor !== "rgb(145, 197, 248)" ||
+        comparisonState.lightAlign.baselineBackground !== "rgba(45, 118, 196, 0.18)" ||
+        comparisonState.lightAlign.candidateColor !== "rgb(243, 160, 154)" ||
+        comparisonState.lightAlign.candidateBackground !== "rgba(190, 66, 70, 0.18)" ||
         comparisonState.remainingCount !== 2 ||
         comparisonState.remainingSelected !== "gem5-basic.txt") {
         throw new Error(`Comparison tabs are incomplete: ${JSON.stringify(comparisonState)}`);
