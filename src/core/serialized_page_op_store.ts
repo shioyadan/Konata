@@ -3,14 +3,21 @@ import { Zstd } from "@hpcc-js/wasm-zstd";
 import { Op } from "./model";
 import { resolveOpID, type MutableOpStore } from "./op_store";
 
+// Op本体のfield名は省略せず、型を見れば保存内容が分かる形にする。一方、StageやDependencyは
+// trace全体では非常に多数になる。これらまでfield名付きobjectにすると、zstdで保存するbyte数は
+// あまり増えなくても、復元後のJSON文字列が約2倍になりJSON.parseと全件走査が遅くなった。
+// そのため、個数の多い内側の値だけは、意味を型名に残した固定長tupleで保存する。
 type StoredStage = [name: string, labels: string, startCycle: number, endCycle: number];
 type StoredLane = [level: number, stages: StoredStage[]];
 type StoredDependency = [opID: number, type: number, cycle: number];
+
+// lastParsedStageはlanes内のStageそのものを指す。JSONにはobjectの参照関係を保存できないため、
+// lane名と配列内の位置に置き換え、復元時に同じStage objectへの参照へ戻す。
 type StoredStagePosition = [laneName: string, stageIndex: number] | null;
 
-// Op自身のfieldは旧版と同じ可読名で保存する。Lane、Stage、Dependencyは命令ごとの個数が多く、
-// objectのままではzstd展開後のJSONとJSON.parse時間が大きくなるため、値だけのtupleにする。
-// lanesはlive modelと同じobjectとし、Mapとの相互変換は行わない。
+// lanesの表はlive modelと同じobject表現を維持する。これによりMapとの相互変換をなくし、
+// lane名もJSONのkeyとしてそのまま読める。Op本体は通常のfield名を残すため、Opへfieldを
+// 追加したときに、この保存形式だけに短縮名やbit flagを追加する必要もない。
 type StoredOp = Omit<Op, "lanes" | "prods" | "cons" | "lastParsedStage"> & {
     lanes: Record<string, StoredLane>;
     prods: StoredDependency[];
@@ -89,6 +96,8 @@ function createZstdPageCodec(zstd: Zstd): PageCodec {
 }
 
 function serializeOp(op: Op): StoredOp {
+    // trace中のlane名には"__proto__"も入り得る。通常のobject literalへ代入するとprototypeを
+    // 特別扱いする実装があるため、live modelと同じprototypeなしの辞書へ保存する。
     const lanes = Object.create(null) as Record<string, StoredLane>;
     let lastParsedStage: StoredStagePosition = null;
     for (const [laneName, lane] of Object.entries(op.lanes)) {
@@ -118,9 +127,12 @@ function serializeOp(op: Op): StoredOp {
 
 function deserializeOp(stored: StoredOp): Op {
     const { lanes, prods, cons, lastParsedStage, ...fields } = stored;
+    // idやlabel等の通常fieldはまとめて戻し、保存形式のためだけのfield別変換を増やさない。
+    // lanes、依存関係、Stage参照だけは、JSON化で失われたobject構造を以下で復元する。
     const op = Object.assign(new Op(), fields);
     for (const [laneName, [level, stages]] of Object.entries(lanes)) {
-        // LaneとStageはdataだけを持つため、constructorごとのfield代入は行わない。
+        // LaneとStageはmethodを持たないdata objectなので、constructorを呼んで一項目ずつ
+        // 代入する必要はない。簡潔なobject生成に留め、元のmodelと同じ形を作る。
         op.lanes[laneName] = {
             level,
             stages: stages.map(([name, labels, startCycle, endCycle]) => ({
@@ -135,6 +147,8 @@ function deserializeOp(stored: StoredOp): Op {
     op.cons.push(...cons.map(([opID, type, cycle]) => ({ opID, type, cycle })));
     if (lastParsedStage !== null) {
         const [laneName, stageIndex] = lastParsedStage;
+        // 新しいStageを作らず、lanesへ入れたobjectを指すことが重要。Parserは後から現れる
+        // type=2のL commandを、この参照を通して直前のStageへ追記する。
         op.lastParsedStage = op.lanes[laneName]?.stages[stageIndex] ?? null;
     }
     return op;
