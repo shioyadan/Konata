@@ -45,6 +45,14 @@ function createComplexOp(): Op {
     execute.endCycle = 9;
     subLane.stages.push(execute);
     op.lanes["1"] = subLane;
+
+    const prototypeLane = new Lane();
+    const prototypeStage = new Stage();
+    prototypeStage.name = "P";
+    prototypeStage.startCycle = 7;
+    prototypeStage.endCycle = 8;
+    prototypeLane.stages.push(prototypeStage);
+    op.lanes["__proto__"] = prototypeLane;
     op.lastParsedStage = execute;
     return op;
 }
@@ -113,6 +121,11 @@ test("SerializedPageOpStore restores the complete mutable Op model", () => {
         [
             { name: "0", level: 2, stages: [{ name: "F", labels: "", startCycle: 3, endCycle: 5 }] },
             { name: "1", level: 1, stages: [{ name: "X", labels: "ALU", startCycle: 6, endCycle: 9 }] },
+            {
+                name: "__proto__",
+                level: 0,
+                stages: [{ name: "P", labels: "", startCycle: 7, endCycle: 8 }],
+            },
         ],
     );
     assert.deepEqual(restored.prods.map((dependency) => ({ ...dependency })), [

@@ -1,34 +1,22 @@
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
-import { Dependency, Lane, Op, Stage } from "./model";
+import { Op } from "./model";
 import { resolveOpID, type MutableOpStore } from "./op_store";
 
 type StoredStage = [name: string, labels: string, startCycle: number, endCycle: number];
-type StoredLane = [name: string, level: number, stages: StoredStage[]];
+type StoredLane = [level: number, stages: StoredStage[]];
 type StoredDependency = [opID: number, type: number, cycle: number];
-type StoredStagePosition = [laneIndex: number, stageIndex: number] | null;
+type StoredStagePosition = [laneName: string, stageIndex: number] | null;
 
-// page内で命令ごとに繰り返すproperty名を短くし、JSON文字列側の固定overheadを抑える。
-// このinterfaceを省略名とOp fieldの対応表として扱い、変換は直下の2関数へ集約する。
-interface StoredOp {
-    i: number;
-    g: number;
-    r: number;
-    t: number;
-    b: number;
-    fc: number;
-    rc: number;
-    ln: number;
-    n: string;
-    d: string;
-    lc: number;
-    pc: number;
-    cc: number;
-    la: StoredLane[];
-    p: StoredDependency[];
-    c: StoredDependency[];
-    ls: StoredStagePosition;
-}
+// Op自身のfieldは旧版と同じ可読名で保存する。Lane、Stage、Dependencyは命令ごとの個数が多く、
+// objectのままではzstd展開後のJSONとJSON.parse時間が大きくなるため、値だけのtupleにする。
+// lanesはlive modelと同じobjectとし、Mapとの相互変換は行わない。
+type StoredOp = Omit<Op, "lanes" | "prods" | "cons" | "lastParsedStage"> & {
+    lanes: Record<string, StoredLane>;
+    prods: StoredDependency[];
+    cons: StoredDependency[];
+    lastParsedStage: StoredStagePosition;
+};
 
 interface DecodedPage {
     readonly ops: Array<Op | undefined>;
@@ -69,9 +57,6 @@ export interface SerializedPageLevelMetrics {
     readonly maxDecodeMilliseconds: number;
 }
 
-const RETIRED_FLAG = 1;
-const FLUSH_FLAG = 2;
-const EOF_FLAG = 4;
 const DEFAULT_LEVEL_SPANS = [1, 8, 64, 512, 4096] as const;
 const DEFAULT_MAX_CACHED_OPS = 32768;
 const ZSTD_COMPRESSION_LEVEL = 1;
@@ -104,91 +89,53 @@ function createZstdPageCodec(zstd: Zstd): PageCodec {
 }
 
 function serializeOp(op: Op): StoredOp {
-    const lanes: StoredLane[] = [];
-    let lastStage: StoredStagePosition = null;
-
+    const lanes = Object.create(null) as Record<string, StoredLane>;
+    let lastParsedStage: StoredStagePosition = null;
     for (const [laneName, lane] of Object.entries(op.lanes)) {
-        const laneIndex = lanes.length;
-        const stages: StoredStage[] = [];
-        for (const stage of lane.stages) {
-            const stageIndex = stages.length;
-            stages.push([stage.name, stage.labels, stage.startCycle, stage.endCycle]);
-            if (stage === op.lastParsedStage) {
-                // type=2のLがretire後に現れても、同じStageへ追記できるよう位置を保存する。
-                lastStage = [laneIndex, stageIndex];
-            }
+        lanes[laneName] = [
+            lane.level,
+            lane.stages.map((stage) => [
+                stage.name,
+                stage.labels,
+                stage.startCycle,
+                stage.endCycle,
+            ]),
+        ];
+        const stageIndex = op.lastParsedStage === null ? -1 : lane.stages.indexOf(op.lastParsedStage);
+        if (stageIndex !== -1) {
+            // type=2のLがretire後に現れても、lane内の同じStageへ追記できるよう位置を保存する。
+            lastParsedStage = [laneName, stageIndex];
         }
-        lanes.push([laneName, lane.level, stages]);
     }
-
-    const flags =
-        (op.retired ? RETIRED_FLAG : 0) |
-        (op.flush ? FLUSH_FLAG : 0) |
-        (op.eof ? EOF_FLAG : 0);
     return {
-        i: op.id,
-        g: op.gid,
-        r: op.rid,
-        t: op.tid,
-        b: flags,
-        fc: op.fetchedCycle,
-        rc: op.retiredCycle,
-        ln: op.line,
-        n: op.labelName,
-        d: op.labelDetail,
-        lc: op.lastParsedCycle,
-        pc: op.prodCycle,
-        cc: op.consCycle,
-        la: lanes,
-        p: op.prods.map((dependency) => [dependency.opID, dependency.type, dependency.cycle]),
-        c: op.cons.map((dependency) => [dependency.opID, dependency.type, dependency.cycle]),
-        ls: lastStage,
+        ...op,
+        lanes,
+        prods: op.prods.map((dependency) => [dependency.opID, dependency.type, dependency.cycle]),
+        cons: op.cons.map((dependency) => [dependency.opID, dependency.type, dependency.cycle]),
+        lastParsedStage,
     };
 }
 
 function deserializeOp(stored: StoredOp): Op {
-    const op = new Op();
-    op.id = stored.i;
-    op.gid = stored.g;
-    op.rid = stored.r;
-    op.tid = stored.t;
-    op.retired = (stored.b & RETIRED_FLAG) !== 0;
-    op.flush = (stored.b & FLUSH_FLAG) !== 0;
-    op.eof = (stored.b & EOF_FLAG) !== 0;
-    op.fetchedCycle = stored.fc;
-    op.retiredCycle = stored.rc;
-    op.line = stored.ln;
-    op.labelName = stored.n;
-    op.labelDetail = stored.d;
-    op.lastParsedCycle = stored.lc;
-    op.prodCycle = stored.pc;
-    op.consCycle = stored.cc;
-
-    const decodedLanes: Lane[] = [];
-    for (const [laneName, level, storedStages] of stored.la) {
-        const lane = new Lane();
-        lane.level = level;
-        for (const [name, labels, startCycle, endCycle] of storedStages) {
-            const stage = new Stage();
-            stage.name = name;
-            stage.labels = labels;
-            stage.startCycle = startCycle;
-            stage.endCycle = endCycle;
-            lane.stages.push(stage);
-        }
-        op.lanes[laneName] = lane;
-        decodedLanes.push(lane);
+    const { lanes, prods, cons, lastParsedStage, ...fields } = stored;
+    const op = Object.assign(new Op(), fields);
+    for (const [laneName, [level, stages]] of Object.entries(lanes)) {
+        // LaneとStageはdataだけを持つため、constructorごとのfield代入は行わない。
+        op.lanes[laneName] = {
+            level,
+            stages: stages.map(([name, labels, startCycle, endCycle]) => ({
+                name,
+                labels,
+                startCycle,
+                endCycle,
+            })),
+        };
     }
-    if (stored.ls !== null) {
-        const [laneIndex, stageIndex] = stored.ls;
-        op.lastParsedStage = decodedLanes[laneIndex]?.stages[stageIndex] ?? null;
-    }
-
-    for (const [opID, type, cycle] of stored.p) {
-        op.prods.push(new Dependency(opID, type, cycle));
-    }
-    for (const [opID, type, cycle] of stored.c) {
-        op.cons.push(new Dependency(opID, type, cycle));
+    op.prods.push(...prods.map(([opID, type, cycle]) => ({ opID, type, cycle })));
+    op.cons.push(...cons.map(([opID, type, cycle]) => ({ opID, type, cycle })));
+    if (lastParsedStage !== null) {
+        const [laneName, stageIndex] = lastParsedStage;
+        op.lastParsedStage = op.lanes[laneName]?.stages[stageIndex] ?? null;
     }
     return op;
 }

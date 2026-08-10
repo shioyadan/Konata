@@ -255,3 +255,35 @@ UI slowdown. On the same trace the core zstd store added about 0.2 seconds over 
 and the largest single page compression remained below 4.60 ms. Moving compression to a Worker is
 therefore still deferred; it would add ownership and synchronization complexity without addressing
 the measured scheduling bottleneck.
+
+## Stored model simplification
+
+The initial TypeScript model used a `Map` for every operation's lanes even though each operation
+has few lanes and only needs lookup, insertion, and enumeration by string name. The legacy model
+used a plain object. The Web model now uses a null-prototype object as well, avoiding per-operation
+`Map` allocation and accepting trace-provided names such as `__proto__` as ordinary keys. Parser,
+renderer, search, and decoded pages all use the same representation.
+
+The first serialized schema also shortened every operation field, packed boolean flags, and
+converted lanes, stages, and dependencies to tuples. Zstandard makes shortened top-level property
+names much less important. A fully natural object schema was tested, but its decompressed JSON was
+large enough to slow page scans. The selected schema therefore keeps readable `Op` property names
+and the lane object, while retaining tuples only for the numerous lane values, stages, and
+dependencies. `lastParsedStage` is stored as a lane name and stage index so its object identity is
+restored after decoding.
+
+The same 70,585,952-byte real trace produced the following results. The compact baseline was
+measured immediately before this change; the selected schema was measured twice. The all-object
+variant was an intermediate diagnostic and was not retained.
+
+| Stored schema | JSON characters | Zstd bytes | Parse (ms) | Scan 100k (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Original compact schema | 83,226,604 | 10,164,901 | 1,948.32 | 591.86 |
+| All natural objects | 200,867,900 | 11,581,301 | 2,164.53 | 866.79 |
+| Readable Op + nested tuples | 98,251,756 | 10,473,044 | 2,082.92–2,091.45 | 595.41–651.73 |
+
+The selected zstd payload is about 3% larger than the original compact schema, while retained heap
+after parsing remains about 28.8 MiB and full scan time stays near the compact result. The store
+conversion code is reduced by a net 53 lines, and adding ordinary `Op` fields no longer requires a
+second abbreviated field name. Page hierarchy, both LRU caches, synchronous lookup, and zstd frame
+boundaries are unchanged.
