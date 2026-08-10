@@ -479,8 +479,10 @@ async function verifyPersistentFileWorkflow(window, webFile) {
         const handle = await root.getFileHandle("recent-reload-smoke.log", {create: true});
         await writeTrace(handle, 1);
         let observerCallback = null;
+        let observerCount = 0;
         class SmokeFileSystemObserver {
             constructor(callback) {
+                observerCount++;
                 observerCallback = callback;
             }
             async observe() {}
@@ -509,6 +511,18 @@ async function verifyPersistentFileWorkflow(window, webFile) {
             return app?.dataset.loadState === "ready" && app.dataset.opCount === "1";
         }, "The picker-backed trace did not load.");
         const originalTab = document.querySelector(".trace-tab");
+
+        const openControls = document.querySelector(".open-controls");
+        openControls?.querySelector(":scope > summary")?.click();
+        const menuReload = [...(openControls?.querySelectorAll(".open-controls-panel > button") ?? [])]
+            .find((button) => button.textContent?.trim() === "Reload current");
+        menuReload?.click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const menuClosedAfterReload = openControls instanceof HTMLDetailsElement && !openControls.open;
+        await waitFor(() => {
+            const app = document.querySelector(".trace-app");
+            return observerCount >= 2 && app?.dataset.loadState === "ready";
+        }, "Reload from the Open menu did not finish.");
 
         await writeTrace(handle, 2);
         observerCallback?.([{type: "modified"}]);
@@ -548,7 +562,8 @@ async function verifyPersistentFileWorkflow(window, webFile) {
             tabCount: document.querySelectorAll(".trace-tab").length,
             opCount: document.querySelector(".trace-app")?.dataset.opCount ?? null,
             recentName: recent.textContent?.trim() ?? null,
-            reloadEnabled: reloadCurrent instanceof HTMLButtonElement && !reloadCurrent.disabled
+            reloadEnabled: reloadCurrent instanceof HTMLButtonElement && !reloadCurrent.disabled,
+            menuClosedAfterReload
         };
     })()`);
 
@@ -2875,6 +2890,7 @@ async function run() {
         persistentFileState.firstPage.opCount !== "3" ||
         persistentFileState.firstPage.recentName !== "recent-reload-smoke.log" ||
         !persistentFileState.firstPage.reloadEnabled ||
+        !persistentFileState.firstPage.menuClosedAfterReload ||
         persistentFileState.secondPage.recentName !== "recent-reload-smoke.log" ||
         persistentFileState.secondPage.fileName !== "recent-reload-smoke.log" ||
         persistentFileState.secondPage.opCount !== "3" ||

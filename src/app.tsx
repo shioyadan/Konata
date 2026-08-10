@@ -929,6 +929,7 @@ export function App() {
     }, [ensureFilePermission, forgetRecentFile, loadFile]);
 
     const reloadTab = useCallback(async (tabID: number) => {
+        openControlsRef.current?.removeAttribute("open");
         const source = fileSourcesRef.current.get(tabID);
         const tab = store.getSnapshot().tabs.find((item) => item.id === tabID);
         if (source === undefined || tab?.kind !== "trace" || tab.loadState === "loading") {
