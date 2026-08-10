@@ -67,6 +67,84 @@ test("Store owns tab traces, renderers, activation, and close", () => {
     assert.equal(store.getSnapshot().tabs.length, 0);
 });
 
+test("Comparison tabs share source OpStores until the last view is closed", () => {
+    const store = new Store();
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "baseline.log", renderer: new KonataRenderer() });
+    const baselineTab = store.activeTab;
+    assert.ok(baselineTab !== null && baselineTab.kind === "trace");
+    const baseline = createTrace("baseline.log");
+    const baselineOp = baseline.trace.getOp(0);
+    assert.ok(baselineOp !== undefined);
+    baselineOp.rid = 0;
+    baselineOp.retired = true;
+    baselineOp.fetchedCycle = 10;
+    baseline.opStore.setRetiredOp(0, baselineOp);
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: baselineTab.id, trace: baseline.trace });
+    baselineTab.renderer.moveLogicalPosition([12, 0]);
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "candidate.log", renderer: new KonataRenderer() });
+    const candidateTab = store.activeTab;
+    assert.ok(candidateTab !== null && candidateTab.kind === "trace");
+    const candidate = createTrace("candidate.log");
+    const candidateOp = candidate.trace.getOp(0);
+    assert.ok(candidateOp !== undefined);
+    candidateOp.rid = 0;
+    candidateOp.retired = true;
+    candidateOp.fetchedCycle = 20;
+    candidate.opStore.setRetiredOp(0, candidateOp);
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: candidateTab.id, trace: candidate.trace });
+    candidateTab.renderer.zoomAbs(-1, 0, 0, false);
+    candidateTab.renderer.moveLogicalPosition([25, 8]);
+
+    store.dispatch({
+        type: "COMPARISON_OPEN",
+        baselineTabID: baselineTab.id,
+        candidateTabID: candidateTab.id,
+    });
+    const comparison = store.activeTab;
+    assert.ok(comparison !== null && comparison.kind === "comparison");
+    assert.equal(comparison.baselineTrace, baseline.trace);
+    assert.equal(comparison.trace, candidate.trace);
+    assert.notEqual(comparison.baselineRenderer, baselineTab.renderer);
+    assert.notEqual(comparison.renderer, candidateTab.renderer);
+    assert.deepEqual(comparison.renderer.viewPosition, [25, 8]);
+    // 比較開始時は各元Tabの位置を保ち、overlayに必要な倍率だけを揃える。
+    assert.deepEqual(comparison.baselineRenderer.viewPosition, [12, 0]);
+    assert.equal(comparison.baselineRenderer.zoomLevel, -1);
+    store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "difference" });
+    store.dispatch({ type: "COMPARISON_SET_OPACITY", tabID: comparison.id, opacity: 2 });
+    assert.equal(comparison.mode, "difference");
+    assert.equal(comparison.opacity, 1);
+    store.dispatch({ type: "COMPARISON_ALIGN_TO_BASELINE", tabID: comparison.id });
+    // まずAをAdjust positionでRID 0のfetchへ戻し、Bの同じRIDも左上へ置く。
+    assert.deepEqual(comparison.baselineRenderer.viewPosition, [10, 0]);
+    assert.deepEqual(comparison.renderer.viewPosition, [20, 0]);
+    store.dispatch({
+        type: "KONATA_MUTATE_VIEW",
+        tabID: comparison.id,
+        mutation: (renderer) => renderer.moveLogicalDifference([2, 3], false),
+        baselineMutation: (renderer) => renderer.moveLogicalDifference([2, 3], false),
+    });
+    // RIDを探し直さず、両Rendererの現在位置へ同じ移動量を加える。
+    assert.deepEqual(comparison.renderer.viewPosition, [22, 3]);
+    assert.deepEqual(comparison.baselineRenderer.viewPosition, [12, 3]);
+
+    // 元Tabを両方閉じても、比較Tabがretainした同じTrace／OpStoreは利用可能なままにする。
+    store.dispatch({ type: "TAB_CLOSE", tabID: baselineTab.id });
+    store.dispatch({ type: "TAB_CLOSE", tabID: candidateTab.id });
+    assert.equal(store.activeTab, comparison);
+    assert.equal(baseline.opStore.opCount, 1);
+    assert.equal(candidate.opStore.opCount, 1);
+    assert.equal(comparison.baselineTrace?.getOp(0), baselineOp);
+    assert.equal(comparison.trace?.getOp(0), candidateOp);
+
+    store.dispatch({ type: "TAB_CLOSE", tabID: comparison.id });
+    assert.equal(baseline.opStore.opCount, 0);
+    assert.equal(candidate.opStore.opCount, 0);
+    assert.equal(store.activeTab, null);
+});
+
 test("Store moves the active tab forward and backward without reordering tabs", () => {
     const store = new Store();
     for (const fileName of ["first.log", "second.log", "third.log"]) {

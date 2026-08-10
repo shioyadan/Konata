@@ -819,7 +819,7 @@ async function run() {
         initialState.openButtonText !== "Open" ||
         initialState.mainActionIconCount !== 3 ||
         JSON.stringify(initialState.toolbarSequence) !==
-            JSON.stringify(["Open", "Search", "Bookmark", "Stats", "View", "Zoom", "Menu"]) ||
+            JSON.stringify(["Open", "Search", "Bookmark", "Compare", "Stats", "View", "Zoom", "Menu"]) ||
         initialState.zoomIconCount !== 4 ||
         initialState.zoomSeparatorCount !== 1 ||
         !initialState.zoomSeparatorPlacement ||
@@ -1908,6 +1908,84 @@ async function run() {
         !tabShortcutState.previous.canceled ||
         tabShortcutState.previous.selected !== "gem5-basic.txt") {
         throw new Error(`Trace tab shortcuts are incomplete: ${JSON.stringify(tabShortcutState)}`);
+    }
+
+    // 比較Tabは元の2つを残し、同じ表示領域をA/B・overlay・differenceで切り替える。
+    const comparisonState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const summary = document.querySelector('[aria-label="Compare traces"]');
+        if (!(summary instanceof HTMLElement)) {
+            throw new Error("The comparison control was not found.");
+        }
+        summary.click();
+        await nextFrame();
+        const candidate = document.querySelector('select[aria-label="Comparison candidate"]');
+        const open = [...document.querySelectorAll('.comparison-controls-panel button')]
+            .find((button) => button.textContent?.trim() === "Compare");
+        if (!(candidate instanceof HTMLSelectElement) || !(open instanceof HTMLButtonElement)) {
+            throw new Error("The comparison source controls were not found.");
+        }
+        const baselineLabel = document.querySelector('.comparison-source-a')?.textContent?.trim() ?? null;
+        const selectedCandidate = candidate.selectedOptions[0]?.textContent?.trim() ?? null;
+        open.click();
+        await nextFrame();
+        const comparisonTab = document.querySelector('.trace-tab.is-active');
+        const modeButtons = [...document.querySelectorAll('.comparison-mode-controls button')];
+        const difference = modeButtons.find((button) => button.textContent?.trim() === "Difference");
+        const alignToA = document.querySelector('button[aria-label="Align Candidate to A"]');
+        if (!(difference instanceof HTMLButtonElement) || !(alignToA instanceof HTMLButtonElement)) {
+            throw new Error("The comparison modes were not found.");
+        }
+        const initial = {
+            baselineLabel,
+            selectedCandidate,
+            tabCount: document.querySelectorAll('[role="tab"]').length,
+            tabKind: comparisonTab?.getAttribute('data-tab-kind') ?? null,
+            title: comparisonTab?.querySelector('[role="tab"]')?.textContent?.trim() ?? null,
+            tabTooltip: comparisonTab?.querySelector('[role="tab"]')?.getAttribute('title') ?? null,
+            canvasCount: document.querySelectorAll('.comparison-result-canvas').length,
+            activeMode: document.querySelector('.comparison-mode-controls button.is-active')?.textContent?.trim() ?? null,
+            opacity: document.querySelector('input[aria-label="Comparison opacity"]')?.value ?? null,
+            alignLabel: alignToA.textContent?.trim() ?? null,
+            alignTitle: alignToA.title,
+            status: document.querySelector('.status-message')?.textContent ?? null
+        };
+        alignToA.click();
+        await nextFrame();
+        difference.click();
+        await nextFrame();
+        const differenceState = {
+            activeMode: document.querySelector('.comparison-mode-controls button.is-active')?.textContent?.trim() ?? null,
+            canvasMode: document.querySelector('.comparison-result-canvas')?.dataset.comparisonMode ?? null
+        };
+        document.querySelector('.trace-tab.is-active .trace-tab-close')?.click();
+        await nextFrame();
+        return {
+            initial,
+            differenceState,
+            remainingCount: document.querySelectorAll('[role="tab"]').length,
+            remainingSelected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null
+        };
+    })()`);
+    if (comparisonState.initial.baselineLabel !== "A (current): gem5-basic.txt" ||
+        comparisonState.initial.selectedCandidate !== "kanata-basic.txt" ||
+        comparisonState.initial.tabCount !== 3 ||
+        comparisonState.initial.tabKind !== "comparison" ||
+        comparisonState.initial.title !== "gem5-basic.txt ↔ kanata-basic.txt" ||
+        comparisonState.initial.tabTooltip !== "A: gem5-basic.txt\nB: kanata-basic.txt" ||
+        comparisonState.initial.canvasCount !== 1 ||
+        comparisonState.initial.activeMode !== "Overlay" ||
+        comparisonState.initial.opacity !== "0.5" ||
+        comparisonState.initial.alignLabel !== "Align to A" ||
+        !comparisonState.initial.alignTitle.includes("Adjust A") ||
+        !comparisonState.initial.alignTitle.includes("retired instruction") ||
+        comparisonState.initial.status !== "A: gem5-basic.txt ↔ B: kanata-basic.txt" ||
+        comparisonState.differenceState.activeMode !== "Difference" ||
+        comparisonState.differenceState.canvasMode !== "difference" ||
+        comparisonState.remainingCount !== 2 ||
+        comparisonState.remainingSelected !== "gem5-basic.txt") {
+        throw new Error(`Comparison tabs are incomplete: ${JSON.stringify(comparisonState)}`);
     }
 
     // traceとRenderer設定を保持して切り替え、middle clickでactive tabを閉じたら隣へ移る。

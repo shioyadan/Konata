@@ -10,6 +10,7 @@ import {
 
 export type LoadState = "idle" | "loading" | "ready" | "error";
 export type Operation = "load" | "search";
+export type ComparisonMode = "baseline" | "overlay" | "candidate" | "difference";
 export type MinimumLaneHeightKey =
     | "textLabelMinimumLaneHeight"
     | "stageDetailMinimumLaneHeight"
@@ -102,6 +103,14 @@ export type Action =
     | { readonly type: "TAB_ACTIVATE"; readonly tabID: number }
     | { readonly type: "TAB_MOVE"; readonly next: boolean }
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
+    | {
+        readonly type: "COMPARISON_OPEN";
+        readonly baselineTabID: number;
+        readonly candidateTabID: number;
+    }
+    | { readonly type: "COMPARISON_SET_MODE"; readonly tabID: number; readonly mode: ComparisonMode }
+    | { readonly type: "COMPARISON_SET_OPACITY"; readonly tabID: number; readonly opacity: number }
+    | { readonly type: "COMPARISON_ALIGN_TO_BASELINE"; readonly tabID: number }
     | { readonly type: "PANE_SPLITTER_MOVE"; readonly tabID: number; readonly position: number }
     | { readonly type: "KONATA_FIND_START"; readonly tabID: number; readonly targetPattern: string }
     | {
@@ -139,6 +148,8 @@ export type Action =
         readonly type: "KONATA_MUTATE_VIEW";
         readonly tabID: number;
         readonly mutation: (renderer: KonataRenderer) => void;
+        // 比較表示では、各Rendererの現在位置を起点にした操作を別々に渡す。
+        readonly baselineMutation?: (renderer: KonataRenderer) => void;
     };
 
 export type Change =
@@ -159,21 +170,26 @@ export type Change =
     }
     | { readonly type: "PROGRESS_BAR_FINISH"; readonly tabID: number; readonly operation: Operation };
 
-// 旧Tabと同じく、1つの入力、その命令列、Renderer状態を同じ寿命で所有する。
-export class Tab {
-    private readonly loadAbortController_ = new AbortController();
-    trace: ParsedTrace | null = null;
-    loadState: LoadState = "loading";
-    progress = 0;
-    errorMessage = "";
-    // 旧Tabと同じく、検索結果と取消IDはtraceごとに独立して保持する。
-    readonly findContext: FindContext = {
+function createFindContext(): FindContext {
+    return {
         targetPattern: "",
         requestID: 0,
         progress: null,
         result: null,
         message: "",
     };
+}
+
+// 旧Tabと同じく、1つの入力、その命令列、Renderer状態を同じ寿命で所有する。
+export class Tab {
+    readonly kind = "trace";
+    private readonly loadAbortController_ = new AbortController();
+    trace: ParsedTrace | null = null;
+    loadState: LoadState = "loading";
+    progress = 0;
+    errorMessage = "";
+    // 旧Tabと同じく、検索結果と取消IDはtraceごとに独立して保持する。
+    readonly findContext = createFindContext();
 
     constructor(
         readonly id: number,
@@ -212,8 +228,101 @@ export class Tab {
     }
 }
 
+// 比較Tabは元Tabの表示状態を変更せず、同じTraceを別Rendererから参照する。
+// retainしたTraceだけを所有するため、元Tabを閉じてもOpStoreは比較Tabの間は生存する。
+export class ComparisonTab {
+    readonly kind = "comparison";
+    readonly loadState: LoadState = "ready";
+    readonly progress = 1;
+    readonly errorMessage = "";
+    readonly findContext = createFindContext();
+    trace: ParsedTrace | null;
+    baselineTrace: ParsedTrace | null;
+    readonly renderer: KonataRenderer;
+    readonly baselineRenderer: KonataRenderer;
+    mode: ComparisonMode = "overlay";
+    opacity = 0.5;
+
+    constructor(
+        readonly id: number,
+        readonly fileName: string,
+        readonly baselineFileName: string,
+        readonly candidateFileName: string,
+        readonly baselineSourceTabID: number,
+        readonly candidateSourceTabID: number,
+        baselineTrace: ParsedTrace,
+        candidateTrace: ParsedTrace,
+        baselineRenderer: KonataRenderer,
+        candidateRenderer: KonataRenderer,
+        public splitterPosition = DEFAULT_SPLITTER_POSITION,
+    ) {
+        this.baselineTrace = baselineTrace.retain();
+        this.trace = candidateTrace.retain();
+        this.baselineRenderer = baselineRenderer;
+        this.renderer = candidateRenderer;
+        this.baselineRenderer.setTrace(this.baselineTrace);
+        this.renderer.setTrace(this.trace);
+    }
+
+    alignCandidateToBaseline(): number | null {
+        const baseline = this.baselineRenderer;
+        const candidate = this.renderer;
+        const originalBaselinePosition = baseline.viewPosition;
+        const adjustedBaselinePosition = baseline.getAdjustedViewPosition();
+        if (adjustedBaselinePosition === null) {
+            return null;
+        }
+
+        // Alignだけで見失った位置からも復帰できるよう、先にAへAdjust positionを適用する。
+        baseline.moveLogicalPosition(adjustedBaselinePosition);
+        const baselineTop = baseline.getOpFromPixelPositionY(0);
+        if (baselineTop === undefined || baselineTop.rid < 0) {
+            baseline.moveLogicalPosition(originalBaselinePosition);
+            return null;
+        }
+
+        // flush命令とretire命令が同じRIDを持つ場合は、両traceともretire命令を基準にする。
+        const baselineAnchor = baseline.getOpFromRID(baselineTop.rid) ?? baselineTop;
+        const candidateAnchor = candidate.getOpFromRID(baselineAnchor.rid);
+        if (candidateAnchor === undefined) {
+            // 共通RIDがなければAだけが動く中途半端な結果を残さない。
+            baseline.moveLogicalPosition(originalBaselinePosition);
+            return null;
+        }
+
+        const baselineY = baseline.hideFlushedOps ? baselineAnchor.rid : baselineAnchor.id;
+        const candidateY = candidate.hideFlushedOps ? candidateAnchor.rid : candidateAnchor.id;
+        const [baselineX, baselineTopY] = baseline.viewPosition;
+
+        // Aは固定し、A上でanchorが見えている画面内offsetへB側の同じRIDを置く。
+        candidate.zoomAbs(baseline.zoomLevel, 0, 0, false);
+        candidate.moveLogicalPosition([
+            candidateAnchor.fetchedCycle + baselineX - baselineAnchor.fetchedCycle,
+            candidateY + baselineTopY - baselineY,
+        ]);
+        return baselineAnchor.rid;
+    }
+
+    close(): void {
+        const candidateTrace = this.trace;
+        const baselineTrace = this.baselineTrace;
+        this.trace = null;
+        this.baselineTrace = null;
+        this.findContext.requestID++;
+        this.findContext.progress = null;
+        this.findContext.result = null;
+        this.findContext.message = "";
+        this.renderer.setTrace(null);
+        this.baselineRenderer.setTrace(null);
+        candidateTrace?.close();
+        baselineTrace?.close();
+    }
+}
+
+export type StoreTab = Tab | ComparisonTab;
+
 export interface StoreSnapshot {
-    readonly tabs: readonly Readonly<Tab>[];
+    readonly tabs: readonly Readonly<StoreTab>[];
     readonly activeTabID: number | null;
     readonly settings: Readonly<GlobalViewSettings>;
     readonly revision: number;
@@ -221,7 +330,7 @@ export interface StoreSnapshot {
 
 // 旧Storeのうち、tab状態の所有とACTION→CHANGEの一方向更新をWeb向けに復元する。
 export class Store {
-    private readonly tabs_ = new Map<number, Tab>();
+    private readonly tabs_ = new Map<number, StoreTab>();
     private readonly snapshotListeners_ = new Set<() => void>();
     private readonly changeListeners_ = new Set<(change: Change) => void>();
     private nextOpenedTabID_ = 0;
@@ -269,7 +378,7 @@ export class Store {
         };
     }
 
-    get activeTab(): Tab | null {
+    get activeTab(): StoreTab | null {
         const id = this.snapshot_.activeTabID;
         return id === null ? null : this.tabs_.get(id) ?? null;
     }
@@ -312,7 +421,7 @@ export class Store {
         }
         case "FILE_LOAD_PROGRESS": {
             const tab = this.tabs_.get(action.tabID);
-            if (tab === undefined) {
+            if (tab === undefined || tab.kind !== "trace") {
                 return;
             }
             tab.progress = action.progress;
@@ -326,7 +435,7 @@ export class Store {
         }
         case "FILE_LOAD_TRACE": {
             const tab = this.tabs_.get(action.tabID);
-            if (tab === undefined) {
+            if (tab === undefined || tab.kind !== "trace") {
                 action.trace.close();
                 return;
             }
@@ -338,7 +447,7 @@ export class Store {
         }
         case "FILE_LOAD_FINISH": {
             const tab = this.tabs_.get(action.tabID);
-            if (tab === undefined) {
+            if (tab === undefined || tab.kind !== "trace") {
                 action.trace.close();
                 return;
             }
@@ -353,7 +462,7 @@ export class Store {
         }
         case "FILE_LOAD_ERROR": {
             const tab = this.tabs_.get(action.tabID);
-            if (tab === undefined) {
+            if (tab === undefined || tab.kind !== "trace") {
                 action.trace?.close();
                 return;
             }
@@ -414,6 +523,86 @@ export class Store {
                 { type: "PROGRESS_BAR_FINISH", tabID: action.tabID, operation: "load" },
                 { type: "PROGRESS_BAR_FINISH", tabID: action.tabID, operation: "search" },
                 { type: "PANE_CONTENT_UPDATE", tabID: activeTabID },
+            ]);
+            return;
+        }
+        case "COMPARISON_OPEN": {
+            const baseline = this.tabs_.get(action.baselineTabID);
+            const candidate = this.tabs_.get(action.candidateTabID);
+            if (baseline?.kind !== "trace" || candidate?.kind !== "trace" ||
+                baseline.id === candidate.id || baseline.loadState !== "ready" ||
+                candidate.loadState !== "ready" || baseline.trace === null || candidate.trace === null) {
+                return;
+            }
+
+            const baselineRenderer = new KonataRenderer();
+            const candidateRenderer = new KonataRenderer();
+            for (const renderer of [baselineRenderer, candidateRenderer]) {
+                this.applyGlobalViewSettings_(renderer);
+                // 色の違いをtrace差と誤認しないよう、比較中はCandidateの配色へ統一する。
+                renderer.changeColorScheme(candidate.renderer.colorScheme);
+                renderer.hideFlushedOps = candidate.renderer.hideFlushedOps;
+            }
+            const comparison = new ComparisonTab(
+                this.nextOpenedTabID_++,
+                `${baseline.fileName} ↔ ${candidate.fileName}`,
+                baseline.fileName,
+                candidate.fileName,
+                baseline.id,
+                candidate.id,
+                baseline.trace,
+                candidate.trace,
+                baselineRenderer,
+                candidateRenderer,
+                candidate.splitterPosition,
+            );
+            // 比較元の位置関係はそのまま残し、以後は旧sync scrollと同じ相対操作で動かす。
+            // overlayの縮尺だけは最初から一致させ、同じ移動量が同じ画面距離になるようにする。
+            comparison.baselineRenderer.zoomAbs(candidate.renderer.zoomLevel, 0, 0, false);
+            comparison.baselineRenderer.moveLogicalPosition(baseline.renderer.viewPosition);
+            comparison.renderer.zoomAbs(candidate.renderer.zoomLevel, 0, 0, false);
+            comparison.renderer.moveLogicalPosition(candidate.renderer.viewPosition);
+            this.tabs_.set(comparison.id, comparison);
+            this.publish_(comparison.id, [
+                { type: "TAB_OPEN", tabID: comparison.id },
+                { type: "TAB_UPDATE", tabID: comparison.id },
+                { type: "PANE_CONTENT_UPDATE", tabID: comparison.id },
+            ]);
+            return;
+        }
+        case "COMPARISON_SET_MODE": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab?.kind !== "comparison") {
+                return;
+            }
+            tab.mode = action.mode;
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "COMPARISON_SET_OPACITY": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab?.kind !== "comparison" || !Number.isFinite(action.opacity)) {
+                return;
+            }
+            tab.opacity = Math.max(0, Math.min(1, action.opacity));
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "COMPARISON_ALIGN_TO_BASELINE": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab?.kind !== "comparison") {
+                return;
+            }
+            if (tab.alignCandidateToBaseline() === null) {
+                console.warn("Could not align to A: no common retired instruction was found at the top of A.");
+                return;
+            }
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
             return;
         }
@@ -519,7 +708,9 @@ export class Store {
             }
             // 旧Configと同様に、選択値は対象Tabだけへ適用し、新しいTabの既定値にもする。
             this.defaultColorScheme_ = action.scheme;
-            tab.renderer.changeColorScheme(action.scheme);
+            for (const renderer of this.getRenderers_(tab)) {
+                renderer.changeColorScheme(action.scheme);
+            }
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "VIEW_SETTINGS_UPDATE" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
@@ -539,14 +730,15 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
-            const renderer = tab.renderer;
-            // 表示方式を変えても、現在の先頭命令とそのfetch位置を維持する。
-            const current = renderer.getOpFromPixelPositionY(0);
-            const rid = current?.rid ?? 0;
-            renderer.hideFlushedOps = action.enabled;
-            const op = renderer.getOpFromRID(rid);
-            if (op !== undefined) {
-                renderer.moveLogicalPosition([op.fetchedCycle, action.enabled ? rid : op.id]);
+            for (const renderer of this.getRenderers_(tab)) {
+                // 表示方式を変えても、各traceで現在の先頭命令とそのfetch位置を維持する。
+                const current = renderer.getOpFromPixelPositionY(0);
+                const rid = current?.rid ?? 0;
+                renderer.hideFlushedOps = action.enabled;
+                const op = renderer.getOpFromRID(rid);
+                if (op !== undefined) {
+                    renderer.moveLogicalPosition([op.fetchedCycle, action.enabled ? rid : op.id]);
+                }
             }
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
@@ -578,6 +770,9 @@ export class Store {
                 return;
             }
             action.mutation(tab.renderer);
+            if (tab.kind === "comparison" && action.baselineMutation !== undefined) {
+                action.baselineMutation(tab.baselineRenderer);
+            }
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
@@ -608,7 +803,9 @@ export class Store {
     ): void {
         this.settings_ = settings;
         for (const tab of this.tabs_.values()) {
-            this.applyGlobalViewSettings_(tab.renderer);
+            for (const renderer of this.getRenderers_(tab)) {
+                this.applyGlobalViewSettings_(renderer);
+            }
         }
         const changes: Change[] = [{ type: "PANE_CONTENT_UPDATE", tabID: null }];
         if (persist) {
@@ -618,6 +815,12 @@ export class Store {
             changes.unshift({ type: "WINDOW_CSS_UPDATE" });
         }
         this.publish_(this.snapshot_.activeTabID, changes);
+    }
+
+    private getRenderers_(tab: StoreTab): readonly KonataRenderer[] {
+        return tab.kind === "comparison"
+            ? [tab.renderer, tab.baselineRenderer]
+            : [tab.renderer];
     }
 
     private applyGlobalViewSettings_(renderer: KonataRenderer): void {

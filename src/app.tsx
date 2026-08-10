@@ -14,6 +14,7 @@ import {
     BsCrosshair,
     BsExclamationTriangleFill,
     BsFolder2Open,
+    BsIntersect,
     BsPencil,
     BsSearch,
     BsSliders,
@@ -66,12 +67,14 @@ interface ViewAnimation {
     readonly startedAt: number;
     readonly duration: number;
     readonly apply: (renderer: KonataRenderer, progress: number) => void;
+    readonly baselineApply?: (renderer: KonataRenderer, progress: number) => void;
     frameID: number;
 }
 
 interface PendingScroll {
     readonly tabID: number;
     readonly position: readonly [number, number];
+    readonly baselinePosition?: readonly [number, number];
 }
 
 interface PendingZoom {
@@ -340,6 +343,7 @@ function makeFindTargetString(op: Op): string {
 export function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const bookmarkControlsRef = useRef<HTMLDetailsElement>(null);
+    const comparisonControlsRef = useRef<HTMLDetailsElement>(null);
     const viewControlsRef = useRef<HTMLDetailsElement>(null);
     const traceSheetRef = useRef<TraceSheetHandle>(null);
     const emptyRendererRef = useRef(new KonataRenderer());
@@ -368,6 +372,7 @@ export function App() {
     const [statsError, setStatsError] = useState("");
     const [isStatsDialogOpen, setIsStatsDialogOpen] = useState(false);
     const [isCustomColorDialogOpen, setIsCustomColorDialogOpen] = useState(false);
+    const [comparisonCandidateID, setComparisonCandidateID] = useState<number | null>(null);
     const [commandPaletteInitial, setCommandPaletteInitial] = useState<string | null>(null);
     const [commandMessage, setCommandMessage] = useState("");
     const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
@@ -379,6 +384,12 @@ export function App() {
     const [renderVersion, setRenderVersion] = useState(0);
 
     const activeTab = store.activeTab;
+    const comparisonTab = activeTab?.kind === "comparison" ? activeTab : null;
+    const comparisonCandidates = tabs.filter((tab) =>
+        tab.kind === "trace" && tab.loadState === "ready" && tab.trace !== null && tab.id !== activeTab?.id);
+    const selectedComparisonCandidateID = comparisonCandidates.some((tab) => tab.id === comparisonCandidateID)
+        ? comparisonCandidateID
+        : comparisonCandidates[0]?.id ?? null;
     const trace = activeTab?.trace ?? null;
     const loadState = activeTab?.loadState ?? "idle";
     const fileName = activeTab?.fileName ?? "";
@@ -466,6 +477,7 @@ export function App() {
     const startViewAnimation = useCallback((
         duration: number,
         apply: (renderer: KonataRenderer, progress: number) => void,
+        baselineApply?: (renderer: KonataRenderer, progress: number) => void,
     ) => {
         const tab = store.activeTab;
         if (tab === null) {
@@ -481,6 +493,7 @@ export function App() {
             startedAt: performance.now(),
             duration,
             apply,
+            baselineApply,
             frameID: 0,
         };
         const animate = (now: number) => {
@@ -503,6 +516,9 @@ export function App() {
                 type: "KONATA_MUTATE_VIEW",
                 tabID: animation.tabID,
                 mutation: (renderer) => animation.apply(renderer, progress),
+                // 単純なzoomなどは同じ操作を使い、絶対座標を含むscrollだけ別の起点を使う。
+                baselineMutation: (renderer) =>
+                    (animation.baselineApply ?? animation.apply)(renderer, progress),
             });
             if (progress >= 1) {
                 viewAnimationRef.current = null;
@@ -554,6 +570,9 @@ export function App() {
         const wasActive = store.activeTab?.id === id;
         if (wasActive) {
             cancelViewAnimation();
+            // 比較描画では同じCanvasへ2つのtraceを続けて描くため、どちらのStoreも
+            // 解放する前にCanvas側の遅延描画資源を明示的に破棄する。
+            traceSheetRef.current?.resetPipelineCanvas();
         }
         store.dispatch({ type: "TAB_CLOSE", tabID: id });
         if (wasActive) {
@@ -587,7 +606,7 @@ export function App() {
             renderer: new KonataRenderer(),
         });
         const tab = store.activeTab;
-        if (tab === null) {
+        if (tab === null || tab.kind !== "trace") {
             return;
         }
         resetStats();
@@ -694,20 +713,42 @@ export function App() {
             setRenderVersion((version) => version + 1);
             return;
         }
-        store.dispatch({ type: "KONATA_MUTATE_VIEW", tabID: tab.id, mutation });
+        store.dispatch({
+            type: "KONATA_MUTATE_VIEW",
+            tabID: tab.id,
+            mutation,
+            // panとpinchは各Rendererの現在位置へ同じ相対操作を加える。
+            baselineMutation: mutation,
+        });
     }, [cancelViewAnimation, store]);
 
-    const scrollTo = useCallback((position: readonly [number, number]) => {
-        const renderer = store.activeTab?.renderer;
-        if (renderer === undefined) {
+    const scrollTo = useCallback((
+        position: readonly [number, number],
+        baselinePosition?: readonly [number, number],
+    ) => {
+        const tab = store.activeTab;
+        if (tab === null) {
             return;
         }
+        const renderer = tab.renderer;
         const [fromX, fromY] = renderer.viewPosition;
         const [toX, toY] = position;
+        const baselineRenderer = tab.kind === "comparison" ? tab.baselineRenderer : null;
+        const [baselineFromX, baselineFromY] = baselineRenderer?.viewPosition ?? [0, 0];
+        // 明示的な行先がなければ、Candidateと同じ論理座標差だけBaselineを動かす。
+        const [baselineToX, baselineToY] = baselinePosition ?? [
+            baselineFromX + toX - fromX,
+            baselineFromY + toY - fromY,
+        ];
         startViewAnimation(SCROLL_ANIMATION_DURATION, (target, progress) => {
             target.moveLogicalPosition([
                 fromX + (toX - fromX) * progress,
                 fromY + (toY - fromY) * progress,
+            ]);
+        }, baselineRenderer === null ? undefined : (target, progress) => {
+            target.moveLogicalPosition([
+                baselineFromX + (baselineToX - baselineFromX) * progress,
+                baselineFromY + (baselineToY - baselineFromY) * progress,
             ]);
         });
     }, [startViewAnimation, store]);
@@ -731,10 +772,31 @@ export function App() {
             baseX + differenceX,
             baseY + difference[1],
         ];
+        let baselineTarget: readonly [number, number] | undefined;
+        if (tab.kind === "comparison") {
+            const [baselineBaseX, baselineBaseY] = pending?.tabID === tab.id &&
+                pending.baselinePosition !== undefined
+                ? pending.baselinePosition
+                : tab.baselineRenderer.viewPosition;
+            const baselineDifferenceX = adjustHorizontal
+                ? tab.baselineRenderer.adjustScrollDifferenceXAt(
+                    [baselineBaseX, baselineBaseY],
+                    difference[1],
+                )
+                : difference[0];
+            baselineTarget = [
+                baselineBaseX + baselineDifferenceX,
+                baselineBaseY + difference[1],
+            ];
+        }
 
         // 連続入力は未到達の終点へ加算し、現在の描画位置から滑らかに引き直す。
-        scrollTo(target);
-        pendingScrollRef.current = { tabID: tab.id, position: target };
+        scrollTo(target, baselineTarget);
+        pendingScrollRef.current = {
+            tabID: tab.id,
+            position: target,
+            baselinePosition: baselineTarget,
+        };
     }, [scrollTo, store]);
 
     const adjustPosition = useCallback(() => {
@@ -751,6 +813,33 @@ export function App() {
             store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: tab.id, position });
         }
     }, [store]);
+
+    const openComparison = useCallback(() => {
+        const baseline = store.activeTab;
+        if (baseline?.kind !== "trace" || selectedComparisonCandidateID === null) {
+            return;
+        }
+        cancelViewAnimation();
+        store.dispatch({
+            type: "COMPARISON_OPEN",
+            baselineTabID: baseline.id,
+            candidateTabID: selectedComparisonCandidateID,
+        });
+        comparisonControlsRef.current?.removeAttribute("open");
+        resetStats();
+        resetCommandUI();
+    }, [cancelViewAnimation, resetCommandUI, resetStats, selectedComparisonCandidateID, store]);
+
+    const alignComparisonToBaseline = useCallback(() => {
+        const tab = store.activeTab;
+        if (tab?.kind !== "comparison") {
+            return;
+        }
+        // 手動位置合わせ後は、次の入力から再び単純な同期scrollだけを行う。
+        cancelViewAnimation();
+        traceSheetRef.current?.clearToolTip();
+        store.dispatch({ type: "COMPARISON_ALIGN_TO_BASELINE", tabID: tab.id });
+    }, [cancelViewAnimation, store]);
 
     const openCommandPalette = useCallback((initialCommand: string) => {
         if (isStatsDialogOpen || isCustomColorDialogOpen) {
@@ -1021,6 +1110,12 @@ export function App() {
         const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const [fromX, fromY] = renderer.viewPosition;
         const fromZoom = renderer.zoomLevel;
+        const baselineRenderer = store.activeTab?.kind === "comparison"
+            ? store.activeTab.baselineRenderer
+            : null;
+        const [baselineFromX, baselineFromY] = baselineRenderer?.viewPosition ?? [0, 0];
+        const differenceX = bookmark.x - fromX;
+        const differenceY = bookmark.y - fromY;
         startViewAnimation(BOOKMARK_ANIMATION_DURATION, (target, progress) => {
             // 旧版同様にscrollとzoomを並行させ、bookmark座標をずらす補正は行わない。
             const zoomProgress = Math.min(
@@ -1037,6 +1132,21 @@ export function App() {
                 fromX + (bookmark.x - fromX) * progress,
                 fromY + (bookmark.y - fromY) * progress,
             ]);
+        }, baselineRenderer === null ? undefined : (target, progress) => {
+            const zoomProgress = Math.min(
+                1,
+                progress * BOOKMARK_ANIMATION_DURATION / BOOKMARK_ZOOM_ANIMATION_DURATION,
+            );
+            target.zoomAbs(
+                fromZoom + (bookmark.zoom - fromZoom) * zoomProgress,
+                bookmark.x,
+                bookmark.y,
+                false,
+            );
+            target.moveLogicalPosition([
+                baselineFromX + differenceX * progress,
+                baselineFromY + differenceY * progress,
+            ]);
         });
     }, [bookmarks, startViewAnimation, store]);
 
@@ -1047,9 +1157,20 @@ export function App() {
         }
         const [fromX, fromY] = renderer.viewPosition;
         const fromZoom = renderer.zoomLevel;
+        const baselineRenderer = store.activeTab?.kind === "comparison"
+            ? store.activeTab.baselineRenderer
+            : null;
+        const [baselineFromX, baselineFromY] = baselineRenderer?.viewPosition ?? [0, 0];
         startViewAnimation(BOOKMARK_ANIMATION_DURATION, (target, progress) => {
             target.zoomAbs(fromZoom * (1 - progress), 0, 0, false);
             target.moveLogicalPosition([fromX * (1 - progress), fromY * (1 - progress)]);
+        }, baselineRenderer === null ? undefined : (target, progress) => {
+            target.zoomAbs(fromZoom * (1 - progress), 0, 0, false);
+            // 旧sync scrollと同様、Candidateが原点へ戻る量だけ現在位置から動かす。
+            target.moveLogicalPosition([
+                baselineFromX - fromX * progress,
+                baselineFromY - fromY * progress,
+            ]);
         });
     }, [startViewAnimation, store]);
 
@@ -1214,8 +1335,12 @@ export function App() {
         setBookmark, trace, zoomAtCenter]);
 
     let statusMessage = "";
-    let statusType: "loading" | "ready" | "warning" | "error" | null = null;
-    if (loadState === "loading") {
+    let statusType: "loading" | "ready" | "warning" | "error" | "comparison" | null = null;
+    if (comparisonTab !== null) {
+        statusMessage = `A: ${comparisonTab.baselineFileName} ↔ B: ${comparisonTab.candidateFileName}`;
+        statusType = "comparison";
+    }
+    else if (loadState === "loading") {
         statusMessage = `Loading ${fileName}… ${Math.round(progress * 100)}%`;
         statusType = "loading";
     }
@@ -1259,7 +1384,11 @@ export function App() {
             data-lane-count={trace?.laneNames.length ?? 0}
             onClick={(event) => {
                 // nativeのdetailsは外側clickで閉じないため、panel外だけを明示的に閉じる。
-                for (const controls of [bookmarkControlsRef.current, viewControlsRef.current]) {
+                for (const controls of [
+                    bookmarkControlsRef.current,
+                    comparisonControlsRef.current,
+                    viewControlsRef.current,
+                ]) {
                     if (controls?.open && !controls.contains(event.target as Node)) {
                         controls.open = false;
                     }
@@ -1333,6 +1462,7 @@ export function App() {
                                 return;
                             }
                             viewControlsRef.current?.removeAttribute("open");
+                            comparisonControlsRef.current?.removeAttribute("open");
                         }}
                     >
                         <BsBookmark aria-hidden="true" />
@@ -1363,6 +1493,104 @@ export function App() {
                         ))}
                     </div>
                 </details>
+                {comparisonTab === null ? (
+                    <details ref={comparisonControlsRef} className="comparison-controls">
+                        <summary
+                            className="toolbar-action"
+                            aria-label="Compare traces"
+                            aria-disabled={activeTab?.kind !== "trace" || selectedComparisonCandidateID === null}
+                            title="Compare traces"
+                            tabIndex={activeTab?.kind !== "trace" || selectedComparisonCandidateID === null ? -1 : undefined}
+                            onClick={(event) => {
+                                if (activeTab?.kind !== "trace" || selectedComparisonCandidateID === null) {
+                                    event.preventDefault();
+                                    return;
+                                }
+                                bookmarkControlsRef.current?.removeAttribute("open");
+                                viewControlsRef.current?.removeAttribute("open");
+                            }}
+                        >
+                            <BsIntersect aria-hidden="true" />
+                            <span>Compare</span>
+                        </summary>
+                        <div className="comparison-controls-panel">
+                            <p
+                                className="comparison-source-a"
+                                title={activeTab?.fileName ?? ""}
+                            >
+                                A (current): {activeTab?.fileName ?? ""}
+                            </p>
+                            <label>
+                                B
+                                <select
+                                    aria-label="Comparison candidate"
+                                    value={selectedComparisonCandidateID ?? ""}
+                                    onChange={(event) => setComparisonCandidateID(Number(event.target.value))}
+                                >
+                                    {comparisonCandidates.map((tab) => (
+                                        <option key={tab.id} value={tab.id}>{tab.fileName}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <button type="button" onClick={openComparison}>Compare</button>
+                        </div>
+                    </details>
+                ) : (
+                    <div className="comparison-mode-controls" aria-label="Comparison display mode">
+                        {([
+                            ["baseline", "A"],
+                            ["overlay", "Overlay"],
+                            ["candidate", "B"],
+                            ["difference", "Difference"],
+                        ] as const).map(([mode, label]) => (
+                            <button
+                                type="button"
+                                className={comparisonTab.mode === mode ? "is-active" : undefined}
+                                aria-pressed={comparisonTab.mode === mode}
+                                title={mode === "baseline"
+                                    ? comparisonTab.baselineFileName
+                                    : mode === "candidate"
+                                        ? comparisonTab.candidateFileName
+                                        : label}
+                                key={mode}
+                                onClick={() => store.dispatch({
+                                    type: "COMPARISON_SET_MODE",
+                                    tabID: comparisonTab.id,
+                                    mode,
+                                })}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                        <button
+                            type="button"
+                            className="comparison-align-button"
+                            aria-label="Align Candidate to A"
+                            title="Adjust A, then align the Candidate to the retired instruction at the top of A."
+                            onClick={alignComparisonToBaseline}
+                        >
+                            Align to A
+                        </button>
+                        {comparisonTab.mode === "overlay" && (
+                            <label title="Change the opacity of the Candidate trace.">
+                                Opacity
+                                <input
+                                    type="range"
+                                    aria-label="Comparison opacity"
+                                    min="0"
+                                    max="1"
+                                    step="0.05"
+                                    value={comparisonTab.opacity}
+                                    onChange={(event) => store.dispatch({
+                                        type: "COMPARISON_SET_OPACITY",
+                                        tabID: comparisonTab.id,
+                                        opacity: Number(event.target.value),
+                                    })}
+                                />
+                            </label>
+                        )}
+                    </div>
+                )}
                 <button
                     className="button-with-icon toolbar-action"
                     type="button"
@@ -1377,7 +1605,10 @@ export function App() {
                         className="toolbar-action"
                         aria-label="View settings"
                         title="View settings"
-                        onClick={() => bookmarkControlsRef.current?.removeAttribute("open")}
+                        onClick={() => {
+                            bookmarkControlsRef.current?.removeAttribute("open");
+                            comparisonControlsRef.current?.removeAttribute("open");
+                        }}
                     >
                         <BsSliders aria-hidden="true" />
                         <span>View</span>
@@ -1622,6 +1853,11 @@ export function App() {
                 errorMessage={errorMessage}
                 renderVersion={renderVersion}
                 findResult={findResult}
+                comparison={comparisonTab === null ? null : {
+                    baselineRenderer: comparisonTab.baselineRenderer,
+                    mode: comparisonTab.mode,
+                    opacity: comparisonTab.opacity,
+                }}
                 splitterPosition={activeTab?.splitterPosition ?? DEFAULT_SPLITTER_POSITION}
                 onMoveSplitter={moveSplitter}
                 onMutateView={mutateView}

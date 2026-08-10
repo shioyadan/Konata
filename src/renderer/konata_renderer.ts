@@ -480,6 +480,40 @@ export class KonataRenderer {
         this.drawPipeline_(pipelineCanvas, pipelineSize);
     }
 
+    drawLabel(labelCanvas: HTMLCanvasElement): void {
+        const labelSize = this.prepareCanvas_(labelCanvas);
+        this.updateScaleParameter_();
+        this.drawLabel_(labelCanvas, labelSize);
+    }
+
+    drawPipeline(pipelineCanvas: HTMLCanvasElement): void {
+        const pipelineSize = this.prepareCanvas_(pipelineCanvas);
+        this.updateScaleParameter_();
+        this.drawPipeline_(pipelineCanvas, pipelineSize);
+    }
+
+    drawPipelineOver(
+        pipelineCanvas: HTMLCanvasElement,
+        opacity: number,
+        operation: GlobalCompositeOperation,
+    ): void {
+        const pipelineSize = this.prepareCanvas_(pipelineCanvas);
+        this.updateScaleParameter_();
+        const context = pipelineCanvas.getContext("2d");
+        if (context === null) {
+            return;
+        }
+        context.save();
+        context.globalAlpha = opacity;
+        context.globalCompositeOperation = operation;
+        try {
+            this.drawPipeline_(pipelineCanvas, pipelineSize);
+        }
+        finally {
+            context.restore();
+        }
+    }
+
     private calcScale_(level: number): number {
         return 2 ** (-level * KonataRenderer.ZOOM_RATIO);
     }

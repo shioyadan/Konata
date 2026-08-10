@@ -41,6 +41,7 @@ button:hover:not(:disabled) {
 button:focus-visible,
 .view-controls > summary:focus-visible,
 .bookmark-controls > summary:focus-visible,
+.comparison-controls > summary:focus-visible,
 .application-menu > summary:focus-visible {
     outline: 2px solid var(--ui-accent);
     outline-offset: 2px;
@@ -373,12 +374,14 @@ button:disabled {
 
 .view-controls,
 .bookmark-controls,
+.comparison-controls,
 .application-menu {
     position: relative;
 }
 
 .view-controls > summary,
 .bookmark-controls > summary,
+.comparison-controls > summary,
 .application-menu > summary {
     display: inline-flex;
     width: auto;
@@ -393,12 +396,14 @@ button:disabled {
 
 .view-controls > summary:hover,
 .bookmark-controls > summary:not([aria-disabled="true"]):hover,
+.comparison-controls > summary:not([aria-disabled="true"]):hover,
 .application-menu > summary:hover {
     border-color: transparent;
     background: rgb(255 255 255 / 8%);
 }
 
 .bookmark-controls > summary[aria-disabled="true"],
+.comparison-controls > summary[aria-disabled="true"],
 .view-controls-panel :disabled {
     opacity: 0.45;
     cursor: default;
@@ -406,6 +411,7 @@ button:disabled {
 
 .view-controls > summary svg,
 .bookmark-controls > summary svg,
+.comparison-controls > summary svg,
 .application-menu > summary svg {
     width: 1.2rem;
     height: 1.2rem;
@@ -413,6 +419,7 @@ button:disabled {
 
 .view-controls > summary::-webkit-details-marker,
 .bookmark-controls > summary::-webkit-details-marker,
+.comparison-controls > summary::-webkit-details-marker,
 .application-menu > summary::-webkit-details-marker {
     display: none;
 }
@@ -467,7 +474,8 @@ button:disabled {
 }
 
 .view-controls-panel,
-.bookmark-controls-panel {
+.bookmark-controls-panel,
+.comparison-controls-panel {
     position: absolute;
     z-index: 10;
     top: calc(100% + 0.5rem);
@@ -489,6 +497,63 @@ button:disabled {
     min-width: 19rem;
 }
 
+.comparison-controls-panel label {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.comparison-controls-panel p {
+    max-width: 24rem;
+    margin: 0;
+    overflow: hidden;
+    color: #b8c0cc;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.comparison-mode-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.2rem;
+    border: 1px solid #3f4754;
+    border-radius: var(--ui-control-radius);
+    background: #1c2027;
+}
+
+.comparison-mode-controls button {
+    padding: 0.3rem 0.45rem;
+    border: 0;
+    background: transparent;
+    font-size: 0.72rem;
+}
+
+.comparison-mode-controls button.is-active {
+    background: #405a78;
+    color: #fff;
+}
+
+.comparison-mode-controls button.comparison-align-button {
+    margin-left: 0.15rem;
+    padding-left: 0.55rem;
+    border-left: 1px solid #3f4754;
+    border-radius: 0;
+    color: #b8c0cc;
+}
+
+.comparison-mode-controls label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0 0.3rem;
+    color: #b8c0cc;
+    font-size: 0.68rem;
+}
+
+.comparison-mode-controls input[type="range"] {
+    width: 6rem;
+}
+
 .view-controls-panel label {
     display: flex;
     align-items: center;
@@ -498,6 +563,7 @@ button:disabled {
 }
 
 .view-controls-panel select,
+.comparison-controls-panel select,
 .view-controls-panel input[type="number"] {
     min-width: 8rem;
     padding: 0.3rem 0.4rem;
@@ -508,6 +574,7 @@ button:disabled {
 }
 
 .view-controls-panel select:focus-visible,
+.comparison-controls-panel select:focus-visible,
 .view-controls-panel input[type="number"]:focus-visible {
     border-color: var(--ui-accent);
     outline: 2px solid rgb(121 164 211 / 25%);
@@ -1417,6 +1484,7 @@ button:disabled {
 .theme-light button,
 .theme-light .view-controls > summary,
 .theme-light .bookmark-controls > summary,
+.theme-light .comparison-controls > summary,
 .theme-light .application-menu > summary {
     border-color: #999;
     background: #f4f4f4;
@@ -1426,6 +1494,7 @@ button:disabled {
 .theme-light button:hover:not(:disabled),
 .theme-light .view-controls > summary:hover,
 .theme-light .bookmark-controls > summary:not([aria-disabled="true"]):hover,
+.theme-light .comparison-controls > summary:not([aria-disabled="true"]):hover,
 .theme-light .application-menu > summary:hover {
     border-color: #355f91;
     background: #e8e8e8;
@@ -1456,6 +1525,7 @@ button:disabled {
 .theme-light .app-toolbar > .toolbar-action:not(.primary-button),
 .theme-light .view-controls > summary.toolbar-action,
 .theme-light .bookmark-controls > summary.toolbar-action,
+.theme-light .comparison-controls > summary.toolbar-action,
 .theme-light .application-menu > summary.toolbar-action {
     border-color: transparent;
     background: transparent;
@@ -1465,6 +1535,7 @@ button:disabled {
 .theme-light .app-toolbar > .toolbar-action:not(.primary-button):hover:not(:disabled),
 .theme-light .view-controls > summary.toolbar-action:hover,
 .theme-light .bookmark-controls > summary.toolbar-action:not([aria-disabled="true"]):hover,
+.theme-light .comparison-controls > summary.toolbar-action:not([aria-disabled="true"]):hover,
 .theme-light .application-menu > summary.toolbar-action:hover {
     border-color: transparent;
     background: rgb(255 255 255 / 12%);
@@ -1500,6 +1571,7 @@ button:disabled {
 
 .theme-light .view-controls-panel,
 .theme-light .bookmark-controls-panel,
+.theme-light .comparison-controls-panel,
 .theme-light .application-menu-panel {
     border-color: #b9c0ca;
     background: #f7f8fa;
@@ -1507,7 +1579,8 @@ button:disabled {
 }
 
 .theme-light .view-controls-panel select,
-.theme-light .view-controls-panel input[type="number"] {
+.theme-light .view-controls-panel input[type="number"],
+.theme-light .comparison-controls-panel select {
     border-color: #999;
     background: #fff;
     color: #222;
@@ -1519,6 +1592,24 @@ button:disabled {
 
 .theme-light .bookmark-controls-panel > p {
     color: #555;
+}
+
+.theme-light .comparison-controls-panel p {
+    color: #555;
+}
+
+.theme-light .comparison-mode-controls label {
+    color: #fff;
+}
+
+.theme-light .comparison-mode-controls {
+    border-color: #68738f;
+    background: #46506d;
+}
+
+.theme-light .comparison-mode-controls button.comparison-align-button {
+    border-left-color: #68738f;
+    color: #fff;
 }
 
 .theme-light .application-menu-panel button {

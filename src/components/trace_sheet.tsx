@@ -12,7 +12,7 @@ import { BsX } from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
 import { KonataRenderer } from "../renderer/konata_renderer";
-import type { FindResult, LoadState } from "../store";
+import type { ComparisonMode, FindResult, LoadState } from "../store";
 
 declare const __KONATA_VERSION__: string;
 declare const __KONATA_COMMIT__: string;
@@ -36,6 +36,7 @@ interface CanvasToolTip {
 
 export interface TraceSheetHandle {
     clearToolTip(): void;
+    resetPipelineCanvas(): void;
     getViewportSize(): {
         readonly pipelineWidth: number;
         readonly pipelineHeight: number;
@@ -50,6 +51,11 @@ interface TraceSheetProps {
     readonly errorMessage: string;
     readonly renderVersion: number;
     readonly findResult: FindResult | null;
+    readonly comparison: {
+        readonly baselineRenderer: KonataRenderer;
+        readonly mode: ComparisonMode;
+        readonly opacity: number;
+    } | null;
     readonly splitterPosition: number;
     readonly onMoveSplitter: (position: number) => void;
     readonly onMutateView: (mutation: (renderer: KonataRenderer) => void) => void;
@@ -90,6 +96,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     errorMessage,
     renderVersion,
     findResult,
+    comparison,
     splitterPosition,
     onMoveSplitter,
     onMutateView,
@@ -107,17 +114,49 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
+    const baselineRenderer = comparison?.baselineRenderer ?? null;
+    const comparisonMode = comparison?.mode ?? null;
+    const comparisonOpacity = comparison?.opacity ?? 1;
 
     const redraw = useCallback(() => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
         if (labelCanvas !== null && pipelineCanvas !== null) {
-            renderer.draw(labelCanvas, pipelineCanvas);
+            if (baselineRenderer === null || comparisonMode === null) {
+                renderer.draw(labelCanvas, pipelineCanvas);
+                delete pipelineCanvas.dataset.comparisonMode;
+                return;
+            }
+
+            // 追加Canvasを作らず、同じCanvasへA、Bの順で描く。Bの背景を含む全体へ
+            // alpha/differenceを適用するため、重ねたCanvasと同じ結果を保てる。
+            renderer.drawLabel(labelCanvas);
+            pipelineCanvas.dataset.comparisonMode = comparisonMode;
+            if (comparisonMode === "candidate") {
+                renderer.drawPipeline(pipelineCanvas);
+                return;
+            }
+            baselineRenderer.drawPipeline(pipelineCanvas);
+            if (comparisonMode === "overlay") {
+                renderer.drawPipelineOver(pipelineCanvas, comparisonOpacity, "source-over");
+            }
+            else if (comparisonMode === "difference") {
+                // 同じ画素は黒になり、異なるstage境界や色だけが残る。
+                renderer.drawPipelineOver(pipelineCanvas, 1, "difference");
+            }
         }
-    }, [renderer]);
+    }, [baselineRenderer, comparisonMode, comparisonOpacity, renderer]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
+        resetPipelineCanvas: () => {
+            const canvas = pipelineCanvasRef.current;
+            if (canvas !== null) {
+                // Canvasの描画commandをTabのtrace解放前に切り離す。
+                canvas.width = 1;
+                canvas.height = 1;
+            }
+        },
         getViewportSize: () => ({
             pipelineWidth: pipelineCanvasRef.current?.clientWidth ?? 800,
             pipelineHeight: pipelineCanvasRef.current?.clientHeight ?? 400,
@@ -127,8 +166,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
     useLayoutEffect(() => {
         renderer.setTrace(trace);
-        redraw();
-    }, [redraw, renderer, trace]);
+    }, [renderer, trace]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
@@ -388,6 +426,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             <section className="viewer-pane pipeline-pane" aria-label="Pipeline chart">
                 <canvas
                     ref={pipelineCanvasRef}
+                    className={comparison === null ? undefined : "comparison-result-canvas"}
                     aria-label="Pipeline canvas"
                     onDoubleClick={handleDoubleClick}
                     onMouseMove={(event) => updateToolTip("pipeline", event)}

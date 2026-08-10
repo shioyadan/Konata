@@ -167,6 +167,9 @@ export class StageLevelMap {
 
 export class ParsedTrace {
     private warningCount_ = 0;
+    // 通常Tabと比較Tabが同じOpStoreを共有する。各表示から直接Storeをcloseすると、
+    // 片方を閉じただけで残った表示も壊れるため、Traceを共有所有の境界にする。
+    private referenceCount_ = 1;
 
     constructor(
         readonly fileName: string,
@@ -221,8 +224,22 @@ export class ParsedTrace {
         return this.opStore.opCount;
     }
 
+    retain(): ParsedTrace {
+        if (this.referenceCount_ <= 0) {
+            throw new Error("A closed trace cannot be retained.");
+        }
+        this.referenceCount_++;
+        return this;
+    }
+
     close(): void {
-        this.opStore.close();
+        if (this.referenceCount_ <= 0) {
+            return;
+        }
+        this.referenceCount_--;
+        if (this.referenceCount_ === 0) {
+            this.opStore.close();
+        }
     }
 }
 

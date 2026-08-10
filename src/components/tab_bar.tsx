@@ -2,11 +2,23 @@ import { BsX } from "react-icons/bs";
 
 import type { LoadState } from "../store";
 
-export interface TabBarItem {
+interface TraceTabBarItem {
     readonly id: number;
+    readonly kind: "trace";
     readonly fileName: string;
     readonly loadState: LoadState;
 }
+
+interface ComparisonTabBarItem {
+    readonly id: number;
+    readonly kind: "comparison";
+    readonly fileName: string;
+    readonly baselineFileName: string;
+    readonly candidateFileName: string;
+    readonly loadState: LoadState;
+}
+
+export type TabBarItem = TraceTabBarItem | ComparisonTabBarItem;
 
 interface TabBarProps {
     readonly tabs: readonly TabBarItem[];
@@ -26,6 +38,7 @@ export function TabBar({ tabs, activeTabID, onActivate, onClose }: TabBarProps) 
                 {tabs.map((tab) => (
                     <div
                         className={`trace-tab${tab.id === activeTabID ? " is-active" : ""}`}
+                        data-tab-kind={tab.kind}
                         data-load-state={tab.loadState}
                         key={tab.id}
                         onMouseDown={(event) => {
@@ -46,6 +59,9 @@ export function TabBar({ tabs, activeTabID, onActivate, onClose }: TabBarProps) 
                             type="button"
                             role="tab"
                             aria-selected={tab.id === activeTabID}
+                            title={tab.kind === "comparison"
+                                ? `A: ${tab.baselineFileName}\nB: ${tab.candidateFileName}`
+                                : tab.fileName}
                             onClick={() => onActivate(tab.id)}
                         >
                             {tab.fileName}
