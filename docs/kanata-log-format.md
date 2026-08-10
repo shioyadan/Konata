@@ -121,6 +121,9 @@ An example of the lane feature can be seen by opening "docs/kanata-sample-2.log.
     * TYPE specifies the type of text
         * if 0 is set, TEXT is expected to be displayed directly to the left pane of the visualizer. Usually, it includes PC, opcode, and operands.
         * if 1 is set, TEXT is expected to be displayed on mouse-over. For example, register values are set.
+        * if 2 is set, TEXT is attached to the pipeline stage most recently started for the instruction by an S command, and is displayed when that stage is moused over.
+            * An S command for the instruction must precede a type-2 L command.
+            * Multiple type-2 labels for the same stage are displayed on separate lines.
     * TEXT
         * Arbitrary length text
 * Example:
@@ -128,6 +131,8 @@ An example of the lane feature can be seen by opening "docs/kanata-sample-2.log.
     L	0	0	120047734: add r1, r16, 1
     L	0	1	allocate ROB entry #11
     L	0	1	r1(22) <= r16(21) + 1 
+    S	0	0	X
+    L	0	2	integer ALU #0
     ```
 
 
@@ -246,5 +251,4 @@ R	1	1	1       // Flush the instruction 1
 
 Dhrystone executed on [RSD](https://github.com/rsd-devel/rsd)
 ![kanata-sample-2](kanata-sample-2.png)
-
 
