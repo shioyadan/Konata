@@ -989,8 +989,8 @@ export function App() {
     const handleDrop = (event: DragEvent<HTMLElement>) => {
         event.preventDefault();
         setIsDraggingFile(false);
-        const file = event.dataTransfer.files[0];
-        if (file !== undefined) {
+        // 個別に続けてdropした場合と同じく、各TabのParserを独立して並行実行する。
+        for (const file of Array.from(event.dataTransfer.files)) {
             void loadFile(file);
         }
     };

@@ -137,6 +137,83 @@ async function dropFixture(window, fixturePath, mimeType, verifyProgressBar = fa
     );
 }
 
+async function verifyMultipleFileDrop(window) {
+    return window.webContents.executeJavaScript(`(async () => {
+        const target = document.querySelector(".trace-app");
+        if (!(target instanceof HTMLElement)) {
+            throw new Error("The multiple-file drop target was not found.");
+        }
+        const initialTabCount = document.querySelectorAll(".trace-tab").length;
+        const contents = (serialID) => [
+            "Kanata\\t0004",
+            "I\\t0\\t" + serialID + "\\t0",
+            "S\\t0\\t0\\tF",
+            "C\\t1",
+            "R\\t0\\t0\\t0"
+        ].join("\\n");
+        let startedStreams = 0;
+        let releaseStreams;
+        const bothStarted = new Promise((resolve) => {
+            releaseStreams = resolve;
+        });
+        const makeFile = (name, serialID) => {
+            const bytes = new TextEncoder().encode(contents(serialID));
+            const file = new File([bytes], name, {type: "text/plain"});
+            Object.defineProperty(file, "stream", {value: () => {
+                let sent = false;
+                return new ReadableStream({
+                    async pull(controller) {
+                        if (sent) {
+                            controller.close();
+                            return;
+                        }
+                        sent = true;
+                        startedStreams++;
+                        if (startedStreams === 2) {
+                            releaseStreams();
+                        }
+                        // 片方を待たせ、2つのParserが同時にstreamへ到達することを確認する。
+                        await bothStarted;
+                        controller.enqueue(bytes);
+                    }
+                });
+            }});
+            return file;
+        };
+        const transfer = new DataTransfer();
+        transfer.items.add(makeFile("multi-a.log", 10));
+        transfer.items.add(makeFile("multi-b.log", 20));
+        target.dispatchEvent(new DragEvent("drop", {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: transfer
+        }));
+
+        const deadline = performance.now() + 5000;
+        while (performance.now() < deadline) {
+            const tabs = [...document.querySelectorAll(".trace-tab")]
+                .filter((tab) => ["multi-a.log", "multi-b.log"].includes(
+                    tab.querySelector('[role="tab"]')?.textContent?.trim() ?? ""));
+            if (tabs.length === 2 && tabs.every((tab) => tab.dataset.loadState === "ready")) {
+                const activeName = document.querySelector('[role="tab"][aria-selected="true"]')
+                    ?.textContent?.trim() ?? null;
+                document.querySelector('button[aria-label="Close multi-a.log"]')?.click();
+                document.querySelector('button[aria-label="Close multi-b.log"]')?.click();
+                await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                return {
+                    startedStreams,
+                    activeName,
+                    restoredTabCount: document.querySelectorAll(".trace-tab").length,
+                    initialTabCount
+                };
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error("Timed out while loading multiple dropped files; started " +
+            startedStreams + " streams.");
+    })()`);
+}
+
 async function verifyIncrementalRendering(window) {
     return window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
         const firstLines = [
@@ -977,7 +1054,7 @@ async function run() {
         initialState.fileAccept !==
             ".log,.txt,.gz,.zst,.zstd,text/plain,application/gzip,application/zstd" ||
         initialState.emptyTitle !==
-            "Drop a Kanata or gem5 O3PipeView trace anywhere in this window." ||
+            "Drop one or more Kanata or gem5 O3PipeView traces anywhere in this window." ||
         initialState.emptyDetail !== "Plain text, gzip, and Zstandard files are supported." ||
         initialState.bookmarkDisabled !== "true" ||
         initialState.bookmarkOpensWithoutTrace !== false ||
@@ -1060,6 +1137,13 @@ async function run() {
         !applicationMenuState.dialogClosedByEscape ||
         !applicationMenuState.menuClosedByOutsidePointer) {
         throw new Error(`Application menu is incomplete: ${JSON.stringify(applicationMenuState)}`);
+    }
+
+    const multipleFileDropState = await verifyMultipleFileDrop(window);
+    if (multipleFileDropState.startedStreams !== 2 ||
+        multipleFileDropState.activeName !== "multi-b.log" ||
+        multipleFileDropState.restoredTabCount !== multipleFileDropState.initialTabCount) {
+        throw new Error(`Multiple-file drop is incomplete: ${JSON.stringify(multipleFileDropState)}`);
     }
 
     const logPaneState = await verifyLogPane(window);
