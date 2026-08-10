@@ -107,7 +107,7 @@ function serializeOp(op: Op): StoredOp {
     const lanes: StoredLane[] = [];
     let lastStage: StoredStagePosition = null;
 
-    for (const [laneName, lane] of op.lanes) {
+    for (const [laneName, lane] of Object.entries(op.lanes)) {
         const laneIndex = lanes.length;
         const stages: StoredStage[] = [];
         for (const stage of lane.stages) {
@@ -176,7 +176,7 @@ function deserializeOp(stored: StoredOp): Op {
             stage.endCycle = endCycle;
             lane.stages.push(stage);
         }
-        op.lanes.set(laneName, lane);
+        op.lanes[laneName] = lane;
         decodedLanes.push(lane);
     }
     if (stored.ls !== null) {

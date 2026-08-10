@@ -304,7 +304,7 @@ function saveBookmarks(bookmarks: readonly ViewBookmark[]): void {
 function makeFindTargetString(op: Op): string {
     let labelString =
         `${op.id}: s${op.gid} (t${op.tid}: r${op.rid}) ${op.labelName}\n${op.labelDetail}`;
-    for (const lane of op.lanes.values()) {
+    for (const lane of Object.values(op.lanes)) {
         for (const stage of lane.stages) {
             if (stage.labels !== "") {
                 labelString += `\n${stage.labels}`;

@@ -83,7 +83,7 @@ function createTrace(): { trace: ParsedTrace; op: Op; stage: Stage } {
     stage.endCycle = 5;
     const lane = new Lane();
     lane.stages.push(stage);
-    op.lanes.set("0", lane);
+    op.lanes["0"] = lane;
 
     const levelMap = new StageLevelMap();
     levelMap.update("0", "X", lane);
@@ -130,7 +130,7 @@ test("Web renderer preserves legacy zoom levels and lane heights", () => {
     secondStage.startCycle = 5;
     secondStage.endCycle = 6;
     secondLane.stages.push(secondStage);
-    op.lanes.set("1", secondLane);
+    op.lanes["1"] = secondLane;
     trace.stageLevelMap.update("1", "Wb", secondLane);
 
     const renderer = new KonataRenderer();

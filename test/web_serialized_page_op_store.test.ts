@@ -34,7 +34,7 @@ function createComplexOp(): Op {
     fetch.startCycle = 3;
     fetch.endCycle = 5;
     mainLane.stages.push(fetch);
-    op.lanes.set("0", mainLane);
+    op.lanes["0"] = mainLane;
 
     const subLane = new Lane();
     subLane.level = 1;
@@ -44,7 +44,7 @@ function createComplexOp(): Op {
     execute.startCycle = 6;
     execute.endCycle = 9;
     subLane.stages.push(execute);
-    op.lanes.set("1", subLane);
+    op.lanes["1"] = subLane;
     op.lastParsedStage = execute;
     return op;
 }
@@ -105,7 +105,7 @@ test("SerializedPageOpStore restores the complete mutable Op model", () => {
         },
     );
     assert.deepEqual(
-        [...restored.lanes].map(([name, lane]) => ({
+        Object.entries(restored.lanes).map(([name, lane]) => ({
             name,
             level: lane.level,
             stages: lane.stages.map((stage) => ({ ...stage })),
@@ -122,7 +122,8 @@ test("SerializedPageOpStore restores the complete mutable Op model", () => {
         { opID: 9, type: 2, cycle: 10 },
     ]);
     // lastParsedStageは値が同じ別objectではなく、復元したlane内Stageへの参照に戻す。
-    assert.equal(restored.lastParsedStage, restored.lanes.get("1")?.stages[0]);
+    assert.equal(Object.getPrototypeOf(restored.lanes), null);
+    assert.equal(restored.lastParsedStage, restored.lanes["1"]?.stages[0]);
     assert.equal(store.getOpFromRID(2), restored);
     assert.equal(store.getOp(1, 1), restored);
 

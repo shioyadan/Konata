@@ -443,7 +443,7 @@ export class KonataRenderer {
         // 同じcycleに複数laneが重なっている場合は、stage名をカンマ区切りで並べる。
         let stageText = "";
         let first = true;
-        for (const lane of op.lanes.values()) {
+        for (const lane of Object.values(op.lanes)) {
             for (const stage of lane.stages) {
                 const endCycle = stage.endCycle === stage.startCycle
                     ? stage.endCycle + 1
@@ -677,7 +677,7 @@ export class KonataRenderer {
         if (this.canDrawDetailedly_) {
             context.strokeStyle = this.style_.pipelinePane.borderColor;
             const laneNum = Math.max(1, this.trace_?.stageLevelMap.laneNum ?? 1);
-            for (const [laneName] of op.lanes) {
+            for (const laneName of Object.keys(op.lanes)) {
                 const laneTop = this.splitLanes_
                     ? logicalY + (this.trace_?.stageLevelMap.getLaneID(laneName) ?? 0) / laneNum
                     : logicalY;
@@ -709,7 +709,7 @@ export class KonataRenderer {
         context: CanvasRenderingContext2D,
         laneName: string,
     ): void {
-        const lane = op.lanes.get(laneName);
+        const lane = op.lanes[laneName];
         if (lane === undefined) {
             return;
         }

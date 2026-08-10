@@ -89,7 +89,7 @@ test("Web Onikiri parser preserves core commands for a plain-text trace", async 
     assert.equal(producer.labelName, "producer\nname");
     assert.equal(producer.labelDetail, "producer detail; post-retire detail");
     assert.deepEqual(
-        producer.lanes.get("0")?.stages.map((stage) => ({
+        producer.lanes["0"]?.stages.map((stage) => ({
             name: stage.name,
             labels: stage.labels,
             startCycle: stage.startCycle,
@@ -112,6 +112,27 @@ test("Web Onikiri parser preserves core commands for a plain-text trace", async 
     assert.equal(consumer.retired, false);
     assert.equal(trace.getOpFromRID(1), undefined);
     assert.equal(trace.getOpFromRID(0), producer);
+});
+
+test("Web Onikiri parser stores arbitrary lane names in a prototype-free object", async () => {
+    const contents = [
+        "Kanata\t0004",
+        "I\t0\t10\t0",
+        "S\t0\t__proto__\tF",
+        "C\t1",
+        "E\t0\t__proto__\tF",
+        "R\t0\t0\t0",
+    ].join("\n");
+    const trace = await new OnikiriParser().parse(
+        new File([contents], "lane-name.log", { type: "text/plain" }),
+    );
+    const op = trace.getOp(0);
+    assert.ok(op);
+
+    // lane名はtrace由来なので、Object.prototype上の名前でもprototype変更として扱わない。
+    assert.equal(Object.getPrototypeOf(op.lanes), null);
+    assert.equal(op.lanes["__proto__"]?.stages[0].name, "F");
+    assert.deepEqual(Object.keys(op.lanes), ["__proto__"]);
 });
 
 test("Web Onikiri parser streams the bundled gzip sample", async () => {

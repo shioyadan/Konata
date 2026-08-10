@@ -204,10 +204,10 @@ export class OnikiriParser {
         const target = this.requireOp_(id, op, "S");
         const laneName = this.parseName_(args[2]);
         const stageName = this.parseName_(args[3]);
-        let lane = target.lanes.get(laneName);
+        let lane = target.lanes[laneName];
         if (lane === undefined) {
             lane = new Lane();
-            target.lanes.set(laneName, lane);
+            target.lanes[laneName] = lane;
         }
 
         // 同じlaneの最後のstageが閉じられていなければ、新しいSのcycleで自動的に閉じる。
@@ -237,7 +237,7 @@ export class OnikiriParser {
     }
 
     private closeStage_(id: number, laneName: string, stageName: string, op: Op): void {
-        const lane = op.lanes.get(laneName);
+        const lane = op.lanes[laneName];
         if (lane === undefined) {
             this.fail_(`Lane ${laneName} is not defined for op ${id}.`);
         }
@@ -275,7 +275,7 @@ export class OnikiriParser {
         target.retired = !flush;
 
         // 閉じていない最後のstageはretire/flush cycleで閉じる。
-        for (const lane of target.lanes.values()) {
+        for (const lane of Object.values(target.lanes)) {
             const stage = lane.stages[lane.stages.length - 1];
             if (stage === undefined) {
                 continue;
@@ -335,7 +335,7 @@ export class OnikiriParser {
         // 旧実装では命令あたりのメモリ使用量を抑える効果も担っていた。
         op.labelName = op.labelName.replace(/\\n/g, "\n");
         op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
-        for (const lane of op.lanes.values()) {
+        for (const lane of Object.values(op.lanes)) {
             for (const stage of lane.stages) {
                 stage.labels = stage.labels.replace(/\\n/g, "\n");
             }

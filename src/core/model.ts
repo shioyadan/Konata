@@ -33,8 +33,10 @@ export class Op {
     flush = false;
     // Rコマンドがないままファイル終端へ達した命令を表す。
     eof = false;
-    // lane名から、そのlaneに現れたstage列を引く。
-    readonly lanes = new Map<string, Lane>();
+    // 各命令が持つlaneは少数で、名前による取得・追加・列挙だけに使う。
+    // 旧版と同じobjectなら命令ごとのMap割当てと保存時の変換が不要になる。
+    // trace由来の"__proto__"等も通常のkeyとして扱えるようprototypeを持たせない。
+    readonly lanes = Object.create(null) as Record<string, Lane>;
     fetchedCycle = -1;
     retiredCycle = -1;
     // Iコマンドが現れた行番号。

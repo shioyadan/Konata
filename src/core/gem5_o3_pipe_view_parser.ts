@@ -196,7 +196,7 @@ export class Gem5O3PipeViewParser {
 
             ticks.add(op.fetchedCycle);
             ticks.add(op.retiredCycle);
-            for (const lane of op.lanes.values()) {
+            for (const lane of Object.values(op.lanes)) {
                 for (const stage of lane.stages) {
                     ticks.add(stage.startCycle);
                     ticks.add(stage.endCycle);
@@ -312,7 +312,7 @@ export class Gem5O3PipeViewParser {
             op.consCycle = op.consCycle / this.ticksPerClock_ - this.cycleBegin_;
         }
 
-        for (const lane of op.lanes.values()) {
+        for (const lane of Object.values(op.lanes)) {
             for (const stage of lane.stages) {
                 stage.startCycle = stage.startCycle / this.ticksPerClock_ - this.cycleBegin_;
                 stage.endCycle = stage.endCycle / this.ticksPerClock_ - this.cycleBegin_;
@@ -389,10 +389,10 @@ export class Gem5O3PipeViewParser {
         this.currentInstructionTick_ = tick;
 
         const laneName = "0";
-        let lane = op.lanes.get(laneName);
+        let lane = op.lanes[laneName];
         if (lane === undefined) {
             lane = new Lane();
-            op.lanes.set(laneName, lane);
+            op.lanes[laneName] = lane;
         }
         const stage = new Stage();
         stage.name = stageName;
@@ -422,7 +422,7 @@ export class Gem5O3PipeViewParser {
             return;
         }
 
-        const lane = op.lanes.get("0");
+        const lane = op.lanes["0"];
         const stageName = op.lastParsedStage?.name;
         if (lane === undefined || stageName === undefined) {
             return;
@@ -460,7 +460,7 @@ export class Gem5O3PipeViewParser {
         this.unescapeLabels_(op);
 
         // 閉じていないstageはretireまたはflush tickで閉じる。
-        for (const lane of op.lanes.values()) {
+        for (const lane of Object.values(op.lanes)) {
             for (const stage of lane.stages) {
                 if (stage.endCycle === 0) {
                     stage.endCycle = tick;
@@ -568,7 +568,7 @@ export class Gem5O3PipeViewParser {
         // 文字列としての\nを表示用改行へ戻す。replaceはV8のcons string平坦化も兼ねる。
         op.labelName = op.labelName.replace(/\\n/g, "\n");
         op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
-        for (const lane of op.lanes.values()) {
+        for (const lane of Object.values(op.lanes)) {
             for (const stage of lane.stages) {
                 stage.labels = stage.labels.replace(/\\n/g, "\n");
             }
