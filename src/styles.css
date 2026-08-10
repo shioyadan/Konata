@@ -332,6 +332,7 @@ button:disabled {
 
 .zoom-controls {
     display: flex;
+    height: 2.5rem;
     align-items: center;
     gap: 0.1rem;
     padding: 0.18rem;
@@ -513,6 +514,7 @@ button:disabled {
 
 .comparison-mode-controls {
     display: flex;
+    height: 2.5rem;
     align-items: center;
     gap: 0.2rem;
     padding: 0.2rem;

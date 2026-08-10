@@ -1949,7 +1949,11 @@ async function run() {
             opacity: document.querySelector('input[aria-label="Comparison opacity"]')?.value ?? null,
             alignLabel: alignToA.textContent?.trim() ?? null,
             alignTitle: alignToA.title,
-            status: document.querySelector('.status-message')?.textContent ?? null
+            status: document.querySelector('.status-message')?.textContent ?? null,
+            comparisonControlHeight: document.querySelector('.comparison-mode-controls')
+                ?.getBoundingClientRect().height ?? -1,
+            zoomControlHeight: document.querySelector('.zoom-controls')
+                ?.getBoundingClientRect().height ?? -1
         };
         alignToA.click();
         await nextFrame();
@@ -1981,6 +1985,8 @@ async function run() {
         !comparisonState.initial.alignTitle.includes("Adjust A") ||
         !comparisonState.initial.alignTitle.includes("retired instruction") ||
         comparisonState.initial.status !== "A: gem5-basic.txt ↔ B: kanata-basic.txt" ||
+        Math.abs(comparisonState.initial.comparisonControlHeight -
+            comparisonState.initial.zoomControlHeight) > 0.1 ||
         comparisonState.differenceState.activeMode !== "Difference" ||
         comparisonState.differenceState.canvasMode !== "difference" ||
         comparisonState.remainingCount !== 2 ||
