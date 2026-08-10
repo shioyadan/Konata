@@ -392,10 +392,16 @@ button:disabled {
 }
 
 .view-controls > summary:hover,
-.bookmark-controls > summary:hover,
+.bookmark-controls > summary:not([aria-disabled="true"]):hover,
 .application-menu > summary:hover {
     border-color: transparent;
     background: rgb(255 255 255 / 8%);
+}
+
+.bookmark-controls > summary[aria-disabled="true"],
+.view-controls-panel :disabled {
+    opacity: 0.45;
+    cursor: default;
 }
 
 .view-controls > summary svg,
@@ -1286,7 +1292,7 @@ button:disabled {
 
 .theme-light button:hover:not(:disabled),
 .theme-light .view-controls > summary:hover,
-.theme-light .bookmark-controls > summary:hover,
+.theme-light .bookmark-controls > summary:not([aria-disabled="true"]):hover,
 .theme-light .application-menu > summary:hover {
     border-color: #355f91;
     background: #e8e8e8;
@@ -1325,7 +1331,7 @@ button:disabled {
 
 .theme-light .app-toolbar > .toolbar-action:not(.primary-button):hover:not(:disabled),
 .theme-light .view-controls > summary.toolbar-action:hover,
-.theme-light .bookmark-controls > summary.toolbar-action:hover,
+.theme-light .bookmark-controls > summary.toolbar-action:not([aria-disabled="true"]):hover,
 .theme-light .application-menu > summary.toolbar-action:hover {
     border-color: transparent;
     background: rgb(255 255 255 / 12%);

@@ -432,6 +432,12 @@ export function App() {
         saveBookmarks(bookmarks);
     }, [bookmarks]);
 
+    useEffect(() => {
+        if (trace === null) {
+            bookmarkControlsRef.current?.removeAttribute("open");
+        }
+    }, [trace]);
+
     const resetStats = useCallback(() => {
         statsRequestRef.current++;
         setStatsProgress(null);
@@ -1293,7 +1299,9 @@ export function App() {
                     aria-label="Search trace"
                     title="Search trace"
                     disabled={trace === null || loadState === "loading"}
-                    onClick={() => openCommandPalette("f ")}
+                    onClick={() => commandPaletteInitial === null
+                        ? openCommandPalette("f ")
+                        : resetCommandUI()}
                 >
                     <BsSearch aria-hidden="true" />
                     <span>Search</span>
@@ -1302,8 +1310,16 @@ export function App() {
                     <summary
                         className="toolbar-action"
                         aria-label="Bookmarks"
+                        aria-disabled={trace === null}
                         title="Bookmarks"
-                        onClick={() => viewControlsRef.current?.removeAttribute("open")}
+                        tabIndex={trace === null ? -1 : undefined}
+                        onClick={(event) => {
+                            if (trace === null) {
+                                event.preventDefault();
+                                return;
+                            }
+                            viewControlsRef.current?.removeAttribute("open");
+                        }}
                     >
                         <BsBookmark aria-hidden="true" />
                         <span>Bookmark</span>

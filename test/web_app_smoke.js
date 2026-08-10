@@ -639,6 +639,11 @@ async function run() {
             const labelPane = document.querySelector(".label-pane");
             const pipelinePane = document.querySelector(".pipeline-pane");
             const toolbar = document.querySelector(".app-toolbar");
+            const bookmarkControls = document.querySelector(".bookmark-controls");
+            const bookmarkSummary = bookmarkControls?.querySelector(":scope > summary");
+            bookmarkSummary?.click();
+            const disabledViewControl = document.querySelector('select[aria-label="Pipeline color scheme"]');
+            const enabledViewControl = document.querySelector('select[aria-label="UI color theme"]');
             const toolbarSequence = [...(toolbar?.children ?? [])].map((element) => {
                 if (element.classList.contains("zoom-controls")) {
                     return "Zoom";
@@ -652,7 +657,15 @@ async function run() {
                 headingCount: document.querySelectorAll(".app-toolbar h1").length,
                 status: document.querySelector(".status")?.textContent ?? null,
                 fileAccept: document.querySelector(".file-input")?.getAttribute("accept") ?? null,
+                emptyTitle: document.querySelector(".empty-state strong")?.textContent ?? null,
                 emptyDetail: document.querySelector(".empty-state span")?.textContent ?? null,
+                bookmarkDisabled: bookmarkSummary?.getAttribute("aria-disabled") ?? null,
+                bookmarkOpensWithoutTrace: bookmarkControls?.open ?? null,
+                bookmarkOpacity: bookmarkSummary === undefined ? null : getComputedStyle(bookmarkSummary).opacity,
+                disabledViewOpacity:
+                    disabledViewControl === null ? null : getComputedStyle(disabledViewControl).opacity,
+                enabledViewOpacity:
+                    enabledViewControl === null ? null : getComputedStyle(enabledViewControl).opacity,
                 rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
                 paneTitleCount: document.querySelectorAll(".pane-title").length,
                 openButtonColor: openButton === null ? null : getComputedStyle(openButton).backgroundColor,
@@ -697,7 +710,14 @@ async function run() {
         initialState.status !== "Open or drop a Kanata or gem5 O3PipeView trace." ||
         initialState.fileAccept !==
             ".log,.txt,.gz,.zst,.zstd,text/plain,application/gzip,application/zstd" ||
+        initialState.emptyTitle !==
+            "Drop a Kanata or gem5 O3PipeView trace anywhere in this window." ||
         initialState.emptyDetail !== "Plain text, gzip, and Zstandard files are supported." ||
+        initialState.bookmarkDisabled !== "true" ||
+        initialState.bookmarkOpensWithoutTrace !== false ||
+        initialState.bookmarkOpacity !== "0.45" ||
+        initialState.disabledViewOpacity !== "0.45" ||
+        initialState.enabledViewOpacity !== "1" ||
         initialState.rootChildCount !== 1 ||
         initialState.paneTitleCount !== 0 ||
         initialState.openButtonColor !== "rgba(0, 0, 0, 0)" ||
@@ -1110,7 +1130,16 @@ async function run() {
         }
         const prefilled = searchInput.value;
         const hints = [...document.querySelectorAll('.command-hint code')].map((hint) => hint.textContent);
-        await execute(searchInput, "f execute|consumer");
+        searchButton.click();
+        await nextFrame();
+        const closesOnSecondClick = document.querySelector('.command-palette') === null;
+        searchButton.click();
+        await nextFrame();
+        const reopenedSearchInput = document.querySelector('.command-palette input');
+        if (!(reopenedSearchInput instanceof HTMLInputElement)) {
+            throw new Error("The toolbar search button did not reopen the command palette.");
+        }
+        await execute(reopenedSearchInput, "f execute|consumer");
         const firstResult = await waitForResult(1);
         document.dispatchEvent(new KeyboardEvent("keydown", {key: "F3", bubbles: true, cancelable: true}));
         const nextResult = await waitForResult(0);
@@ -1145,9 +1174,10 @@ async function run() {
         await execute(restoreInput, "j 0");
         await new Promise((resolve) => setTimeout(resolve, 220));
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        return {prefilled, hints, firstResult, nextResult, previousResult, history, jumpToolTip};
+        return {prefilled, hints, closesOnSecondClick, firstResult, nextResult, previousResult, history, jumpToolTip};
     })()`);
     if (commandState.prefilled !== "f " ||
+        !commandState.closesOnSecondClick ||
         JSON.stringify(commandState.hints) !== JSON.stringify([
             "j  <#line>",
             "jr <rid>",
