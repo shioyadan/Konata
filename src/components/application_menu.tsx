@@ -20,6 +20,7 @@ type ApplicationDialog = "about" | "shortcuts" | null;
 
 interface ApplicationMenuProps {
     readonly unreadLogCount: number;
+    readonly hasUnreadWarning: boolean;
     readonly onOpenLog: () => void;
 }
 
@@ -119,7 +120,7 @@ function InformationDialog({ type, onClose }: InformationDialogProps) {
     );
 }
 
-export function ApplicationMenu({ unreadLogCount, onOpenLog }: ApplicationMenuProps) {
+export function ApplicationMenu({ unreadLogCount, hasUnreadWarning, onOpenLog }: ApplicationMenuProps) {
     const menuRef = useRef<HTMLDetailsElement>(null);
     const [dialog, setDialog] = useState<ApplicationDialog>(null);
 
@@ -162,9 +163,20 @@ export function ApplicationMenu({ unreadLogCount, onOpenLog }: ApplicationMenuPr
     return (
         <>
             <details ref={menuRef} className="application-menu">
-                <summary className="toolbar-action" aria-label="Application menu" title="Application menu">
+                <summary
+                    className="toolbar-action"
+                    aria-label={hasUnreadWarning
+                        ? "Application menu, unread warnings in application log"
+                        : "Application menu"}
+                    title={hasUnreadWarning
+                        ? "Application menu — unread warnings"
+                        : "Application menu"}
+                >
                     <BsList aria-hidden="true" />
                     <span>Menu</span>
+                    {hasUnreadWarning && (
+                        <span className="application-menu-warning-badge" aria-hidden="true">!</span>
+                    )}
                 </summary>
                 <div className="application-menu-panel">
                     <button type="button" aria-label="Application log" onClick={openLog}>

@@ -420,6 +420,7 @@ export function App() {
     const [commandMessage, setCommandMessage] = useState("");
     const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
     const [unreadLogCount, setUnreadLogCount] = useState(0);
+    const [hasUnreadWarning, setHasUnreadWarning] = useState(false);
     const [isLogPaneOpen, setIsLogPaneOpen] = useState(false);
     const [recentFiles, setRecentFiles] = useState<readonly RecentFileRecord[]>([]);
     const [changedFileTabIDs, setChangedFileTabIDs] = useState<ReadonlySet<number>>(() => new Set());
@@ -469,6 +470,9 @@ export function App() {
             ]);
             if (!logPaneOpenRef.current) {
                 setUnreadLogCount((count) => count + 1);
+                if (level !== "info") {
+                    setHasUnreadWarning(true);
+                }
             }
         };
         const log = capture("info", originalLog);
@@ -1535,6 +1539,7 @@ export function App() {
         logPaneOpenRef.current = true;
         setIsLogPaneOpen(true);
         setUnreadLogCount(0);
+        setHasUnreadWarning(false);
     };
 
     const closeLogPane = () => {
@@ -2197,7 +2202,11 @@ export function App() {
                         )}
                     </p>
                 )}
-                <ApplicationMenu unreadLogCount={unreadLogCount} onOpenLog={openLogPane} />
+                <ApplicationMenu
+                    unreadLogCount={unreadLogCount}
+                    hasUnreadWarning={hasUnreadWarning}
+                    onOpenLog={openLogPane}
+                />
                 {operation !== null && (
                     <div
                         className={`operation-progress ${operation.type}`}
@@ -2241,6 +2250,7 @@ export function App() {
                     onClear={() => {
                         setLogEntries([]);
                         setUnreadLogCount(0);
+                        setHasUnreadWarning(false);
                     }}
                     onClose={closeLogPane}
                 />

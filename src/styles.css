@@ -255,6 +255,23 @@ button:disabled {
     text-align: center;
 }
 
+.application-menu-warning-badge {
+    position: absolute;
+    top: 0.05rem;
+    right: 0.05rem;
+    display: grid;
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 999px;
+    background: #c05b55;
+    box-shadow: 0 0 0 1px #242a33;
+    color: #fff;
+    font-size: 0.58rem;
+    font-weight: 750;
+    line-height: 1;
+    place-items: center;
+}
+
 .tab-bar {
     z-index: 1;
     flex: 0 0 auto;
@@ -387,6 +404,7 @@ button:disabled {
 .bookmark-controls > summary,
 .comparison-controls > summary,
 .application-menu > summary {
+    position: relative;
     display: inline-flex;
     width: auto;
     height: 2.5rem;

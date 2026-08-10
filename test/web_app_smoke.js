@@ -752,7 +752,9 @@ async function readRenderedState(window) {
             pipelineWidth: pipeline.width,
             pipelineHeight: pipeline.height,
             nonBackgroundPixels,
-            zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
+            zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
+            menuWarningBadge: document.querySelector(".application-menu-warning-badge")?.textContent ?? null,
+            menuLabel: document.querySelector(".application-menu > summary")?.getAttribute("aria-label") ?? null
         };
     })()`);
 }
@@ -884,10 +886,14 @@ async function verifyLogPane(window) {
         const initialViewerHeight = viewer.getBoundingClientRect().height;
 
         console.log("Log pane smoke info");
+        await nextFrame();
+        const infoOnlyWarningBadge = document.querySelector(".application-menu-warning-badge") !== null;
         console.warn("Log pane smoke warning");
         console.error("Log pane smoke error");
         await nextFrame();
         const unread = document.querySelector(".application-menu-count")?.textContent ?? null;
+        const warningBadge = document.querySelector(".application-menu-warning-badge")?.textContent ?? null;
+        const warningMenuLabel = summary.getAttribute("aria-label");
 
         summary.click();
         await nextFrame();
@@ -916,6 +922,7 @@ async function verifyLogPane(window) {
         const resizedPaneHeight = pane?.getBoundingClientRect().height ?? -1;
         const copyEnabled = !(document.querySelector('button[aria-label="Copy logs"]')?.disabled ?? true);
         const unreadCleared = document.querySelector(".application-menu-count") === null;
+        const warningBadgeCleared = document.querySelector(".application-menu-warning-badge") === null;
 
         document.querySelector('button[aria-label="Clear logs"]')?.click();
         await nextFrame();
@@ -926,6 +933,10 @@ async function verifyLogPane(window) {
 
         return {
             unread,
+            infoOnlyWarningBadge,
+            warningBadge,
+            warningMenuLabel,
+            warningBadgeCleared,
             entries,
             copyEnabled,
             unreadCleared,
@@ -1148,6 +1159,10 @@ async function run() {
 
     const logPaneState = await verifyLogPane(window);
     if (logPaneState.unread !== "3" ||
+        logPaneState.infoOnlyWarningBadge ||
+        logPaneState.warningBadge !== "!" ||
+        logPaneState.warningMenuLabel !== "Application menu, unread warnings in application log" ||
+        !logPaneState.warningBadgeCleared ||
         JSON.stringify(logPaneState.entries) !== JSON.stringify([
             {level: "info", message: "Log pane smoke info"},
             {level: "warning", message: "Log pane smoke warning"},
@@ -1240,6 +1255,8 @@ async function run() {
         plainState.status !== "Loaded with 1 warning · 2 ops · 5 cycles · 2 lanes" ||
         plainState.statusType !== "warning" ||
         !plainState.statusIcon ||
+        plainState.menuWarningBadge !== "!" ||
+        plainState.menuLabel !== "Application menu, unread warnings in application log" ||
         plainState.nonBackgroundPixels < 100) {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
