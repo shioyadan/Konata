@@ -486,28 +486,38 @@ export class KonataRenderer {
         this.drawLabel_(labelCanvas, labelSize);
     }
 
-    drawPipeline(pipelineCanvas: HTMLCanvasElement): void {
-        const pipelineSize = this.prepareCanvas_(pipelineCanvas);
+    drawPipeline(
+        pipelineCanvas: HTMLCanvasElement,
+        width?: number,
+        height?: number,
+    ): void {
+        const pipelineSize = this.prepareCanvas_(pipelineCanvas, width, height);
         this.updateScaleParameter_();
         this.drawPipeline_(pipelineCanvas, pipelineSize);
     }
 
-    drawPipelineOver(
+    composePipelineLayers(
         pipelineCanvas: HTMLCanvasElement,
+        baselineCanvas: HTMLCanvasElement,
+        candidateCanvas: HTMLCanvasElement,
         opacity: number,
         operation: GlobalCompositeOperation,
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas);
-        this.updateScaleParameter_();
         const context = pipelineCanvas.getContext("2d");
         if (context === null) {
             return;
         }
         context.save();
-        context.globalAlpha = opacity;
-        context.globalCompositeOperation = operation;
         try {
-            this.drawPipeline_(pipelineCanvas, pipelineSize);
+            // A/Bの描画命令ごとではなく、完成済み画像全体へ一度だけopacityを適用する。
+            context.clearRect(0, 0, pipelineSize.width, pipelineSize.height);
+            context.globalAlpha = 1;
+            context.globalCompositeOperation = "source-over";
+            context.drawImage(baselineCanvas, 0, 0, pipelineSize.width, pipelineSize.height);
+            context.globalAlpha = opacity;
+            context.globalCompositeOperation = operation;
+            context.drawImage(candidateCanvas, 0, 0, pipelineSize.width, pipelineSize.height);
         }
         finally {
             context.restore();
@@ -565,9 +575,14 @@ export class KonataRenderer {
         return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.textLabelMinimumLaneHeight;
     }
 
-    private prepareCanvas_(canvas: HTMLCanvasElement): CanvasSize {
-        const width = Math.max(1, canvas.clientWidth);
-        const height = Math.max(1, canvas.clientHeight);
+    private prepareCanvas_(
+        canvas: HTMLCanvasElement,
+        requestedWidth?: number,
+        requestedHeight?: number,
+    ): CanvasSize {
+        // DOMへ置かない比較用Canvasには、表示CanvasのCSS pixel寸法を明示する。
+        const width = Math.max(1, requestedWidth ?? canvas.clientWidth);
+        const height = Math.max(1, requestedHeight ?? canvas.clientHeight);
         const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
         const backingWidth = Math.max(1, Math.round(width * pixelRatio));
         const backingHeight = Math.max(1, Math.round(height * pixelRatio));

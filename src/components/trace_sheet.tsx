@@ -109,6 +109,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
+    const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
     const splitterDraggingRef = useRef(false);
     const [isPanning, setIsPanning] = useState(false);
@@ -117,6 +119,20 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const baselineRenderer = comparison?.baselineRenderer ?? null;
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
+
+    const resetPipelineCanvases = useCallback(() => {
+        for (const canvas of [
+            pipelineCanvasRef.current,
+            baselineLayerCanvasRef.current,
+            candidateLayerCanvasRef.current,
+        ]) {
+            if (canvas !== null) {
+                // software Canvasの遅延描画資源を、参照中のTraceより先に切り離す。
+                canvas.width = 1;
+                canvas.height = 1;
+            }
+        }
+    }, []);
 
     const redraw = useCallback(() => {
         const labelCanvas = labelCanvasRef.current;
@@ -136,33 +152,41 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 renderer.drawPipeline(pipelineCanvas);
                 return;
             }
-            baselineRenderer.drawPipeline(pipelineCanvas);
-            if (comparisonMode === "overlay") {
-                renderer.drawPipelineOver(pipelineCanvas, comparisonOpacity, "source-over");
+            if (comparisonMode === "baseline") {
+                baselineRenderer.drawPipeline(pipelineCanvas);
+                return;
             }
-            else if (comparisonMode === "difference") {
-                // 同じ画素は黒になり、異なるstage境界や色だけが残る。
-                renderer.drawPipelineOver(pipelineCanvas, 1, "difference");
-            }
+
+            // A/Bをそれぞれ不透明な完成画像にしてから、表示Canvasへ全体を一度だけ合成する。
+            const baselineLayer = baselineLayerCanvasRef.current ?? document.createElement("canvas");
+            const candidateLayer = candidateLayerCanvasRef.current ?? document.createElement("canvas");
+            baselineLayerCanvasRef.current = baselineLayer;
+            candidateLayerCanvasRef.current = candidateLayer;
+            const width = pipelineCanvas.clientWidth;
+            const height = pipelineCanvas.clientHeight;
+            baselineRenderer.drawPipeline(baselineLayer, width, height);
+            renderer.drawPipeline(candidateLayer, width, height);
+            renderer.composePipelineLayers(
+                pipelineCanvas,
+                baselineLayer,
+                candidateLayer,
+                comparisonMode === "overlay" ? comparisonOpacity : 1,
+                comparisonMode === "overlay" ? "source-over" : "difference",
+            );
         }
     }, [baselineRenderer, comparisonMode, comparisonOpacity, renderer]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
-        resetPipelineCanvas: () => {
-            const canvas = pipelineCanvasRef.current;
-            if (canvas !== null) {
-                // Canvasの描画commandをTabのtrace解放前に切り離す。
-                canvas.width = 1;
-                canvas.height = 1;
-            }
-        },
+        resetPipelineCanvas: resetPipelineCanvases,
         getViewportSize: () => ({
             pipelineWidth: pipelineCanvasRef.current?.clientWidth ?? 800,
             pipelineHeight: pipelineCanvasRef.current?.clientHeight ?? 400,
             labelHeight: labelCanvasRef.current?.clientHeight ?? 400,
         }),
-    }), []);
+    }), [resetPipelineCanvases]);
+
+    useLayoutEffect(() => resetPipelineCanvases, [resetPipelineCanvases]);
 
     useLayoutEffect(() => {
         renderer.setTrace(trace);

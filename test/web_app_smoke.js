@@ -1914,6 +1914,17 @@ async function run() {
     const comparisonState = await window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
+        let comparisonLayerCompositions = [];
+        CanvasRenderingContext2D.prototype.drawImage = function(...args) {
+            if (args[0] instanceof HTMLCanvasElement) {
+                comparisonLayerCompositions.push({
+                    opacity: this.globalAlpha,
+                    operation: this.globalCompositeOperation
+                });
+            }
+            return Reflect.apply(originalDrawImage, this, args);
+        };
         const summary = document.querySelector('[aria-label="Compare traces"]');
         if (!(summary instanceof HTMLElement)) {
             throw new Error("The comparison control was not found.");
@@ -1953,18 +1964,22 @@ async function run() {
             comparisonControlHeight: document.querySelector('.comparison-mode-controls')
                 ?.getBoundingClientRect().height ?? -1,
             zoomControlHeight: document.querySelector('.zoom-controls')
-                ?.getBoundingClientRect().height ?? -1
+                ?.getBoundingClientRect().height ?? -1,
+            overlayLayerCompositions: comparisonLayerCompositions.slice(-2)
         };
+        comparisonLayerCompositions = [];
         alignToA.click();
         await nextFrame();
         difference.click();
         await nextFrame();
         const differenceState = {
             activeMode: document.querySelector('.comparison-mode-controls button.is-active')?.textContent?.trim() ?? null,
-            canvasMode: document.querySelector('.comparison-result-canvas')?.dataset.comparisonMode ?? null
+            canvasMode: document.querySelector('.comparison-result-canvas')?.dataset.comparisonMode ?? null,
+            layerCompositions: comparisonLayerCompositions.slice(-2)
         };
         document.querySelector('.trace-tab.is-active .trace-tab-close')?.click();
         await nextFrame();
+        CanvasRenderingContext2D.prototype.drawImage = originalDrawImage;
         return {
             initial,
             differenceState,
@@ -1987,8 +2002,16 @@ async function run() {
         comparisonState.initial.status !== "A: gem5-basic.txt ↔ B: kanata-basic.txt" ||
         Math.abs(comparisonState.initial.comparisonControlHeight -
             comparisonState.initial.zoomControlHeight) > 0.1 ||
+        JSON.stringify(comparisonState.initial.overlayLayerCompositions) !== JSON.stringify([
+            {opacity: 1, operation: "source-over"},
+            {opacity: 0.5, operation: "source-over"}
+        ]) ||
         comparisonState.differenceState.activeMode !== "Difference" ||
         comparisonState.differenceState.canvasMode !== "difference" ||
+        JSON.stringify(comparisonState.differenceState.layerCompositions) !== JSON.stringify([
+            {opacity: 1, operation: "source-over"},
+            {opacity: 1, operation: "difference"}
+        ]) ||
         comparisonState.remainingCount !== 2 ||
         comparisonState.remainingSelected !== "gem5-basic.txt") {
         throw new Error(`Comparison tabs are incomplete: ${JSON.stringify(comparisonState)}`);
