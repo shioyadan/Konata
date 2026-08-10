@@ -10,11 +10,12 @@
 // 取得する。これにより、離れたOpを描くために細かいpageを大量展開することを避ける。
 // 展開済みpageが上限を超えると、dirty pageをJSON.stringify()で保存し、必要ならpage単位の
 // 独立したzstd frameへ圧縮して元のOp参照を切る。getOp()は必要なpageだけを同期的に戻すため、
-// Renderer側の同期APIは旧版のまま維持できる。OpのJSON変換規則自体はmodel.tsに置く。
+// Renderer側の同期APIは旧版のまま維持できる。OpはJSONで表せるdataだけを持つため、page側で
+// fieldごとの変換やclass instanceの再生成は行わない。
 
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
-import { Op, type OpJSON } from "./model";
+import { type Op } from "./model";
 import { resolveOpID, type MutableOpStore } from "./op_store";
 
 interface DecodedPage {
@@ -174,8 +175,10 @@ class OpPageLevel {
         if (storedPage !== undefined) {
             const start = performance.now();
             const serialized = this.codec_.decode(storedPage.payload);
-            const storedOps = JSON.parse(serialized) as Array<OpJSON | null>;
-            ops = storedOps.map((stored) => stored === null ? undefined : Op.fromJSON(stored));
+            const storedOps = JSON.parse(serialized) as Array<Op | null>;
+            // Op、Lane、Stage、Dependencyはいずれもdataだけなので、旧版と同じく
+            // JSON.parseの結果を変換せずに利用できる。
+            ops = storedOps.map((stored) => stored ?? undefined);
             const milliseconds = performance.now() - start;
             this.decodeCount_++;
             this.decodeMilliseconds_ += milliseconds;
@@ -208,7 +211,7 @@ class OpPageLevel {
             if (page.dirty || !this.serializedPages_.has(oldest)) {
                 // undefinedの穴はJSONでnullになり、page内offsetを維持できる。
                 const start = performance.now();
-                // Op.toJSON()が自動的に使われるため、旧版と同じくpageを直接JSON化する。
+                // Opにobject参照や保存専用fieldはないため、旧版と同じくpageを直接JSON化する。
                 const serialized = JSON.stringify(page.ops);
                 this.serializedPages_.set(oldest, {
                     payload: this.codec_.encode(serialized),

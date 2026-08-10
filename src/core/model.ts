@@ -21,16 +21,6 @@ export class Dependency {
     ) {}
 }
 
-// Opは基本的にそのままJSONへ保存する。JSONではobject同士の参照だけを表現できないため、
-// lastParsedStageに限ってlane IDと配列内の位置へ置き換える。
-type StoredStagePosition = [laneID: number, stageIndex: number] | null;
-export type OpJSON = Omit<Op, "lanes" | "prods" | "cons" | "lastParsedStage" | "toJSON"> & {
-    lanes: Array<Lane | null>;
-    prods: Dependency[];
-    cons: Dependency[];
-    lastParsedStage: StoredStagePosition;
-};
-
 export class Op {
     // ファイル内でのID。Konata内ではこのIDによって命令を識別する。
     id = -1;
@@ -53,8 +43,10 @@ export class Op {
     // 左の逆アセンブルpaneと、詳細表示用のラベル。
     labelName = "";
     labelDetail = "";
-    // type=2のLコマンドを直前のstageへ結び付けるために保持する。
-    lastParsedStage: Stage | null = null;
+    // type=2のLコマンドを直前のstageへ結び付ける。Stageそのものを参照せず、
+    // lanesとstagesの配列indexだけを持つため、そのままJSONへ保存できる。
+    lastParsedLaneID = -1;
+    lastParsedStageID = -1;
     // gem5 Parserが命令ごとの最終tickを追跡するための値も、共通モデルに維持する。
     lastParsedCycle = -1;
     // producer/consumer双方から依存関係を引けるよう、両向きの索引を持つ。
@@ -63,45 +55,6 @@ export class Op {
     // 依存線を実行stageの始点と終点へ描くために使用する。
     prodCycle = -1;
     consCycle = -1;
-
-    toJSON(): OpJSON {
-        // JSON.stringifyがこのmethodを自動的に呼ぶ。通常のfieldは列挙して変換せず、
-        // Opへfieldを追加した場合にもobject spreadでそのまま保存されるようにする。
-        let lastParsedStage: StoredStagePosition = null;
-        for (let laneID = 0; laneID < this.lanes.length; laneID++) {
-            const lane = this.lanes[laneID];
-            if (lane === null) {
-                continue;
-            }
-            const stageIndex = this.lastParsedStage === null
-                ? -1
-                : lane.stages.indexOf(this.lastParsedStage);
-            if (stageIndex !== -1) {
-                lastParsedStage = [laneID, stageIndex];
-                break;
-            }
-        }
-        return { ...this, lastParsedStage };
-    }
-
-    static fromJSON(stored: OpJSON): Op {
-        const { lanes, prods, cons, lastParsedStage, ...fields } = stored;
-
-        // Lane、Stage、Dependencyはmethodを持たないdataなので、JSON.parseが作ったobjectを
-        // そのまま利用する。Opだけはclassの既定値を得るため作り直す。
-        const op = Object.assign(new Op(), fields);
-        op.lanes.push(...lanes);
-        op.prods.push(...prods);
-        op.cons.push(...cons);
-
-        if (lastParsedStage !== null) {
-            const [laneID, stageIndex] = lastParsedStage;
-            // 別のStageを生成せず、lanes内にある同一objectへの参照を復元する。Parserは
-            // retire後に現れるtype=2のL commandも、この参照を通してStageへ追記する。
-            op.lastParsedStage = op.lanes[laneID]?.stages[stageIndex] ?? null;
-        }
-        return op;
-    }
 }
 
 export function getOrCreateLane(op: Op, laneID: number): Lane {
@@ -116,6 +69,13 @@ export function getOrCreateLane(op: Op, laneID: number): Lane {
         op.lanes[laneID] = lane;
     }
     return lane;
+}
+
+export function getLastParsedStage(op: Op): Stage | null {
+    if (op.lastParsedLaneID < 0 || op.lastParsedStageID < 0) {
+        return null;
+    }
+    return op.lanes[op.lastParsedLaneID]?.stages[op.lastParsedStageID] ?? null;
 }
 
 export interface StageLevel {

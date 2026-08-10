@@ -6,6 +6,7 @@ import {
     Stage,
     StageLevelMap,
     getOrCreateLane,
+    getLastParsedStage,
     type TraceUpdateCallback,
 } from "./model";
 import { ArrayOpStore, type MutableOpStore } from "./op_store";
@@ -399,7 +400,8 @@ export class Gem5O3PipeViewParser {
         stage.name = stageName;
         stage.startCycle = tick;
         lane.stages.push(stage);
-        op.lastParsedStage = stage;
+        op.lastParsedLaneID = laneID;
+        op.lastParsedStageID = lane.stages.length - 1;
         op.lastParsedCycle = tick;
 
         // Cmを実行stageと見なし、依存線の消費・生成位置として使う。
@@ -422,24 +424,12 @@ export class Gem5O3PipeViewParser {
             return;
         }
 
-        const laneID = this.stageLevelMap_.getLaneID("0");
-        const lane = laneID === undefined ? null : op.lanes[laneID];
-        const stageName = op.lastParsedStage?.name;
-        if (lane === null || lane === undefined || stageName === undefined) {
+        const lane = op.lanes[op.lastParsedLaneID];
+        const stage = getLastParsedStage(op);
+        if (lane === null || lane === undefined || stage === null) {
             return;
         }
         op.lastParsedCycle = tick;
-
-        let stage: Stage | undefined;
-        for (let index = lane.stages.length - 1; index >= 0; index--) {
-            if (lane.stages[index].name === stageName) {
-                stage = lane.stages[index];
-                break;
-            }
-        }
-        if (stage === undefined) {
-            return;
-        }
         stage.endCycle = tick;
 
         // flushで無理に閉じられる場合があるため、StageLevelMapへの登録はstart側で行う。
@@ -558,11 +548,12 @@ export class Gem5O3PipeViewParser {
             }
 
             // 追加ログ原文は、その時点で開いているstageのtooltipにも残す。
-            if (op.lastParsedStage !== null) {
-                if (op.lastParsedStage.labels !== "") {
-                    op.lastParsedStage.labels += "\n";
+            const stage = getLastParsedStage(op);
+            if (stage !== null) {
+                if (stage.labels !== "") {
+                    stage.labels += "\n";
                 }
-                op.lastParsedStage.labels += args.join(":");
+                stage.labels += args.join(":");
             }
             exLog.logList.shift();
         }

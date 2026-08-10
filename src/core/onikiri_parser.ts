@@ -6,6 +6,7 @@ import {
     Stage,
     StageLevelMap,
     getOrCreateLane,
+    getLastParsedStage,
     type TraceUpdateCallback,
 } from "./model";
 import { ArrayOpStore, type MutableOpStore } from "./op_store";
@@ -187,13 +188,14 @@ export class OnikiriParser {
             target.labelDetail += label;
         }
         else if (type === 2) {
-            if (target.lastParsedStage === null) {
+            const stage = getLastParsedStage(target);
+            if (stage === null) {
                 this.fail_(`The L command for op ${id} has no current stage.`);
             }
-            if (target.lastParsedStage.labels !== "") {
-                target.lastParsedStage.labels += "\n";
+            if (stage.labels !== "") {
+                stage.labels += "\n";
             }
-            target.lastParsedStage.labels += label;
+            stage.labels += label;
         }
     }
 
@@ -215,7 +217,8 @@ export class OnikiriParser {
         stage.name = stageName;
         stage.startCycle = this.currentCycle_;
         lane.stages.push(stage);
-        target.lastParsedStage = stage;
+        target.lastParsedLaneID = laneID;
+        target.lastParsedStageID = lane.stages.length - 1;
 
         // 名前にXを含むstageを実行stageと見なし、依存線の始点に用いる。
         if (/X/.test(stageName)) {

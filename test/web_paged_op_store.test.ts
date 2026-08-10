@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { Dependency, Lane, Op, Stage } from "../src/core/model";
+import { Dependency, Lane, Op, Stage, getLastParsedStage } from "../src/core/model";
 import { OnikiriParser } from "../src/core/onikiri_parser";
 import { PagedOpStore } from "../src/core/paged_op_store";
 
@@ -53,7 +53,8 @@ function createComplexOp(): Op {
     thirdStage.endCycle = 8;
     thirdLane.stages.push(thirdStage);
     op.lanes[2] = thirdLane;
-    op.lastParsedStage = execute;
+    op.lastParsedLaneID = 1;
+    op.lastParsedStageID = 0;
     return op;
 }
 
@@ -90,6 +91,8 @@ test("PagedOpStore restores the complete mutable Op model", () => {
             line: restored.line,
             labelName: restored.labelName,
             labelDetail: restored.labelDetail,
+            lastParsedLaneID: restored.lastParsedLaneID,
+            lastParsedStageID: restored.lastParsedStageID,
             lastParsedCycle: restored.lastParsedCycle,
             prodCycle: restored.prodCycle,
             consCycle: restored.consCycle,
@@ -107,6 +110,8 @@ test("PagedOpStore restores the complete mutable Op model", () => {
             line: 4,
             labelName: "add x1, x2, x3",
             labelDetail: "detail\nline",
+            lastParsedLaneID: 1,
+            lastParsedStageID: 0,
             lastParsedCycle: 11,
             prodCycle: 8,
             consCycle: 6,
@@ -134,8 +139,8 @@ test("PagedOpStore restores the complete mutable Op model", () => {
     assert.deepEqual(restored.cons.map((dependency) => ({ ...dependency })), [
         { opID: 9, type: 2, cycle: 10 },
     ]);
-    // lastParsedStageは値が同じ別objectではなく、復元したlane内Stageへの参照に戻す。
-    assert.equal(restored.lastParsedStage, restored.lanes[1]?.stages[0]);
+    // 直前stageはobject参照ではなくlane/stageの配列indexだけで往復する。
+    assert.equal(getLastParsedStage(restored), restored.lanes[1]?.stages[0]);
     assert.equal(store.getOpFromRID(2), restored);
     assert.equal(store.getOp(1, 1), restored);
 
@@ -222,8 +227,11 @@ test("OnikiriParser preserves post-retire updates through serialized pages", asy
     const fixturePath = path.resolve(import.meta.dirname, "fixtures", "kanata-basic.txt");
     const contents = fs.readFileSync(fixturePath);
     const bytes = new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength);
-    const file = new File([bytes], "kanata-basic.txt", { type: "text/plain" });
-    // 1 Op/pageにしてid=1のretire時にid=0を追い出し、末尾のretire後Lで再展開させる。
+    // fixture末尾で、詳細ラベルに加えて直前stageへのラベルもretire後に追記する。
+    const file = new File([bytes, "L\t0\t2\tpost-retire stage"], "kanata-basic.txt", {
+        type: "text/plain",
+    });
+    // 1 Op/pageにしてid=1のretire時にid=0を追い出し、末尾のLで再展開させる。
     const store = new PagedOpStore({
         pageSizeBits: 0,
         maxDecodedPages: 1,
@@ -235,6 +243,9 @@ test("OnikiriParser preserves post-retire updates through serialized pages", asy
     assert.equal(trace.lastRID, 0);
     assert.equal(trace.opCount, 2);
     assert.equal(trace.getOp(0)?.labelDetail, "producer detail; post-retire detail");
+    const mainLaneID = trace.stageLevelMap.getLaneID("0");
+    assert.notEqual(mainLaneID, undefined);
+    assert.equal(trace.getOp(0)?.lanes[mainLaneID]?.stages.at(-1)?.labels, "post-retire stage");
     assert.equal(trace.getOpFromRID(0)?.id, 0);
     assert.equal(trace.getOpFromRID(1), undefined);
 });
