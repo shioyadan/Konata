@@ -1587,6 +1587,11 @@ export function App() {
                         role={statusType === "error" ? "alert" : "status"}
                         title={statusMessage}
                     >
+                        {(statusType === "loading" || statusType === "ready") && (
+                            <span className="status-loading-dots" aria-hidden="true">
+                                {Array.from({length: 6}, (_, index) => <span key={index} />)}
+                            </span>
+                        )}
                         {(statusType === "warning" || statusType === "error") && (
                             <BsExclamationTriangleFill aria-hidden="true" />
                         )}

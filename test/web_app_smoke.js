@@ -168,7 +168,7 @@ async function verifyIncrementalRendering(window) {
                         return;
                     }
                     if (index === 1) {
-                        await new Promise((done) => setTimeout(done, 300));
+                        await new Promise((done) => setTimeout(done, 900));
                     }
                     controller.enqueue(chunks[index]);
                     index++;
@@ -189,20 +189,63 @@ async function verifyIncrementalRendering(window) {
         let partialPixels = 0;
         let progressLayers = null;
         let loadingStatus = null;
+        let initialDotTransforms = null;
+        let dotSampleTime = 0;
+        let dotsAnimated = false;
+        let completionPending = false;
         const check = () => {
             const root = document.querySelector(".trace-app");
             const state = root?.dataset.loadState;
             const opCount = Number(root?.dataset.opCount ?? -1);
-            if (state === "loading" && opCount === 1 && partialPixels === 0) {
+            if (state === "loading" && opCount === 1) {
                 const canvas = document.querySelector(".pipeline-pane canvas");
                 const toolbar = document.querySelector(".app-toolbar");
                 const progress = document.querySelector(".operation-progress");
                 const splitter = document.querySelector(".pane-splitter");
                 const status = document.querySelector(".status-loading");
+                const dots = status?.querySelector(".status-loading-dots");
+                const dotElements = dots?.querySelectorAll(":scope > span") ?? [];
+                const dotStyle = dotElements[0] instanceof HTMLElement
+                    ? getComputedStyle(dotElements[0])
+                    : null;
+                const dotCenters = Array.from(dotElements, (dot) => {
+                    const rect = dot.getBoundingClientRect();
+                    return [rect.left + rect.width / 2, rect.top + rect.height / 2];
+                });
+                const hexagonOrder = [0, 2, 4, 5, 3, 1, 0];
+                const sideLengths = hexagonOrder.slice(1).map((dotIndex, index) => {
+                    const from = dotCenters[hexagonOrder[index]];
+                    const to = dotCenters[dotIndex];
+                    return from === undefined || to === undefined
+                        ? Number.NaN
+                        : Math.hypot(to[0] - from[0], to[1] - from[1]);
+                });
                 loadingStatus = {
                     text: status?.textContent ?? null,
+                    dots: dotElements.length,
+                    dotBlur: dotStyle?.filter ?? null,
+                    dotColor: dotStyle?.color ?? null,
+                    dotShadow: dotStyle?.boxShadow ?? null,
+                    dotOpacity: dotStyle?.opacity ?? null,
+                    dotTiming: dotStyle?.animationTimingFunction ?? null,
+                    dotTransformOrigin: dotStyle?.transformOrigin ?? null,
+                    hexagonSideSpread: Math.max(...sideLengths) - Math.min(...sideLengths),
                     role: status?.getAttribute("role") ?? null
                 };
+                if (dotElements[0] instanceof HTMLElement && dotElements[1] instanceof HTMLElement) {
+                    const transforms = [
+                        getComputedStyle(dotElements[0]).transform,
+                        getComputedStyle(dotElements[1]).transform
+                    ];
+                    if (initialDotTransforms === null) {
+                        initialDotTransforms = transforms;
+                        dotSampleTime = performance.now();
+                    }
+                    else if (performance.now() - dotSampleTime >= 450) {
+                        dotsAnimated ||= transforms[0] !== initialDotTransforms[0] &&
+                            transforms[1] !== initialDotTransforms[1];
+                    }
+                }
                 if (toolbar instanceof HTMLElement &&
                     progress instanceof HTMLElement &&
                     splitter instanceof HTMLElement) {
@@ -213,7 +256,7 @@ async function verifyIncrementalRendering(window) {
                         splitter: getComputedStyle(splitter).zIndex
                     };
                 }
-                if (canvas instanceof HTMLCanvasElement) {
+                if (canvas instanceof HTMLCanvasElement && partialPixels === 0) {
                     const context = canvas.getContext("2d");
                     const pixels = context?.getImageData(0, 0, canvas.width, canvas.height).data;
                     if (pixels !== undefined) {
@@ -226,7 +269,37 @@ async function verifyIncrementalRendering(window) {
                 }
             }
             if (state === "ready" && opCount === 2) {
-                resolve({partialPixels, finalOpCount: opCount, progressLayers, loadingStatus});
+                if (!completionPending) {
+                    completionPending = true;
+                    setTimeout(() => {
+                        const completionDots = document.querySelector(".status-ready .status-loading-dots");
+                        const completionDot = completionDots?.querySelector(":scope > span");
+                        const glowStyle = completionDots instanceof HTMLElement
+                            ? getComputedStyle(completionDots, "::after")
+                            : null;
+                        resolve({
+                            partialPixels,
+                            finalOpCount: opCount,
+                            progressLayers,
+                            loadingStatus,
+                            dotsAnimated,
+                            completionStatus: {
+                                dotAnimation: completionDot instanceof HTMLElement
+                                    ? getComputedStyle(completionDot).animationName
+                                    : null,
+                                dotFilter: completionDot instanceof HTMLElement
+                                    ? getComputedStyle(completionDot).filter
+                                    : null,
+                                dotOpacity: completionDot instanceof HTMLElement
+                                    ? getComputedStyle(completionDot).opacity
+                                    : null,
+                                glowAnimation: glowStyle?.animationName ?? null,
+                                glowOpacity: glowStyle?.opacity ?? null,
+                                glowShadow: glowStyle?.boxShadow ?? null
+                            }
+                        });
+                    }, 1100);
+                }
                 return;
             }
             if (state === "error") {
@@ -428,6 +501,7 @@ async function readRenderedState(window) {
             statusType: ["loading", "ready", "warning", "error"]
                 .find((type) => document.querySelector(".status")?.classList.contains("status-" + type)) ?? null,
             statusIcon: document.querySelector(".status > svg") !== null,
+            statusDots: document.querySelectorAll(".status-loading-dots > span").length,
             rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
             loadState: root?.dataset.loadState ?? null,
             fileName: root?.dataset.fileName ?? null,
@@ -832,7 +906,22 @@ async function run() {
     if (incrementalState.partialPixels < 100 ||
         incrementalState.finalOpCount !== 2 ||
         !incrementalState.loadingStatus?.text?.startsWith("Loading incremental.log…") ||
+        incrementalState.loadingStatus?.dots !== 6 ||
+        incrementalState.loadingStatus?.dotBlur === "none" ||
+        incrementalState.loadingStatus?.dotColor !== "rgb(216, 221, 229)" ||
+        incrementalState.loadingStatus?.dotShadow === "none" ||
+        incrementalState.loadingStatus?.dotOpacity !== "1" ||
+        incrementalState.loadingStatus?.dotTiming !== "ease-in-out" ||
+        incrementalState.loadingStatus?.dotTransformOrigin !== "1.125px 1.125px" ||
+        !(incrementalState.loadingStatus?.hexagonSideSpread < 0.05) ||
         incrementalState.loadingStatus?.role !== "status" ||
+        !incrementalState.dotsAnimated ||
+        incrementalState.completionStatus?.dotAnimation !== "status-loading-complete-dots" ||
+        incrementalState.completionStatus?.dotFilter !== "blur(0.1px) brightness(0.65)" ||
+        incrementalState.completionStatus?.dotOpacity !== "0" ||
+        incrementalState.completionStatus?.glowAnimation !== "status-loading-complete-glow" ||
+        incrementalState.completionStatus?.glowOpacity !== "0" ||
+        incrementalState.completionStatus?.glowShadow === "none" ||
         incrementalState.progressLayers?.toolbar !== "3" ||
         incrementalState.progressLayers?.progress !== "100" ||
         incrementalState.progressLayers?.splitter !== "0") {
@@ -1731,6 +1820,7 @@ async function run() {
         gem5State.laneCount !== 1 ||
         gem5State.statusType !== "ready" ||
         gem5State.statusIcon ||
+        gem5State.statusDots !== 6 ||
         gem5State.nonBackgroundPixels < 100) {
         throw new Error(`gem5 trace rendering is incomplete: ${JSON.stringify(gem5State)}`);
     }
