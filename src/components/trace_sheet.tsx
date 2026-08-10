@@ -11,7 +11,7 @@ import {
 import { BsX } from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
-import { KonataRenderer } from "../renderer/konata_renderer";
+import { COMPARISON_COLOR_SCHEME, KonataRenderer } from "../renderer/konata_renderer";
 import type { ComparisonMode, FindResult, LoadState } from "../store";
 
 declare const __KONATA_VERSION__: string;
@@ -119,6 +119,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const baselineRenderer = comparison?.baselineRenderer ?? null;
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
+    // A単独表示だけはラベルとマウス参照もAへ切り替え、それ以外はBを前面の情報源にする。
+    const displayRenderer = comparisonMode === "baseline" && baselineRenderer !== null
+        ? baselineRenderer
+        : renderer;
 
     const resetPipelineCanvases = useCallback(() => {
         for (const canvas of [
@@ -144,9 +148,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 return;
             }
 
-            // 追加Canvasを作らず、同じCanvasへA、Bの順で描く。Bの背景を含む全体へ
-            // alpha/differenceを適用するため、重ねたCanvasと同じ結果を保てる。
-            renderer.drawLabel(labelCanvas);
+            displayRenderer.drawLabel(labelCanvas);
             pipelineCanvas.dataset.comparisonMode = comparisonMode;
             if (comparisonMode === "candidate") {
                 renderer.drawPipeline(pipelineCanvas);
@@ -164,8 +166,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             candidateLayerCanvasRef.current = candidateLayer;
             const width = pipelineCanvas.clientWidth;
             const height = pipelineCanvas.clientHeight;
-            baselineRenderer.drawPipeline(baselineLayer, width, height);
-            renderer.drawPipeline(candidateLayer, width, height);
+            const baselineColorScheme = comparisonMode === "overlay"
+                ? COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE
+                : COMPARISON_COLOR_SCHEME.DIFFERENCE;
+            const candidateColorScheme = comparisonMode === "overlay"
+                ? COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE
+                : COMPARISON_COLOR_SCHEME.DIFFERENCE;
+            baselineRenderer.drawPipeline(baselineLayer, width, height, baselineColorScheme);
+            renderer.drawPipeline(candidateLayer, width, height, candidateColorScheme);
             renderer.composePipelineLayers(
                 pipelineCanvas,
                 baselineLayer,
@@ -174,7 +182,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 comparisonMode === "overlay" ? "source-over" : "difference",
             );
         }
-    }, [baselineRenderer, comparisonMode, comparisonOpacity, renderer]);
+    }, [baselineRenderer, comparisonMode, comparisonOpacity, displayRenderer, renderer]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
@@ -356,11 +364,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const rect = event.currentTarget.getBoundingClientRect();
-        const op = renderer.getOpFromPixelPositionY(event.clientY - rect.top);
+        const op = displayRenderer.getOpFromPixelPositionY(event.clientY - rect.top);
         if (op !== undefined) {
-            // 旧label paneと同様、縦位置は変えず、選んだ命令のfetch cycleだけを左端へ合わせる。
+            // A/Bの現在位置が異なる場合も、選択側をfetch cycleへ動かす差分だけ同期する。
+            const differenceX = op.fetchedCycle - displayRenderer.viewPosition[0];
             onScrollView([
-                op.fetchedCycle,
+                renderer.viewPosition[0] + differenceX,
                 renderer.viewPosition[1],
             ]);
         }
@@ -382,8 +391,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const x = event.clientX - canvasRect.left;
         const y = event.clientY - canvasRect.top;
         const text = pane === "label"
-            ? renderer.getLabelToolTipText(y)
-            : renderer.getPipelineToolTipText(x, y);
+            ? displayRenderer.getLabelToolTipText(y)
+            : displayRenderer.getPipelineToolTipText(x, y);
         setToolTip(text === null ? null : {
             left: event.clientX - viewerRect.left,
             top: event.clientY - viewerRect.top + 20,

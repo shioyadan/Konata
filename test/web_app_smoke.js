@@ -1943,9 +1943,14 @@ async function run() {
         await nextFrame();
         const comparisonTab = document.querySelector('.trace-tab.is-active');
         const modeButtons = [...document.querySelectorAll('.comparison-mode-controls button')];
+        const baselineMode = modeButtons.find((button) => button.textContent?.trim() === "A");
+        const candidateMode = modeButtons.find((button) => button.textContent?.trim() === "B");
         const difference = modeButtons.find((button) => button.textContent?.trim() === "Difference");
         const alignToA = document.querySelector('button[aria-label="Align Candidate to A"]');
-        if (!(difference instanceof HTMLButtonElement) || !(alignToA instanceof HTMLButtonElement)) {
+        if (!(baselineMode instanceof HTMLButtonElement) ||
+            !(candidateMode instanceof HTMLButtonElement) ||
+            !(difference instanceof HTMLButtonElement) ||
+            !(alignToA instanceof HTMLButtonElement)) {
             throw new Error("The comparison modes were not found.");
         }
         const initial = {
@@ -1970,12 +1975,37 @@ async function run() {
         comparisonLayerCompositions = [];
         alignToA.click();
         await nextFrame();
+        const labelCanvas = document.querySelector('canvas[aria-label="Instruction labels canvas"]');
+        if (!(labelCanvas instanceof HTMLCanvasElement)) {
+            throw new Error("The comparison label canvas was not found.");
+        }
+        const readLabelToolTip = async (modeButton) => {
+            modeButton.click();
+            await nextFrame();
+            const rect = labelCanvas.getBoundingClientRect();
+            labelCanvas.dispatchEvent(new MouseEvent("mousemove", {
+                clientX: rect.left + 8,
+                clientY: rect.top + 8,
+                bubbles: true
+            }));
+            await nextFrame();
+            const text = document.querySelector('[role="tooltip"]')?.textContent ?? null;
+            labelCanvas.dispatchEvent(new MouseEvent("mouseleave", {bubbles: true}));
+            await nextFrame();
+            return text;
+        };
+        // A/B単独表示では、左側ラベルとtooltipも選択したtraceへ切り替わる。
+        const baselineLabelToolTip = await readLabelToolTip(baselineMode);
+        const candidateLabelToolTip = await readLabelToolTip(candidateMode);
+        comparisonLayerCompositions = [];
         difference.click();
         await nextFrame();
         const differenceState = {
             activeMode: document.querySelector('.comparison-mode-controls button.is-active')?.textContent?.trim() ?? null,
             canvasMode: document.querySelector('.comparison-result-canvas')?.dataset.comparisonMode ?? null,
-            layerCompositions: comparisonLayerCompositions.slice(-2)
+            layerCompositions: comparisonLayerCompositions.slice(-3),
+            baselineLabelToolTip,
+            candidateLabelToolTip
         };
         document.querySelector('.trace-tab.is-active .trace-tab-close')?.click();
         await nextFrame();
@@ -2008,9 +2038,12 @@ async function run() {
         ]) ||
         comparisonState.differenceState.activeMode !== "Difference" ||
         comparisonState.differenceState.canvasMode !== "difference" ||
+        !comparisonState.differenceState.baselineLabelToolTip?.includes("add r1, r2") ||
+        !comparisonState.differenceState.candidateLabelToolTip?.includes("producer\nname") ||
         JSON.stringify(comparisonState.differenceState.layerCompositions) !== JSON.stringify([
             {opacity: 1, operation: "source-over"},
-            {opacity: 1, operation: "difference"}
+            {opacity: 1, operation: "difference"},
+            {opacity: 0.2, operation: "screen"}
         ]) ||
         comparisonState.remainingCount !== 2 ||
         comparisonState.remainingSelected !== "gem5-basic.txt") {

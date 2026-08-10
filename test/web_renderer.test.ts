@@ -4,6 +4,7 @@ import test from "node:test";
 import { Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
 import {
+    COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
     formatOpLabel,
     KonataRenderer,
@@ -224,6 +225,67 @@ test("Web renderer applies the legacy light theme and Custom color scheme", () =
         [0, "hsl(210,25%,60%)"],
         [1, "hsl(210,25%,60%)"],
     ]);
+});
+
+test("Web renderer uses comparison colors without changing the View color scheme", () => {
+    const { trace, stage } = createTrace();
+    const renderer = new KonataRenderer();
+    renderer.setTrace(trace);
+    renderer.changeColorScheme("Custom");
+
+    const baseline = createRecordedContext();
+    renderer.drawPipeline(
+        createCanvas(baseline.context),
+        undefined,
+        undefined,
+        COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
+    );
+    const candidate = createRecordedContext();
+    renderer.drawPipeline(
+        createCanvas(candidate.context),
+        undefined,
+        undefined,
+        COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
+    );
+    stage.name = "Y";
+    const changedCandidate = createRecordedContext();
+    renderer.drawPipeline(
+        createCanvas(changedCandidate.context),
+        undefined,
+        undefined,
+        COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
+    );
+    const difference = createRecordedContext();
+    renderer.drawPipeline(
+        createCanvas(difference.context),
+        undefined,
+        undefined,
+        COMPARISON_COLOR_SCHEME.DIFFERENCE,
+    );
+
+    const parseRGB = (color: string): number[] => {
+        const matched = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(color);
+        assert.ok(matched !== null);
+        return matched.slice(1).map(Number);
+    };
+    const addRGB = (left: string, right: string): number[] =>
+        parseRGB(left).map((component, index) => component + parseRGB(right)[index]);
+    const baselineStops = baseline.gradients[0]?.stops;
+    const candidateStops = candidate.gradients[0]?.stops;
+    const changedCandidateStops = changedCandidate.gradients[0]?.stops;
+    assert.ok(baselineStops !== undefined && candidateStops !== undefined && changedCandidateStops !== undefined);
+    // 同じstage XならA/BのRGB和が無彩色となり、opacity 0.5で灰色へ揃う。
+    assert.deepEqual(addRGB(baselineStops[0][1], candidateStops[0][1]), [280, 280, 280]);
+    assert.deepEqual(addRGB(baselineStops[1][1], candidateStops[1][1]), [260, 260, 260]);
+    // 同じ矩形でもstage名がYへ変われば相補関係が崩れ、局所的な色として残る。
+    const changedSum = addRGB(baselineStops[0][1], changedCandidateStops[0][1]);
+    assert.ok(changedSum.some((component) => Math.abs(component - 280) >= 20));
+    assert.deepEqual(difference.gradients[0]?.stops, [
+        [0, "hsl(0,0%,88%)"],
+        [1, "hsl(0,0%,70%)"],
+    ]);
+    // 一時配色で描いた後も、A/B単独表示とView欄には元の選択が残る。
+    assert.equal(renderer.colorScheme, "Custom");
 });
 
 test("Web renderer keeps minimum lane heights configurable", () => {

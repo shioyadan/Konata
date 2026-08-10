@@ -82,6 +82,7 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     baseline.opStore.setRetiredOp(0, baselineOp);
     store.dispatch({ type: "FILE_LOAD_FINISH", tabID: baselineTab.id, trace: baseline.trace });
     baselineTab.renderer.moveLogicalPosition([12, 0]);
+    baselineTab.renderer.changeColorScheme("RoyalBlue");
 
     store.dispatch({ type: "FILE_OPEN", fileName: "candidate.log", renderer: new KonataRenderer() });
     const candidateTab = store.activeTab;
@@ -96,6 +97,7 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     store.dispatch({ type: "FILE_LOAD_FINISH", tabID: candidateTab.id, trace: candidate.trace });
     candidateTab.renderer.zoomAbs(-1, 0, 0, false);
     candidateTab.renderer.moveLogicalPosition([25, 8]);
+    candidateTab.renderer.changeColorScheme("Custom");
 
     store.dispatch({
         type: "COMPARISON_OPEN",
@@ -108,6 +110,17 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     assert.equal(comparison.trace, candidate.trace);
     assert.notEqual(comparison.baselineRenderer, baselineTab.renderer);
     assert.notEqual(comparison.renderer, candidateTab.renderer);
+    // 比較TabのA/B単独表示は、それぞれの元Tabで選んだ通常配色から開始する。
+    assert.equal(comparison.baselineRenderer.colorScheme, "RoyalBlue");
+    assert.equal(comparison.renderer.colorScheme, "Custom");
+    store.dispatch({
+        type: "KONATA_CHANGE_COLOR_SCHEME",
+        tabID: comparison.id,
+        scheme: "DarkOrange",
+    });
+    // 比較TabのViewで変更した後は、A/B単独表示へ同じ通常配色を反映する。
+    assert.equal(comparison.baselineRenderer.colorScheme, "DarkOrange");
+    assert.equal(comparison.renderer.colorScheme, "DarkOrange");
     assert.deepEqual(comparison.renderer.viewPosition, [25, 8]);
     // 比較開始時は各元Tabの位置を保ち、overlayに必要な倍率だけを揃える。
     assert.deepEqual(comparison.baselineRenderer.viewPosition, [12, 0]);

@@ -539,10 +539,11 @@ export class Store {
             const candidateRenderer = new KonataRenderer();
             for (const renderer of [baselineRenderer, candidateRenderer]) {
                 this.applyGlobalViewSettings_(renderer);
-                // 色の違いをtrace差と誤認しないよう、比較中はCandidateの配色へ統一する。
-                renderer.changeColorScheme(candidate.renderer.colorScheme);
                 renderer.hideFlushedOps = candidate.renderer.hideFlushedOps;
             }
+            // A/B単独表示では各元TabのView配色をそのまま再現する。
+            baselineRenderer.changeColorScheme(baseline.renderer.colorScheme);
+            candidateRenderer.changeColorScheme(candidate.renderer.colorScheme);
             const comparison = new ComparisonTab(
                 this.nextOpenedTabID_++,
                 `${baseline.fileName} ↔ ${candidate.fileName}`,

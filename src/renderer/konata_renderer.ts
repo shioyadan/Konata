@@ -24,6 +24,13 @@ export const DEP_ARROW_TYPE = {
 export type DependencyArrowType = typeof DEP_ARROW_TYPE[keyof typeof DEP_ARROW_TYPE];
 export type RendererTheme = "dark" | "light";
 
+// 比較用の配色はView設定へ保存せず、Overlay/Differenceの描画中だけ使う。
+export const COMPARISON_COLOR_SCHEME = {
+    OVERLAY_BASELINE: "__comparison_overlay_baseline",
+    OVERLAY_CANDIDATE: "__comparison_overlay_candidate",
+    DIFFERENCE: "__comparison_difference",
+} as const;
+
 export type CustomColorComponent = number | "auto";
 
 export interface CustomColorDefinition {
@@ -83,6 +90,8 @@ export class KonataRenderer {
     private static readonly ZOOM_RATIO = 1;
     private static readonly MAX_ZOOM_LEVEL = 24;
     private static readonly LANE_HEIGHT_MARGIN = 2;
+    // Differenceでも位置関係を追えるよう、差分画像へ薄く残すAの濃さ。
+    private static readonly DIFFERENCE_CONTEXT_OPACITY = 0.2;
     // Canvasの矩形をpixel境界へ合わせ、ぼけを抑える補正値。
     private static readonly PIXEL_ADJUST = 0.5;
 
@@ -92,6 +101,7 @@ export class KonataRenderer {
     private style_: RendererStyle = darkStyle;
     private theme_: RendererTheme = "dark";
     private colorScheme_ = "Auto";
+    private renderingColorScheme_: string | null = null;
     private customColorSchemes_: Readonly<Record<string, CustomColorScheme>> = DEFAULT_CUSTOM_COLOR_SCHEMES;
     private dependencyArrowType_: DependencyArrowType = DEP_ARROW_TYPE.INSIDE_LINE;
     private splitLanes_ = false;
@@ -490,10 +500,19 @@ export class KonataRenderer {
         pipelineCanvas: HTMLCanvasElement,
         width?: number,
         height?: number,
+        colorScheme?: string,
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas, width, height);
         this.updateScaleParameter_();
-        this.drawPipeline_(pipelineCanvas, pipelineSize);
+        const previousColorScheme = this.renderingColorScheme_;
+        this.renderingColorScheme_ = colorScheme ?? null;
+        try {
+            // 比較色は一時的な描画条件に留め、Viewで選んだ通常色を変更しない。
+            this.drawPipeline_(pipelineCanvas, pipelineSize);
+        }
+        finally {
+            this.renderingColorScheme_ = previousColorScheme;
+        }
     }
 
     composePipelineLayers(
@@ -518,6 +537,12 @@ export class KonataRenderer {
             context.globalAlpha = opacity;
             context.globalCompositeOperation = operation;
             context.drawImage(candidateCanvas, 0, 0, pipelineSize.width, pipelineSize.height);
+            if (operation === "difference") {
+                // 純粋な差分の明るさは保ちつつ、一致部分をAの薄い基準像として残す。
+                context.globalAlpha = KonataRenderer.DIFFERENCE_CONTEXT_OPACITY;
+                context.globalCompositeOperation = "screen";
+                context.drawImage(baselineCanvas, 0, 0, pipelineSize.width, pipelineSize.height);
+            }
         }
         finally {
             context.restore();
@@ -742,7 +767,10 @@ export class KonataRenderer {
         }
         else {
             // 十分小さい時はstageを分けず、命令全体を単色で簡略表示する。
-            context.fillStyle = this.isKnownCalculatedColorScheme_() ? "#888888" : this.colorScheme_;
+            const colorScheme = this.activeColorScheme_;
+            context.fillStyle = this.isKnownCalculatedColorScheme_()
+                ? this.getComparisonOverviewColor_(colorScheme)
+                : colorScheme;
             const laneTop = top + this.laneHeightMargin_;
             const laneHeight = Math.max(0.5, this.laneHeight_ - this.laneHeightMargin_ * 2);
             if (right - left < 1) {
@@ -932,13 +960,17 @@ export class KonataRenderer {
 
     private getStageColor_(laneID: number, stageName: string, isBegin: boolean, op: Op): string {
         const laneName = this.trace_?.stageLevelMap.getLaneName(laneID) ?? String(laneID);
-        if (this.colorScheme_ === "Auto" || this.colorScheme_ === "Unique") {
+        const colorScheme = this.activeColorScheme_;
+        if (this.isComparisonColorScheme_(colorScheme)) {
+            return this.getComparisonStageColor_(colorScheme, laneName, stageName, isBegin);
+        }
+        if (colorScheme === "Auto" || colorScheme === "Unique") {
             if (stageName === "f" || stageName === "stl") {
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
             const stageLevel = this.trace_?.stageLevelMap.get(laneName, stageName);
             const lanePosition = this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0;
-            const level = this.colorScheme_ === "Auto"
+            const level = colorScheme === "Auto"
                 ? stageLevel?.appearance ?? 0
                 : stageLevel?.unique ?? 0;
             const color = this.style_.pipelinePane.stageBackgroundColor;
@@ -949,7 +981,7 @@ export class KonataRenderer {
             return `hsl(${hue},${saturation}%,${lightness}%)`;
         }
 
-        if (this.colorScheme_ === "ThreadID") {
+        if (colorScheme === "ThreadID") {
             const stageLevel = this.trace_?.stageLevelMap.get(laneName, stageName);
             const color = this.style_.pipelinePane.stageBackgroundColor;
             const hueRate = Number(isBegin ? color.hRateBegin : color.hRateEnd);
@@ -962,7 +994,7 @@ export class KonataRenderer {
             return `hsl(${hue},${saturation}%,${lightness}%)`;
         }
 
-        const customScheme = this.customColorSchemes_[this.colorScheme_];
+        const customScheme = this.customColorSchemes_[colorScheme];
         if (customScheme !== undefined) {
             let color = customScheme.defaultColor;
             const lane = customScheme[laneName];
@@ -974,7 +1006,80 @@ export class KonataRenderer {
             const lightness = this.colorComponent_(color.l, isBegin ? base.lBegin : base.lEnd);
             return `hsl(${color.h},${saturation},${lightness})`;
         }
-        return this.colorScheme_;
+        return colorScheme;
+    }
+
+    private get activeColorScheme_(): string {
+        return this.renderingColorScheme_ ?? this.colorScheme_;
+    }
+
+    private isComparisonColorScheme_(colorScheme: string): boolean {
+        return colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE ||
+            colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE ||
+            colorScheme === COMPARISON_COLOR_SCHEME.DIFFERENCE;
+    }
+
+    private getComparisonOverviewColor_(colorScheme: string): string {
+        if (colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE) {
+            return this.theme_ === "dark" ? "rgb(45,105,195)" : "rgb(100,155,225)";
+        }
+        if (colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE) {
+            return this.theme_ === "dark" ? "rgb(225,165,75)" : "rgb(230,175,105)";
+        }
+        return this.isComparisonColorScheme_(colorScheme)
+            ? (this.theme_ === "dark" ? "hsl(0,0%,82%)" : "hsl(0,0%,22%)")
+            : "#888888";
+    }
+
+    private getComparisonStageColor_(
+        colorScheme: string,
+        laneName: string,
+        stageName: string,
+        isBegin: boolean,
+    ): string {
+        if (colorScheme === COMPARISON_COLOR_SCHEME.DIFFERENCE) {
+            // 同一部分を完全に打ち消し、形の違いだけを明るく残すためA/Bを同じ無彩色にする。
+            const lightness = this.theme_ === "dark"
+                ? (isBegin ? 88 : 70)
+                : (isBegin ? 18 : 35);
+            return `hsl(0,0%,${lightness}%)`;
+        }
+
+        // stage名から両traceで同じ特徴量を作り、Aには加算、Bには減算する。
+        // 同じstage同士はopacity 0.5で必ず無彩色になり、違うstageだけに色差が残る。
+        let hash = 2166136261;
+        for (const character of `${laneName}\0${stageName}`) {
+            hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+        }
+        // 短いstage名の末尾だけが違う場合も、RGB全成分へ差が広がるよう最終mixを行う。
+        hash ^= hash >>> 16;
+        hash = Math.imul(hash, 0x85ebca6b);
+        hash ^= hash >>> 13;
+        hash = Math.imul(hash, 0xc2b2ae35);
+        const unsignedHash = (hash ^ (hash >>> 16)) >>> 0;
+        const lightTheme = this.theme_ === "light";
+        const neutral = lightTheme
+            ? (isBegin ? 175 : 155)
+            : (isBegin ? 140 : 130);
+        const baselineRed = lightTheme
+            ? (isBegin ? 137 : 97)
+            : (isBegin ? 67 : 50);
+        const baselineGreen = lightTheme
+            ? (isBegin ? 165 : 140)
+            : (isBegin ? 120 : 95);
+        const baselineBlue = lightTheme
+            ? (isBegin ? 213 : 213)
+            : (isBegin ? 210 : 180);
+        // 各成分を4段階に離し、異なるsignatureの局所色を灰色から強く浮かせる。
+        const redOffset = (unsignedHash & 0x3) * 28 - 42;
+        const greenOffset = ((unsignedHash >>> 2) & 0x3) * 28 - 42;
+        const blueOffset = ((unsignedHash >>> 4) & 0x3) * 28 - 42;
+        const baseline = colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE;
+        const direction = baseline ? 1 : -1;
+        const red = (baseline ? baselineRed : neutral * 2 - baselineRed) + direction * redOffset;
+        const green = (baseline ? baselineGreen : neutral * 2 - baselineGreen) + direction * greenOffset;
+        const blue = (baseline ? baselineBlue : neutral * 2 - baselineBlue) + direction * blueOffset;
+        return `rgb(${red},${green},${blue})`;
     }
 
     private colorComponent_(value: CustomColorComponent, automatic: string): string {
@@ -983,9 +1088,11 @@ export class KonataRenderer {
     }
 
     private isKnownCalculatedColorScheme_(): boolean {
-        return this.colorScheme_ === "Auto" ||
-            this.colorScheme_ === "Unique" ||
-            this.colorScheme_ === "ThreadID" ||
-            this.customColorSchemes_[this.colorScheme_] !== undefined;
+        const colorScheme = this.activeColorScheme_;
+        return colorScheme === "Auto" ||
+            colorScheme === "Unique" ||
+            colorScheme === "ThreadID" ||
+            this.isComparisonColorScheme_(colorScheme) ||
+            this.customColorSchemes_[colorScheme] !== undefined;
     }
 }
