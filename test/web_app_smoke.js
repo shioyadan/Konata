@@ -11,7 +11,8 @@ async function dropContents(window, contents, fileName, mimeType, verifyProgress
     const encodedContents = contents.toString("base64");
 
     // RendererへNode APIを公開せず、browserで選択した時と同じFile/DragEventを組み立てる。
-    await window.webContents.executeJavaScript(`(() => {
+    await window.webContents.executeJavaScript(`(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const binary = atob(${JSON.stringify(encodedContents)});
         const bytes = new Uint8Array(binary.length);
         for (let index = 0; index < binary.length; index++) {
@@ -115,7 +116,9 @@ async function dropContents(window, contents, fileName, mimeType, verifyProgress
                 return;
             }
             if (performance.now() >= deadline) {
-                reject(new Error("Timed out while waiting for the dropped trace."));
+                reject(new Error("Timed out while waiting for " + ${JSON.stringify(fileName)} +
+                    "; current file is " + (root?.dataset.fileName ?? "none") +
+                    " in " + (state ?? "unknown") + " state."));
                 return;
             }
             setTimeout(check, 25);
@@ -391,18 +394,17 @@ async function verifyLoadErrorRecovery(window) {
                     reject(new Error("The load error recovery controls were not found."));
                     return;
                 }
-                let pickerRequested = false;
-                input.addEventListener("click", (clickEvent) => {
-                    // native pickerを開かず、再選択経路へ到達したことだけを検査する。
-                    pickerRequested = true;
-                    clickEvent.preventDefault();
-                }, {once: true});
+                const pickerDescriptor = Object.getOwnPropertyDescriptor(window, "showOpenFilePicker");
+                let pickerRequestCount = 0;
+                Object.defineProperty(window, "showOpenFilePicker", {
+                    configurable: true,
+                    value: async () => {
+                        pickerRequestCount++;
+                        throw new DOMException("Canceled by smoke test", "AbortError");
+                    }
+                });
                 chooseButton.click();
-                let shortcutPickerRequested = false;
-                input.addEventListener("click", (clickEvent) => {
-                    shortcutPickerRequested = true;
-                    clickEvent.preventDefault();
-                }, {once: true});
+                const pickerRequested = pickerRequestCount === 1;
                 const shortcutEvent = new KeyboardEvent("keydown", {
                     key: "o",
                     ctrlKey: true,
@@ -410,6 +412,13 @@ async function verifyLoadErrorRecovery(window) {
                     cancelable: true
                 });
                 const shortcutDispatched = document.dispatchEvent(shortcutEvent);
+                const shortcutPickerRequested = pickerRequestCount === 2;
+                if (pickerDescriptor === undefined) {
+                    delete window.showOpenFilePicker;
+                }
+                else {
+                    Object.defineProperty(window, "showOpenFilePicker", pickerDescriptor);
+                }
                 const result = {
                     title: document.querySelector(".empty-state strong")?.textContent ?? null,
                     detail: document.querySelector(".empty-state span")?.textContent ?? null,
@@ -424,7 +433,7 @@ async function verifyLoadErrorRecovery(window) {
                     shortcutCanceled: !shortcutDispatched && shortcutEvent.defaultPrevented
                 };
                 document.querySelector(".trace-tab-close")?.click();
-                resolve(result);
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve(result)));
                 return;
             }
             if (performance.now() >= deadline) {
@@ -435,6 +444,147 @@ async function verifyLoadErrorRecovery(window) {
         };
         check();
     })`);
+}
+
+async function verifyPersistentFileWorkflow(window, webFile) {
+    await window.loadFile(webFile);
+    const firstPage = await window.webContents.executeJavaScript(`(async () => {
+        const waitFor = async (predicate, message) => {
+            const deadline = performance.now() + 5000;
+            while (performance.now() < deadline) {
+                const value = predicate();
+                if (value) {
+                    return value;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            throw new Error(message);
+        };
+        const writeTrace = async (handle, opCount) => {
+            const lines = ["Kanata\\t0004"];
+            for (let id = 0; id < opCount; id++) {
+                lines.push(
+                    "I\\t" + id + "\\t" + (100 + id) + "\\t0",
+                    "S\\t" + id + "\\t0\\tF",
+                    "C\\t1",
+                    "R\\t" + id + "\\t" + id + "\\t0",
+                );
+            }
+            const writable = await handle.createWritable();
+            await writable.write(lines.join("\\n") + "\\n");
+            await writable.close();
+        };
+
+        const root = await navigator.storage.getDirectory();
+        const handle = await root.getFileHandle("recent-reload-smoke.log", {create: true});
+        await writeTrace(handle, 1);
+        let observerCallback = null;
+        class SmokeFileSystemObserver {
+            constructor(callback) {
+                observerCallback = callback;
+            }
+            async observe() {}
+            disconnect() {}
+        }
+        Object.defineProperty(window, "FileSystemObserver", {
+            configurable: true,
+            value: SmokeFileSystemObserver
+        });
+        Object.defineProperty(window, "showOpenFilePicker", {
+            configurable: true,
+            value: async () => [handle]
+        });
+
+        await waitFor(() => document.querySelector(".open-controls > summary"),
+            "The Open menu was not mounted.");
+        document.querySelector(".open-controls > summary").click();
+        const openFile = [...document.querySelectorAll(".open-controls-panel > button")]
+            .find((button) => button.textContent?.trim() === "Open file…");
+        if (!(openFile instanceof HTMLButtonElement)) {
+            throw new Error("The enhanced Open action was not found.");
+        }
+        openFile.click();
+        await waitFor(() => {
+            const app = document.querySelector(".trace-app");
+            return app?.dataset.loadState === "ready" && app.dataset.opCount === "1";
+        }, "The picker-backed trace did not load.");
+        const originalTab = document.querySelector(".trace-tab");
+
+        await writeTrace(handle, 2);
+        observerCallback?.([{type: "modified"}]);
+        await waitFor(() => document.querySelector(".status-changed"),
+            "The external change confirmation was not shown.");
+        const firstChangedStatus = document.querySelector(".status-changed");
+        const changedRole = firstChangedStatus?.getAttribute("role") ?? null;
+        const changedMessage = firstChangedStatus?.querySelector(".status-message")?.textContent ?? null;
+        const ignore = [...(firstChangedStatus?.querySelectorAll("button") ?? [])]
+            .find((button) => button.textContent?.trim() === "Ignore");
+        ignore?.click();
+        await waitFor(() => document.querySelector(".status-changed") === null,
+            "Ignoring a change did not close the confirmation.");
+
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        await writeTrace(handle, 3);
+        observerCallback?.([{type: "modified"}]);
+        const changedStatus = await waitFor(() => document.querySelector(".status-changed"),
+            "The second external change confirmation was not shown.");
+        const reload = [...changedStatus.querySelectorAll("button")]
+            .find((button) => button.textContent?.trim() === "Reload");
+        reload?.click();
+        await waitFor(() => {
+            const app = document.querySelector(".trace-app");
+            return app?.dataset.loadState === "ready" && app.dataset.opCount === "3";
+        }, "The changed trace did not reload.");
+
+        document.querySelector(".open-controls > summary")?.click();
+        const recent = await waitFor(() => document.querySelector(".recent-file"),
+            "The opened handle was not added to Recent files.");
+        const reloadCurrent = [...document.querySelectorAll(".open-controls-panel > button")]
+            .find((button) => button.textContent?.trim() === "Reload current");
+        return {
+            changedRole,
+            changedMessage,
+            sameTab: originalTab === document.querySelector(".trace-tab"),
+            tabCount: document.querySelectorAll(".trace-tab").length,
+            opCount: document.querySelector(".trace-app")?.dataset.opCount ?? null,
+            recentName: recent.textContent?.trim() ?? null,
+            reloadEnabled: reloadCurrent instanceof HTMLButtonElement && !reloadCurrent.disabled
+        };
+    })()`);
+
+    await window.loadFile(webFile);
+    const secondPage = await window.webContents.executeJavaScript(`(async () => {
+        const waitFor = async (predicate, message) => {
+            const deadline = performance.now() + 5000;
+            while (performance.now() < deadline) {
+                const value = predicate();
+                if (value) {
+                    return value;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            throw new Error(message);
+        };
+        await waitFor(() => document.querySelector(".open-controls > summary"),
+            "The Open menu was not restored.");
+        document.querySelector(".open-controls > summary").click();
+        const recent = await waitFor(() => document.querySelector(".recent-file"),
+            "The saved recent handle was not restored from IndexedDB.");
+        const recentName = recent.textContent?.trim() ?? null;
+        recent.click();
+        await waitFor(() => {
+            const app = document.querySelector(".trace-app");
+            return app?.dataset.loadState === "ready" && app.dataset.opCount === "3";
+        }, "The saved recent handle did not reopen its file.");
+        return {
+            recentName,
+            fileName: document.querySelector(".trace-app")?.dataset.fileName ?? null,
+            opCount: document.querySelector(".trace-app")?.dataset.opCount ?? null,
+            tabCount: document.querySelectorAll(".trace-tab").length
+        };
+    })()`);
+
+    return {firstPage, secondPage};
 }
 
 async function moveSplitter(window, position) {
@@ -727,6 +877,11 @@ async function run() {
             const labelPane = document.querySelector(".label-pane");
             const pipelinePane = document.querySelector(".pipeline-pane");
             const toolbar = document.querySelector(".app-toolbar");
+            const openControls = document.querySelector(".open-controls");
+            const openSummary = openControls?.querySelector(":scope > summary");
+            openSummary?.click();
+            const reloadButton = [...(openControls?.querySelectorAll("button") ?? [])]
+                .find((button) => button.textContent?.trim() === "Reload current");
             const bookmarkControls = document.querySelector(".bookmark-controls");
             const bookmarkSummary = bookmarkControls?.querySelector(":scope > summary");
             bookmarkSummary?.click();
@@ -764,7 +919,13 @@ async function run() {
                 openLabelSize: Number.parseFloat(getComputedStyle(openButton?.querySelector("span")).fontSize),
                 openLabelColor: getComputedStyle(openButton?.querySelector("span")).color,
                 openButtonText: openButton?.textContent?.trim() ?? null,
-                mainActionIconCount: document.querySelectorAll(".app-toolbar > .button-with-icon > svg").length,
+                openPanelTopLevel:
+                    document.querySelector(".app-toolbar > .open-controls > .open-controls-panel") !== null,
+                reloadDisabledWithoutHandle: reloadButton?.disabled ?? null,
+                recentFilesEmpty: document.querySelector(".recent-files-empty")?.textContent ?? null,
+                mainActionIconCount: document.querySelectorAll(
+                    ".app-toolbar > .button-with-icon > svg, .app-toolbar > .open-controls > summary > svg",
+                ).length,
                 toolbarSequence,
                 zoomIconCount: document.querySelectorAll(".zoom-controls .icon-button > svg").length,
                 zoomSeparatorCount: document.querySelectorAll(".zoom-controls > .zoom-separator").length,
@@ -817,6 +978,9 @@ async function run() {
         initialState.openLabelSize > 11 ||
         initialState.openLabelColor !== "rgb(255, 255, 255)" ||
         initialState.openButtonText !== "Open" ||
+        !initialState.openPanelTopLevel ||
+        !initialState.reloadDisabledWithoutHandle ||
+        initialState.recentFilesEmpty !== "No recent files" ||
         initialState.mainActionIconCount !== 3 ||
         JSON.stringify(initialState.toolbarSequence) !==
             JSON.stringify(["Open", "Search", "Bookmark", "Compare", "Stats", "View", "Zoom", "Menu"]) ||
@@ -2703,7 +2867,22 @@ async function run() {
         throw new Error(`View settings recovery is incomplete: ${JSON.stringify(recoveredViewSettingsState)}`);
     }
 
-    console.log(`Web smoke test passed: ${JSON.stringify(recoveredViewSettingsState)}`);
+    const persistentFileState = await verifyPersistentFileWorkflow(window, webFile);
+    if (persistentFileState.firstPage.changedRole !== "status" ||
+        persistentFileState.firstPage.changedMessage !== "recent-reload-smoke.log changed on disk." ||
+        !persistentFileState.firstPage.sameTab ||
+        persistentFileState.firstPage.tabCount !== 1 ||
+        persistentFileState.firstPage.opCount !== "3" ||
+        persistentFileState.firstPage.recentName !== "recent-reload-smoke.log" ||
+        !persistentFileState.firstPage.reloadEnabled ||
+        persistentFileState.secondPage.recentName !== "recent-reload-smoke.log" ||
+        persistentFileState.secondPage.fileName !== "recent-reload-smoke.log" ||
+        persistentFileState.secondPage.opCount !== "3" ||
+        persistentFileState.secondPage.tabCount !== 1) {
+        throw new Error(`Persistent file workflow is incomplete: ${JSON.stringify(persistentFileState)}`);
+    }
+
+    console.log(`Web smoke test passed: ${JSON.stringify(persistentFileState)}`);
     window.destroy();
 }
 

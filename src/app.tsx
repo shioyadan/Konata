@@ -8,9 +8,11 @@ import {
     useSyncExternalStore,
 } from "react";
 import {
+    BsArrowClockwise,
     BsArrowCounterclockwise,
     BsBarChart,
     BsBookmark,
+    BsClockHistory,
     BsCrosshair,
     BsExclamationTriangleFill,
     BsFolder2Open,
@@ -48,12 +50,19 @@ import {
     type RendererTheme,
 } from "./renderer/konata_renderer";
 import {
+    loadRecentFiles,
+    rememberRecentFile,
+    removeRecentFile,
+    type RecentFileRecord,
+} from "./recent_files";
+import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
     type FindResult,
     type MinimumLaneHeightKey,
     type PersistedViewSettings,
     Store,
+    type Tab,
 } from "./store";
 
 interface ViewBookmark {
@@ -80,6 +89,26 @@ interface PendingScroll {
 interface PendingZoom {
     readonly tabID: number;
     readonly level: number;
+}
+
+interface PersistentFileHandle extends FileSystemFileHandle {
+    queryPermission?(descriptor?: { readonly mode: "read" }): Promise<PermissionState>;
+    requestPermission?(descriptor?: { readonly mode: "read" }): Promise<PermissionState>;
+}
+
+interface FileSystemObserverLike {
+    observe(handle: FileSystemHandle): Promise<void>;
+    disconnect(): void;
+}
+
+type FileSystemObserverConstructor = new (
+    callback: (records: readonly { readonly type: string }[]) => void,
+) => FileSystemObserverLike;
+
+interface OpenFileSource {
+    readonly handle: PersistentFileHandle;
+    observer: FileSystemObserverLike | null;
+    changeTimer: number | null;
 }
 
 // 各詳細を描画するlaneの最小高さと、UIの説明を1か所で対応付ける。
@@ -128,6 +157,18 @@ const PIPELINE_COLOR_SCHEMES = new Set([
     "RoyalBlue",
     "Custom",
 ]);
+const TRACE_FILE_PICKER_OPTIONS = {
+    multiple: false,
+    types: [{
+        description: "Kanata or gem5 trace",
+        accept: {
+            "text/plain": [".log", ".txt"],
+            "application/gzip": [".gz"],
+            "application/zstd": [".zst", ".zstd"],
+        },
+    }],
+} as const;
+const FILE_CHANGE_DEBOUNCE_MS = 500;
 
 function isNonNegativeFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -342,6 +383,7 @@ function makeFindTargetString(op: Op): string {
 
 export function App() {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const openControlsRef = useRef<HTMLDetailsElement>(null);
     const bookmarkControlsRef = useRef<HTMLDetailsElement>(null);
     const comparisonControlsRef = useRef<HTMLDetailsElement>(null);
     const viewControlsRef = useRef<HTMLDetailsElement>(null);
@@ -364,6 +406,7 @@ export function App() {
     const pendingZoomRef = useRef<PendingZoom | null>(null);
     const logEntryIDRef = useRef(0);
     const logPaneOpenRef = useRef(false);
+    const fileSourcesRef = useRef(new Map<number, OpenFileSource>());
 
     const { tabs, activeTabID, settings } = useSyncExternalStore(store.subscribe, store.getSnapshot);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -378,6 +421,8 @@ export function App() {
     const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
     const [unreadLogCount, setUnreadLogCount] = useState(0);
     const [isLogPaneOpen, setIsLogPaneOpen] = useState(false);
+    const [recentFiles, setRecentFiles] = useState<readonly RecentFileRecord[]>([]);
+    const [changedFileTabIDs, setChangedFileTabIDs] = useState<ReadonlySet<number>>(() => new Set());
     // 旧版と同じ10枠だけを読み込み、設定全体を扱う新しい層は設けない。
     const [bookmarks, setBookmarks] = useState<readonly ViewBookmark[]>(loadBookmarks);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
@@ -399,6 +444,9 @@ export function App() {
     const searchProgress = activeTab?.findContext.progress ?? null;
     const findResult = activeTab?.findContext.result ?? null;
     const searchMessage = activeTab?.findContext.message ?? "";
+    const activeFileSource = activeTab?.kind === "trace"
+        ? fileSourcesRef.current.get(activeTab.id) ?? null
+        : null;
 
     useEffect(() => {
         const originalLog = console.log;
@@ -445,6 +493,22 @@ export function App() {
     }, [bookmarks]);
 
     useEffect(() => {
+        let active = true;
+        void loadRecentFiles()
+            .then((files) => {
+                if (active) {
+                    setRecentFiles(files);
+                }
+            })
+            .catch(() => {
+                // IndexedDBを使えない環境でも通常のfile inputによる読込みは維持する。
+            });
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    useEffect(() => {
         if (trace === null) {
             bookmarkControlsRef.current?.removeAttribute("open");
         }
@@ -473,6 +537,64 @@ export function App() {
         cancelAnimationFrame(animation.frameID);
         viewAnimationRef.current = null;
     }, []);
+
+    const stopFileObservation = useCallback((source: OpenFileSource) => {
+        if (source.changeTimer !== null) {
+            window.clearTimeout(source.changeTimer);
+            source.changeTimer = null;
+        }
+        source.observer?.disconnect();
+        source.observer = null;
+    }, []);
+
+    const disconnectFileSource = useCallback((tabID: number) => {
+        const source = fileSourcesRef.current.get(tabID);
+        if (source !== undefined) {
+            stopFileObservation(source);
+            fileSourcesRef.current.delete(tabID);
+        }
+        setChangedFileTabIDs((previous) => {
+            if (!previous.has(tabID)) {
+                return previous;
+            }
+            const next = new Set(previous);
+            next.delete(tabID);
+            return next;
+        });
+    }, [stopFileObservation]);
+
+    const watchFileSource = useCallback((tabID: number) => {
+        const source = fileSourcesRef.current.get(tabID);
+        const Observer = (globalThis as typeof globalThis & {
+            FileSystemObserver?: FileSystemObserverConstructor;
+        }).FileSystemObserver;
+        if (source === undefined || Observer === undefined) {
+            return;
+        }
+        stopFileObservation(source);
+        const observer = new Observer((records) => {
+            if (records.length === 0 || fileSourcesRef.current.get(tabID) !== source) {
+                return;
+            }
+            if (source.changeTimer !== null) {
+                window.clearTimeout(source.changeTimer);
+            }
+            // 保存処理が複数eventを出しても、書込みが落ち着いてから一度だけ確認を表示する。
+            source.changeTimer = window.setTimeout(() => {
+                source.changeTimer = null;
+                const tab = store.getSnapshot().tabs.find((item) => item.id === tabID);
+                if (tab?.kind === "trace" && tab.loadState !== "loading") {
+                    setChangedFileTabIDs((previous) => new Set(previous).add(tabID));
+                }
+            }, FILE_CHANGE_DEBOUNCE_MS);
+        });
+        source.observer = observer;
+        void observer.observe(source.handle).catch(() => {
+            if (fileSourcesRef.current.get(tabID) === source && source.observer === observer) {
+                source.observer = null;
+            }
+        });
+    }, [stopFileObservation, store]);
 
     const startViewAnimation = useCallback((
         duration: number,
@@ -584,12 +706,13 @@ export function App() {
             // 解放する前にCanvas側の遅延描画資源を明示的に破棄する。
             traceSheetRef.current?.resetPipelineCanvas();
         }
+        disconnectFileSource(id);
         store.dispatch({ type: "TAB_CLOSE", tabID: id });
         if (wasActive) {
             resetStats();
             resetCommandUI();
         }
-    }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
+    }, [cancelViewAnimation, disconnectFileSource, resetCommandUI, resetStats, store]);
 
     useEffect(() => store.subscribeChange((change) => {
         if (change.type === "VIEW_SETTINGS_UPDATE") {
@@ -604,23 +727,20 @@ export function App() {
     useEffect(() => () => {
         statsRequestRef.current++;
         cancelViewAnimation();
+        for (const source of fileSourcesRef.current.values()) {
+            stopFileObservation(source);
+        }
+        fileSourcesRef.current.clear();
         // StrictModeの初回cleanup時点ではtabがなく、実際のunmountではStoreが全tabを閉じる。
         store.close();
-    }, [cancelViewAnimation, store]);
+    }, [cancelViewAnimation, stopFileObservation, store]);
 
-    const loadFile = useCallback(async (file: File) => {
+    const parseFileInTab = useCallback(async (file: File, tab: Readonly<Tab>): Promise<boolean> => {
         cancelViewAnimation();
-        store.dispatch({
-            type: "FILE_OPEN",
-            fileName: file.name,
-            renderer: new KonataRenderer(),
-        });
-        const tab = store.activeTab;
-        if (tab === null || tab.kind !== "trace") {
-            return;
-        }
         resetStats();
         resetCommandUI();
+        // 同じTabを再利用するreloadでは、古いparseの通知を新しいloadへ混ぜない。
+        const loadSignal = tab.loadSignal;
 
         let parsingTrace: ParsedTrace | null = null;
         // Parserが形式を確定してtraceを公開するまでは、Appが未公開storeの解放を受け持つ。
@@ -632,9 +752,15 @@ export function App() {
         let traceUpdateCount = 0;
         try {
             const updateProgress = (value: number) => {
+                if (loadSignal.aborted) {
+                    return;
+                }
                 store.dispatch({ type: "FILE_LOAD_PROGRESS", tabID: tab.id, progress: value });
             };
             const updateTrace = (partialTrace: ParsedTrace) => {
+                if (loadSignal.aborted) {
+                    return;
+                }
                 // 形式確定後は同じtraceを更新し、Storeから対象sheetの再描画を通知する。
                 parsingTrace = partialTrace;
                 unpublishedStore = null;
@@ -655,7 +781,7 @@ export function App() {
                     file,
                     updateProgress,
                     updateTrace,
-                    tab.loadSignal,
+                    loadSignal,
                 );
             }
             catch (error) {
@@ -671,20 +797,25 @@ export function App() {
                     file,
                     updateProgress,
                     updateTrace,
-                    tab.loadSignal,
+                    loadSignal,
                 );
+            }
+            if (loadSignal.aborted) {
+                parsedTrace.close();
+                return false;
             }
             // 旧Parserと同じ形式で、展開と解析を含む成功Parserの所要時間をconsoleとLogへ残す。
             console.log(`Parsed (${parserName}): ${Math.round(performance.now() - parsingStartedAt)} ms`);
             // 空入力などを除き通常はupdateTraceで所有権が移るが、完了値もtrace自身がstoreを所有する。
             unpublishedStore = null;
             store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: parsedTrace });
+            return true;
         }
         catch (error) {
             closeUnpublishedStore();
             // close済みTabの意図的なcancelは、別Tabへerrorとして表示しない。
-            if (tab.loadSignal.aborted) {
-                return;
+            if (loadSignal.aborted) {
+                return false;
             }
             store.dispatch({
                 type: "FILE_LOAD_ERROR",
@@ -692,8 +823,158 @@ export function App() {
                 message: error instanceof Error ? error.message : String(error),
                 trace: parsingTrace,
             });
+            return false;
         }
     }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
+
+    const rememberFile = useCallback(async (handle: PersistentFileHandle, file: File) => {
+        try {
+            setRecentFiles(await rememberRecentFile(handle, file));
+        }
+        catch {
+            // 履歴保存が使えなくても、開いたtraceとreload handleはこのsession中利用する。
+        }
+    }, []);
+
+    const loadFile = useCallback(async (file: File, handle?: PersistentFileHandle) => {
+        cancelViewAnimation();
+        store.dispatch({
+            type: "FILE_OPEN",
+            fileName: file.name,
+            renderer: new KonataRenderer(),
+        });
+        const tab = store.activeTab;
+        if (tab === null || tab.kind !== "trace") {
+            return;
+        }
+        if (handle !== undefined) {
+            fileSourcesRef.current.set(tab.id, {
+                handle,
+                observer: null,
+                changeTimer: null,
+            });
+        }
+
+        const loaded = await parseFileInTab(file, tab);
+        const source = fileSourcesRef.current.get(tab.id);
+        if (handle !== undefined && source?.handle === handle) {
+            watchFileSource(tab.id);
+            if (loaded) {
+                await rememberFile(handle, file);
+            }
+        }
+    }, [cancelViewAnimation, parseFileInTab, rememberFile, store, watchFileSource]);
+
+    const ensureFilePermission = useCallback(async (handle: PersistentFileHandle) => {
+        const permission = await handle.queryPermission?.({ mode: "read" }) ?? "granted";
+        if (permission === "granted") {
+            return true;
+        }
+        if (permission === "prompt" && handle.requestPermission !== undefined) {
+            return await handle.requestPermission({ mode: "read" }) === "granted";
+        }
+        return false;
+    }, []);
+
+    const openFilePicker = useCallback(async () => {
+        openControlsRef.current?.removeAttribute("open");
+        const showOpenFilePicker = (window as typeof window & {
+            showOpenFilePicker?: (
+                options: typeof TRACE_FILE_PICKER_OPTIONS,
+            ) => Promise<readonly FileSystemFileHandle[]>;
+        }).showOpenFilePicker;
+        if (showOpenFilePicker === undefined) {
+            fileInputRef.current?.click();
+            return;
+        }
+        try {
+            // user activationを維持するため、click callback内で最初にpickerを呼ぶ。
+            const [handle] = await showOpenFilePicker.call(window, TRACE_FILE_PICKER_OPTIONS);
+            if (handle !== undefined) {
+                const file = await handle.getFile();
+                await loadFile(file, handle as PersistentFileHandle);
+            }
+        }
+        catch (error) {
+            if (!(error instanceof DOMException) || error.name !== "AbortError") {
+                setCommandMessage(`Could not open the file. ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    }, [loadFile]);
+
+    const forgetRecentFile = useCallback(async (record: RecentFileRecord) => {
+        try {
+            setRecentFiles(await removeRecentFile(record.id));
+        }
+        catch {
+            setRecentFiles((previous) => previous.filter((item) => item.id !== record.id));
+        }
+    }, []);
+
+    const openRecentFile = useCallback(async (record: RecentFileRecord) => {
+        openControlsRef.current?.removeAttribute("open");
+        const handle = record.handle as PersistentFileHandle;
+        try {
+            if (!await ensureFilePermission(handle)) {
+                setCommandMessage(`Permission to read ${record.name} was not granted.`);
+                return;
+            }
+            const file = await handle.getFile();
+            await loadFile(file, handle);
+        }
+        catch (error) {
+            await forgetRecentFile(record);
+            setCommandMessage(`Could not reopen ${record.name}. ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }, [ensureFilePermission, forgetRecentFile, loadFile]);
+
+    const reloadTab = useCallback(async (tabID: number) => {
+        const source = fileSourcesRef.current.get(tabID);
+        const tab = store.getSnapshot().tabs.find((item) => item.id === tabID);
+        if (source === undefined || tab?.kind !== "trace" || tab.loadState === "loading") {
+            return;
+        }
+        try {
+            if (!await ensureFilePermission(source.handle)) {
+                setCommandMessage(`Permission to reload ${tab.fileName} was not granted.`);
+                return;
+            }
+            // file取得に失敗した場合は、表示中のtraceをそのまま残す。
+            const file = await source.handle.getFile();
+            const currentTab = store.getSnapshot().tabs.find((item) => item.id === tabID);
+            if (fileSourcesRef.current.get(tabID) !== source ||
+                currentTab?.kind !== "trace" || currentTab.loadState === "loading") {
+                return;
+            }
+            stopFileObservation(source);
+            setChangedFileTabIDs((previous) => {
+                const next = new Set(previous);
+                next.delete(tabID);
+                return next;
+            });
+            store.dispatch({ type: "FILE_RELOAD", tabID });
+            const loaded = await parseFileInTab(file, tab);
+            if (fileSourcesRef.current.get(tabID) === source) {
+                watchFileSource(tabID);
+                if (loaded) {
+                    await rememberFile(source.handle, file);
+                }
+            }
+        }
+        catch (error) {
+            watchFileSource(tabID);
+            setCommandMessage(`Could not reload ${tab.fileName}. ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }, [ensureFilePermission, parseFileInTab, rememberFile, stopFileObservation, store,
+        watchFileSource]);
+
+    const dismissFileChange = useCallback((tabID: number) => {
+        setChangedFileTabIDs((previous) => {
+            const next = new Set(previous);
+            next.delete(tabID);
+            return next;
+        });
+    }, []);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -1066,7 +1347,7 @@ export function App() {
         }
         else if (/^l(?:\s+.*)?$/.test(command)) {
             // Webではpathを直接開けないため、lは同じfile pickerを起動する。
-            fileInputRef.current?.click();
+            void openFilePicker();
             accepted = true;
         }
         else {
@@ -1081,7 +1362,7 @@ export function App() {
             saveCommandHistory(commandHistory);
         }
         setCommandPaletteInitial(null);
-    }, [commandHistory, findString, hideSearchResult, scrollTo, store]);
+    }, [commandHistory, findString, hideSearchResult, openFilePicker, scrollTo, store]);
 
     const zoomAt = useCallback((factor: number, centerX: number, centerY: number) => {
         const tab = store.activeTab;
@@ -1289,7 +1570,7 @@ export function App() {
                 return;
             }
             if (commandKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "o") {
-                fileInputRef.current?.click();
+                void openFilePicker();
                 event.preventDefault();
                 return;
             }
@@ -1359,11 +1640,11 @@ export function App() {
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
     }, [commandPaletteInitial, goToBookmark, hideSearchResult, isCustomColorDialogOpen,
-        isStatsDialogOpen, moveHorizontal, moveTab, moveVertical, openCommandPalette, repeatSearch,
-        setBookmark, trace, zoomAtCenter]);
+        isStatsDialogOpen, moveHorizontal, moveTab, moveVertical, openCommandPalette, openFilePicker,
+        repeatSearch, setBookmark, trace, zoomAtCenter]);
 
     let statusMessage = "";
-    let statusType: "loading" | "ready" | "warning" | "error" | "comparison" | null = null;
+    let statusType: "loading" | "ready" | "warning" | "error" | "comparison" | "changed" | null = null;
     if (comparisonTab !== null) {
         statusMessage = `A: ${comparisonTab.baselineFileName} ↔ B: ${comparisonTab.candidateFileName}`;
         statusType = "comparison";
@@ -1371,6 +1652,10 @@ export function App() {
     else if (loadState === "loading") {
         statusMessage = `Loading ${fileName}… ${Math.round(progress * 100)}%`;
         statusType = "loading";
+    }
+    else if (activeTab?.kind === "trace" && changedFileTabIDs.has(activeTab.id)) {
+        statusMessage = `${fileName} changed on disk.`;
+        statusType = "changed";
     }
     else if (loadState === "ready" && trace !== null) {
         const summary = `${trace.opCount.toLocaleString()} ops · ${trace.lastCycle.toLocaleString()} cycles · ${trace.laneNames.length.toLocaleString()} lanes`;
@@ -1401,6 +1686,8 @@ export function App() {
             : searchProgress !== null
                 ? { type: "search", value: searchProgress, label: "Searching trace" }
                 : null;
+    const canReload = activeTab?.kind === "trace" &&
+        activeTab.loadState !== "loading" && activeFileSource !== null;
 
     return (
         <main
@@ -1413,6 +1700,7 @@ export function App() {
             onClick={(event) => {
                 // nativeのdetailsは外側clickで閉じないため、panel外だけを明示的に閉じる。
                 for (const controls of [
+                    openControlsRef.current,
                     bookmarkControlsRef.current,
                     comparisonControlsRef.current,
                     viewControlsRef.current,
@@ -1456,14 +1744,50 @@ export function App() {
                     accept=".log,.txt,.gz,.zst,.zstd,text/plain,application/gzip,application/zstd"
                     onChange={handleFileInput}
                 />
-                <button
-                    className="primary-button button-with-icon toolbar-action"
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                >
-                    <BsFolder2Open aria-hidden="true" />
-                    <span>Open</span>
-                </button>
+                <details ref={openControlsRef} className="open-controls">
+                    <summary
+                        className="primary-button toolbar-action"
+                        aria-label="Open files"
+                        title="Open files"
+                        onClick={() => {
+                            bookmarkControlsRef.current?.removeAttribute("open");
+                            comparisonControlsRef.current?.removeAttribute("open");
+                            viewControlsRef.current?.removeAttribute("open");
+                        }}
+                    >
+                        <BsFolder2Open aria-hidden="true" />
+                        <span>Open</span>
+                    </summary>
+                    <div className="open-controls-panel">
+                        <button type="button" onClick={() => void openFilePicker()}>
+                            <BsFolder2Open aria-hidden="true" />
+                            <span>Open file…</span>
+                        </button>
+                        <button
+                            type="button"
+                            disabled={!canReload}
+                            onClick={() => activeTab !== null && void reloadTab(activeTab.id)}
+                        >
+                            <BsArrowClockwise aria-hidden="true" />
+                            <span>Reload current</span>
+                        </button>
+                        <p>Recent files</p>
+                        {recentFiles.length === 0 ? (
+                            <span className="recent-files-empty">No recent files</span>
+                        ) : recentFiles.map((record) => (
+                            <button
+                                className="recent-file"
+                                type="button"
+                                title={record.name}
+                                key={record.id}
+                                onClick={() => void openRecentFile(record)}
+                            >
+                                <BsClockHistory aria-hidden="true" />
+                                <span>{record.name}</span>
+                            </button>
+                        ))}
+                    </div>
+                </details>
                 <button
                     className="button-with-icon toolbar-action"
                     type="button"
@@ -1489,6 +1813,7 @@ export function App() {
                                 event.preventDefault();
                                 return;
                             }
+                            openControlsRef.current?.removeAttribute("open");
                             viewControlsRef.current?.removeAttribute("open");
                             comparisonControlsRef.current?.removeAttribute("open");
                         }}
@@ -1534,6 +1859,7 @@ export function App() {
                                     event.preventDefault();
                                     return;
                                 }
+                                openControlsRef.current?.removeAttribute("open");
                                 bookmarkControlsRef.current?.removeAttribute("open");
                                 viewControlsRef.current?.removeAttribute("open");
                             }}
@@ -1637,6 +1963,7 @@ export function App() {
                         aria-label="View settings"
                         title="View settings"
                         onClick={() => {
+                            openControlsRef.current?.removeAttribute("open");
                             bookmarkControlsRef.current?.removeAttribute("open");
                             comparisonControlsRef.current?.removeAttribute("open");
                         }}
@@ -1861,6 +2188,12 @@ export function App() {
                             <BsExclamationTriangleFill aria-hidden="true" />
                         )}
                         <span className="status-message">{statusMessage}</span>
+                        {statusType === "changed" && activeTab !== null && (
+                            <span className="status-actions">
+                                <button type="button" onClick={() => void reloadTab(activeTab.id)}>Reload</button>
+                                <button type="button" onClick={() => dismissFileChange(activeTab.id)}>Ignore</button>
+                            </span>
+                        )}
                     </p>
                 )}
                 <ApplicationMenu unreadLogCount={unreadLogCount} onOpenLog={openLogPane} />
@@ -1899,7 +2232,7 @@ export function App() {
                 onScrollView={scrollTo}
                 onZoomView={zoomAt}
                 onCloseFindResult={hideSearchResult}
-                onOpenTrace={() => fileInputRef.current?.click()}
+                onOpenTrace={() => void openFilePicker()}
             />
             {isLogPaneOpen && (
                 <LogPane

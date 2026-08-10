@@ -39,6 +39,7 @@ button:hover:not(:disabled) {
 }
 
 button:focus-visible,
+.open-controls > summary:focus-visible,
 .view-controls > summary:focus-visible,
 .bookmark-controls > summary:focus-visible,
 .comparison-controls > summary:focus-visible,
@@ -373,6 +374,7 @@ button:disabled {
     text-align: center;
 }
 
+.open-controls,
 .view-controls,
 .bookmark-controls,
 .comparison-controls,
@@ -380,6 +382,7 @@ button:disabled {
     position: relative;
 }
 
+.open-controls > summary,
 .view-controls > summary,
 .bookmark-controls > summary,
 .comparison-controls > summary,
@@ -395,6 +398,7 @@ button:disabled {
     list-style: none;
 }
 
+.open-controls > summary:hover,
 .view-controls > summary:hover,
 .bookmark-controls > summary:not([aria-disabled="true"]):hover,
 .comparison-controls > summary:not([aria-disabled="true"]):hover,
@@ -410,6 +414,7 @@ button:disabled {
     cursor: default;
 }
 
+.open-controls > summary svg,
 .view-controls > summary svg,
 .bookmark-controls > summary svg,
 .comparison-controls > summary svg,
@@ -418,6 +423,7 @@ button:disabled {
     height: 1.2rem;
 }
 
+.open-controls > summary::-webkit-details-marker,
 .view-controls > summary::-webkit-details-marker,
 .bookmark-controls > summary::-webkit-details-marker,
 .comparison-controls > summary::-webkit-details-marker,
@@ -474,6 +480,7 @@ button:disabled {
     font-size: 0.7rem;
 }
 
+.open-controls-panel,
 .view-controls-panel,
 .bookmark-controls-panel,
 .comparison-controls-panel {
@@ -492,6 +499,56 @@ button:disabled {
     background: #282e38;
     box-shadow: var(--ui-panel-shadow);
     overflow-y: auto;
+}
+
+.open-controls-panel {
+    min-width: 18rem;
+    gap: 0.2rem;
+    padding: 0.4rem;
+}
+
+.open-controls-panel > button {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 0.6rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
+.open-controls-panel > button:hover:not(:disabled) {
+    background: #38404d;
+}
+
+.open-controls-panel > button svg {
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+}
+
+.open-controls-panel > p {
+    margin: 0.35rem 0.6rem 0;
+    padding-top: 0.55rem;
+    border-top: 1px solid #3f4754;
+    color: #9ea6b2;
+    font-size: 0.7rem;
+}
+
+.open-controls-panel .recent-file span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recent-files-empty {
+    padding: 0.45rem 0.6rem;
+    color: #9ea6b2;
+    font-size: 0.78rem;
 }
 
 .bookmark-controls-panel {
@@ -812,6 +869,24 @@ button:disabled {
 
 .status-error {
     color: #ff9a91;
+}
+
+.status-changed {
+    color: #e5bd72;
+}
+
+.status-actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 0.25rem;
+}
+
+.status-actions button {
+    padding: 0.16rem 0.4rem;
+    border-color: currentColor;
+    background: transparent;
+    color: inherit;
+    font-size: 0.7rem;
 }
 
 .viewer {
@@ -1504,6 +1579,7 @@ button:disabled {
 }
 
 .theme-light button,
+.theme-light .open-controls > summary,
 .theme-light .view-controls > summary,
 .theme-light .bookmark-controls > summary,
 .theme-light .comparison-controls > summary,
@@ -1514,6 +1590,7 @@ button:disabled {
 }
 
 .theme-light button:hover:not(:disabled),
+.theme-light .open-controls > summary:hover,
 .theme-light .view-controls > summary:hover,
 .theme-light .bookmark-controls > summary:not([aria-disabled="true"]):hover,
 .theme-light .comparison-controls > summary:not([aria-disabled="true"]):hover,
@@ -1530,6 +1607,18 @@ button:disabled {
 }
 
 .theme-light .primary-button.toolbar-action span {
+    color: #fff;
+}
+
+.theme-light .open-controls > summary.primary-button {
+    border-color: transparent;
+    background: transparent;
+    color: #fff;
+}
+
+.theme-light .open-controls > summary.primary-button:hover {
+    border-color: transparent;
+    background: rgb(216 235 255 / 14%);
     color: #fff;
 }
 
@@ -1591,6 +1680,7 @@ button:disabled {
     color: #ffd4d4;
 }
 
+.theme-light .open-controls-panel,
 .theme-light .view-controls-panel,
 .theme-light .bookmark-controls-panel,
 .theme-light .comparison-controls-panel,
@@ -1661,6 +1751,24 @@ button:disabled {
 
 .theme-light .application-menu-panel small {
     border-top-color: #d7dbe2;
+    color: #666;
+}
+
+.theme-light .open-controls-panel > button {
+    background: transparent;
+    color: #222;
+}
+
+.theme-light .open-controls-panel > button:hover:not(:disabled) {
+    background: #e5e8ed;
+}
+
+.theme-light .open-controls-panel > p {
+    border-top-color: #d7dbe2;
+    color: #666;
+}
+
+.theme-light .recent-files-empty {
     color: #666;
 }
 

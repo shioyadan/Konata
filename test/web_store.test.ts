@@ -67,6 +67,42 @@ test("Store owns tab traces, renderers, activation, and close", () => {
     assert.equal(store.getSnapshot().tabs.length, 0);
 });
 
+test("Store reloads a trace in place and restores its view", () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "reload.log", renderer: new KonataRenderer() });
+    const tab = store.activeTab;
+    assert.ok(tab !== null && tab.kind === "trace");
+    const first = createTrace("reload.log");
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: first.trace });
+    tab.renderer.zoomAbs(-1, 0, 0, false);
+    tab.renderer.moveLogicalPosition([12, 4]);
+    const firstSignal = tab.loadSignal;
+
+    store.dispatch({ type: "FILE_RELOAD", tabID: tab.id });
+
+    assert.equal(store.activeTab, tab);
+    assert.equal(tab.loadState, "loading");
+    assert.equal(tab.progress, 0);
+    assert.equal(tab.trace, null);
+    assert.equal(firstSignal.aborted, true);
+    assert.equal(tab.loadSignal.aborted, false);
+    assert.equal(first.opStore.opCount, 0);
+
+    const second = createTrace("reload.log");
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: second.trace });
+    assert.equal(tab.trace, second.trace);
+    assert.equal(tab.renderer.zoomLevel, -1);
+    assert.deepEqual(tab.renderer.viewPosition, [12, 4]);
+    assert.ok(changes.some((change) =>
+        change.type === "PROGRESS_BAR_START" && change.tabID === tab.id && change.operation === "load"));
+
+    store.close();
+    assert.equal(second.opStore.opCount, 0);
+});
+
 test("Comparison tabs share source OpStores until the last view is closed", () => {
     const store = new Store();
 

@@ -59,7 +59,7 @@ Generate a trace from gem5 with the O3 CPU model. This example is based on the
     -m <last cycle of interest>
 ```
 
-Open `trace.out` with the Open button or drag and drop it onto Konata. Using `O3CPUAll` together
+Open `trace.out` from the Open menu or drag and drop it onto Konata. Using `O3CPUAll` together
 with `O3PipeView` adds detailed CPU messages and instruction dependencies:
 
 ```text
@@ -72,7 +72,15 @@ the corresponding instruction.
 
 ### Web controls
 
-The toolbar provides Open, Search, Bookmark, Stats, View, and zoom controls. Application log in
+The toolbar provides Open, Search, Bookmark, Stats, View, and zoom controls. In Chromium browsers
+that support the File System Access API, Open also lists the five most recently selected files and
+can reload the current file. The browser stores only its local file handle and summary metadata in
+IndexedDB; it does not store the trace contents or upload them. A restored handle may require read
+permission again. When File System Observer is available, an external change shows Reload and
+Ignore actions instead of reloading automatically. Files opened by drag and drop or by the fallback
+file input do not provide a persistent handle, so these extra actions are disabled.
+
+Application log in
 the rightmost menu opens a resizable pane at the bottom of the window for messages that are also
 written to the browser console. View changes the theme, pipeline colors, dependency arrows, lane
 layout, flushed-op visibility, and the minimum
@@ -110,12 +118,12 @@ the corresponding slot. Command history, bookmarks, and view settings are saved 
 | Progressive parsing and drawing | Supported | Supported |
 | Adjust position | Toolbar crosshair | Pipeline context menu |
 | Transparent overlay and synchronized scrolling | Not yet implemented | Supported |
-| Recent files and reload after an external file change | Not yet implemented | Supported |
+| Recent files and reload after an external file change | Supported in compatible Chromium browsers; file-input fallback elsewhere | Supported |
 | Automatic loading from a path or URL query | Intentionally disabled | Local paths supported |
 
 The missing comparison functions are being redesigned instead of directly copying the transparent
-overlay. Remote-server/WSL reload and recent-file support will be considered together with a
-restricted read-only trace server. Arbitrary URL or path loading is not enabled in the Web build.
+overlay. Remote-server/WSL reload will be considered together with a restricted read-only trace
+server. Arbitrary URL or path loading is not enabled in the Web build.
 
 On Linux, the Electron application may require additional Chromium runtime libraries. Installing a
 recent Google Chrome or the corresponding distribution packages usually provides them.

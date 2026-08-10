@@ -91,6 +91,7 @@ export interface FindContext {
 
 export type Action =
     | { readonly type: "FILE_OPEN"; readonly fileName: string; readonly renderer: KonataRenderer }
+    | { readonly type: "FILE_RELOAD"; readonly tabID: number }
     | { readonly type: "FILE_LOAD_PROGRESS"; readonly tabID: number; readonly progress: number }
     | { readonly type: "FILE_LOAD_TRACE"; readonly tabID: number; readonly trace: ParsedTrace }
     | { readonly type: "FILE_LOAD_FINISH"; readonly tabID: number; readonly trace: ParsedTrace }
@@ -183,7 +184,11 @@ function createFindContext(): FindContext {
 // 旧Tabと同じく、1つの入力、その命令列、Renderer状態を同じ寿命で所有する。
 export class Tab {
     readonly kind = "trace";
-    private readonly loadAbortController_ = new AbortController();
+    private loadAbortController_ = new AbortController();
+    private reloadView_: {
+        readonly position: readonly [number, number];
+        readonly zoom: number;
+    } | null = null;
     trace: ParsedTrace | null = null;
     loadState: LoadState = "loading";
     progress = 0;
@@ -209,7 +214,32 @@ export class Tab {
         const previousTrace = this.trace;
         this.trace = trace;
         this.renderer.setTrace(trace);
+        if (this.reloadView_ !== null) {
+            this.renderer.zoomAbs(this.reloadView_.zoom, 0, 0, false);
+            this.renderer.moveLogicalPosition(this.reloadView_.position);
+            this.reloadView_ = null;
+        }
         previousTrace?.close();
+    }
+
+    beginReload(): void {
+        const previousTrace = this.trace;
+        this.trace = null;
+        this.reloadView_ = {
+            position: this.renderer.viewPosition,
+            zoom: this.renderer.zoomLevel,
+        };
+        this.loadAbortController_.abort();
+        this.loadAbortController_ = new AbortController();
+        this.findContext.requestID++;
+        this.findContext.progress = null;
+        this.findContext.result = null;
+        this.findContext.message = "";
+        this.renderer.setTrace(null);
+        previousTrace?.close();
+        this.loadState = "loading";
+        this.progress = 0;
+        this.errorMessage = "";
     }
 
     close(): void {
@@ -222,6 +252,7 @@ export class Tab {
         this.findContext.progress = null;
         this.findContext.result = null;
         this.findContext.message = "";
+        this.reloadView_ = null;
         // Renderer側の参照も外し、このtabを閉じるだけでtrace全体を回収できるようにする。
         this.renderer.setTrace(null);
         trace?.close();
@@ -414,6 +445,20 @@ export class Store {
             this.publish_(tab.id, [
                 { type: "TAB_OPEN", tabID: tab.id },
                 { type: "TAB_UPDATE", tabID: tab.id },
+                { type: "PROGRESS_BAR_START", tabID: tab.id, operation: "load" },
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "FILE_RELOAD": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined || tab.kind !== "trace") {
+                return;
+            }
+            tab.beginReload();
+            this.publish_(tab.id, [
+                { type: "TAB_UPDATE", tabID: tab.id },
+                { type: "PROGRESS_BAR_FINISH", tabID: tab.id, operation: "search" },
                 { type: "PROGRESS_BAR_START", tabID: tab.id, operation: "load" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
