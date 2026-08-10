@@ -9,6 +9,12 @@ let Lane = require("./stage").Lane;
 // To avoid conflicts with node.js internal FileReader, use a different name.
 let InternalFileReader = require("./file_reader").FileReader; // eslint-disable-line
 
+function unescapeLabelNewlines(label) {
+    // 現在のV8ではmatchしないreplace()はcons stringを平坦化しないため、実際に
+    // escaped newlineを含むlabelだけを変換する。
+    return label.includes("\\n") ? label.replace(/\\n/g, "\n") : label;
+}
+
 class OnikiriParser{
 
     constructor(){
@@ -238,15 +244,15 @@ class OnikiriParser{
      */
     unescapeLabels(op){
         // op 内のラベルのエスケープされている \n を戻す
-        // v8 エンジンでは，文字列を結合すると cons 文字列という形式で
-        // 文字列のリストとして保持するが，これはメモリ効率が悪いが，
-        // 正規表現をかけるとそれが平坦化されるのでメモリ効率もあがる
-        // （op 1つあたり 2KB ぐらいメモリ使用量が減る
-        op.labelName = op.labelName.replace(/\\n/g, "\n");
-        op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
+        // 旧実装が期待したcons stringの平坦化は現在のV8では保証されないため、
+        // 空文字列やescapeを含まない文字列へreplace()をかけない。
+        op.labelName = unescapeLabelNewlines(op.labelName);
+        op.labelDetail = unescapeLabelNewlines(op.labelDetail);
         for (let laneName in op.lanes) {
             for (let stage of op.lanes[laneName].stages) {
-                stage.labels = stage.labels.replace(/\\n/g, "\n");
+                if (stage.labels !== "") {
+                    stage.labels = unescapeLabelNewlines(stage.labels);
+                }
             }
         }
 
@@ -552,6 +558,10 @@ class OnikiriParser{
 
         case "L":
             this.parseLabelCommand(id, op, args);
+            if (parsedOpUsed && op) {
+                // retire後のlabelも通常経路と同じ表示文字列にしてから書き戻す。
+                this.unescapeLabels(op);
+            }
             break;
 
         case "S": 

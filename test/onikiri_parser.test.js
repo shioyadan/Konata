@@ -128,6 +128,20 @@ test("OnikiriParser keeps an unfinished final op as EOF data", async () => {
     assert.equal(op.retiredCycle, 3);
 });
 
+test("OnikiriParser unescapes labels appended after retirement", async () => {
+    const parser = new OnikiriParser();
+    // retire後のLは警告対象だが、情報を保持する既存方針に合わせてescaped newlineも復元する。
+    await parseText(parser, [
+        "Kanata\t0004",
+        "I\t0\t42\t0",
+        "S\t0\t0\tX",
+        "R\t0\t0\t0",
+        "L\t0\t2\tlate\\nlabel",
+    ].join("\n"));
+
+    assert.equal(parser.getOp(0).lanes["0"].stages[0].labels, "late\nlabel");
+});
+
 test("OnikiriParser rejects a non-Kanata header as unsupported", async () => {
     const parser = new OnikiriParser();
     // 先頭行がKanataでなければ壊れたKanataログではなく別形式として通知し、

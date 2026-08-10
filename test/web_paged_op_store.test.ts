@@ -237,8 +237,8 @@ test("OnikiriParser preserves post-retire updates through serialized pages", asy
     const fixturePath = path.resolve(import.meta.dirname, "fixtures", "kanata-basic.txt");
     const contents = fs.readFileSync(fixturePath);
     const bytes = new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength);
-    // fixture末尾で、詳細ラベルに加えて直前stageへのラベルもretire後に追記する。
-    const file = new File([bytes, "L\t0\t2\tpost-retire stage"], "kanata-basic.txt", {
+    // fixture末尾で、詳細ラベルに加えて直前stageへのescaped labelもretire後に追記する。
+    const file = new File([bytes, "L\t0\t2\tpost-retire\\nstage"], "kanata-basic.txt", {
         type: "text/plain",
     });
     // 1 Op/pageにしてid=1のretire時にid=0を追い出し、末尾のLで再展開させる。
@@ -255,7 +255,8 @@ test("OnikiriParser preserves post-retire updates through serialized pages", asy
     assert.equal(trace.getOp(0)?.labelDetail, "producer detail; post-retire detail");
     const mainLaneID = trace.stageLevelMap.getLaneID("0");
     assert.notEqual(mainLaneID, undefined);
-    assert.equal(trace.getOp(0)?.lanes[mainLaneID]?.stages.at(-1)?.labels, "post-retire stage");
+    // retire時の通常変換を過ぎた追加labelでも、文字列の\\nを表示用改行へ戻す。
+    assert.equal(trace.getOp(0)?.lanes[mainLaneID]?.stages.at(-1)?.labels, "post-retire\nstage");
     assert.equal(trace.getOpFromRID(0)?.id, 0);
     assert.equal(trace.getOpFromRID(1), undefined);
 });

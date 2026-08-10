@@ -13,6 +13,12 @@ import { ArrayOpStore, type MutableOpStore } from "./op_store";
 
 class TraceCommandError extends Error {}
 
+function unescapeLabelNewlines(label: string): string {
+    // 現在のV8ではmatchしないreplace()はcons stringを平坦化しないため、正規表現の責務を
+    // 表示用改行の復元だけに限定する。通常のlabelはそのまま返し、不要な走査と生成を避ける。
+    return label.includes("\\n") ? label.replace(/\\n/g, "\n") : label;
+}
+
 export class OnikiriParser {
     readonly name = "OnikiriParser";
     // Rをまだ受け取っていない命令と、表示対象として確定した命令を分けて保持する。
@@ -135,6 +141,11 @@ export class OnikiriParser {
             break;
         case "L":
             this.parseLabelCommand_(id, op, args);
+            if (parsedOpUsed && op !== undefined) {
+                // retire時の復元後に届いたlabelも、通常のlabelと同じ表示文字列へ揃える。
+                // 警告対象の稀な経路なので、分割されたescapeも保つためOp全体を再確認する。
+                this.unescapeLabels_(op);
+            }
             break;
         case "S":
             this.parseStartCommand_(id, op, args);
@@ -333,16 +344,18 @@ export class OnikiriParser {
 
     private unescapeLabels_(op: Op): void {
         // ラベル中の文字列としての\\nを、表示用の改行へ戻す。
-        // 文字列結合で生じるV8のcons stringもreplaceにより平坦化されるため、
-        // 旧実装では命令あたりのメモリ使用量を抑える効果も担っていた。
-        op.labelName = op.labelName.replace(/\\n/g, "\n");
-        op.labelDetail = op.labelDetail.replace(/\\n/g, "\n");
+        // 旧実装が期待したcons stringの平坦化は現在のV8では保証されないため、空文字列や
+        // escapeを含まない文字列へreplace()をかけず、実際に必要な変換だけを行う。
+        op.labelName = unescapeLabelNewlines(op.labelName);
+        op.labelDetail = unescapeLabelNewlines(op.labelDetail);
         for (const lane of op.lanes) {
             if (lane === null) {
                 continue;
             }
             for (const stage of lane.stages) {
-                stage.labels = stage.labels.replace(/\\n/g, "\n");
+                if (stage.labels !== "") {
+                    stage.labels = unescapeLabelNewlines(stage.labels);
+                }
             }
         }
     }
