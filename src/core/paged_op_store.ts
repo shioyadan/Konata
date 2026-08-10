@@ -18,6 +18,15 @@ import { Zstd } from "@hpcc-js/wasm-zstd";
 import { type Op } from "./model";
 import { resolveOpID, type MutableOpStore } from "./op_store";
 
+// 各levelが保持する命令IDの間隔。level 0は全命令を持ち、以降は8命令ごとに間引くことで、
+// 縮小表示時に細かいpageを大量に展開せず、粗いlevelだけから命令を取得できるようにする。
+const DEFAULT_LEVEL_SPANS = [1, 8, 64, 512, 4096] as const;
+// 描画で復元したOpをpage cacheとは別に保持するLRUの上限。panやzoomで同じ命令を繰り返し
+// 復元するcostを抑えつつ、大きなtraceでも未圧縮Opが増え続けない旧実装の値を維持する。
+const DEFAULT_MAX_CACHED_OPS = 32768;
+// pageは読込み中とcache miss時に同期圧縮するため、zstdは圧縮率より応答速度を優先するlevel 1を使う。
+const ZSTD_COMPRESSION_LEVEL = 1;
+
 interface DecodedPage {
     readonly ops: Array<Op | undefined>;
     dirty: boolean;
@@ -57,10 +66,6 @@ export interface OpPageLevelMetrics {
     readonly decodeMilliseconds: number;
     readonly maxDecodeMilliseconds: number;
 }
-
-const DEFAULT_LEVEL_SPANS = [1, 8, 64, 512, 4096] as const;
-const DEFAULT_MAX_CACHED_OPS = 32768;
-const ZSTD_COMPRESSION_LEVEL = 1;
 
 const jsonPageCodec: PageCodec = {
     name: "json",
