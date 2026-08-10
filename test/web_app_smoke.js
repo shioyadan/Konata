@@ -526,6 +526,76 @@ async function verifyApplicationMenu(window) {
     })()`);
 }
 
+async function verifyLogPane(window) {
+    return window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const button = document.querySelector('button[aria-label="Application log"]');
+        const viewer = document.querySelector(".viewer");
+        if (!(button instanceof HTMLButtonElement) || !(viewer instanceof HTMLElement)) {
+            throw new Error("The application log control was not found.");
+        }
+
+        // 以前のmessageに依存せず、閉じた状態から未読数を検査する。
+        button.click();
+        await nextFrame();
+        document.querySelector('button[aria-label="Clear logs"]')?.click();
+        document.querySelector('button[aria-label="Close application log"]')?.click();
+        await nextFrame();
+        const initialViewerHeight = viewer.getBoundingClientRect().height;
+
+        console.log("Log pane smoke info");
+        console.warn("Log pane smoke warning");
+        console.error("Log pane smoke error");
+        await nextFrame();
+        const unread = document.querySelector(".log-unread-badge")?.textContent ?? null;
+
+        button.click();
+        await nextFrame();
+        const pane = document.querySelector(".log-pane");
+        const entries = [...document.querySelectorAll(".log-entry")].map((entry) => ({
+            level: entry.querySelector("span")?.textContent ?? null,
+            message: entry.querySelector("pre")?.textContent ?? null
+        }));
+        const openedViewerHeight = viewer.getBoundingClientRect().height;
+        const initialPaneHeight = pane?.getBoundingClientRect().height ?? -1;
+        const resizer = document.querySelector('[aria-label="Resize application log"]');
+        if (!(resizer instanceof HTMLElement)) {
+            throw new Error("The application log resizer was not found.");
+        }
+        resizer.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "ArrowUp",
+            bubbles: true,
+            cancelable: true
+        }));
+        await nextFrame();
+        const resizedPaneHeight = pane?.getBoundingClientRect().height ?? -1;
+        const copyEnabled = !(document.querySelector('button[aria-label="Copy logs"]')?.disabled ?? true);
+        const unreadCleared = document.querySelector(".log-unread-badge") === null;
+
+        document.querySelector('button[aria-label="Clear logs"]')?.click();
+        await nextFrame();
+        const cleared = document.querySelectorAll(".log-entry").length === 0 &&
+            document.querySelector(".log-pane-empty")?.textContent === "No messages yet.";
+        document.querySelector('button[aria-label="Close application log"]')?.click();
+        await nextFrame();
+
+        return {
+            unread,
+            entries,
+            copyEnabled,
+            unreadCleared,
+            cleared,
+            initialViewerHeight,
+            openedViewerHeight,
+            initialPaneHeight,
+            resizedPaneHeight,
+            restoredViewerHeight: viewer.getBoundingClientRect().height,
+            closed: document.querySelector(".log-pane") === null
+        };
+    })()`);
+}
+
 async function run() {
     // 製品Web版と同じくNode integrationを使わないRendererで検証する。
     const window = new BrowserWindow({
@@ -621,9 +691,9 @@ async function run() {
         initialState.openLabelSize > 11 ||
         initialState.openLabelColor !== "rgb(147, 168, 188)" ||
         initialState.openButtonText !== "Open" ||
-        initialState.mainActionIconCount !== 3 ||
+        initialState.mainActionIconCount !== 4 ||
         JSON.stringify(initialState.toolbarSequence) !==
-            JSON.stringify(["Open", "Search", "Bookmark", "Stats", "View", "Zoom", "Menu"]) ||
+            JSON.stringify(["Open", "Search", "Bookmark", "Stats", "Log", "View", "Zoom", "Menu"]) ||
         initialState.zoomIconCount !== 4 ||
         initialState.zoomSeparatorCount !== 1 ||
         !initialState.zoomSeparatorPlacement ||
@@ -684,6 +754,23 @@ async function run() {
         !applicationMenuState.dialogClosedByEscape ||
         !applicationMenuState.menuClosedByOutsidePointer) {
         throw new Error(`Application menu is incomplete: ${JSON.stringify(applicationMenuState)}`);
+    }
+
+    const logPaneState = await verifyLogPane(window);
+    if (logPaneState.unread !== "3" ||
+        JSON.stringify(logPaneState.entries) !== JSON.stringify([
+            {level: "info", message: "Log pane smoke info"},
+            {level: "warning", message: "Log pane smoke warning"},
+            {level: "error", message: "Log pane smoke error"}
+        ]) ||
+        !logPaneState.copyEnabled ||
+        !logPaneState.unreadCleared ||
+        !logPaneState.cleared ||
+        logPaneState.openedViewerHeight >= logPaneState.initialViewerHeight ||
+        logPaneState.resizedPaneHeight <= logPaneState.initialPaneHeight ||
+        logPaneState.restoredViewerHeight !== logPaneState.initialViewerHeight ||
+        !logPaneState.closed) {
+        throw new Error(`Application log pane is incomplete: ${JSON.stringify(logPaneState)}`);
     }
 
     const incrementalState = await verifyIncrementalRendering(window);

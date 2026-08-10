@@ -240,6 +240,25 @@ button:disabled {
     color: #b4c5d6;
 }
 
+.log-toolbar-action {
+    position: relative;
+}
+
+.toolbar-action .log-unread-badge {
+    position: absolute;
+    top: 0.05rem;
+    right: 0.05rem;
+    min-width: 1rem;
+    padding: 0.12rem 0.24rem;
+    border-radius: 999px;
+    background: #c05b55;
+    color: #fff;
+    font-size: 0.55rem;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+}
+
 .tab-bar {
     z-index: 1;
     flex: 0 0 auto;
@@ -621,6 +640,115 @@ button:disabled {
     display: block;
     width: 100%;
     height: 100%;
+}
+
+.log-pane {
+    display: flex;
+    min-height: 96px;
+    max-height: 60vh;
+    flex: 0 0 auto;
+    flex-direction: column;
+    border-top: 1px solid #454d5a;
+    background: #1c2027;
+    color: #e5e8ed;
+    user-select: text;
+}
+
+.log-pane-resizer {
+    height: 5px;
+    flex: 0 0 5px;
+    background: #303743;
+    cursor: row-resize;
+    touch-action: none;
+}
+
+.log-pane-resizer:hover,
+.log-pane-resizer:focus-visible {
+    background: var(--ui-accent);
+    outline: 0;
+}
+
+.log-pane > header {
+    display: flex;
+    min-height: 2.1rem;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.2rem 0.45rem 0.2rem 0.7rem;
+    border-bottom: 1px solid #343b46;
+}
+
+.log-pane h2 {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 650;
+}
+
+.log-pane > header > span {
+    color: #9ea6b2;
+    font-size: 0.7rem;
+}
+
+.log-pane-actions {
+    display: flex;
+    gap: 0.1rem;
+    margin-left: auto;
+}
+
+.log-pane-actions .icon-button {
+    width: 1.7rem;
+    height: 1.7rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #c5cbd4;
+}
+
+.log-pane-actions .icon-button:hover:not(:disabled) {
+    border-color: transparent;
+    background: #343b47;
+}
+
+.log-pane-list {
+    min-height: 0;
+    flex: 1;
+    padding: 0.35rem 0.7rem 0.6rem;
+    overflow: auto;
+    font: 0.75rem/1.45 SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.log-pane-empty {
+    margin: 0.25rem 0;
+    color: #858e9b;
+}
+
+.log-entry {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: 0.55rem;
+    padding: 0.16rem 0;
+}
+
+.log-entry > span {
+    color: #83a6ca;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.log-entry-warning > span {
+    color: #e0b865;
+}
+
+.log-entry-error > span {
+    color: #ec8178;
+}
+
+.log-entry pre {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    font: inherit;
+    white-space: pre-wrap;
 }
 
 .canvas-tooltip {
@@ -1320,6 +1448,50 @@ button:disabled {
 
 .theme-light .pipeline-pane {
     background: #fff;
+}
+
+.theme-light .log-pane {
+    border-top-color: #aeb6c2;
+    background: #f3f5f8;
+    color: #20242b;
+}
+
+.theme-light .log-pane-resizer {
+    background: #c7cdd6;
+}
+
+.theme-light .log-pane-resizer:hover,
+.theme-light .log-pane-resizer:focus-visible {
+    background: #557da8;
+}
+
+.theme-light .log-pane > header {
+    border-bottom-color: #d5dae1;
+}
+
+.theme-light .log-pane > header > span,
+.theme-light .log-pane-empty {
+    color: #646d79;
+}
+
+.theme-light .log-pane-actions .icon-button {
+    color: #3f4854;
+}
+
+.theme-light .log-pane-actions .icon-button:hover:not(:disabled) {
+    background: #e0e4e9;
+}
+
+.theme-light .log-entry > span {
+    color: #356894;
+}
+
+.theme-light .log-entry-warning > span {
+    color: #8a6200;
+}
+
+.theme-light .log-entry-error > span {
+    color: #a22c28;
 }
 
 .theme-light .empty-state {

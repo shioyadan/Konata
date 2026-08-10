@@ -13,6 +13,7 @@ import {
     BsBookmark,
     BsCrosshair,
     BsFolder2Open,
+    BsJournalText,
     BsPencil,
     BsSearch,
     BsSliders,
@@ -23,6 +24,7 @@ import {
 import { ApplicationMenu } from "./components/application_menu";
 import { CommandPalette } from "./components/command_palette";
 import { CustomColorDialog } from "./components/custom_color_dialog";
+import { LogPane, type LogEntry, type LogLevel } from "./components/log_pane";
 import { StatsDialog } from "./components/stats_dialog";
 import { TabBar } from "./components/tab_bar";
 import {
@@ -109,6 +111,7 @@ const BOOKMARK_STORAGE_KEY = "konata.bookmarks";
 const COMMAND_HISTORY_STORAGE_KEY = "konata.commandHistory";
 const VIEW_SETTINGS_STORAGE_KEY = "konata.viewSettings";
 const MAX_COMMAND_HISTORY = 20;
+const MAX_LOG_ENTRIES = 500;
 // 旧版と同じ速度を保ち、操作方法だけに依存せず同じ補間を適用する。
 const ZOOM_ANIMATION_DURATION = 80;
 const SCROLL_ANIMATION_DURATION = 100;
@@ -300,6 +303,23 @@ function saveBookmarks(bookmarks: readonly ViewBookmark[]): void {
     }
 }
 
+function formatConsoleArguments(values: readonly unknown[]): string {
+    return values.map((value) => {
+        if (value instanceof Error) {
+            return value.stack ?? value.message;
+        }
+        if (typeof value === "string") {
+            return value;
+        }
+        try {
+            return JSON.stringify(value) ?? String(value);
+        }
+        catch {
+            return String(value);
+        }
+    }).join(" ");
+}
+
 // 旧Storeと同じく、命令の見出し・詳細・全stage labelを正規表現検索の対象にする。
 function makeFindTargetString(op: Op): string {
     let labelString =
@@ -338,6 +358,8 @@ export function App() {
     const viewAnimationRef = useRef<ViewAnimation | null>(null);
     const pendingScrollRef = useRef<PendingScroll | null>(null);
     const pendingZoomRef = useRef<PendingZoom | null>(null);
+    const logEntryIDRef = useRef(0);
+    const logPaneOpenRef = useRef(false);
 
     const { tabs, activeTabID, settings } = useSyncExternalStore(store.subscribe, store.getSnapshot);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -348,6 +370,9 @@ export function App() {
     const [isCustomColorDialogOpen, setIsCustomColorDialogOpen] = useState(false);
     const [commandPaletteInitial, setCommandPaletteInitial] = useState<string | null>(null);
     const [commandMessage, setCommandMessage] = useState("");
+    const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
+    const [unreadLogCount, setUnreadLogCount] = useState(0);
+    const [isLogPaneOpen, setIsLogPaneOpen] = useState(false);
     // 旧版と同じ10枠だけを読み込み、設定全体を扱う新しい層は設けない。
     const [bookmarks, setBookmarks] = useState<readonly ViewBookmark[]>(loadBookmarks);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
@@ -363,6 +388,46 @@ export function App() {
     const searchProgress = activeTab?.findContext.progress ?? null;
     const findResult = activeTab?.findContext.result ?? null;
     const searchMessage = activeTab?.findContext.message ?? "";
+
+    useEffect(() => {
+        const originalLog = console.log;
+        const originalInfo = console.info;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+        const capture = (
+            level: LogLevel,
+            output: (...values: unknown[]) => void,
+        ) => (...values: unknown[]) => {
+            Reflect.apply(output, console, values);
+            const entry: LogEntry = {
+                id: logEntryIDRef.current++,
+                level,
+                message: formatConsoleArguments(values),
+            };
+            setLogEntries((previous) => [
+                ...previous.slice(Math.max(0, previous.length - MAX_LOG_ENTRIES + 1)),
+                entry,
+            ]);
+            if (!logPaneOpenRef.current) {
+                setUnreadLogCount((count) => count + 1);
+            }
+        };
+        const log = capture("info", originalLog);
+        const info = capture("info", originalInfo);
+        const warn = capture("warning", originalWarn);
+        const error = capture("error", originalError);
+        console.log = log;
+        console.info = info;
+        console.warn = warn;
+        console.error = error;
+        return () => {
+            // 別のコードが後からconsoleを差し替えた場合は、その変更をcleanupで上書きしない。
+            if (console.log === log) console.log = originalLog;
+            if (console.info === info) console.info = originalInfo;
+            if (console.warn === warn) console.warn = originalWarn;
+            if (console.error === error) console.error = originalError;
+        };
+    }, []);
 
     useEffect(() => {
         saveBookmarks(bookmarks);
@@ -1022,6 +1087,17 @@ export function App() {
         setStatsError("");
     };
 
+    const openLogPane = () => {
+        logPaneOpenRef.current = true;
+        setIsLogPaneOpen(true);
+        setUnreadLogCount(0);
+    };
+
+    const closeLogPane = () => {
+        logPaneOpenRef.current = false;
+        setIsLogPaneOpen(false);
+    };
+
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.defaultPrevented) {
@@ -1259,6 +1335,25 @@ export function App() {
                 >
                     <BsBarChart aria-hidden="true" />
                     <span>Stats</span>
+                </button>
+                <button
+                    className="button-with-icon toolbar-action log-toolbar-action"
+                    type="button"
+                    aria-label="Application log"
+                    aria-pressed={isLogPaneOpen}
+                    title="Application log"
+                    onClick={isLogPaneOpen ? closeLogPane : openLogPane}
+                >
+                    <BsJournalText aria-hidden="true" />
+                    <span>Log</span>
+                    {unreadLogCount > 0 && (
+                        <span
+                            className="log-unread-badge"
+                            aria-label={`${unreadLogCount} unread log messages`}
+                        >
+                            {unreadLogCount > 99 ? "99+" : unreadLogCount}
+                        </span>
+                    )}
                 </button>
                 <details ref={viewControlsRef} className="view-controls">
                     <summary
@@ -1503,6 +1598,16 @@ export function App() {
                 onCloseFindResult={hideSearchResult}
                 onOpenTrace={() => fileInputRef.current?.click()}
             />
+            {isLogPaneOpen && (
+                <LogPane
+                    entries={logEntries}
+                    onClear={() => {
+                        setLogEntries([]);
+                        setUnreadLogCount(0);
+                    }}
+                    onClose={closeLogPane}
+                />
+            )}
             {isStatsDialogOpen && (
                 <StatsDialog values={statsValues} error={statsError} onClose={closeStatsDialog} />
             )}
