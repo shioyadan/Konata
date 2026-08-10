@@ -4,6 +4,10 @@ export type ProgressCallback = (progress: number) => void;
 
 let zstdStreamTail = Promise.resolve();
 
+// 部分文字列がzstd等の大きな展開chunk全体を保持しないよう、文字列化する単位だけを制限する。
+// 入力streamや展開器のchunkは分割せず、UTF-8境界は同じTextDecoderのstream状態で引き継ぐ。
+const DECODE_CHUNK_SIZE = 8 * 1024;
+
 async function acquireZstdStream(): Promise<() => void> {
     // Zstd.load()はsingletonなので、複数Tabのstream状態が混ざらないよう読込み単位で直列化する。
     const previous = zstdStreamTail;
@@ -126,26 +130,28 @@ export class FileLineReader {
                     break;
                 }
 
-                buffer += decoder.decode(value, { stream: true });
-                let lineStart = 0;
-                let newline = buffer.indexOf("\n", lineStart);
-                while (newline !== -1) {
-                    let line = buffer.slice(lineStart, newline);
-                    if (line.endsWith("\r")) {
-                        line = line.slice(0, -1);
-                    }
-                    yield line;
-                    lineCount++;
-                    lineStart = newline + 1;
+                for (let offset = 0; offset < value.byteLength; offset += DECODE_CHUNK_SIZE) {
+                    buffer += decoder.decode(value.subarray(offset, offset + DECODE_CHUNK_SIZE), { stream: true });
+                    let lineStart = 0;
+                    let newline = buffer.indexOf("\n", lineStart);
+                    while (newline !== -1) {
+                        let line = buffer.slice(lineStart, newline);
+                        if (line.endsWith("\r")) {
+                            line = line.slice(0, -1);
+                        }
+                        yield line;
+                        lineCount++;
+                        lineStart = newline + 1;
 
-                    // 大きい入力でも描画とキャンセル操作へ定期的に制御を戻す。
-                    if (lineCount % 8192 === 0) {
-                        onProgress?.(this.progress);
-                        await yieldToBrowser();
+                        // 大きい入力でも描画とキャンセル操作へ定期的に制御を戻す。
+                        if (lineCount % 8192 === 0) {
+                            onProgress?.(this.progress);
+                            await yieldToBrowser();
+                        }
+                        newline = buffer.indexOf("\n", lineStart);
                     }
-                    newline = buffer.indexOf("\n", lineStart);
+                    buffer = buffer.slice(lineStart);
                 }
-                buffer = buffer.slice(lineStart);
             }
 
             if (!this.canceled_ && buffer.length > 0) {

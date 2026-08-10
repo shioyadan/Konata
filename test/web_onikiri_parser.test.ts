@@ -5,6 +5,7 @@ import test from "node:test";
 
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
+import { FileLineReader } from "../src/core/file_line_reader";
 import { OnikiriParser } from "../src/core/onikiri_parser";
 import { ArrayOpStore } from "../src/core/op_store";
 
@@ -15,6 +16,19 @@ function fileFromFixture(relativePath: string, type: string): File {
     const bytes = new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength);
     return new File([bytes], path.basename(filePath), { type });
 }
+
+test("Web line reader preserves long UTF-8 lines across bounded decode chunks", async () => {
+    // 8 KiB境界の直前から3-byte文字を置き、TextDecoderをまたいでも文字化けしないことを確認する。
+    // 同じ行を8 KiBより長くし、内部の分割を改行と誤認せず、CRLFだけを除くことも固定する。
+    const longLine = `${"a".repeat(8 * 1024 - 1)}あ`;
+    const file = new File([`${longLine}\r\ntail`], "utf8-boundary.log", { type: "text/plain" });
+    const lines: string[] = [];
+    for await (const line of new FileLineReader(file).lines()) {
+        lines.push(line);
+    }
+
+    assert.deepEqual(lines, [longLine, "tail"]);
+});
 
 test("Web Onikiri parser preserves core commands for a plain-text trace", async () => {
     // I/L/S/E/R/W/Cを組み合わせたfixtureで、browser用のarray storeでも旧Parserと
