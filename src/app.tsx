@@ -1214,14 +1214,22 @@ export function App() {
         setBookmark, trace, zoomAtCenter]);
 
     let statusMessage = "";
-    let statusType: "loading" | "ready" | "error" | null = null;
+    let statusType: "loading" | "ready" | "warning" | "error" | null = null;
     if (loadState === "loading") {
         statusMessage = `Loading ${fileName}… ${Math.round(progress * 100)}%`;
         statusType = "loading";
     }
     else if (loadState === "ready" && trace !== null) {
-        statusMessage = `Loaded · ${trace.opCount.toLocaleString()} ops · ${trace.lastCycle.toLocaleString()} cycles · ${trace.laneNames.length.toLocaleString()} lanes`;
-        statusType = "ready";
+        const summary = `${trace.opCount.toLocaleString()} ops · ${trace.lastCycle.toLocaleString()} cycles · ${trace.laneNames.length.toLocaleString()} lanes`;
+        if (trace.warningCount > 0) {
+            const warningLabel = trace.warningCount === 1 ? "warning" : "warnings";
+            statusMessage = `Loaded with ${trace.warningCount.toLocaleString()} ${warningLabel} · ${summary}`;
+            statusType = "warning";
+        }
+        else {
+            statusMessage = `Loaded · ${summary}`;
+            statusType = "ready";
+        }
     }
     else if (loadState === "error") {
         statusMessage = errorMessage;
@@ -1579,7 +1587,9 @@ export function App() {
                         role={statusType === "error" ? "alert" : "status"}
                         title={statusMessage}
                     >
-                        {statusType === "error" && <BsExclamationTriangleFill aria-hidden="true" />}
+                        {(statusType === "warning" || statusType === "error") && (
+                            <BsExclamationTriangleFill aria-hidden="true" />
+                        )}
                         <span className="status-message">{statusMessage}</span>
                     </p>
                 )}

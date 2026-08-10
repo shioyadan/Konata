@@ -606,6 +606,10 @@ button:disabled {
     color: #fff;
 }
 
+.status-warning {
+    color: #e5bd72;
+}
+
 .status-error {
     color: #ff9a91;
 }

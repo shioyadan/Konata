@@ -43,6 +43,7 @@ export class OnikiriParser {
         let formatConfirmed = false;
         const updateTrace = () => {
             trace.updateLastCycle(this.currentCycle_);
+            trace.updateWarningCount(this.warningCount_);
             onUpdate?.(trace);
         };
 

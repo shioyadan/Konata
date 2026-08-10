@@ -166,6 +166,8 @@ export class StageLevelMap {
 }
 
 export class ParsedTrace {
+    private warningCount_ = 0;
+
     constructor(
         readonly fileName: string,
         readonly opStore: OpStore,
@@ -184,6 +186,15 @@ export class ParsedTrace {
     // 読み込み途中も同じtraceをRendererへ渡すため、Parserが確定済みcycleを更新する。
     updateLastCycle(lastCycle: number): void {
         this.lastCycle_ = lastCycle;
+    }
+
+    get warningCount(): number {
+        return this.warningCount_;
+    }
+
+    // 復旧可能な入力不整合を保持し、読み込み成功後もUIから確認できるようにする。
+    updateWarningCount(warningCount: number): void {
+        this.warningCount_ = warningCount;
     }
 
     get lastID(): number {

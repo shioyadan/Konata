@@ -228,6 +228,7 @@ test("Web Onikiri parser warns and continues after invalid command lines", async
     assert.equal(trace.getOp(0)?.gid, 10);
     assert.equal(trace.getOp(0)?.labelDetail, "vector detail");
     assert.equal(trace.getOp(1)?.gid, 12);
+    assert.equal(trace.warningCount, 3);
     assert.ok(warnings.some((warning) => warning.includes("Unknown command:  = VFMV")));
     assert.ok(warnings.some((warning) => warning.includes("C contains an invalid number")));
     assert.ok(warnings.some((warning) => warning.includes("0 is redefined")));

@@ -425,7 +425,7 @@ async function readRenderedState(window) {
 
         return {
             status: document.querySelector(".status")?.textContent ?? null,
-            statusType: ["loading", "ready", "error"]
+            statusType: ["loading", "ready", "warning", "error"]
                 .find((type) => document.querySelector(".status")?.classList.contains("status-" + type)) ?? null,
             statusIcon: document.querySelector(".status > svg") !== null,
             rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
@@ -885,9 +885,9 @@ async function run() {
         plainState.fileName !== "kanata-basic.txt" ||
         plainState.opCount !== 2 ||
         plainState.laneCount !== 2 ||
-        plainState.status !== "Loaded · 2 ops · 5 cycles · 2 lanes" ||
-        plainState.statusType !== "ready" ||
-        plainState.statusIcon ||
+        plainState.status !== "Loaded with 1 warning · 2 ops · 5 cycles · 2 lanes" ||
+        plainState.statusType !== "warning" ||
+        !plainState.statusIcon ||
         plainState.nonBackgroundPixels < 100) {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
