@@ -1,4 +1,16 @@
+/**
+ * UIからの状態変更はすべてActionとして受け取り、同期的なdispatchだけを公開する。
+ * pickerやParserなどの非同期処理も要求Actionから開始し、進捗・結果・失敗を別Actionで
+ * Store自身へ戻す。AppはFileをDOM eventから取り出す以外、file accessやParserを扱わない。
+ */
+
 import type { Op, ParsedTrace } from "./core/model";
+import { parseTraceFile } from "./core/trace_parser";
+import {
+    loadRecentFiles,
+    removeRecentFile,
+    type RecentFileRecord,
+} from "./recent_files";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEP_ARROW_TYPE,
@@ -7,6 +19,13 @@ import {
     type DependencyArrowType,
     type RendererTheme,
 } from "./renderer/konata_renderer";
+import {
+    pickTraceFileAccess,
+    recentTraceFileAccess,
+    supportsTraceFilePicker,
+    TraceFilePermissionError,
+    type TraceFileAccess,
+} from "./trace_file_access";
 
 export type LoadState = "idle" | "loading" | "ready" | "error";
 export type Operation = "load" | "search";
@@ -90,8 +109,24 @@ export interface FindContext {
 }
 
 export type Action =
-    | { readonly type: "FILE_OPEN"; readonly fileName: string; readonly renderer: KonataRenderer }
+    | { readonly type: "FILE_PICK_REQUEST" }
+    | { readonly type: "FILE_OPEN_REQUEST"; readonly files: readonly File[] }
+    | { readonly type: "FILE_RECENT_LOAD_REQUEST" }
+    | { readonly type: "FILE_RECENT_OPEN_REQUEST"; readonly id: string }
+    | { readonly type: "FILE_RELOAD_REQUEST"; readonly tabID: number }
+    | { readonly type: "FILE_CHANGE_DISMISS"; readonly tabID: number }
+    | { readonly type: "FILE_MESSAGE_DISMISS" }
+    | { readonly type: "STORE_CLOSE" }
+    | {
+        readonly type: "FILE_OPEN";
+        readonly fileName: string;
+        readonly renderer: KonataRenderer;
+        readonly access?: TraceFileAccess;
+    }
     | { readonly type: "FILE_RELOAD"; readonly tabID: number }
+    | { readonly type: "FILE_RECENT_UPDATE"; readonly files: readonly RecentFileRecord[] }
+    | { readonly type: "FILE_MESSAGE_UPDATE"; readonly message: string }
+    | { readonly type: "FILE_CHANGE_DETECTED"; readonly tabID: number }
     | { readonly type: "FILE_LOAD_PROGRESS"; readonly tabID: number; readonly progress: number }
     | { readonly type: "FILE_LOAD_TRACE"; readonly tabID: number; readonly trace: ParsedTrace }
     | { readonly type: "FILE_LOAD_FINISH"; readonly tabID: number; readonly trace: ParsedTrace }
@@ -159,6 +194,8 @@ export type Change =
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
     | { readonly type: "PANE_SIZE_UPDATE"; readonly tabID: number }
     | { readonly type: "VIEW_SETTINGS_UPDATE" }
+    | { readonly type: "FILE_INPUT_REQUEST" }
+    | { readonly type: "FILE_STATE_UPDATE" }
     // nullは全TabのRendererへ同じ変更を適用したことを表す。
     | { readonly type: "PANE_CONTENT_UPDATE"; readonly tabID: number | null }
     | { readonly type: "WINDOW_CSS_UPDATE" }
@@ -356,14 +393,28 @@ export interface StoreSnapshot {
     readonly tabs: readonly Readonly<StoreTab>[];
     readonly activeTabID: number | null;
     readonly settings: Readonly<GlobalViewSettings>;
+    readonly recentFiles: readonly RecentFileRecord[];
+    readonly changedFileTabIDs: ReadonlySet<number>;
+    readonly reloadableTabIDs: ReadonlySet<number>;
+    readonly fileMessage: string;
     readonly revision: number;
+}
+
+interface TabFileBinding {
+    readonly access: TraceFileAccess;
+    stopObservation: (() => void) | null;
 }
 
 // 旧Storeのうち、tab状態の所有とACTION→CHANGEの一方向更新をWeb向けに復元する。
 export class Store {
     private readonly tabs_ = new Map<number, StoreTab>();
+    private readonly fileAccesses_ = new Map<number, TabFileBinding>();
     private readonly snapshotListeners_ = new Set<() => void>();
     private readonly changeListeners_ = new Set<(change: Change) => void>();
+    private recentFiles_: readonly RecentFileRecord[] = [];
+    private changedFileTabIDs_ = new Set<number>();
+    private fileMessage_ = "";
+    private loadingRecentFiles_ = false;
     private nextOpenedTabID_ = 0;
     private defaultColorScheme_: string;
     private defaultSplitterPosition_: number;
@@ -388,6 +439,10 @@ export class Store {
             tabs: [],
             activeTabID: null,
             settings: this.settings_,
+            recentFiles: this.recentFiles_,
+            changedFileTabIDs: this.changedFileTabIDs_,
+            reloadableTabIDs: new Set(),
+            fileMessage: this.fileMessage_,
             revision: 0,
         };
     }
@@ -431,6 +486,79 @@ export class Store {
 
     dispatch(action: Action): void {
         switch (action.type) {
+        case "FILE_PICK_REQUEST": {
+            if (!supportsTraceFilePicker()) {
+                // hidden inputはDOMなので、Storeから要求だけを同期通知する。
+                this.publish_(this.snapshot_.activeTabID, [{ type: "FILE_INPUT_REQUEST" }]);
+                return;
+            }
+            // user activationを維持するため、dispatchと同じcall stackでpickerを呼び始める。
+            void this.pickAndOpenFile_();
+            return;
+        }
+        case "FILE_OPEN_REQUEST": {
+            for (const file of action.files) {
+                void this.openFile_(file);
+            }
+            return;
+        }
+        case "FILE_RECENT_LOAD_REQUEST": {
+            if (!this.loadingRecentFiles_) {
+                this.loadingRecentFiles_ = true;
+                void this.loadRecentFiles_();
+            }
+            return;
+        }
+        case "FILE_RECENT_OPEN_REQUEST": {
+            const record = this.recentFiles_.find((item) => item.id === action.id);
+            if (record !== undefined) {
+                void this.openRecentFile_(record);
+            }
+            return;
+        }
+        case "FILE_RELOAD_REQUEST": {
+            void this.reloadFile_(action.tabID);
+            return;
+        }
+        case "FILE_CHANGE_DISMISS": {
+            if (!this.changedFileTabIDs_.has(action.tabID)) {
+                return;
+            }
+            this.changedFileTabIDs_ = new Set(this.changedFileTabIDs_);
+            this.changedFileTabIDs_.delete(action.tabID);
+            this.publish_(this.snapshot_.activeTabID, [{ type: "FILE_STATE_UPDATE" }]);
+            return;
+        }
+        case "FILE_MESSAGE_DISMISS": {
+            if (this.fileMessage_ !== "") {
+                this.dispatch({ type: "FILE_MESSAGE_UPDATE", message: "" });
+            }
+            return;
+        }
+        case "STORE_CLOSE": {
+            for (const binding of this.fileAccesses_.values()) {
+                this.stopFileObservation_(binding);
+            }
+            this.fileAccesses_.clear();
+            this.changedFileTabIDs_.clear();
+            for (const tab of this.tabs_.values()) {
+                tab.close();
+            }
+            this.tabs_.clear();
+            this.snapshot_ = {
+                tabs: [],
+                activeTabID: null,
+                settings: this.settings_,
+                recentFiles: this.recentFiles_,
+                changedFileTabIDs: new Set(),
+                reloadableTabIDs: new Set(),
+                fileMessage: this.fileMessage_,
+                revision: this.snapshot_.revision + 1,
+            };
+            this.snapshotListeners_.clear();
+            this.changeListeners_.clear();
+            return;
+        }
         case "FILE_OPEN": {
             // 新しいTabにも、その時点の全体設定を既存Tabと同じ値で適用する。
             this.applyGlobalViewSettings_(action.renderer);
@@ -442,6 +570,13 @@ export class Store {
                 this.defaultSplitterPosition_,
             );
             this.tabs_.set(tab.id, tab);
+            if (action.access !== undefined) {
+                this.fileAccesses_.set(tab.id, {
+                    access: action.access,
+                    stopObservation: null,
+                });
+            }
+            this.fileMessage_ = "";
             this.publish_(tab.id, [
                 { type: "TAB_OPEN", tabID: tab.id },
                 { type: "TAB_UPDATE", tabID: tab.id },
@@ -455,6 +590,10 @@ export class Store {
             if (tab === undefined || tab.kind !== "trace") {
                 return;
             }
+            this.stopFileObservationForTab_(tab.id);
+            this.changedFileTabIDs_ = new Set(this.changedFileTabIDs_);
+            this.changedFileTabIDs_.delete(tab.id);
+            this.fileMessage_ = "";
             tab.beginReload();
             this.publish_(tab.id, [
                 { type: "TAB_UPDATE", tabID: tab.id },
@@ -462,6 +601,30 @@ export class Store {
                 { type: "PROGRESS_BAR_START", tabID: tab.id, operation: "load" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
+            return;
+        }
+        case "FILE_RECENT_UPDATE": {
+            this.recentFiles_ = action.files;
+            this.loadingRecentFiles_ = false;
+            this.publish_(this.snapshot_.activeTabID, [{ type: "FILE_STATE_UPDATE" }]);
+            return;
+        }
+        case "FILE_MESSAGE_UPDATE": {
+            if (this.fileMessage_ === action.message) {
+                return;
+            }
+            this.fileMessage_ = action.message;
+            this.publish_(this.snapshot_.activeTabID, [{ type: "FILE_STATE_UPDATE" }]);
+            return;
+        }
+        case "FILE_CHANGE_DETECTED": {
+            const tab = this.tabs_.get(action.tabID);
+            if (!this.fileAccesses_.has(action.tabID) || tab?.kind !== "trace" ||
+                tab.loadState === "loading" || this.changedFileTabIDs_.has(action.tabID)) {
+                return;
+            }
+            this.changedFileTabIDs_ = new Set(this.changedFileTabIDs_).add(action.tabID);
+            this.publish_(this.snapshot_.activeTabID, [{ type: "FILE_STATE_UPDATE" }]);
             return;
         }
         case "FILE_LOAD_PROGRESS": {
@@ -556,6 +719,7 @@ export class Store {
 
             // 遅れて到着したParser結果を拒否できるよう、解放前に有効tab一覧から外す。
             this.tabs_.delete(action.tabID);
+            this.disconnectFileAccess_(action.tabID);
             closingTab.close();
             let activeTabID = this.snapshot_.activeTabID;
             if (activeTabID === action.tabID) {
@@ -827,19 +991,220 @@ export class Store {
         }
     }
 
-    close(): void {
-        for (const tab of this.tabs_.values()) {
-            tab.close();
+    private async loadRecentFiles_(): Promise<void> {
+        try {
+            this.dispatch({ type: "FILE_RECENT_UPDATE", files: await loadRecentFiles() });
         }
-        this.tabs_.clear();
-        this.snapshot_ = {
-            tabs: [],
-            activeTabID: null,
-            settings: this.settings_,
-            revision: this.snapshot_.revision + 1,
-        };
-        this.snapshotListeners_.clear();
-        this.changeListeners_.clear();
+        catch {
+            // IndexedDBを使えない環境でも通常のfile inputによる読込みは維持する。
+            this.dispatch({ type: "FILE_RECENT_UPDATE", files: this.recentFiles_ });
+        }
+    }
+
+    private async pickAndOpenFile_(): Promise<void> {
+        try {
+            const access = await pickTraceFileAccess();
+            if (access !== null) {
+                await this.openFile_(await access.read(), access);
+            }
+        }
+        catch (error) {
+            if (error instanceof TraceFilePermissionError) {
+                this.dispatch({ type: "FILE_MESSAGE_UPDATE", message: error.message });
+            }
+            else if (!(typeof DOMException !== "undefined" && error instanceof DOMException &&
+                error.name === "AbortError")) {
+                this.dispatch({
+                    type: "FILE_MESSAGE_UPDATE",
+                    message: `Could not open the file. ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+        }
+    }
+
+    private async openRecentFile_(record: RecentFileRecord): Promise<void> {
+        const access = recentTraceFileAccess(record);
+        try {
+            await this.openFile_(await access.read(), access);
+        }
+        catch (error) {
+            if (error instanceof TraceFilePermissionError) {
+                this.dispatch({ type: "FILE_MESSAGE_UPDATE", message: error.message });
+                return;
+            }
+            await this.forgetRecentFile_(record);
+            this.dispatch({
+                type: "FILE_MESSAGE_UPDATE",
+                message: `Could not reopen ${record.name}. ${error instanceof Error ? error.message : String(error)}`,
+            });
+        }
+    }
+
+    private async openFile_(file: File, access?: TraceFileAccess): Promise<void> {
+        this.dispatch({
+            type: "FILE_OPEN",
+            fileName: file.name,
+            renderer: new KonataRenderer(),
+            access,
+        });
+        const tab = this.activeTab;
+        if (tab?.kind !== "trace") {
+            return;
+        }
+
+        const loaded = await this.parseFileInTab_(file, tab.id, tab.loadSignal);
+        const binding = this.fileAccesses_.get(tab.id);
+        if (access !== undefined && binding?.access === access) {
+            this.watchFileAccess_(tab.id);
+            if (loaded) {
+                await this.rememberFile_(access, file);
+            }
+        }
+    }
+
+    private async reloadFile_(tabID: number): Promise<void> {
+        const binding = this.fileAccesses_.get(tabID);
+        const tab = this.tabs_.get(tabID);
+        if (binding === undefined || tab?.kind !== "trace" || tab.loadState === "loading") {
+            return;
+        }
+        try {
+            // file取得に失敗した場合は、表示中のtraceをそのまま残す。
+            const file = await binding.access.read();
+            const currentTab = this.tabs_.get(tabID);
+            if (this.fileAccesses_.get(tabID) !== binding ||
+                currentTab?.kind !== "trace" || currentTab.loadState === "loading") {
+                return;
+            }
+            this.dispatch({ type: "FILE_RELOAD", tabID });
+            const loaded = await this.parseFileInTab_(file, tab.id, tab.loadSignal);
+            if (this.fileAccesses_.get(tabID) === binding) {
+                this.watchFileAccess_(tabID);
+                if (loaded) {
+                    await this.rememberFile_(binding.access, file);
+                }
+            }
+        }
+        catch (error) {
+            if (error instanceof TraceFilePermissionError) {
+                this.dispatch({
+                    type: "FILE_MESSAGE_UPDATE",
+                    message: `Permission to reload ${tab.fileName} was not granted.`,
+                });
+            }
+            else {
+                this.watchFileAccess_(tabID);
+                this.dispatch({
+                    type: "FILE_MESSAGE_UPDATE",
+                    message: `Could not reload ${tab.fileName}. ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+        }
+    }
+
+    private async parseFileInTab_(
+        file: File,
+        tabID: number,
+        loadSignal: AbortSignal,
+    ): Promise<boolean> {
+        let parsingTrace: ParsedTrace | null = null;
+        let traceUpdateCount = 0;
+        try {
+            const result = await parseTraceFile(file, {
+                onProgress: (value) => {
+                    if (!loadSignal.aborted) {
+                        this.dispatch({ type: "FILE_LOAD_PROGRESS", tabID, progress: value });
+                    }
+                },
+                onTrace: (partialTrace) => {
+                    if (loadSignal.aborted) {
+                        return;
+                    }
+                    parsingTrace = partialTrace;
+                    traceUpdateCount++;
+                    // progressとcancel確認は細かく維持し、重いCanvas途中描画だけを約8回に1回へ抑える。
+                    if (traceUpdateCount === 1 || traceUpdateCount % 8 === 0) {
+                        this.dispatch({ type: "FILE_LOAD_TRACE", tabID, trace: partialTrace });
+                    }
+                },
+            }, loadSignal);
+            if (result === null || loadSignal.aborted) {
+                result?.trace.close();
+                return false;
+            }
+            // 旧Parserと同じ形式で、展開と解析を含む成功Parserの所要時間をconsoleとLogへ残す。
+            console.log(`Parsed (${result.parserName}): ${Math.round(result.elapsedMilliseconds)} ms`);
+            this.dispatch({ type: "FILE_LOAD_FINISH", tabID, trace: result.trace });
+            return true;
+        }
+        catch (error) {
+            // close済みTabの意図的なcancelは、別Tabへerrorとして表示しない。
+            if (loadSignal.aborted) {
+                return false;
+            }
+            this.dispatch({
+                type: "FILE_LOAD_ERROR",
+                tabID,
+                message: error instanceof Error ? error.message : String(error),
+                trace: parsingTrace,
+            });
+            return false;
+        }
+    }
+
+    private async rememberFile_(access: TraceFileAccess, file: File): Promise<void> {
+        try {
+            this.dispatch({ type: "FILE_RECENT_UPDATE", files: await access.remember(file) });
+        }
+        catch {
+            // 履歴保存が使えなくても、開いたtraceとreload accessはこのsession中利用する。
+        }
+    }
+
+    private async forgetRecentFile_(record: RecentFileRecord): Promise<void> {
+        try {
+            this.dispatch({ type: "FILE_RECENT_UPDATE", files: await removeRecentFile(record.id) });
+        }
+        catch {
+            this.dispatch({
+                type: "FILE_RECENT_UPDATE",
+                files: this.recentFiles_.filter((item) => item.id !== record.id),
+            });
+        }
+    }
+
+    private stopFileObservation_(binding: TabFileBinding): void {
+        binding.stopObservation?.();
+        binding.stopObservation = null;
+    }
+
+    private stopFileObservationForTab_(tabID: number): void {
+        const binding = this.fileAccesses_.get(tabID);
+        if (binding !== undefined) {
+            this.stopFileObservation_(binding);
+        }
+    }
+
+    private disconnectFileAccess_(tabID: number): void {
+        this.stopFileObservationForTab_(tabID);
+        this.fileAccesses_.delete(tabID);
+        if (this.changedFileTabIDs_.has(tabID)) {
+            this.changedFileTabIDs_ = new Set(this.changedFileTabIDs_);
+            this.changedFileTabIDs_.delete(tabID);
+        }
+    }
+
+    private watchFileAccess_(tabID: number): void {
+        const binding = this.fileAccesses_.get(tabID);
+        if (binding === undefined) {
+            return;
+        }
+        this.stopFileObservation_(binding);
+        binding.stopObservation = binding.access.observe(() => {
+            if (this.fileAccesses_.get(tabID) === binding) {
+                this.dispatch({ type: "FILE_CHANGE_DETECTED", tabID });
+            }
+        });
     }
 
     private setGlobalViewSettings_(
@@ -887,6 +1252,10 @@ export class Store {
             tabs: Array.from(this.tabs_.values()),
             activeTabID,
             settings: this.settings_,
+            recentFiles: this.recentFiles_,
+            changedFileTabIDs: new Set(this.changedFileTabIDs_),
+            reloadableTabIDs: new Set(this.fileAccesses_.keys()),
+            fileMessage: this.fileMessage_,
             revision: this.snapshot_.revision + 1,
         };
         for (const listener of this.snapshotListeners_) {

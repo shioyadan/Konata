@@ -34,9 +34,8 @@ import {
     TraceSheet,
     type TraceSheetHandle,
 } from "./components/trace_sheet";
-import type { Op, ParsedTrace } from "./core/model";
+import type { Op } from "./core/model";
 import { calculateStats, type StatsValues } from "./core/stats";
-import { parseTraceFile } from "./core/trace_parser";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEP_ARROW_TYPE,
@@ -48,11 +47,6 @@ import {
     type RendererTheme,
 } from "./renderer/konata_renderer";
 import {
-    loadRecentFiles,
-    removeRecentFile,
-    type RecentFileRecord,
-} from "./recent_files";
-import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
     type FindResult,
@@ -60,13 +54,6 @@ import {
     type PersistedViewSettings,
     Store,
 } from "./store";
-import {
-    pickTraceFileAccess,
-    recentTraceFileAccess,
-    supportsTraceFilePicker,
-    TraceFilePermissionError,
-    type TraceFileAccess,
-} from "./trace_file_access";
 
 interface ViewBookmark {
     readonly x: number;
@@ -92,12 +79,6 @@ interface PendingScroll {
 interface PendingZoom {
     readonly tabID: number;
     readonly level: number;
-}
-
-// Tabとの対応はUI側だけが持ち、TraceFileAccess自身にはTab IDを渡さない。
-interface TabFileBinding {
-    readonly access: TraceFileAccess;
-    stopObservation: (() => void) | null;
 }
 
 // 各詳細を描画するlaneの最小高さと、UIの説明を1か所で対応付ける。
@@ -382,9 +363,16 @@ export function App() {
     const pendingZoomRef = useRef<PendingZoom | null>(null);
     const logEntryIDRef = useRef(0);
     const logPaneOpenRef = useRef(false);
-    const fileAccessesRef = useRef(new Map<number, TabFileBinding>());
 
-    const { tabs, activeTabID, settings } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+    const {
+        tabs,
+        activeTabID,
+        settings,
+        recentFiles,
+        changedFileTabIDs,
+        reloadableTabIDs,
+        fileMessage,
+    } = useSyncExternalStore(store.subscribe, store.getSnapshot);
     const [isDraggingFile, setIsDraggingFile] = useState(false);
     const [statsProgress, setStatsProgress] = useState<number | null>(null);
     const [statsValues, setStatsValues] = useState<Readonly<StatsValues> | null>(null);
@@ -398,8 +386,6 @@ export function App() {
     const [unreadLogCount, setUnreadLogCount] = useState(0);
     const [hasUnreadWarning, setHasUnreadWarning] = useState(false);
     const [isLogPaneOpen, setIsLogPaneOpen] = useState(false);
-    const [recentFiles, setRecentFiles] = useState<readonly RecentFileRecord[]>([]);
-    const [changedFileTabIDs, setChangedFileTabIDs] = useState<ReadonlySet<number>>(() => new Set());
     // 旧版と同じ10枠だけを読み込み、設定全体を扱う新しい層は設けない。
     const [bookmarks, setBookmarks] = useState<readonly ViewBookmark[]>(loadBookmarks);
     // CanvasはReact DOMを持たないため、Rendererのview変更を再描画へ結び付ける番号を持つ。
@@ -421,9 +407,6 @@ export function App() {
     const searchProgress = activeTab?.findContext.progress ?? null;
     const findResult = activeTab?.findContext.result ?? null;
     const searchMessage = activeTab?.findContext.message ?? "";
-    const activeFileAccess = activeTab?.kind === "trace"
-        ? fileAccessesRef.current.get(activeTab.id) ?? null
-        : null;
 
     useEffect(() => {
         const originalLog = console.log;
@@ -473,20 +456,8 @@ export function App() {
     }, [bookmarks]);
 
     useEffect(() => {
-        let active = true;
-        void loadRecentFiles()
-            .then((files) => {
-                if (active) {
-                    setRecentFiles(files);
-                }
-            })
-            .catch(() => {
-                // IndexedDBを使えない環境でも通常のfile inputによる読込みは維持する。
-            });
-        return () => {
-            active = false;
-        };
-    }, []);
+        store.dispatch({ type: "FILE_RECENT_LOAD_REQUEST" });
+    }, [store]);
 
     useEffect(() => {
         if (trace === null) {
@@ -505,7 +476,8 @@ export function App() {
     const resetCommandUI = useCallback(() => {
         setCommandMessage("");
         setCommandPaletteInitial(null);
-    }, []);
+        store.dispatch({ type: "FILE_MESSAGE_DISMISS" });
+    }, [store]);
 
     const cancelViewAnimation = useCallback(() => {
         pendingScrollRef.current = null;
@@ -517,44 +489,6 @@ export function App() {
         cancelAnimationFrame(animation.frameID);
         viewAnimationRef.current = null;
     }, []);
-
-    const stopFileObservation = useCallback((source: TabFileBinding) => {
-        source.stopObservation?.();
-        source.stopObservation = null;
-    }, []);
-
-    const disconnectFileSource = useCallback((tabID: number) => {
-        const binding = fileAccessesRef.current.get(tabID);
-        if (binding !== undefined) {
-            stopFileObservation(binding);
-            fileAccessesRef.current.delete(tabID);
-        }
-        setChangedFileTabIDs((previous) => {
-            if (!previous.has(tabID)) {
-                return previous;
-            }
-            const next = new Set(previous);
-            next.delete(tabID);
-            return next;
-        });
-    }, [stopFileObservation]);
-
-    const watchFileSource = useCallback((tabID: number) => {
-        const binding = fileAccessesRef.current.get(tabID);
-        if (binding === undefined) {
-            return;
-        }
-        stopFileObservation(binding);
-        binding.stopObservation = binding.access.observe(() => {
-            if (fileAccessesRef.current.get(tabID) !== binding) {
-                return;
-            }
-            const tab = store.getSnapshot().tabs.find((item) => item.id === tabID);
-            if (tab?.kind === "trace" && tab.loadState !== "loading") {
-                setChangedFileTabIDs((previous) => new Set(previous).add(tabID));
-            }
-        });
-    }, [stopFileObservation, store]);
 
     const startViewAnimation = useCallback((
         duration: number,
@@ -666,13 +600,12 @@ export function App() {
             // 解放する前にCanvas側の遅延描画資源を明示的に破棄する。
             traceSheetRef.current?.resetPipelineCanvas();
         }
-        disconnectFileSource(id);
         store.dispatch({ type: "TAB_CLOSE", tabID: id });
         if (wasActive) {
             resetStats();
             resetCommandUI();
         }
-    }, [cancelViewAnimation, disconnectFileSource, resetCommandUI, resetStats, store]);
+    }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
 
     useEffect(() => store.subscribeChange((change) => {
         if (change.type === "VIEW_SETTINGS_UPDATE") {
@@ -682,212 +615,46 @@ export function App() {
             (change.tabID === null || change.tabID === store.activeTab?.id)) {
             setRenderVersion((version) => version + 1);
         }
-    }), [store]);
+        if (change.type === "FILE_INPUT_REQUEST") {
+            fileInputRef.current?.click();
+        }
+        if (change.type === "PROGRESS_BAR_START" && change.operation === "load") {
+            cancelViewAnimation();
+            resetStats();
+            resetCommandUI();
+        }
+    }), [cancelViewAnimation, resetCommandUI, resetStats, store]);
 
     useEffect(() => () => {
         statsRequestRef.current++;
         cancelViewAnimation();
-        for (const binding of fileAccessesRef.current.values()) {
-            stopFileObservation(binding);
-        }
-        fileAccessesRef.current.clear();
         // StrictModeの初回cleanup時点ではtabがなく、実際のunmountではStoreが全tabを閉じる。
-        store.close();
-    }, [cancelViewAnimation, stopFileObservation, store]);
+        store.dispatch({ type: "STORE_CLOSE" });
+    }, [cancelViewAnimation, store]);
 
-    const parseFileInTab = useCallback(async (
-        file: File,
-        tabID: number,
-        loadSignal: AbortSignal,
-    ): Promise<boolean> => {
-        cancelViewAnimation();
-        resetStats();
-        resetCommandUI();
-
-        let parsingTrace: ParsedTrace | null = null;
-        let traceUpdateCount = 0;
-        try {
-            const result = await parseTraceFile(file, {
-                onProgress: (value) => {
-                    if (!loadSignal.aborted) {
-                        store.dispatch({ type: "FILE_LOAD_PROGRESS", tabID, progress: value });
-                    }
-                },
-                onTrace: (partialTrace) => {
-                    if (loadSignal.aborted) {
-                        return;
-                    }
-                    // 形式確定後は同じtraceを更新し、Storeから対象sheetの再描画を通知する。
-                    parsingTrace = partialTrace;
-                    traceUpdateCount++;
-                    // progressとcancel確認は細かく維持し、重いCanvas途中描画だけを約8回に1回へ抑える。
-                    if (traceUpdateCount === 1 || traceUpdateCount % 8 === 0) {
-                        store.dispatch({ type: "FILE_LOAD_TRACE", tabID, trace: partialTrace });
-                    }
-                },
-            }, loadSignal);
-            if (result === null || loadSignal.aborted) {
-                result?.trace.close();
-                return false;
-            }
-            // 旧Parserと同じ形式で、展開と解析を含む成功Parserの所要時間をconsoleとLogへ残す。
-            console.log(`Parsed (${result.parserName}): ${Math.round(result.elapsedMilliseconds)} ms`);
-            store.dispatch({ type: "FILE_LOAD_FINISH", tabID, trace: result.trace });
-            return true;
-        }
-        catch (error) {
-            // close済みTabの意図的なcancelは、別Tabへerrorとして表示しない。
-            if (loadSignal.aborted) {
-                return false;
-            }
-            store.dispatch({
-                type: "FILE_LOAD_ERROR",
-                tabID,
-                message: error instanceof Error ? error.message : String(error),
-                trace: parsingTrace,
-            });
-            return false;
-        }
-    }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
-
-    const rememberFile = useCallback(async (access: TraceFileAccess, file: File) => {
-        try {
-            setRecentFiles(await access.remember(file));
-        }
-        catch {
-            // 履歴保存が使えなくても、開いたtraceとreload handleはこのsession中利用する。
-        }
-    }, []);
-
-    const loadFile = useCallback(async (file: File, access?: TraceFileAccess) => {
-        cancelViewAnimation();
-        store.dispatch({
-            type: "FILE_OPEN",
-            fileName: file.name,
-            renderer: new KonataRenderer(),
-        });
-        const tab = store.activeTab;
-        if (tab === null || tab.kind !== "trace") {
-            return;
-        }
-        if (access !== undefined) {
-            fileAccessesRef.current.set(tab.id, {
-                access,
-                stopObservation: null,
-            });
-        }
-
-        const loaded = await parseFileInTab(file, tab.id, tab.loadSignal);
-        const binding = fileAccessesRef.current.get(tab.id);
-        if (access !== undefined && binding?.access === access) {
-            watchFileSource(tab.id);
-            if (loaded) {
-                await rememberFile(access, file);
-            }
-        }
-    }, [cancelViewAnimation, parseFileInTab, rememberFile, store, watchFileSource]);
-
-    const openFilePicker = useCallback(async () => {
+    const openFilePicker = useCallback(() => {
         openControlsRef.current?.removeAttribute("open");
-        if (!supportsTraceFilePicker()) {
-            fileInputRef.current?.click();
-            return;
-        }
-        try {
-            const access = await pickTraceFileAccess();
-            if (access !== null) {
-                await loadFile(await access.read(), access);
-            }
-        }
-        catch (error) {
-            if (error instanceof TraceFilePermissionError) {
-                setCommandMessage(error.message);
-            }
-            else if (!(error instanceof DOMException) || error.name !== "AbortError") {
-                setCommandMessage(`Could not open the file. ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
-    }, [loadFile]);
+        store.dispatch({ type: "FILE_PICK_REQUEST" });
+    }, [store]);
 
-    const forgetRecentFile = useCallback(async (record: RecentFileRecord) => {
-        try {
-            setRecentFiles(await removeRecentFile(record.id));
-        }
-        catch {
-            setRecentFiles((previous) => previous.filter((item) => item.id !== record.id));
-        }
-    }, []);
-
-    const openRecentFile = useCallback(async (record: RecentFileRecord) => {
+    const openRecentFile = useCallback((id: string) => {
         openControlsRef.current?.removeAttribute("open");
-        const access = recentTraceFileAccess(record);
-        try {
-            await loadFile(await access.read(), access);
-        }
-        catch (error) {
-            if (error instanceof TraceFilePermissionError) {
-                setCommandMessage(error.message);
-            }
-            else {
-                await forgetRecentFile(record);
-                setCommandMessage(`Could not reopen ${record.name}. ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
-    }, [forgetRecentFile, loadFile]);
+        store.dispatch({ type: "FILE_RECENT_OPEN_REQUEST", id });
+    }, [store]);
 
-    const reloadTab = useCallback(async (tabID: number) => {
+    const reloadTab = useCallback((tabID: number) => {
         openControlsRef.current?.removeAttribute("open");
-        const binding = fileAccessesRef.current.get(tabID);
-        const tab = store.getSnapshot().tabs.find((item) => item.id === tabID);
-        if (binding === undefined || tab?.kind !== "trace" || tab.loadState === "loading") {
-            return;
-        }
-        try {
-            // file取得に失敗した場合は、表示中のtraceをそのまま残す。
-            const file = await binding.access.read();
-            const currentTab = store.getSnapshot().tabs.find((item) => item.id === tabID);
-            if (fileAccessesRef.current.get(tabID) !== binding ||
-                currentTab?.kind !== "trace" || currentTab.loadState === "loading") {
-                return;
-            }
-            stopFileObservation(binding);
-            setChangedFileTabIDs((previous) => {
-                const next = new Set(previous);
-                next.delete(tabID);
-                return next;
-            });
-            store.dispatch({ type: "FILE_RELOAD", tabID });
-            const loaded = await parseFileInTab(file, tab.id, tab.loadSignal);
-            if (fileAccessesRef.current.get(tabID) === binding) {
-                watchFileSource(tabID);
-                if (loaded) {
-                    await rememberFile(binding.access, file);
-                }
-            }
-        }
-        catch (error) {
-            if (error instanceof TraceFilePermissionError) {
-                setCommandMessage(`Permission to reload ${tab.fileName} was not granted.`);
-            }
-            else {
-                watchFileSource(tabID);
-                setCommandMessage(`Could not reload ${tab.fileName}. ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
-    }, [parseFileInTab, rememberFile, stopFileObservation, store, watchFileSource]);
+        store.dispatch({ type: "FILE_RELOAD_REQUEST", tabID });
+    }, [store]);
 
     const dismissFileChange = useCallback((tabID: number) => {
-        setChangedFileTabIDs((previous) => {
-            const next = new Set(previous);
-            next.delete(tabID);
-            return next;
-        });
-    }, []);
+        store.dispatch({ type: "FILE_CHANGE_DISMISS", tabID });
+    }, [store]);
 
     const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file !== undefined) {
-            void loadFile(file);
+        const files = Array.from(event.target.files ?? []);
+        if (files.length > 0) {
+            store.dispatch({ type: "FILE_OPEN_REQUEST", files });
         }
         // 同じファイルを再選択してもchangeが発火するようvalueを戻す。
         event.target.value = "";
@@ -896,9 +663,9 @@ export function App() {
     const handleDrop = (event: DragEvent<HTMLElement>) => {
         event.preventDefault();
         setIsDraggingFile(false);
-        // 個別に続けてdropした場合と同じく、各TabのParserを独立して並行実行する。
-        for (const file of Array.from(event.dataTransfer.files)) {
-            void loadFile(file);
+        const files = Array.from(event.dataTransfer.files);
+        if (files.length > 0) {
+            store.dispatch({ type: "FILE_OPEN_REQUEST", files });
         }
     };
 
@@ -1582,7 +1349,9 @@ export function App() {
         statusMessage = errorMessage;
         statusType = "error";
     }
-    const visibleMessage = commandMessage !== "" ? commandMessage : searchMessage;
+    const visibleMessage = commandMessage !== ""
+        ? commandMessage
+        : fileMessage !== "" ? fileMessage : searchMessage;
     if (visibleMessage !== "") {
         statusMessage = visibleMessage;
         statusType = "error";
@@ -1596,7 +1365,7 @@ export function App() {
                 ? { type: "search", value: searchProgress, label: "Searching trace" }
                 : null;
     const canReload = activeTab?.kind === "trace" &&
-        activeTab.loadState !== "loading" && activeFileAccess !== null;
+        activeTab.loadState !== "loading" && reloadableTabIDs.has(activeTab.id);
 
     return (
         <main
@@ -1668,14 +1437,14 @@ export function App() {
                         <span>Open</span>
                     </summary>
                     <div className="open-controls-panel">
-                        <button type="button" onClick={() => void openFilePicker()}>
+                        <button type="button" onClick={openFilePicker}>
                             <BsFolder2Open aria-hidden="true" />
                             <span>Open file…</span>
                         </button>
                         <button
                             type="button"
                             disabled={!canReload}
-                            onClick={() => activeTab !== null && void reloadTab(activeTab.id)}
+                            onClick={() => activeTab !== null && reloadTab(activeTab.id)}
                         >
                             <BsArrowClockwise aria-hidden="true" />
                             <span>Reload current</span>
@@ -1689,7 +1458,7 @@ export function App() {
                                 type="button"
                                 title={record.name}
                                 key={record.id}
-                                onClick={() => void openRecentFile(record)}
+                                onClick={() => openRecentFile(record.id)}
                             >
                                 <BsClockHistory aria-hidden="true" />
                                 <span>{record.name}</span>
@@ -2099,7 +1868,7 @@ export function App() {
                         <span className="status-message">{statusMessage}</span>
                         {statusType === "changed" && activeTab !== null && (
                             <span className="status-actions">
-                                <button type="button" onClick={() => void reloadTab(activeTab.id)}>Reload</button>
+                                <button type="button" onClick={() => reloadTab(activeTab.id)}>Reload</button>
                                 <button type="button" onClick={() => dismissFileChange(activeTab.id)}>Ignore</button>
                             </span>
                         )}
@@ -2145,7 +1914,7 @@ export function App() {
                 onScrollView={scrollTo}
                 onZoomView={zoomAt}
                 onCloseFindResult={hideSearchResult}
-                onOpenTrace={() => void openFilePicker()}
+                onOpenTrace={openFilePicker}
             />
             {isLogPaneOpen && (
                 <LogPane

@@ -21,6 +21,16 @@ function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpSt
     };
 }
 
+async function waitFor(predicate: () => boolean, message: string): Promise<void> {
+    const deadline = performance.now() + 5000;
+    while (!predicate()) {
+        if (performance.now() >= deadline) {
+            throw new Error(message);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+}
+
 test("Store owns tab traces, renderers, activation, and close", () => {
     const store = new Store();
     const changes: Change[] = [];
@@ -62,7 +72,7 @@ test("Store owns tab traces, renderers, activation, and close", () => {
     assert.ok(changes.some((change) => change.type === "TAB_CLOSE" && change.tabID === firstTab.id));
 
     unsubscribe();
-    store.close();
+    store.dispatch({ type: "STORE_CLOSE" });
     assert.equal(second.opStore.opCount, 0);
     assert.equal(store.getSnapshot().tabs.length, 0);
 });
@@ -99,8 +109,52 @@ test("Store reloads a trace in place and restores its view", () => {
     assert.ok(changes.some((change) =>
         change.type === "PROGRESS_BAR_START" && change.tabID === tab.id && change.operation === "load"));
 
-    store.close();
+    store.dispatch({ type: "STORE_CLOSE" });
     assert.equal(second.opStore.opCount, 0);
+});
+
+test("Store handles a file-open request through parsing result actions", async () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+    const contents = [
+        "Kanata\t0004",
+        "I\t0\t10\t0",
+        "S\t0\t0\tF",
+        "C\t1",
+        "R\t0\t0\t0",
+    ].join("\n");
+
+    // App相当の呼出側はFileと要求Actionだけを渡し、ParserやRendererを直接生成しない。
+    store.dispatch({
+        type: "FILE_OPEN_REQUEST",
+        files: [new File([contents], "requested.log", { type: "text/plain" })],
+    });
+    const tab = store.activeTab;
+    assert.ok(tab?.kind === "trace");
+    assert.equal(tab.loadState, "loading");
+    await waitFor(() => tab.loadState !== "loading", "The requested trace did not finish parsing.");
+
+    assert.equal(tab.loadState, "ready");
+    assert.equal(tab.trace?.opCount, 1);
+    assert.ok(changes.some((change) =>
+        change.type === "PROGRESS_BAR_START" && change.tabID === tab.id));
+    assert.ok(changes.some((change) =>
+        change.type === "PROGRESS_BAR_FINISH" && change.tabID === tab.id));
+
+    store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("Store requests the DOM file input through a Change when no picker is available", () => {
+    assert.equal("showOpenFilePicker" in globalThis, false);
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+
+    store.dispatch({ type: "FILE_PICK_REQUEST" });
+
+    assert.ok(changes.some((change) => change.type === "FILE_INPUT_REQUEST"));
+    store.dispatch({ type: "STORE_CLOSE" });
 });
 
 test("Comparison tabs share source OpStores until the last view is closed", () => {
@@ -229,7 +283,7 @@ test("Store moves the active tab forward and backward without reordering tabs", 
     // active Tabだけを変更し、表示順そのものは変更しない。
     assert.deepEqual(store.getSnapshot().tabs.map((tab) => tab.id), tabIDs);
 
-    store.close();
+    store.dispatch({ type: "STORE_CLOSE" });
 });
 
 test("Store rejects a delayed trace update after its tab is closed", () => {
@@ -330,7 +384,7 @@ test("Store keeps search context per tab and rejects stale search updates", () =
     assert.ok(changes.some((change) =>
         change.type === "PROGRESS_BAR_FINISH" && change.operation === "search"));
 
-    store.close();
+    store.dispatch({ type: "STORE_CLOSE" });
 });
 
 test("Store restores and publishes persistent view settings", () => {
@@ -399,7 +453,7 @@ test("Store restores and publishes persistent view settings", () => {
     // Tab固有設定や旧Storeだけの一時設定では、永続化通知を増やさない。
     assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 7);
 
-    store.close();
+    store.dispatch({ type: "STORE_CLOSE" });
 });
 
 test("Store separates global view settings from tab-specific settings", () => {
@@ -473,7 +527,7 @@ test("Store separates global view settings from tab-specific settings", () => {
     assert.equal(firstRenderer.hideFlushedOps, true);
     assert.equal(secondRenderer.hideFlushedOps, false);
 
-    store.close();
+    store.dispatch({ type: "STORE_CLOSE" });
 });
 
 test("Store keeps splitter positions per tab and carries the latest position to new tabs", () => {
@@ -500,5 +554,5 @@ test("Store keeps splitter positions per tab and carries the latest position to 
     assert.ok(changes.some((change) =>
         change.type === "PANE_SIZE_UPDATE" && change.tabID === secondTab.id));
 
-    store.close();
+    store.dispatch({ type: "STORE_CLOSE" });
 });
