@@ -14,11 +14,9 @@
 
 Open [Konata Web](https://shioyadan.github.io/Konata/), then choose or drop a plain-text,
 gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. The selected file is parsed
-locally in the browser and is not uploaded. The initial screen shows the application version,
-commit, and build date.
+locally in the browser and is not uploaded.
 
-The Web application is published from the `dev-v100` branch. To build it locally, use the Docker
-development environment:
+To build it locally, use the Docker development environment:
 
 ```bash
 ./docker/launch.sh make init
@@ -61,20 +59,28 @@ the corresponding instruction.
 
 ### Web controls
 
-The toolbar provides Open, Search, Bookmark, Stats, View, and zoom controls. In Chromium browsers
-that support the File System Access API, Open also lists the five most recently selected files and
-can reload the current file. The browser stores only its local file handle and summary metadata in
-IndexedDB; it does not store the trace contents or upload them. A restored handle may require read
-permission again. When File System Observer is available, an external change shows Reload and
-Ignore actions instead of reloading automatically. Files opened by drag and drop or by the fallback
-file input do not provide a persistent handle, so these extra actions are disabled.
+- **Open:** Choose one or more traces, or drag and drop them onto the window. In Chromium browsers
+  that support the File System Access API, Open also lists the five most recently selected files and
+  can reload the current file. The browser stores only file handles and summary metadata in
+  IndexedDB; it does not store or upload trace contents. A restored handle may require permission
+  again.
+- **Reload:** When File System Observer is available, an external change shows Reload and Ignore
+  actions instead of reloading automatically. Files opened by drag and drop or by the fallback file
+  input do not provide a persistent handle, so these actions are disabled.
+- **Search:** Open the command palette with `f ` prefilled. F3 and Shift+F3 move to the next and
+  previous matches.
+- **Bookmark:** Number keys `0`–`9` go to bookmarks. Ctrl/Command+`0`–`9` stores the current position
+  and zoom in the corresponding slot.
+- **Stats:** Show statistics for the current trace in a resizable dialog.
+- **View:** Change the theme, pipeline colors, dependency arrows, lane layout, flushed-op visibility,
+  and minimum lane heights used for drawing details. Custom colors can be edited from the Custom
+  color scheme.
+- **Zoom:** Change the zoom directly. Zoom steps per 2× controls how many input steps double or halve
+  the view.
+- **Application log:** Open it from the rightmost menu to show a resizable pane at the bottom of the
+  window. The same messages are also written to the browser console.
 
-Application log in
-the rightmost menu opens a resizable pane at the bottom of the window for messages that are also
-written to the browser console. View changes the theme, pipeline colors, dependency arrows, lane
-layout, flushed-op visibility, and the minimum
-lane heights used for drawing details. Zoom steps per 2× controls how many input steps double or
-halve the view. Custom colors can be edited from the Custom color scheme.
+Canvas and tab controls:
 
 - Drag the canvas to pan. A horizontal trackpad wheel scrolls horizontally.
 - Use the mouse wheel or Up/Down keys to follow instructions vertically.
@@ -85,8 +91,7 @@ halve the view. Custom colors can be edited from the Custom color scheme.
   Adjust preserves the zoom; Reset restores both the position and zoom.
 - Click a tab with the middle mouse button to close it. Ctrl/Command+Tab moves between tabs.
 
-Search opens the command palette with `f ` prefilled. F3 and Shift+F3 move to the next and previous
-matches. F1 or Ctrl/Command+Shift+P opens the full palette, which accepts these commands:
+F1 or Ctrl/Command+Shift+P opens the full command palette, which accepts these commands:
 
 ```text
 j  <op ID>    Jump to an operation ID
@@ -95,8 +100,7 @@ f  <pattern>  Find a regular expression
 l             Open the file picker
 ```
 
-Number keys `0`–`9` go to bookmarks. Ctrl/Command+`0`–`9` stores the current position and zoom in
-the corresponding slot. Command history, bookmarks, and view settings are saved in browser storage.
+Command history, bookmarks, and view settings are saved in browser storage.
 
 ### Trace comparison
 
@@ -117,34 +121,14 @@ Arbitrary URL or path loading is intentionally disabled.
 
 ## Development
 
-Docker is the recommended development environment. The launcher rebuilds its image when the Docker
-definition changes, bind-mounts this repository, and runs the given command at the repository root.
+Docker is the recommended development environment. Start a shell with the repository mounted at
+`/workspace`:
 
 ```bash
-# Install dependencies.
-./docker/launch.sh make init
-
-# Run type checks, parser tests, and the production Web smoke test.
-./docker/launch.sh make check
-
-# Build or serve the development Web application.
-./docker/launch.sh make
-./docker/launch.sh make serve
-
-# Build the production single HTML file.
-./docker/launch.sh make production
-
-# Measure the current Web OpStore without using large work/ traces.
-./docker/launch.sh make benchmark-op-store
-
-# Open an interactive shell in the development container.
 ./docker/launch.sh
 ```
 
-All build and test operations are Make targets; npm scripts are not used. The Web smoke test uses
-Electron only as a sandboxed Chromium test runner; Electron APIs are not used by the application or
-included in `dist-web/index.html`. To work without Docker, install Node.js 22.12 or later and run
-the same targets directly:
+Run all development operations from that shell:
 
 ```bash
 make init          # Install dependencies
@@ -152,15 +136,20 @@ make               # Build the development Web application
 make serve         # Start the Web development server
 make production    # Build dist-web/index.html
 make check         # Run the complete verification set
+make benchmark-op-store
 make release-archive
 ```
 
+All operations are Make targets; npm scripts are not used. `make check` uses Electron only as a
+sandboxed Chromium test runner, not as part of the application. Without Docker, install Node.js
+22.12 or later and run the same Make targets directly.
+
 ### GitHub Pages preview
 
-Pushing `dev-v100` runs `.github/workflows/pages.yml`. The workflow installs the locked dependencies
+Pushing `master` runs `.github/workflows/pages.yml`. The workflow installs the locked dependencies
 with `npm ci`, invokes the existing Make verification targets, uploads `dist-web`, and deploys it to
 GitHub Pages. In the repository settings, Pages must use GitHub Actions and the `github-pages`
-environment must allow deployments from `dev-v100`.
+environment must allow deployments from `master`.
 
 ## Release
 

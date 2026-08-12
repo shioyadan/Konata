@@ -2,7 +2,7 @@ name: Deploy Konata Web
 
 on:
   push:
-    branches: [dev-v100]
+    branches: [master]
   workflow_dispatch:
 
 permissions:

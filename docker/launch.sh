@@ -11,12 +11,12 @@
 #   ./docker/launch.sh make serve
 #
 # Dockerfileまたはentrypoint.shの更新時はイメージを自動再構築する。
-# make serveでは127.0.0.1の開発用ポートだけを公開する。
+# 対話シェルとmake serveでは127.0.0.1の開発用ポートだけを公開する。
 # 次の環境変数で必要な場合だけ既定動作を上書きできる。
 #   KONATA_DOCKER_REBUILD=1       イメージを強制的に再構築する。
 #   KONATA_DOCKER_IMAGE=<name>    使用するイメージ名を変更する。
 #   KONATA_DOCKER_WEB_PORT=<port> make serveのホスト側ポートを変更する。
-#   KONATA_DOCKER_PUBLISH_WEB=1   make serve以外のコマンドでもWebポートを公開する。
+#   KONATA_DOCKER_PUBLISH_WEB=1   その他のコマンドでもWebポートを公開する。
 
 set -euo pipefail
 
@@ -65,8 +65,11 @@ docker_arguments=(
     --workdir /workspace
 )
 
-# make serveだけはブラウザから接続できるようにし、公開先をlocalhostへ限定する。
+# 対話シェル内のmake serveからも接続できるようにし、公開先をlocalhostへ限定する。
 publish_web_port="${KONATA_DOCKER_PUBLISH_WEB:-0}"
+if [[ "$#" -eq 0 ]]; then
+    publish_web_port="1"
+fi
 for argument in "$@"; do
     if [[ "${argument}" == "serve" ]]; then
         publish_web_port="1"
