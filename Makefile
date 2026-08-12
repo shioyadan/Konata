@@ -1,31 +1,90 @@
-run:
-	npx electron . 
+.DEFAULT_GOAL := all
 
+# Electronは製品には使わず、production HTMLをChromium上で検証するテスト実行器としてだけ使う。
+ELECTRON := ./node_modules/.bin/electron
+WEBPACK := ./node_modules/.bin/webpack
+TSC := ./node_modules/.bin/tsc
+TSX := ./node_modules/.bin/tsx
+BENCHMARK_OPS ?= 100000
+BENCHMARK_TRACE ?=
+PACKAGE_VERSION := $(shell node -p 'require("./package.json").version')
+RELEASE_NAME := konata-v$(PACKAGE_VERSION)
+RELEASE_ROOT := dist-release
+RELEASE_DIR := $(RELEASE_ROOT)/$(RELEASE_NAME)
+RELEASE_ARCHIVE := $(RELEASE_ROOT)/$(RELEASE_NAME).zip
+
+.PHONY: all production check versions init test typecheck serve web-render-smoke \
+	web-smoke production-smoke benchmark-op-store release-version-check release-archive \
+	clean distclean
+
+all:
+	$(WEBPACK) --mode development
+
+production:
+	$(WEBPACK) --mode production
+
+# 型・Parser・単一HTML・Web描画を順番に検証する正式な確認入口。
+check:
+	$(MAKE) typecheck
+	$(MAKE) test
+	$(MAKE) production-smoke
+
+# ElectronはWeb smoke testの実行器なので、開発環境の確認値には残す。
+versions:
+	node --version
+	npm --version
+	node -p '"Electron test runner " + require("electron/package.json").version'
+
+# bind mountに残るテスト実行器を、現在の環境に合うElectronへ確実に更新する。
 init:
 	npm install
+	npm rebuild electron
 
-build: clean
-	npx license-checker --production --relativeLicensePath > THIRD-PARTY-LICENSES.md
-	npx electron-packager . konata \
-		--out=packaging-work \
-		--platform=darwin,win32,linux \
-		--arch=x64  \
-		--electron-version=23.0.0 \
-		--ignore work \
-		--ignore packaging-work \
-		--ignore .vscode \
-		--asar \
-		--prune=true	# Exclude devDependencies
+# Web実装のTypeScriptテストをNode.js上で実行する。
+test:
+	$(TSX) --test test/*.test.ts
 
-DOCUMENTS = README.md LICENSE.md THIRD-PARTY-LICENSES.md
-pack: build
-	cp $(DOCUMENTS) -t ./packaging-work/
-	cd packaging-work/; zip -r konata-win32-x64.zip konata-win32-x64 $(DOCUMENTS)
-	cd packaging-work/; tar -cvzf konata-linux-x64.tar.gz konata-linux-x64 $(DOCUMENTS)
-	cd packaging-work/; tar -cvzf konata-darwin-x64.tar.gz konata-darwin-x64 $(DOCUMENTS)
+typecheck:
+	$(TSC) --project tsconfig.json --noEmit
+
+# 通常checkから分離し、store方式を同じ入力・同じ指標で比較するためにだけ実行する。
+benchmark-op-store:
+	node --expose-gc --import tsx tools/benchmark_op_store.ts --ops $(BENCHMARK_OPS) $(if $(BENCHMARK_TRACE),--trace $(BENCHMARK_TRACE))
+
+serve:
+	$(WEBPACK) serve --mode development
+
+# ビルド方式に依存しないRenderer検証を共通化し、developmentとproductionの両方で使う。
+# CIではgzip sampleの解析を含む一連のUI検査に30秒以上かかるため、全体には余裕を持たせる。
+web-render-smoke:
+	ELECTRON_ENABLE_LOGGING=1 \
+		dbus-run-session -- xvfb-run -a timeout 60s \
+		$(ELECTRON) test/web_app_smoke.js --no-sandbox --disable-gpu
+
+# Web版をElectronのsandboxed Chromiumで読み込み、ReactのmountとCSS適用までを検証する。
+# Electron APIはテスト側だけで使い、src/やproduction成果物には含めない。
+web-smoke: all
+	$(MAKE) web-render-smoke
+
+production-smoke: production
+	node test/single_html_smoke.js
+	$(MAKE) web-render-smoke
+
+# package.jsonをバージョンの基準とし、lockfileとの不一致を配布前に検出する。
+release-version-check:
+	node -e 'const packageJSON = require("./package.json"); const lock = require("./package-lock.json"); if (packageJSON.version !== lock.version || packageJSON.version !== lock.packages[""].version) { throw new Error("package.json and package-lock.json versions do not match."); }'
+
+# 検証済みの単一HTMLと利用・ライセンス文書だけを、バージョン付きZIPへまとめる。
+release-archive: release-version-check check
+	rm -rf "$(RELEASE_DIR)" "$(RELEASE_ARCHIVE)"
+	mkdir -p "$(RELEASE_DIR)"
+	cp dist-web/index.html README.md LICENSE.md "$(RELEASE_DIR)/"
+	cd "$(RELEASE_ROOT)" && zip -q -r "$(RELEASE_NAME).zip" "$(RELEASE_NAME)"
+	zip -T "$(RELEASE_ARCHIVE)"
+	@echo "Release archive created: $(RELEASE_ARCHIVE)"
 
 clean:
-	rm packaging-work -r -f
+	rm dist-web dist-release -r -f
 
 distclean: clean
 	rm node_modules -r -f

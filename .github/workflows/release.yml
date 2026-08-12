@@ -1,0 +1,60 @@
+name: Release Konata
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.18.0
+          cache: npm
+
+      # 誤ったcommitやバージョン名からReleaseを公開しないよう、依存取得より先に検査する。
+      - name: Verify release tag
+        run: |
+          expected_tag="v$(node -p 'require("./package.json").version')"
+          if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package version ${expected_tag}." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/master; then
+            echo "Tagged commit ${GITHUB_SHA} is not part of master." >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build release archive
+        run: make release-archive
+
+      # GitHub-hosted runnerに標準搭載されたghを使い、追加Actionへの依存を増やさない。
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="dist-release/konata-${GITHUB_REF_NAME}.zip"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${archive}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${archive}" \
+              --verify-tag \
+              --generate-notes \
+              --title "Konata ${GITHUB_REF_NAME}"
