@@ -1,6 +1,9 @@
 # Konata
 
 * Konata is an instruction pipeline visualizer for Onikiri2-Kanata/Gem5-O3PipeView formats.
+* Since v1.0.0, Konata is Web-based rather than Electron-based. Use the hosted site or a
+  self-contained HTML file, with all trace processing kept local in the browser.
+* Nearly all desktop features are retained, with faster, lower-memory processing for larger traces.
 * ASPLOS 2018 learning gem5 tutorial presentation is [here](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf
 )
 * The Onikiri2-Kanata format is described in [here](docs/kanata-log-format.md). It can represent a more detailed pipeline behavior than Gem5-O3PipeView.
@@ -10,22 +13,11 @@
 
 ## Run Konata
 
-### Web application
-
 Open [Konata Web](https://shioyadan.github.io/Konata/), then choose or drop a plain-text,
-gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. The selected file is parsed
-locally in the browser and is not uploaded.
-
-To build it locally, use the Docker development environment:
-
-```bash
-./docker/launch.sh make init
-./docker/launch.sh make production
-```
-
-The result is `dist-web/index.html`. It contains the complete application, including the Zstandard
-Worker, in one HTML file and can be copied to a static Web server. For development,
-`./docker/launch.sh make serve` starts a server at `http://127.0.0.1:8080`.
+gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. For local use, download the latest
+`konata-v*.zip` from [GitHub Releases](https://github.com/shioyadan/Konata/releases), extract it,
+and open `index.html` in a browser. In either case, the selected trace is processed locally in the
+browser and is not uploaded.
 
 
 ## Usage
