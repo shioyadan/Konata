@@ -2,7 +2,7 @@ name: Deploy Konata Web
 
 on:
   push:
-    branches: [master]
+    branches: [master, stable]
   workflow_dispatch:
 
 permissions:
@@ -19,25 +19,58 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
+      # Pagesはdeployごとに全体を置き換えるため、常に両branchを同じartifactへまとめる。
+      - name: Checkout unstable branch
         uses: actions/checkout@v6
+        with:
+          ref: master
+          path: unstable
+
+      - name: Checkout stable branch
+        uses: actions/checkout@v6
+        with:
+          ref: stable
+          path: stable
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 22.18.0
           cache: npm
+          cache-dependency-path: |
+            unstable/package-lock.json
+            stable/package-lock.json
 
-      - name: Install dependencies
+      - name: Install unstable dependencies
+        working-directory: unstable
         run: npm ci
 
       # Electronはsandboxed Chromiumのテスト実行器としてだけ使い、配布物には含めない。
       # Pagesへ未検証の生成物を出さないよう、既存のMakeターゲットをそのまま使う。
-      - name: Verify and build web app
+      - name: Verify and build unstable app
+        working-directory: unstable
         run: |
           make typecheck
           make test
           make production-smoke
+
+      - name: Install stable dependencies
+        working-directory: stable
+        run: npm ci
+
+      - name: Verify and build stable app
+        working-directory: stable
+        run: |
+          make typecheck
+          make test
+          make production-smoke
+
+      # masterを従来のURLへ置き、一般利用向けのrelease版だけをstable/へ分ける。
+      - name: Assemble GitHub Pages site
+        run: |
+          mkdir -p dist-site/stable
+          cp unstable/dist-web/index.html dist-site/index.html
+          cp stable/dist-web/index.html dist-site/stable/index.html
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
@@ -45,7 +78,7 @@ jobs:
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: dist-web
+          path: dist-site
 
   deploy:
     runs-on: ubuntu-24.04

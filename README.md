@@ -3,12 +3,14 @@
 * Konata is an instruction pipeline visualizer for traces in the Onikiri2-Kanata and gem5
   O3PipeView formats.
 * Starting with v1.0.0, Konata runs in the browser instead of as an Electron desktop application.
-  Open [Konata Web](https://shioyadan.github.io/Konata/) or download the self-contained HTML release
-  from [GitHub Releases](https://github.com/shioyadan/Konata/releases). All trace processing remains
-  local to the browser. Konata makes no background network requests, and trace data never leaves
-  the browser.
-* Nearly all features from the desktop version are retained. Faster processing and lower memory use
-  make it possible to open larger traces.
+    * Use [Konata Web stable](https://shioyadan.github.io/Konata/stable/) or download the
+      self-contained HTML release from [GitHub Releases](https://github.com/shioyadan/Konata/releases).
+    * Try [Konata Web unstable](https://shioyadan.github.io/Konata/) for the latest version from
+      `master`.
+    * All trace processing remains local to the browser. Konata makes no background network
+      requests, and trace data never leaves the browser.
+    * Nearly all features from the desktop version are retained.
+        * Like the desktop version, Konata can load trace files several gigabytes in size.
 * The [ASPLOS 2018 gem5 tutorial presentation](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf)
   provides an introduction to Konata.
 * The [Onikiri2-Kanata format](docs/kanata-log-format.md) represents pipeline behavior in greater
@@ -19,11 +21,12 @@
 
 ## Run Konata
 
-Open [Konata Web](https://shioyadan.github.io/Konata/), then select or drag and drop a plain-text,
-gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. To run Konata locally, download
-the latest `konata-v*.zip` from [GitHub Releases](https://github.com/shioyadan/Konata/releases),
-extract it, and open `index.html` in a browser. Konata processes the trace entirely in the browser
-and never uploads it.
+Open [Konata Web stable](https://shioyadan.github.io/Konata/stable/), then select or drag and drop a
+plain-text, gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. To run Konata locally,
+download the latest `konata-v*.zip` from
+[GitHub Releases](https://github.com/shioyadan/Konata/releases), extract it, and open `index.html`
+in a browser. Konata processes the trace entirely in the browser and never uploads it. The latest
+development version is available as [Konata Web unstable](https://shioyadan.github.io/Konata/).
 
 
 ## Usage

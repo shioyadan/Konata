@@ -38,6 +38,10 @@ jobs:
             echo "Tagged commit ${GITHUB_SHA} is not part of master." >&2
             exit 1
           fi
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/stable; then
+            echo "Tagged commit ${GITHUB_SHA} is not deployed from stable." >&2
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm ci
