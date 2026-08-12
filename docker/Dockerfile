@@ -2,7 +2,7 @@ FROM node:22.18.0-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ElectronのGUI起動をXvfb上で検証するため、Chromiumの実行ライブラリも固定環境へ入れる。
+# production HTMLをElectronのChromiumで検証するため、GUI実行ライブラリも固定環境へ入れる。
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         ca-certificates \
@@ -34,7 +34,6 @@ RUN apt-get update \
         util-linux \
         xauth \
         xvfb \
-        zip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

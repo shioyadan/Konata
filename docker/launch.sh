@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Konataの固定Node.js/Electron開発環境をDockerで起動するためのランチャー。
+# Konataの固定Node.js開発・Webテスト環境をDockerで起動するためのランチャー。
 # リポジトリを/workspaceへbind mountし、指定されたコマンドをホストと同じUID/GIDで実行する。
 # 引数なしでは対話シェルを開き、引数があれば配列のままコンテナへ渡す。
 #
@@ -11,7 +11,7 @@
 #   ./docker/launch.sh make serve
 #
 # Dockerfileまたはentrypoint.shの更新時はイメージを自動再構築する。
-# make serveでは127.0.0.1の開発用ポートだけを公開し、DISPLAYがあればX11も引き継ぐ。
+# make serveでは127.0.0.1の開発用ポートだけを公開する。
 # 次の環境変数で必要な場合だけ既定動作を上書きできる。
 #   KONATA_DOCKER_REBUILD=1       イメージを強制的に再構築する。
 #   KONATA_DOCKER_IMAGE=<name>    使用するイメージ名を変更する。
@@ -75,14 +75,6 @@ for argument in "$@"; do
 done
 if [[ "${publish_web_port}" == "1" ]]; then
     docker_arguments+=(--publish "127.0.0.1:${KONATA_DOCKER_WEB_PORT:-8080}:8080")
-fi
-
-# DISPLAYが利用可能なホストでは、移行中のElectron版も同じコンテナから起動できる。
-if [[ -n "${DISPLAY:-}" && -d /tmp/.X11-unix ]]; then
-    docker_arguments+=(
-        --env "DISPLAY=${DISPLAY}"
-        --volume /tmp/.X11-unix:/tmp/.X11-unix
-    )
 fi
 
 if [[ "$#" -eq 0 ]]; then

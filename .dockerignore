@@ -1,6 +1,5 @@
 .git
 node_modules
-packaging-work
 dist-web
 work
 docker/.image-*.stamp

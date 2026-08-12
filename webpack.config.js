@@ -34,14 +34,14 @@ module.exports = (_env, argv) => {
         devtool: isProduction ? false : "inline-source-map",
         entry: "./src/index.tsx",
         output: {
-            // Electronのpackaging-workと混在させず、双方を独立して検証できるようにする。
+            // developmentとproductionの生成物を同じ場所へまとめ、ソースツリーへ出力しない。
             path: path.resolve(__dirname, "dist-web"),
             filename: "bundle.js",
             publicPath: "",
             clean: true,
         },
         optimization: {
-            // 第三者ライセンスは専用文書で配布し、圧縮時のコメント外出しで単一HTMLを崩さない。
+            // 第三者ライセンスコメントをHTML内に保ち、別ファイルへの抽出で単一HTMLを崩さない。
             minimizer: [new TerserPlugin({ extractComments: false })],
         },
         resolve: {

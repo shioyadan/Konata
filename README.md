@@ -17,28 +17,17 @@ gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. The selected f
 locally in the browser and is not uploaded. The initial screen shows the application version,
 commit, and build date.
 
-The Web application is currently published from the `dev-v100` branch while the v1.0 migration
-is in progress. To build it locally, use the Docker development environment:
+The Web application is published from the `dev-v100` branch. To build it locally, use the Docker
+development environment:
 
 ```bash
 ./docker/launch.sh make init
 ./docker/launch.sh make production
 ```
 
-The result is `dist-web/index.html`. It contains the application in one HTML file and can be
-copied to a static Web server. For development, `./docker/launch.sh make serve` starts a server at
-`http://127.0.0.1:8080`.
-
-### Reference Electron application
-
-The existing Electron application remains available during the Web migration. Pre-built binaries
-are available from [GitHub Releases](https://github.com/shioyadan/Konata/releases). From this
-repository, install the dependencies and run it with:
-
-```bash
-./docker/launch.sh make init
-./docker/launch.sh make run
-```
+The result is `dist-web/index.html`. It contains the complete application, including the Zstandard
+Worker, in one HTML file and can be copied to a static Web server. For development,
+`./docker/launch.sh make serve` starts a server at `http://127.0.0.1:8080`.
 
 
 ## Usage
@@ -109,24 +98,21 @@ l             Open the file picker
 Number keys `0`–`9` go to bookmarks. Ctrl/Command+`0`–`9` stores the current position and zoom in
 the corresponding slot. Command history, bookmarks, and view settings are saved in browser storage.
 
-### Current Web/Electron differences
+### Trace comparison
 
-| Feature | Web application | Reference Electron application |
-| --- | --- | --- |
-| Local plain/gzip traces, tabs, search, bookmarks, Stats, and view settings | Supported | Supported |
-| Local Zstandard (`.zst`/`.zstd`) traces | Supported | Not supported |
-| Progressive parsing and drawing | Supported | Supported |
-| Adjust position | Toolbar crosshair | Pipeline context menu |
-| Transparent overlay and synchronized scrolling | Not yet implemented | Supported |
-| Recent files and reload after an external file change | Supported in compatible Chromium browsers; file-input fallback elsewhere | Supported |
-| Automatic loading from a path or URL query | Intentionally disabled | Local paths supported |
+Open two traces, activate the tab to use as A, and choose Compare. A comparison tab provides A,
+Overlay, and B modes. A and B modes keep the selected trace in its comparison color and show the
+other trace as a faint gray reference. Overlay uses complementary colors so matching stages become
+neutral and local stage or position differences remain colored. Dragging in A or B mode adjusts
+only that trace; Overlay moves both traces together. Align to A adjusts A and aligns B using a
+common retired-operation ID when one is available.
 
-The missing comparison functions are being redesigned instead of directly copying the transparent
-overlay. Remote-server/WSL reload will be considered together with a restricted read-only trace
-server. Arbitrary URL or path loading is not enabled in the Web build.
+### Browser limitations
 
-On Linux, the Electron application may require additional Chromium runtime libraries. Installing a
-recent Google Chrome or the corresponding distribution packages usually provides them.
+Recent files, persistent handles, and external-change detection depend on File System Access APIs
+currently available in compatible Chromium browsers. Other browsers retain file input and drag and
+drop. Remote-server/WSL reload will be considered together with a restricted read-only trace server.
+Arbitrary URL or path loading is intentionally disabled.
 
 
 ## Development
@@ -138,7 +124,7 @@ definition changes, bind-mounts this repository, and runs the given command at t
 # Install dependencies.
 ./docker/launch.sh make init
 
-# Run type checks, parser tests, Web tests, and the reference Electron smoke test.
+# Run type checks, parser tests, and the production Web smoke test.
 ./docker/launch.sh make check
 
 # Build or serve the development Web application.
@@ -155,8 +141,10 @@ definition changes, bind-mounts this repository, and runs the given command at t
 ./docker/launch.sh
 ```
 
-All build and test operations are Make targets; npm scripts are not used. To work without Docker,
-install Node.js 22.12 or later and run the same targets directly:
+All build and test operations are Make targets; npm scripts are not used. The Web smoke test uses
+Electron only as a sandboxed Chromium test runner; Electron APIs are not used by the application or
+included in `dist-web/index.html`. To work without Docker, install Node.js 22.12 or later and run
+the same targets directly:
 
 ```bash
 make init          # Install dependencies
@@ -164,7 +152,6 @@ make               # Build the development Web application
 make serve         # Start the Web development server
 make production    # Build dist-web/index.html
 make check         # Run the complete verification set
-make run           # Run the reference Electron application
 ```
 
 ### GitHub Pages preview
@@ -179,5 +166,5 @@ environment must allow deployments from `dev-v100`.
 Copyright (C) 2016-2026 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
 
 This application is released under the 3-Clause BSD License, see LICENSE.md.
-This application bundles ELECTRON and many third-party packages in accordance with 
-the licenses presented in THIRD-PARTY-LICENSES.md.
+The Web application includes third-party packages under their respective licenses. Electron is a
+development-only dependency used to run the Web smoke test and is not included in the application.
