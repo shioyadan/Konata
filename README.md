@@ -1,8 +1,10 @@
 # Konata
 
 * Konata is an instruction pipeline visualizer for Onikiri2-Kanata/Gem5-O3PipeView formats.
-* Since v1.0.0, Konata is Web-based rather than Electron-based. Use the hosted site or a
-  self-contained HTML file, with all trace processing kept local in the browser.
+* Since v1.0.0, Konata is Web-based rather than Electron-based. Use
+  [Konata Web](https://shioyadan.github.io/Konata/) or download a self-contained HTML file from
+  [GitHub Releases](https://github.com/shioyadan/Konata/releases). All trace processing stays local
+  in the browser.
 * Nearly all desktop features are retained, with faster, lower-memory processing for larger traces.
 * ASPLOS 2018 learning gem5 tutorial presentation is [here](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf
 )
@@ -51,15 +53,10 @@ the corresponding instruction.
 
 ### Web controls
 
-- **Open:** Choose one or more traces, or drag and drop them onto the window. In Chromium browsers
-  that support the File System Access API, Open also lists the five most recently selected files and
-  can reload the current file. The browser stores only file handles and summary metadata in
-  IndexedDB; it does not store or upload trace contents. A restored handle may require permission
-  again.
-- **Reload:** When File System Observer is available, an external change shows Reload and Ignore
-  actions instead of reloading automatically. Files opened by drag and drop or by the fallback file
-  input do not provide a persistent handle, so these actions are disabled.
-- **Search:** Open the command palette with `f ` prefilled. F3 and Shift+F3 move to the next and
+- **Open:** Choose one or more traces, or drag and drop them onto the window.
+- **Recent and Reload:** Reopen a recently selected trace or reload the current trace after it
+  changes. If a change notice appears, choose Reload or Ignore.
+- **Search:** Find a regular expression in the current trace. F3 and Shift+F3 move to the next and
   previous matches.
 - **Bookmark:** Number keys `0`–`9` go to bookmarks. Ctrl/Command+`0`–`9` stores the current position
   and zoom in the corresponding slot.
@@ -69,8 +66,8 @@ the corresponding instruction.
   color scheme.
 - **Zoom:** Change the zoom directly. Zoom steps per 2× controls how many input steps double or halve
   the view.
-- **Application log:** Open it from the rightmost menu to show a resizable pane at the bottom of the
-  window. The same messages are also written to the browser console.
+- **Application log:** Review parser warnings and other messages in a resizable pane at the bottom
+  of the window.
 
 Canvas and tab controls:
 
@@ -92,7 +89,7 @@ f  <pattern>  Find a regular expression
 l             Open the file picker
 ```
 
-Command history, bookmarks, and view settings are saved in browser storage.
+Command history, bookmarks, and view settings are saved between browser sessions.
 
 ### Trace comparison
 
