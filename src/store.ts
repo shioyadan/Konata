@@ -95,9 +95,14 @@ export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = 
 export interface FindResult {
     readonly targetPattern: string;
     readonly foundString: string;
-    readonly op: Op;
-    readonly anchorOp: Op;
+    readonly opID: number;
+    readonly anchorID: number;
     readonly flushed: boolean;
+}
+
+export interface FindViewport {
+    readonly pipelineWidth: number;
+    readonly labelHeight: number;
 }
 
 export interface FindContext {
@@ -148,6 +153,26 @@ export type Action =
     | { readonly type: "COMPARISON_SET_OPACITY"; readonly tabID: number; readonly opacity: number }
     | { readonly type: "COMPARISON_ALIGN_TO_BASELINE"; readonly tabID: number }
     | { readonly type: "PANE_SPLITTER_MOVE"; readonly tabID: number; readonly position: number }
+    | {
+        readonly type: "KONATA_FIND_REQUEST";
+        readonly tabID: number;
+        readonly targetPattern: string;
+        readonly basePosition: number;
+        readonly reverse: boolean;
+        readonly viewport?: FindViewport;
+    }
+    | {
+        readonly type: "KONATA_JUMP_REQUEST";
+        readonly tabID: number;
+        readonly target: "id" | "rid";
+        readonly value: number;
+    }
+    | {
+        readonly type: "KONATA_FIND_REPEAT_REQUEST";
+        readonly tabID: number;
+        readonly reverse: boolean;
+        readonly viewport?: FindViewport;
+    }
     | { readonly type: "KONATA_FIND_START"; readonly tabID: number; readonly targetPattern: string }
     | {
         readonly type: "KONATA_FIND_PROGRESS";
@@ -161,6 +186,7 @@ export type Action =
         readonly requestID: number;
         readonly result: FindResult | null;
         readonly message: string;
+        readonly scrollPosition?: readonly [number, number];
     }
     | { readonly type: "KONATA_FIND_HIDE_RESULT"; readonly tabID: number }
     | { readonly type: "KONATA_CHANGE_UI_COLOR_THEME"; readonly theme: RendererTheme }
@@ -196,6 +222,12 @@ export type Change =
     | { readonly type: "VIEW_SETTINGS_UPDATE" }
     | { readonly type: "FILE_INPUT_REQUEST" }
     | { readonly type: "FILE_STATE_UPDATE" }
+    | { readonly type: "COMMAND_MESSAGE_UPDATE"; readonly message: string }
+    | {
+        readonly type: "VIEW_SCROLL_REQUEST";
+        readonly tabID: number;
+        readonly position: readonly [number, number];
+    }
     // nullは全TabのRendererへ同じ変更を適用したことを表す。
     | { readonly type: "PANE_CONTENT_UPDATE"; readonly tabID: number | null }
     | { readonly type: "WINDOW_CSS_UPDATE" }
@@ -216,6 +248,23 @@ function createFindContext(): FindContext {
         result: null,
         message: "",
     };
+}
+
+// 旧Storeと同じく、命令の見出し・詳細・全stage labelを正規表現検索の対象にする。
+function makeFindTargetString(op: Op): string {
+    let labelString =
+        `${op.id}: s${op.gid} (t${op.tid}: r${op.rid}) ${op.labelName}\n${op.labelDetail}`;
+    for (const lane of op.lanes) {
+        if (lane === null) {
+            continue;
+        }
+        for (const stage of lane.stages) {
+            if (stage.labels !== "") {
+                labelString += `\n${stage.labels}`;
+            }
+        }
+    }
+    return labelString;
 }
 
 // 旧Tabと同じく、1つの入力、その命令列、Renderer状態を同じ寿命で所有する。
@@ -284,7 +333,7 @@ export class Tab {
         this.trace = null;
         // 入力streamとParserはこのTabだけに属するため、traceを解放する前に停止を通知する。
         this.loadAbortController_.abort();
-        // Tabを参照して動作中の非同期検索を止め、Opへの参照もtraceと同時に外す。
+        // Tabを参照して動作中の非同期検索を止め、検索結果もtraceと同時に外す。
         this.findContext.requestID++;
         this.findContext.progress = null;
         this.findContext.result = null;
@@ -831,6 +880,80 @@ export class Store {
             ]);
             return;
         }
+        case "KONATA_FIND_REQUEST": {
+            const tab = this.tabs_.get(action.tabID);
+            const trace = tab?.trace ?? null;
+            if (tab === undefined || trace === null) {
+                return;
+            }
+            // 検索開始とrequest ID更新は同期dispatch内で行い、直後の別要求で確実に取消可能にする。
+            this.dispatch({
+                type: "KONATA_FIND_START",
+                tabID: tab.id,
+                targetPattern: action.targetPattern,
+            });
+            void this.find_(
+                tab,
+                trace,
+                tab.findContext.requestID,
+                action.targetPattern,
+                action.basePosition,
+                action.reverse,
+                action.viewport,
+            );
+            return;
+        }
+        case "KONATA_FIND_REPEAT_REQUEST": {
+            const tab = this.tabs_.get(action.tabID);
+            const result = tab?.findContext.result ?? null;
+            const anchorOp = result === null ? undefined : tab?.renderer.getOpFromID(result.anchorID);
+            if (tab === undefined || result === null || anchorOp === undefined) {
+                return;
+            }
+            this.dispatch({
+                type: "KONATA_FIND_REQUEST",
+                tabID: tab.id,
+                targetPattern: result.targetPattern,
+                basePosition: tab.renderer.getPositionYFromOp(anchorOp),
+                reverse: action.reverse,
+                viewport: action.viewport,
+            });
+            return;
+        }
+        case "KONATA_JUMP_REQUEST": {
+            const tab = this.tabs_.get(action.tabID);
+            const renderer = tab?.renderer;
+            const op = action.target === "id"
+                ? renderer?.getVisibleOp(action.value)
+                : renderer?.getOpFromRID(action.value);
+            const positionY = action.target === "id"
+                ? action.value
+                : renderer?.getPositionYFromRID(action.value) ?? -1;
+            if (tab === undefined || op === undefined || positionY < 0) {
+                const label = action.target === "id" ? "Op" : "Retired op";
+                this.publish_(this.snapshot_.activeTabID, [{
+                    type: "COMMAND_MESSAGE_UPDATE",
+                    message: `${label} ${action.value} was not found.`,
+                }]);
+                return;
+            }
+            const position: readonly [number, number] = [op.fetchedCycle, positionY];
+            if (this.snapshot_.activeTabID === tab.id) {
+                this.publish_(this.snapshot_.activeTabID, [{
+                    type: "VIEW_SCROLL_REQUEST",
+                    tabID: tab.id,
+                    position,
+                }]);
+            }
+            else {
+                tab.renderer.moveLogicalPosition(position);
+                this.publish_(this.snapshot_.activeTabID, [{
+                    type: "PANE_CONTENT_UPDATE",
+                    tabID: tab.id,
+                }]);
+            }
+            return;
+        }
         case "KONATA_FIND_START": {
             const tab = this.tabs_.get(action.tabID);
             if (tab === undefined) {
@@ -870,10 +993,24 @@ export class Store {
             tab.findContext.progress = null;
             tab.findContext.result = action.result;
             tab.findContext.message = action.message;
-            this.publish_(this.snapshot_.activeTabID, [
+            const changes: Change[] = [
                 { type: "PROGRESS_BAR_FINISH", tabID: tab.id, operation: "search" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
-            ]);
+            ];
+            if (action.scrollPosition !== undefined) {
+                if (this.snapshot_.activeTabID === tab.id) {
+                    changes.push({
+                        type: "VIEW_SCROLL_REQUEST",
+                        tabID: tab.id,
+                        position: action.scrollPosition,
+                    });
+                }
+                else {
+                    // 非表示Tabではanimationを持たず、再表示時に最終位置だけを復元する。
+                    tab.renderer.moveLogicalPosition(action.scrollPosition);
+                }
+            }
+            this.publish_(this.snapshot_.activeTabID, changes);
             return;
         }
         case "KONATA_FIND_HIDE_RESULT": {
@@ -988,6 +1125,143 @@ export class Store {
             ]);
             return;
         }
+        }
+    }
+
+    private async find_(
+        tab: StoreTab,
+        trace: ParsedTrace,
+        requestID: number,
+        target: string,
+        basePosition: number,
+        reverse: boolean,
+        viewport?: FindViewport,
+    ): Promise<void> {
+        const isCanceled = () =>
+            this.tabs_.get(tab.id) !== tab ||
+            tab.findContext.requestID !== requestID ||
+            tab.trace !== trace;
+        try {
+            let targetPattern: RegExp;
+            try {
+                targetPattern = new RegExp(target);
+            }
+            catch (error) {
+                this.dispatch({
+                    type: "KONATA_FIND_FINISH",
+                    tabID: tab.id,
+                    requestID,
+                    result: null,
+                    message: `"${target}" is an invalid regular expression. ${String(error)}`,
+                });
+                return;
+            }
+
+            // 旧検索と同じく現在位置の次から始め、末尾では先頭へ折り返す。
+            const lastOpID = trace.lastID;
+            let current = Number.isFinite(basePosition) ? basePosition : 0;
+            if (current < 0 || current > lastOpID) {
+                current = 0;
+            }
+
+            const sleepPeriod = 1024 * 8;
+            let previousSleepTime = Date.now();
+            const startTime = previousSleepTime;
+            let foundOp: Op | undefined;
+
+            for (let index = 0; index <= lastOpID; index++) {
+                current += reverse ? -1 : 1;
+                if (current < 0) {
+                    current = lastOpID;
+                }
+                else if (current > lastOpID) {
+                    current = 0;
+                }
+
+                const op = trace.getOpForScan(current);
+                if (op !== undefined && targetPattern.test(makeFindTargetString(op))) {
+                    foundOp = op;
+                    break;
+                }
+
+                // 大きなtraceでも新しい検索Actionへ切り替えられるよう、旧版と同じ間隔でyieldする。
+                if (index % sleepPeriod === 0 && previousSleepTime + 100 < Date.now()) {
+                    previousSleepTime = Date.now();
+                    this.dispatch({
+                        type: "KONATA_FIND_PROGRESS",
+                        tabID: tab.id,
+                        requestID,
+                        progress: lastOpID > 0 ? index / lastOpID : 1,
+                    });
+                    await new Promise((resolve) => setTimeout(resolve, 17));
+                    if (isCanceled()) {
+                        return;
+                    }
+                }
+            }
+
+            console.log(`Search finished: ${target}@${foundOp?.id ?? -1}, ${Date.now() - startTime} msec`);
+            if (isCanceled()) {
+                return;
+            }
+            if (foundOp === undefined) {
+                this.dispatch({
+                    type: "KONATA_FIND_FINISH",
+                    tabID: tab.id,
+                    requestID,
+                    result: null,
+                    message: `"${target}" was not found.`,
+                });
+                return;
+            }
+
+            const renderer = tab.renderer;
+            const [viewLeft, viewTop] = renderer.viewPosition;
+            const moveTo = renderer.getPositionYFromOp(foundOp);
+            let left = viewLeft;
+            let top = viewTop;
+            const pipelineWidth = viewport !== undefined && Number.isFinite(viewport.pipelineWidth)
+                ? viewport.pipelineWidth
+                : 800;
+            const labelHeight = viewport !== undefined && Number.isFinite(viewport.labelHeight)
+                ? viewport.labelHeight
+                : 400;
+
+            // ヒットした命令が画面外の場合だけ、旧版と同じく100pxの余白を付けて移動する。
+            if (foundOp.fetchedCycle < left ||
+                foundOp.fetchedCycle > left + pipelineWidth / renderer.opWidth) {
+                left = foundOp.fetchedCycle - 100 / renderer.opWidth;
+            }
+            if (moveTo < top || moveTo > top + labelHeight / renderer.opHeight) {
+                top = moveTo - 100 / renderer.opHeight;
+            }
+
+            const anchorOp = renderer.getVisibleOp(moveTo) ?? foundOp;
+            this.dispatch({
+                type: "KONATA_FIND_FINISH",
+                tabID: tab.id,
+                requestID,
+                result: {
+                    targetPattern: target,
+                    foundString: makeFindTargetString(foundOp),
+                    opID: foundOp.id,
+                    anchorID: anchorOp.id,
+                    flushed: foundOp.flush,
+                },
+                message: "",
+                scrollPosition: [left, top],
+            });
+        }
+        catch (error) {
+            if (!isCanceled()) {
+                this.dispatch({
+                    type: "KONATA_FIND_FINISH",
+                    tabID: tab.id,
+                    requestID,
+                    result: null,
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
         }
     }
 

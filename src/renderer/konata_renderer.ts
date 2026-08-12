@@ -415,6 +415,11 @@ export class KonataRenderer {
         return (y - this.viewPosition_.top) * this.opHeight_;
     }
 
+    getPixelPositionYFromID(id: number): number {
+        const op = this.getOpFromID(id);
+        return op === undefined ? 0 : this.getPixelPositionYFromOp(op);
+    }
+
     getCycleFromPixelPositionX(x: number): number {
         return Math.floor(this.viewPosition_.left + x / this.opWidth_);
     }

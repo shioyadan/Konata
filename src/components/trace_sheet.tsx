@@ -437,7 +437,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             index === 0 || new RegExp(findResult.targetPattern).test(line));
     const findResultTop = findResult === null
         ? 0
-        : Math.floor(renderer.getPixelPositionYFromOp(findResult.anchorOp)) + renderer.opHeight;
+        : Math.floor(renderer.getPixelPositionYFromID(findResult.anchorID)) + renderer.opHeight;
 
     return (
         <div
@@ -528,7 +528,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             {findResult !== null && (
                 <div
                     className="find-result"
-                    data-op-id={findResult.op.id}
+                    data-op-id={findResult.opID}
                     style={{ top: findResultTop }}
                     onPointerDown={(event) => event.stopPropagation()}
                 >

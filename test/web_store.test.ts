@@ -339,8 +339,8 @@ test("Store keeps search context per tab and rejects stale search updates", () =
         result: {
             targetPattern: "first",
             foundString: "first result",
-            op: foundOp,
-            anchorOp: foundOp,
+            opID: foundOp.id,
+            anchorID: foundOp.id,
             flushed: false,
         },
         message: "",
@@ -365,8 +365,8 @@ test("Store keeps search context per tab and rejects stale search updates", () =
         result: {
             targetPattern: "stale",
             foundString: "stale result",
-            op: foundOp,
-            anchorOp: foundOp,
+            opID: foundOp.id,
+            anchorID: foundOp.id,
             flushed: false,
         },
         message: "",
@@ -383,6 +383,57 @@ test("Store keeps search context per tab and rejects stale search updates", () =
         change.type === "PROGRESS_BAR_UPDATE" && change.operation === "search"));
     assert.ok(changes.some((change) =>
         change.type === "PROGRESS_BAR_FINISH" && change.operation === "search"));
+
+    store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("Store searches and jumps without exposing Ops in its UI result", () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+    store.dispatch({ type: "FILE_OPEN", fileName: "search.log", renderer: new KonataRenderer() });
+    const tab = store.activeTab;
+    assert.ok(tab !== null);
+    const parsed = createTrace("search.log");
+    const op = parsed.trace.getOp(0);
+    assert.ok(op !== undefined);
+    op.fetchedCycle = 25;
+    op.labelName = "search needle";
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: parsed.trace });
+
+    store.dispatch({
+        type: "KONATA_FIND_REQUEST",
+        tabID: tab.id,
+        targetPattern: "needle",
+        basePosition: 0,
+        reverse: false,
+        viewport: { pipelineWidth: 800, labelHeight: 400 },
+    });
+
+    assert.equal(tab.findContext.progress, null);
+    assert.equal(tab.findContext.result?.opID, 0);
+    assert.equal(tab.findContext.result?.anchorID, 0);
+    assert.equal("op" in (tab.findContext.result ?? {}), false);
+    assert.ok(changes.some((change) =>
+        change.type === "VIEW_SCROLL_REQUEST" &&
+        change.tabID === tab.id));
+
+    store.dispatch({
+        type: "KONATA_FIND_REQUEST",
+        tabID: tab.id,
+        targetPattern: "[",
+        basePosition: 0,
+        reverse: false,
+    });
+    assert.match(tab.findContext.message, /invalid regular expression/);
+
+    changes.length = 0;
+    store.dispatch({ type: "KONATA_JUMP_REQUEST", tabID: tab.id, target: "id", value: 0 });
+    assert.ok(changes.some((change) =>
+        change.type === "VIEW_SCROLL_REQUEST" && change.position[0] === 25));
+    store.dispatch({ type: "KONATA_JUMP_REQUEST", tabID: tab.id, target: "rid", value: 99 });
+    assert.ok(changes.some((change) =>
+        change.type === "COMMAND_MESSAGE_UPDATE" && change.message === "Retired op 99 was not found."));
 
     store.dispatch({ type: "STORE_CLOSE" });
 });

@@ -34,7 +34,6 @@ import {
     TraceSheet,
     type TraceSheetHandle,
 } from "./components/trace_sheet";
-import type { Op } from "./core/model";
 import { calculateStats, type StatsValues } from "./core/stats";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -49,7 +48,6 @@ import {
 import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
-    type FindResult,
     type MinimumLaneHeightKey,
     type PersistedViewSettings,
     Store,
@@ -319,23 +317,6 @@ function formatConsoleArguments(values: readonly unknown[]): string {
             return String(value);
         }
     }).join(" ");
-}
-
-// 旧Storeと同じく、命令の見出し・詳細・全stage labelを正規表現検索の対象にする。
-function makeFindTargetString(op: Op): string {
-    let labelString =
-        `${op.id}: s${op.gid} (t${op.tid}: r${op.rid}) ${op.labelName}\n${op.labelDetail}`;
-    for (const lane of op.lanes) {
-        if (lane === null) {
-            continue;
-        }
-        for (const stage of lane.stages) {
-            if (stage.labels !== "") {
-                labelString += `\n${stage.labels}`;
-            }
-        }
-    }
-    return labelString;
 }
 
 export function App() {
@@ -618,6 +599,9 @@ export function App() {
         if (change.type === "FILE_INPUT_REQUEST") {
             fileInputRef.current?.click();
         }
+        if (change.type === "COMMAND_MESSAGE_UPDATE") {
+            setCommandMessage(change.message);
+        }
         if (change.type === "PROGRESS_BAR_START" && change.operation === "load") {
             cancelViewAnimation();
             resetStats();
@@ -730,6 +714,12 @@ export function App() {
         });
     }, [startViewAnimation, store]);
 
+    useEffect(() => store.subscribeChange((change) => {
+        if (change.type === "VIEW_SCROLL_REQUEST" && store.activeTab?.id === change.tabID) {
+            scrollTo(change.position);
+        }
+    }), [scrollTo, store]);
+
     const moveView = useCallback((
         difference: readonly [number, number],
         adjustHorizontal: boolean,
@@ -834,190 +824,69 @@ export function App() {
     }, [isCustomColorDialogOpen, isStatsDialogOpen]);
 
     const findString = useCallback((target: string, basePosition: number, reverse: boolean): void => {
-        let targetPattern: RegExp;
-        try {
-            targetPattern = new RegExp(target);
-        }
-        catch (error) {
-            setCommandMessage(`"${target}" is an invalid regular expression. ${String(error)}`);
-            return;
-        }
-
         const searchedTab = store.activeTab;
-        const activeTrace = searchedTab?.trace ?? null;
-        if (searchedTab === null || activeTrace === null) {
+        if (searchedTab === null || searchedTab.trace === null) {
             setCommandMessage("No trace is open.");
             return;
         }
 
-        // viewportは検索開始時の対象Tabの値を使い、別Tabへ切り替わっても混同しない。
-        const viewport = traceSheetRef.current?.getViewportSize();
-        store.dispatch({ type: "KONATA_FIND_START", tabID: searchedTab.id, targetPattern: target });
-        const requestID = searchedTab.findContext.requestID;
         setCommandMessage("");
-
-        void (async () => {
-            const isCanceled = () =>
-                searchedTab.findContext.requestID !== requestID || searchedTab.trace !== activeTrace;
-            // 旧検索と同じく現在位置の次から始め、末尾では先頭へ折り返す。
-            const lastOpID = activeTrace.lastID;
-            let current = basePosition;
-            // WebモデルのlastIDは最大IDを含むため、旧処理の意図どおり全IDを巡回できる境界にする。
-            if (current < 0 || current > lastOpID) {
-                current = 0;
-            }
-
-            const sleepPeriod = 1024 * 8;
-            let previousSleepTime = Date.now();
-            const startTime = previousSleepTime;
-            let foundOp: Op | undefined;
-
-            for (let index = 0; index <= lastOpID; index++) {
-                current += reverse ? -1 : 1;
-                if (current < 0) {
-                    current = lastOpID;
-                }
-                else if (current > lastOpID) {
-                    current = 0;
-                }
-
-                const op = activeTrace.getOpForScan(current);
-                if (op !== undefined && targetPattern.test(makeFindTargetString(op))) {
-                    foundOp = op;
-                    break;
-                }
-
-                // 大きなtraceでもUI操作で新しい検索へ切り替えられるよう、旧版と同じ間隔でyieldする。
-                if (index % sleepPeriod === 0 && previousSleepTime + 100 < Date.now()) {
-                    previousSleepTime = Date.now();
-                    store.dispatch({
-                        type: "KONATA_FIND_PROGRESS",
-                        tabID: searchedTab.id,
-                        requestID,
-                        progress: lastOpID > 0 ? index / lastOpID : 1,
-                    });
-                    await new Promise((resolve) => setTimeout(resolve, 17));
-                    if (isCanceled()) {
-                        return;
-                    }
-                }
-            }
-
-            console.log(`Search finished: ${target}@${foundOp?.id ?? -1}, ${Date.now() - startTime} msec`);
-            if (isCanceled()) {
-                return;
-            }
-
-            if (foundOp === undefined) {
-                store.dispatch({
-                    type: "KONATA_FIND_FINISH",
-                    tabID: searchedTab.id,
-                    requestID,
-                    result: null,
-                    message: `"${target}" was not found.`,
-                });
-                return;
-            }
-
-            const renderer = searchedTab.renderer;
-            const viewPosition = renderer.viewPosition;
-            const moveTo = renderer.getPositionYFromOp(foundOp);
-            let left = viewPosition[0];
-            let top = viewPosition[1];
-            const pipelineWidth = viewport?.pipelineWidth ?? 800;
-            const labelHeight = viewport?.labelHeight ?? 400;
-
-            // ヒットした命令が画面外の場合だけ、旧版と同じく100pxの余白を付けて移動する。
-            if (foundOp.fetchedCycle < left ||
-                foundOp.fetchedCycle > left + pipelineWidth / renderer.opWidth) {
-                left = foundOp.fetchedCycle - 100 / renderer.opWidth;
-            }
-            if (moveTo < top || moveTo > top + labelHeight / renderer.opHeight) {
-                top = moveTo - 100 / renderer.opHeight;
-            }
-
-            const anchorOp = renderer.getVisibleOp(moveTo) ?? foundOp;
-            const result: FindResult = {
-                targetPattern: target,
-                foundString: makeFindTargetString(foundOp),
-                op: foundOp,
-                anchorOp,
-                flushed: foundOp.flush,
-            };
-            if (store.activeTab?.id === searchedTab.id) {
-                scrollTo([left, top]);
-            }
-            else {
-                // 非表示Tabではrunnerを維持せず、再表示時に最終位置だけを復元する。
-                store.dispatch({
-                    type: "KONATA_MUTATE_VIEW",
-                    tabID: searchedTab.id,
-                    mutation: (targetRenderer) => targetRenderer.moveLogicalPosition([left, top]),
-                });
-            }
-            store.dispatch({
-                type: "KONATA_FIND_FINISH",
-                tabID: searchedTab.id,
-                requestID,
-                result,
-                message: "",
-            });
-        })().catch((error) => {
-            if (searchedTab.findContext.requestID === requestID) {
-                store.dispatch({
-                    type: "KONATA_FIND_FINISH",
-                    tabID: searchedTab.id,
-                    requestID,
-                    result: null,
-                    message: error instanceof Error ? error.message : String(error),
-                });
-            }
+        store.dispatch({
+            type: "KONATA_FIND_REQUEST",
+            tabID: searchedTab.id,
+            targetPattern: target,
+            basePosition,
+            reverse,
+            // viewportは検索開始時の対象Tabの値を固定し、途中のTab切替と混同しない。
+            viewport: traceSheetRef.current?.getViewportSize(),
         });
-    }, [scrollTo, store]);
+    }, [store]);
 
     const repeatSearch = useCallback((reverse: boolean) => {
-        if (findResult === null) {
+        const tab = store.activeTab;
+        if (tab === null || findResult === null) {
             return;
         }
-        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
-        const basePosition = renderer.getPositionYFromOp(findResult.anchorOp);
-        findString(findResult.targetPattern, basePosition, reverse);
-    }, [findResult, findString, store]);
+        store.dispatch({
+            type: "KONATA_FIND_REPEAT_REQUEST",
+            tabID: tab.id,
+            reverse,
+            viewport: traceSheetRef.current?.getViewportSize(),
+        });
+    }, [findResult, store]);
 
     const executeCommand = useCallback((command: string) => {
         let accepted = false;
-        const renderer = store.activeTab?.renderer ?? emptyRendererRef.current;
         const idMatch = command.match(/^j\s+(\d+)\s*$/);
         const ridMatch = command.match(/^jr\s+(\d+)\s*$/);
         const findMatch = command.match(/^f\s+(.+)$/);
 
         if (idMatch !== null) {
             hideSearchResult();
-            const id = Number(idMatch[1]);
-            const op = renderer.getVisibleOp(id);
-            if (op === undefined) {
-                setCommandMessage(`Op ${id} was not found.`);
-            }
-            else {
-                scrollTo([op.fetchedCycle, id]);
-            }
+            store.dispatch({
+                type: "KONATA_JUMP_REQUEST",
+                tabID: store.activeTab?.id ?? -1,
+                target: "id",
+                value: Number(idMatch[1]),
+            });
             accepted = true;
         }
         else if (ridMatch !== null) {
             hideSearchResult();
-            const rid = Number(ridMatch[1]);
-            const op = renderer.getOpFromRID(rid);
-            const y = renderer.getPositionYFromRID(rid);
-            if (op === undefined || y < 0) {
-                setCommandMessage(`Retired op ${rid} was not found.`);
-            }
-            else {
-                scrollTo([op.fetchedCycle, y]);
-            }
+            store.dispatch({
+                type: "KONATA_JUMP_REQUEST",
+                tabID: store.activeTab?.id ?? -1,
+                target: "rid",
+                value: Number(ridMatch[1]),
+            });
             accepted = true;
         }
         else if (findMatch !== null) {
-            findString(findMatch[1], Math.floor(renderer.viewPosition[1]), false);
+            findString(
+                findMatch[1],
+                Math.floor(store.activeTab?.renderer.viewPosition[1] ?? 0),
+                false,
+            );
             accepted = true;
         }
         else if (/^l(?:\s+.*)?$/.test(command)) {
@@ -1037,7 +906,7 @@ export function App() {
             saveCommandHistory(commandHistory);
         }
         setCommandPaletteInitial(null);
-    }, [commandHistory, findString, hideSearchResult, openFilePicker, scrollTo, store]);
+    }, [commandHistory, findString, hideSearchResult, openFilePicker, store]);
 
     const zoomAt = useCallback((factor: number, centerX: number, centerY: number) => {
         const tab = store.activeTab;
