@@ -8,6 +8,10 @@ import { Zstd } from "@hpcc-js/wasm-zstd";
 import { FileLineReader } from "../src/core/file_line_reader";
 import { OnikiriParser } from "../src/core/onikiri_parser";
 import { ArrayOpStore } from "../src/core/op_store";
+import {
+    KonataZstdCompressionStream,
+    KonataZstdDecompressionStream,
+} from "../src/core/zstd_stream";
 
 function fileFromFixture(relativePath: string, type: string): File {
     const filePath = path.resolve(import.meta.dirname, "..", relativePath);
@@ -80,6 +84,18 @@ test("Web line reader corrects compressed progress for decompressed data awaitin
     assert.ok(progressValues[0] > 0 && progressValues[0] < 0.75);
     assert.ok(progressValues.every((progress, index) => index === 0 || progress >= progressValues[index - 1]));
     assert.equal(progressValues.at(-1), 0.99);
+});
+
+test("Konata Zstandard streams use the future browser API shape in both directions", async () => {
+    const source = new TextEncoder().encode("first line\n日本語のsecond line\n");
+    // 圧縮・展開の双方をpipeThrough可能な同じ形に固定する。将来native実装へ替える際も、
+    // 利用側のconstructor名、format指定、stream接続を変更しないことが目的である。
+    const restoredStream = new Blob([source]).stream()
+        .pipeThrough(new KonataZstdCompressionStream("zstd"))
+        .pipeThrough(new KonataZstdDecompressionStream("zstd"));
+    const restored = new Uint8Array(await new Response(restoredStream).arrayBuffer());
+
+    assert.deepEqual(restored, source);
 });
 
 test("Web Onikiri parser preserves core commands for a plain-text trace", async () => {
@@ -204,7 +220,8 @@ test("Web Onikiri parser streams concurrent Zstandard traces", async () => {
     const file = new File([compressed], "kanata-basic.txt.zst");
     const secondFile = new File([compressed], "kanata-basic.txt.zstd", { type: "application/zstd" });
     const progressValues: number[] = [];
-    // singleton decoderを共有する2読込みを同時に開始し、stream状態を混在させず直列化できることも固定する。
+    // Node.jsテストではsingletonを安全に直列化する。browserでは各streamを別Workerへ分離し、
+    // 同じ呼出し方のまま2ファイルを並行して展開できることをbrowser smokeで確認する。
     const [trace, secondTrace] = await Promise.all([
         new OnikiriParser().parse(file, (progress) => progressValues.push(progress)),
         new OnikiriParser().parse(secondFile),

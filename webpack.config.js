@@ -51,13 +51,32 @@ module.exports = (_env, argv) => {
             rules: [
                 {
                     test: /\.tsx?$/,
-                    exclude: /node_modules/,
+                    exclude: [/node_modules/, /zstd_stream_worker\.ts$/],
                     use: {
                         loader: "ts-loader",
                         options: {
                             configFile: "tsconfig.json",
                         },
                     },
+                },
+                {
+                    // productionの単一HTMLを維持するため、zstd WorkerもBlob URLとしてbundleへ内包する。
+                    test: /zstd_stream_worker\.ts$/,
+                    use: [
+                        {
+                            loader: "worker-loader",
+                            options: {
+                                inline: "no-fallback",
+                                filename: "zstd_stream_worker.js",
+                            },
+                        },
+                        {
+                            loader: "ts-loader",
+                            options: {
+                                configFile: "tsconfig.json",
+                            },
+                        },
+                    ],
                 },
                 {
                     test: /\.css$/,

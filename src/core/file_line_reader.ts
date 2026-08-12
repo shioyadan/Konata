@@ -1,9 +1,7 @@
-import { Zstd } from "@hpcc-js/wasm-zstd";
+import { KonataZstdDecompressionStream } from "./zstd_stream";
 
 export type ProgressCallback = (progress: number) => void;
 type LineCallback = (line: string) => void;
-
-let zstdStreamTail = Promise.resolve();
 
 // 部分文字列がzstd等の大きな展開chunk全体を保持しないよう、文字列化する単位だけを制限する。
 // 入力streamや展開器のchunkは分割せず、UTF-8境界は同じTextDecoderのstream状態で引き継ぐ。
@@ -13,30 +11,6 @@ const DECODE_CHUNK_SIZE = 8 * 1024;
 const YIELD_LINE_INTERVAL = 8192;
 // 圧縮入力はReader完了後にもParserの終端処理が残るため、100%はFILE_LOAD_FINISHへ予約する。
 const MAX_COMPRESSED_PROGRESS = 0.99;
-
-async function acquireZstdStream(): Promise<() => void> {
-    // Zstd.load()はsingletonなので、複数Tabのstream状態が混ざらないよう読込み単位で直列化する。
-    const previous = zstdStreamTail;
-    let release: () => void = () => undefined;
-    zstdStreamTail = new Promise<void>((resolve) => {
-        release = resolve;
-    });
-    await previous;
-    return release;
-}
-
-function createZstdDecompressionStream(zstd: Zstd): TransformStream<Uint8Array, Uint8Array> {
-    zstd.resetDecompression();
-    return new TransformStream<Uint8Array, Uint8Array>({
-        transform: (chunk, controller) => {
-            const decompressed = zstd.decompressChunk(chunk);
-            if (decompressed.length > 0) {
-                controller.enqueue(decompressed);
-            }
-        },
-        flush: () => zstd.decompressEnd(),
-    });
-}
 
 function yieldToBrowser(): Promise<void> {
     // MessageChannelなら連続するsetTimeout(0)の最小待ち時間なしで、描画と入力へ制御を返せる。
@@ -112,7 +86,6 @@ export class FileLineReader {
         }));
 
         let inputStream: ReadableStream<Uint8Array> = countedStream;
-        let releaseZstdStream: (() => void) | null = null;
         if (/\.gz$/i.test(this.file.name) || this.file.type === "application/gzip") {
             if (typeof DecompressionStream === "undefined") {
                 throw new Error("This browser does not support streaming gzip decompression.");
@@ -126,20 +99,10 @@ export class FileLineReader {
             inputStream = countedStream.pipeThrough(decompressor);
         }
         else if (/\.zst(?:d)?$/i.test(this.file.name) || this.file.type === "application/zstd") {
-            const zstd = await Zstd.load();
-            releaseZstdStream = await acquireZstdStream();
-            if (this.canceled_) {
-                releaseZstdStream();
-                signal?.removeEventListener("abort", handleAbort);
-                return;
-            }
-            try {
-                inputStream = countedStream.pipeThrough(createZstdDecompressionStream(zstd));
-            }
-            catch (error) {
-                releaseZstdStream();
-                throw error;
-            }
+            // 独自実装であることを名前に残しつつ、利用側は将来の標準APIと同じ形にする。
+            // browserではstreamごとにWorkerが作られるため、複数Tabのzstdを並列展開できる。
+            const decompressor = new KonataZstdDecompressionStream("zstd");
+            inputStream = countedStream.pipeThrough(decompressor);
         }
 
         const reader = inputStream.getReader();
@@ -217,7 +180,6 @@ export class FileLineReader {
                 // Parser errorでもFileの残りを読み続けないよう、途中終了したstreamを閉じる。
                 await reader.cancel().catch(() => undefined);
             }
-            releaseZstdStream?.();
         }
     }
 

@@ -137,6 +137,86 @@ async function dropFixture(window, fixturePath, mimeType, verifyProgressBar = fa
     );
 }
 
+async function dropConcurrentZstdContents(window, contents) {
+    const encodedContents = contents.toString("base64");
+    return window.webContents.executeJavaScript(`(async () => {
+        const binary = atob(${JSON.stringify(encodedContents)});
+        const source = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index++) {
+            source[index] = binary.charCodeAt(index);
+        }
+
+        let startedStreams = 0;
+        let releaseStreams;
+        const bothStarted = new Promise((resolve) => {
+            releaseStreams = resolve;
+        });
+        const makeFile = (name) => {
+            const bytes = source.slice();
+            const file = new File([bytes], name, {type: "application/zstd"});
+            Object.defineProperty(file, "stream", {value: () => {
+                let sent = false;
+                return new ReadableStream({
+                    async pull(controller) {
+                        if (sent) {
+                            controller.close();
+                            return;
+                        }
+                        sent = true;
+                        startedStreams++;
+                        if (startedStreams === 2) {
+                            releaseStreams();
+                        }
+                        // 両方が展開入力へ到達するまで待たせ、singletonによる直列化への退行を検出する。
+                        await bothStarted;
+                        // File constructorへ渡した元bufferとは分け、テスト用stream自身が所有するchunkにする。
+                        controller.enqueue(bytes.slice());
+                    }
+                });
+            }});
+            return file;
+        };
+
+        const names = ["gem5-a.txt.zst", "gem5-b.txt.zstd"];
+        const transfer = new DataTransfer();
+        for (const name of names) {
+            transfer.items.add(makeFile(name));
+        }
+        const target = document.querySelector(".trace-app");
+        if (!(target instanceof HTMLElement)) {
+            throw new Error("The Zstandard drop target was not found.");
+        }
+        target.dispatchEvent(new DragEvent("drop", {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: transfer
+        }));
+
+        const deadline = performance.now() + 20000;
+        while (performance.now() < deadline) {
+            const tabs = [...document.querySelectorAll(".trace-tab")].filter((tab) =>
+                names.includes(tab.querySelector('[role="tab"]')?.textContent?.trim() ?? ""));
+            if (tabs.some((tab) => tab.dataset.loadState === "error")) {
+                throw new Error("A concurrent Zstandard trace failed to load: " + JSON.stringify({
+                    tabs: tabs.map((tab) => ({
+                        name: tab.querySelector('[role="tab"]')?.textContent?.trim() ?? "",
+                        state: tab.dataset.loadState
+                    })),
+                    status: document.querySelector(".status")?.textContent ?? "",
+                    log: document.querySelector(".application-log-messages")?.textContent ?? ""
+                }));
+            }
+            if (tabs.length === 2 && tabs.every((tab) => tab.dataset.loadState === "ready")) {
+                await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                return {names, startedStreams};
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error("Timed out while loading concurrent Zstandard traces; started " +
+            startedStreams + " streams.");
+    })()`);
+}
+
 async function verifyMultipleFileDrop(window) {
     return window.webContents.executeJavaScript(`(async () => {
         const target = document.querySelector(".trace-app");
@@ -2549,20 +2629,26 @@ async function run() {
         zstdSource.byteOffset,
         zstdSource.byteLength,
     );
-    // 圧縮fixtureを増やさず、zstdを展開し直すgem5 fallbackまでbrowser上で通す。
+    // 圧縮fixtureを増やさず、2つのWorkerによる並行展開とgem5 fallbackをbrowser上で通す。
     const zstdContents = Buffer.from((await Zstd.load()).compress(zstdSourceBytes));
-    await dropContents(window, zstdContents, "gem5-basic.txt.zst", "application/zstd");
+    const concurrentZstdState = await dropConcurrentZstdContents(window, zstdContents);
     const zstdState = await readRenderedState(window);
-    if (zstdState.loadState !== "ready" ||
-        zstdState.fileName !== "gem5-basic.txt.zst" ||
+    // gem5 fallbackはKanata判定後にFile.stream()を開き直すため、2 filesで合計4回開始する。
+    if (concurrentZstdState.startedStreams < 2 ||
+        zstdState.loadState !== "ready" ||
+        !concurrentZstdState.names.includes(zstdState.fileName) ||
         zstdState.opCount !== 1 ||
         zstdState.laneCount !== 1 ||
         zstdState.nonBackgroundPixels < 100) {
-        throw new Error(`Zstandard trace rendering is incomplete: ${JSON.stringify(zstdState)}`);
+        throw new Error(`Zstandard trace rendering is incomplete: ${JSON.stringify({
+            concurrentZstdState,
+            zstdState,
+        })}`);
     }
-    // 後続の色設定検査はgzip sampleのstage一覧を使うため、確認済みのzstd Tabだけ閉じて戻す。
+    // 後続の色設定検査はgzip sampleのstage一覧を使うため、確認済みのzstd Tabを閉じて戻す。
     await window.webContents.executeJavaScript(`new Promise((resolve) => {
-        document.querySelector(".trace-tab.is-active .trace-tab-close")?.click();
+        document.querySelector('button[aria-label="Close gem5-a.txt.zst"]')?.click();
+        document.querySelector('button[aria-label="Close gem5-b.txt.zstd"]')?.click();
         requestAnimationFrame(() => requestAnimationFrame(resolve));
     })`);
 
