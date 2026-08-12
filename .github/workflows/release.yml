@@ -58,3 +58,4 @@ jobs:
               --verify-tag \
               --generate-notes \
               --title "Konata ${GITHUB_REF_NAME}"
+          fi
