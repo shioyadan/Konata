@@ -379,11 +379,23 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
     };
 
-    const handleDoubleClick = (event: ReactMouseEvent<HTMLCanvasElement>) => {
-        if (trace === null) {
+    const handlePipelineClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+        // native dblclickは3回目以降も続くmulti-click中に再発火しないため、偶数clickを各ペアの終端とする。
+        // これにより素早い4連打、6連打でもズーム入力を落とさず、既存の目標倍率へ積み上げられる。
+        if (trace === null || event.detail % 2 !== 0) {
             return;
         }
-        const rect = event.currentTarget.getBoundingClientRect();
+        const pipeline = pipelineCanvasRef.current;
+        if (pipeline === null) {
+            return;
+        }
+        const rect = pipeline.getBoundingClientRect();
+        // panのためviewerがpointer captureを取ると、実clickのtargetはCanvasではなくviewerになる。
+        // viewerでclickを受け、labelやsplitter上の操作は座標で除外する。
+        if (event.clientX < rect.left || event.clientX >= rect.right ||
+            event.clientY < rect.top || event.clientY >= rect.bottom) {
+            return;
+        }
         onZoomView(
             event.shiftKey ? 1 / 2 : 2,
             event.clientX - rect.left,
@@ -453,6 +465,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            onClick={handlePipelineClick}
         >
             <section className="viewer-pane label-pane" aria-label="Instruction labels">
                 <canvas
@@ -492,7 +505,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     ref={pipelineCanvasRef}
                     className={comparison === null ? undefined : "comparison-result-canvas"}
                     aria-label="Pipeline canvas"
-                    onDoubleClick={handleDoubleClick}
                     onMouseMove={(event) => updateToolTip("pipeline", event)}
                     onMouseLeave={() => setToolTip(null)}
                 >

@@ -561,18 +561,6 @@ export function App() {
         resetCommandUI();
     }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
 
-    const moveTab = useCallback((next: boolean): boolean => {
-        const previousTabID = store.activeTab?.id ?? null;
-        cancelViewAnimation();
-        store.dispatch({ type: "TAB_MOVE", next });
-        if (store.activeTab?.id === previousTabID) {
-            return false;
-        }
-        resetStats();
-        resetCommandUI();
-        return true;
-    }, [cancelViewAnimation, resetCommandUI, resetStats, store]);
-
     const closeTab = useCallback((id: number) => {
         const wasActive = store.activeTab?.id === id;
         if (wasActive) {
@@ -1106,11 +1094,6 @@ export function App() {
                 return;
             }
             const commandKey = event.ctrlKey || event.metaKey;
-            // browserが予約する環境では届かないが、受け取れた場合は旧native menuと同じ操作にする。
-            if (commandKey && !event.altKey && event.key === "Tab" && moveTab(!event.shiftKey)) {
-                event.preventDefault();
-                return;
-            }
             if (commandPaletteInitial !== null) {
                 return;
             }
@@ -1185,7 +1168,7 @@ export function App() {
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
     }, [commandPaletteInitial, goToBookmark, hideSearchResult, isCustomColorDialogOpen,
-        isStatsDialogOpen, moveHorizontal, moveTab, moveVertical, openCommandPalette, openFilePicker,
+        isStatsDialogOpen, moveHorizontal, moveVertical, openCommandPalette, openFilePicker,
         repeatSearch, setBookmark, trace, zoomAtCenter]);
 
     let statusMessage = "";

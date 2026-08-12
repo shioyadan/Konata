@@ -1363,6 +1363,12 @@ button:disabled {
     text-align: right;
 }
 
+/* pointer操作も含む一覧が低い画面でdialog外へはみ出さないよう、内容部分だけをscrollさせる。 */
+.shortcuts-dialog .shortcut-list {
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .stats-dialog > input {
     width: 100%;
     padding: 0.45rem 0.55rem;

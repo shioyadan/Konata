@@ -81,7 +81,7 @@ Canvas and tab controls:
 - Click an instruction label to align its fetch cycle with the left edge.
 - Use Adjust position (the crosshair beside Reset) when the pipeline is outside the viewport.
   Adjust position preserves the zoom. Reset restores both the position and zoom.
-- Middle-click a tab to close it. Ctrl/Command+Tab moves between tabs.
+- Click a tab to switch to it. Middle-click a tab to close it.
 
 F1 or Ctrl/Command+Shift+P opens the full command palette, which accepts these commands:
 

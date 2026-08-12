@@ -1190,6 +1190,24 @@ async function run() {
     }
 
     const applicationMenuState = await verifyApplicationMenu(window);
+    const shortcutCommandKey = applicationMenuState.platform.toLowerCase().startsWith("mac")
+        ? "⌘"
+        : "Ctrl";
+    const expectedShortcuts = [
+        ["Open trace", `${shortcutCommandKey}+O`],
+        ["Command palette", `F1 · ${shortcutCommandKey}+Shift+P`],
+        ["Search", `${shortcutCommandKey}+F · F3 / Shift+F3`],
+        ["Move", "Arrow keys · Page Up / Page Down"],
+        ["Pan canvas", "Drag · wheel · horizontal trackpad"],
+        ["Zoom in", `+ · ${shortcutCommandKey}+↑ · Double-click`],
+        ["Zoom out", `− · ${shortcutCommandKey}+↓ · Shift+double-click`],
+        ["Zoom gesture", `${shortcutCommandKey}+wheel · Pinch`],
+        ["Align fetch cycle", "Click instruction label"],
+        ["Go to bookmark", "0–9"],
+        ["Set bookmark", `${shortcutCommandKey}+0–9`],
+        ["Close tab", "Middle-click tab"],
+        ["Close dialog", "Esc"]
+    ];
     if (JSON.stringify(applicationMenuState.menuItems) !== JSON.stringify([
         "Application log",
         "Keyboard shortcuts",
@@ -1218,12 +1236,7 @@ async function run() {
         ]) ||
         applicationMenuState.aboutState.backdropLayer !== "30" ||
         applicationMenuState.shortcutState.title !== "Keyboard Shortcuts" ||
-        applicationMenuState.shortcutState.entries.length !== 8 ||
-        JSON.stringify(applicationMenuState.shortcutState.entries[0]) !==
-            JSON.stringify([
-                "Open trace",
-                `${applicationMenuState.platform.toLowerCase().startsWith("mac") ? "⌘" : "Ctrl"}+O`
-            ]) ||
+        JSON.stringify(applicationMenuState.shortcutState.entries) !== JSON.stringify(expectedShortcuts) ||
         !applicationMenuState.escapeCanceled ||
         !applicationMenuState.dialogClosedByEscape ||
         !applicationMenuState.menuClosedByOutsidePointer) {
@@ -1392,21 +1405,44 @@ async function run() {
         throw new Error(`Wheel zoom handling is incomplete: ${JSON.stringify(wheelZoomState)}`);
     }
 
-    // double clickもpointer位置を中心に同じzoom補間を行う。
-    const doubleClickZoomState = await window.webContents.executeJavaScript(`(async () => {
+    // 完成済みのdblclickを直接送らず、実clickでpointer capture後にもzoomできることを確認する。
+    const doubleClickSetup = await window.webContents.executeJavaScript(`(async () => {
         const pipeline = document.querySelector(".pipeline-pane canvas");
-        const reset = [...document.querySelectorAll(".zoom-controls button")]
-            .find((button) => button.textContent?.trim() === "Reset");
+        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const output = document.querySelector(".zoom-controls output");
-        if (!(pipeline instanceof HTMLCanvasElement) || !(reset instanceof HTMLButtonElement)) {
+        if (!(pipeline instanceof HTMLCanvasElement) || !(zoomOut instanceof HTMLButtonElement)) {
             throw new Error("The double click zoom controls were not found.");
         }
         const rect = pipeline.getBoundingClientRect();
-        pipeline.dispatchEvent(new MouseEvent("dblclick", {
-            bubbles: true,
-            clientX: rect.left + rect.width / 2,
-            clientY: rect.top + rect.height / 2
-        }));
+        // 拡大上限の200%から離し、4連打の2ペアを25%から100%まで観測する。
+        zoomOut.click();
+        zoomOut.click();
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+            zoom: output?.textContent ?? null
+        };
+    })()`);
+    // 4連打を一続きのmulti-clickとして送り、2回目と4回目をそれぞれ1段の拡大として積み上げる。
+    for (let clickCount = 1; clickCount <= 4; clickCount++) {
+        window.webContents.sendInputEvent({
+            type: "mouseDown", button: "left", clickCount,
+            x: doubleClickSetup.x, y: doubleClickSetup.y
+        });
+        window.webContents.sendInputEvent({
+            type: "mouseUp", button: "left", clickCount,
+            x: doubleClickSetup.x, y: doubleClickSetup.y
+        });
+    }
+    const doubleClickZoomState = await window.webContents.executeJavaScript(`(async () => {
+        const reset = [...document.querySelectorAll(".zoom-controls button")]
+            .find((button) => button.textContent?.trim() === "Reset");
+        const output = document.querySelector(".zoom-controls output");
+        if (!(reset instanceof HTMLButtonElement)) {
+            throw new Error("The double click zoom controls were not found.");
+        }
         const immediatelyAfter = output?.textContent ?? null;
         await new Promise((resolve) => requestAnimationFrame(() =>
             requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -1417,14 +1453,50 @@ async function run() {
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        return {immediatelyAfter, during, zoom, resetZoom: output?.textContent ?? null};
+        return {
+            immediatelyAfter,
+            during,
+            zoom,
+            resetZoom: output?.textContent ?? null
+        };
     })()`);
-    if (doubleClickZoomState.immediatelyAfter !== "100%" ||
+    if (doubleClickSetup.zoom !== "25%" ||
+        doubleClickZoomState.immediatelyAfter !== "25%" ||
+        doubleClickZoomState.during === "25%" ||
         doubleClickZoomState.during === "100%" ||
-        doubleClickZoomState.during === "200%" ||
-        doubleClickZoomState.zoom !== "200%" ||
+        doubleClickZoomState.zoom !== "100%" ||
         doubleClickZoomState.resetZoom !== "100%") {
         throw new Error(`Double click zoom is incomplete: ${JSON.stringify(doubleClickZoomState)}`);
+    }
+
+    // shortcut一覧に示すCtrl/Command+上下が、browser scrollではなくKonataのzoomになることを確認する。
+    const keyboardZoomState = await window.webContents.executeJavaScript(`(async () => {
+        const output = document.querySelector(".zoom-controls output");
+        const zoom = async (key) => {
+            const event = new KeyboardEvent("keydown", {
+                key,
+                ctrlKey: true,
+                bubbles: true,
+                cancelable: true
+            });
+            const dispatched = document.dispatchEvent(event);
+            await new Promise((resolve) => setTimeout(resolve, 220));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            return {
+                canceled: !dispatched && event.defaultPrevented,
+                value: output?.textContent ?? null
+            };
+        };
+        return {
+            out: await zoom("ArrowDown"),
+            in: await zoom("ArrowUp")
+        };
+    })()`);
+    if (!keyboardZoomState.out.canceled ||
+        keyboardZoomState.out.value !== "50%" ||
+        !keyboardZoomState.in.canceled ||
+        keyboardZoomState.in.value !== "100%") {
+        throw new Error(`Keyboard zoom is incomplete: ${JSON.stringify(keyboardZoomState)}`);
     }
 
     // 通常wheelを素早く3回送ると、途中で跳ばずに目標へ18cycle分を積み上げる。
@@ -2237,37 +2309,6 @@ async function run() {
         !secondTabSettingsState.hideFlushed ||
         secondTabSettingsState.textThreshold !== "14") {
         throw new Error(`Second tab settings are incomplete: ${JSON.stringify(secondTabSettingsState)}`);
-    }
-
-    // 旧native menuのTAB_MOVEと同じく、前後ショートカットがTab順の端で循環する。
-    const tabShortcutState = await window.webContents.executeJavaScript(`(async () => {
-        const nextFrame = () => new Promise((resolve) =>
-            requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        const dispatchShortcut = async (shiftKey) => {
-            const event = new KeyboardEvent("keydown", {
-                key: "Tab",
-                ctrlKey: true,
-                shiftKey,
-                bubbles: true,
-                cancelable: true
-            });
-            const dispatched = document.dispatchEvent(event);
-            await nextFrame();
-            return {
-                canceled: !dispatched && event.defaultPrevented,
-                selected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null
-            };
-        };
-        return {
-            next: await dispatchShortcut(false),
-            previous: await dispatchShortcut(true)
-        };
-    })()`);
-    if (!tabShortcutState.next.canceled ||
-        tabShortcutState.next.selected !== "kanata-basic.txt" ||
-        !tabShortcutState.previous.canceled ||
-        tabShortcutState.previous.selected !== "gem5-basic.txt") {
-        throw new Error(`Trace tab shortcuts are incomplete: ${JSON.stringify(tabShortcutState)}`);
     }
 
     // 比較Tabは元の2つを残し、同じ表示領域をA・overlay・Bで切り替える。

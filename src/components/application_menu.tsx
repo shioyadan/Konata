@@ -32,10 +32,15 @@ function getShortcuts(platform: string): ReadonlyArray<readonly [string, string]
         ["Command palette", `F1 · ${commandKey}+Shift+P`],
         ["Search", `${commandKey}+F · F3 / Shift+F3`],
         ["Move", "Arrow keys · Page Up / Page Down"],
-        ["Zoom", `+ / − · ${commandKey}+wheel`],
+        ["Pan canvas", "Drag · wheel · horizontal trackpad"],
+        ["Zoom in", `+ · ${commandKey}+↑ · Double-click`],
+        ["Zoom out", `− · ${commandKey}+↓ · Shift+double-click`],
+        ["Zoom gesture", `${commandKey}+wheel · Pinch`],
+        ["Align fetch cycle", "Click instruction label"],
         ["Go to bookmark", "0–9"],
         ["Set bookmark", `${commandKey}+0–9`],
-        ["Switch tab", `${commandKey}+Tab`],
+        ["Close tab", "Middle-click tab"],
+        ["Close dialog", "Esc"],
     ];
 }
 

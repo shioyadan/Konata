@@ -142,7 +142,6 @@ export type Action =
         readonly trace: ParsedTrace | null;
     }
     | { readonly type: "TAB_ACTIVATE"; readonly tabID: number }
-    | { readonly type: "TAB_MOVE"; readonly next: boolean }
     | { readonly type: "TAB_CLOSE"; readonly tabID: number }
     | {
         readonly type: "COMPARISON_OPEN";
@@ -744,18 +743,6 @@ export class Store {
                 { type: "TAB_UPDATE", tabID: action.tabID },
                 { type: "PANE_CONTENT_UPDATE", tabID: action.tabID },
             ]);
-            return;
-        }
-        case "TAB_MOVE": {
-            const openTabs = Array.from(this.tabs_.values());
-            const activeIndex = openTabs.findIndex((tab) => tab.id === this.snapshot_.activeTabID);
-            if (openTabs.length < 2 || activeIndex < 0) {
-                return;
-            }
-            // 旧TAB_MOVEと同じく並べ替えはせず、画面上のTab順で前後を循環する。
-            const offset = action.next ? 1 : openTabs.length - 1;
-            const nextTab = openTabs[(activeIndex + offset) % openTabs.length];
-            this.dispatch({ type: "TAB_ACTIVATE", tabID: nextTab.id });
             return;
         }
         case "TAB_CLOSE": {
