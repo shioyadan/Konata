@@ -12,11 +12,12 @@ import {
 declare const __KONATA_VERSION__: string;
 declare const __KONATA_COMMIT__: string;
 declare const __KONATA_COMMIT_DATE__: string;
+declare const __KONATA_LICENSE__: string;
+declare const __KONATA_THIRD_PARTY_LICENSES__: string;
 
 const REPOSITORY_URL = "https://github.com/shioyadan/Konata";
-const LICENSE_URL = `${REPOSITORY_URL}/blob/master/LICENSE.md`;
 
-type ApplicationDialog = "about" | "shortcuts" | null;
+type ApplicationDialog = "about" | "license" | "licenses" | "shortcuts" | null;
 
 interface ApplicationMenuProps {
     readonly unreadLogCount: number;
@@ -47,11 +48,26 @@ function getShortcuts(platform: string): ReadonlyArray<readonly [string, string]
 interface InformationDialogProps {
     readonly type: Exclude<ApplicationDialog, null>;
     readonly onClose: () => void;
+    readonly onOpenLicense: () => void;
+    readonly onOpenThirdPartyLicenses: () => void;
 }
 
-function InformationDialog({ type, onClose }: InformationDialogProps) {
+function InformationDialog({
+    type,
+    onClose,
+    onOpenLicense,
+    onOpenThirdPartyLicenses,
+}: InformationDialogProps) {
     const isAbout = type === "about";
-    const title = isAbout ? "About Konata" : "Keyboard Shortcuts";
+    const isLicense = type === "license";
+    const isLicenses = type === "licenses";
+    const title = isAbout
+        ? "About Konata"
+        : isLicense
+            ? "Konata License"
+            : isLicenses
+                ? "Third-Party Licenses"
+                : "Keyboard Shortcuts";
     const shortcuts = getShortcuts(navigator.platform);
     return (
         <div
@@ -63,7 +79,13 @@ function InformationDialog({ type, onClose }: InformationDialogProps) {
             }}
         >
             <section
-                className={`application-dialog${isAbout ? " about-dialog" : " shortcuts-dialog"}`}
+                className={`application-dialog${
+                    isAbout
+                        ? " about-dialog"
+                        : isLicense || isLicenses
+                            ? " licenses-dialog"
+                            : " shortcuts-dialog"
+                }`}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="application-dialog-title"
@@ -105,11 +127,19 @@ function InformationDialog({ type, onClose }: InformationDialogProps) {
                             <a href={REPOSITORY_URL} target="_blank" rel="noreferrer">
                                 <BsGithub aria-hidden="true" /> GitHub
                             </a>
-                            <a href={LICENSE_URL} target="_blank" rel="noreferrer">
+                            <button type="button" onClick={onOpenLicense}>
                                 <BsFileText aria-hidden="true" /> License
-                            </a>
+                            </button>
+                            <button type="button" onClick={onOpenThirdPartyLicenses}>
+                                <BsJournalText aria-hidden="true" /> Third-party licenses
+                            </button>
                         </nav>
                     </>
+                ) : isLicense || isLicenses ? (
+                    // 正本を加工せず表示し、単一HTML内の通知と配布文書の内容を一致させる。
+                    <pre className="third-party-licenses">{
+                        isLicense ? __KONATA_LICENSE__ : __KONATA_THIRD_PARTY_LICENSES__
+                    }</pre>
                 ) : (
                     <dl className="shortcut-list">
                         {shortcuts.map(([operation, shortcut]) => (
@@ -204,7 +234,14 @@ export function ApplicationMenu({ unreadLogCount, hasUnreadWarning, onOpenLog }:
                     <small>Version {__KONATA_VERSION__}</small>
                 </div>
             </details>
-            {dialog !== null && <InformationDialog type={dialog} onClose={() => setDialog(null)} />}
+            {dialog !== null && (
+                <InformationDialog
+                    type={dialog}
+                    onClose={() => setDialog(null)}
+                    onOpenLicense={() => setDialog("license")}
+                    onOpenThirdPartyLicenses={() => setDialog("licenses")}
+                />
+            )}
         </>
     );
 }

@@ -32,7 +32,8 @@ dist-release/konata-v1.0.0.zip
 └── konata-v1.0.0/
     ├── index.html
     ├── README.md
-    └── LICENSE.md
+    ├── LICENSE.md
+    └── THIRD_PARTY_LICENSES.md
 ```
 
 ## Publish a release

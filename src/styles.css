@@ -1232,6 +1232,10 @@ button:disabled {
     width: min(32rem, 100%);
 }
 
+.licenses-dialog {
+    width: min(56rem, 100%);
+}
+
 .stats-dialog > header,
 .stats-dialog > footer,
 .custom-color-dialog > header,
@@ -1331,23 +1335,45 @@ button:disabled {
 
 .about-links {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
 }
 
-.about-links a {
+.about-links a,
+.about-links button {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
     padding: 0.4rem 0.55rem;
     border: 1px solid #454d5a;
     border-radius: var(--ui-control-radius);
+    background: transparent;
     color: inherit;
+    font: inherit;
     text-decoration: none;
 }
 
-.about-links a:hover {
+.about-links button {
+    cursor: pointer;
+}
+
+.about-links a:hover,
+.about-links button:hover {
     border-color: var(--ui-accent);
     background: #38404d;
+}
+
+.third-party-licenses {
+    min-height: 0;
+    margin: 0;
+    padding: 0.75rem;
+    overflow: auto;
+    border: 1px solid #3f4754;
+    border-radius: var(--ui-control-radius);
+    background: #20252d;
+    color: #e5e8ed;
+    font: 0.75rem/1.45 SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    white-space: pre-wrap;
 }
 
 .shortcut-list div:first-child,
@@ -1931,14 +1957,22 @@ button:disabled {
     border-top-color: #d7dbe2;
 }
 
-.theme-light .about-links a {
+.theme-light .about-links a,
+.theme-light .about-links button {
     border-color: #b9c0ca;
     color: #222;
 }
 
-.theme-light .about-links a:hover {
+.theme-light .about-links a:hover,
+.theme-light .about-links button:hover {
     border-color: #355f91;
     background: #e5e8ed;
+}
+
+.theme-light .third-party-licenses {
+    border-color: #d7dbe2;
+    background: #fff;
+    color: #222;
 }
 
 .theme-light .stats-dialog > input {

@@ -893,7 +893,44 @@ async function verifyApplicationMenu(window) {
                 })),
             backdropLayer: getComputedStyle(document.querySelector(".dialog-backdrop")).zIndex
         };
-        about?.querySelector("button[aria-label^='Close']")?.click();
+        const licenseButton = [...(about?.querySelectorAll(".about-links button") ?? [])]
+            .find((button) => button.textContent?.trim() === "License");
+        licenseButton?.click();
+        await nextFrame();
+        await nextFrame();
+        const license = document.querySelector(".licenses-dialog");
+        const mainLicenseState = {
+            title: license?.querySelector("h2")?.textContent ?? null,
+            hasCopyright: license?.querySelector(".third-party-licenses")?.textContent
+                ?.includes("Copyright (C) 2016-2026 Ryota Shioya") ?? false
+        };
+        license?.querySelector("button[aria-label^='Close']")?.click();
+        await nextFrame();
+
+        summary.click();
+        await nextFrame();
+        getMenuItem("About Konata")?.click();
+        await nextFrame();
+        await nextFrame();
+        const reopenedAbout = document.querySelector(".about-dialog");
+        const thirdPartyButton = [...(reopenedAbout?.querySelectorAll(".about-links button") ?? [])]
+            .find((button) => button.textContent?.trim() === "Third-party licenses");
+        thirdPartyButton?.click();
+        await nextFrame();
+        await nextFrame();
+        const licenses = document.querySelector(".licenses-dialog");
+        const licenseText = licenses?.querySelector(".third-party-licenses")?.textContent ?? "";
+        const licensesState = {
+            title: licenses?.querySelector("h2")?.textContent ?? null,
+            hasReact: licenseText.includes("react") && licenseText.includes("19.2.8"),
+            hasBootstrapIcons: licenseText.includes("Bootstrap Icons") &&
+                licenseText.includes("1.11.3"),
+            hasFzstd: licenseText.includes("Copyright (c) 2020 Arjun Barrett"),
+            hasZstandard: licenseText.includes("For Zstandard software"),
+            hasApache: licenseText.includes("Apache License") &&
+                licenseText.includes("Version 2.0, January 2004")
+        };
+        licenses?.querySelector("button[aria-label^='Close']")?.click();
         await nextFrame();
 
         // shortcut一覧とEscapeによる閉じ方を、menu本体とは独立して確認する。
@@ -931,6 +968,8 @@ async function verifyApplicationMenu(window) {
             menuVersion,
             menuPanelOnTop,
             aboutState,
+            mainLicenseState,
+            licensesState,
             shortcutState,
             platform: navigator.platform,
             escapeCanceled,
@@ -1226,14 +1265,16 @@ async function run() {
                 href: "https://github.com/shioyadan/Konata",
                 target: "_blank",
                 rel: "noreferrer"
-            },
-            {
-                text: "License",
-                href: "https://github.com/shioyadan/Konata/blob/master/LICENSE.md",
-                target: "_blank",
-                rel: "noreferrer"
             }
         ]) ||
+        applicationMenuState.mainLicenseState.title !== "Konata License" ||
+        !applicationMenuState.mainLicenseState.hasCopyright ||
+        applicationMenuState.licensesState.title !== "Third-Party Licenses" ||
+        !applicationMenuState.licensesState.hasReact ||
+        !applicationMenuState.licensesState.hasBootstrapIcons ||
+        !applicationMenuState.licensesState.hasFzstd ||
+        !applicationMenuState.licensesState.hasZstandard ||
+        !applicationMenuState.licensesState.hasApache ||
         applicationMenuState.aboutState.backdropLayer !== "30" ||
         applicationMenuState.shortcutState.title !== "Keyboard Shortcuts" ||
         JSON.stringify(applicationMenuState.shortcutState.entries) !== JSON.stringify(expectedShortcuts) ||

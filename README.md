@@ -144,5 +144,5 @@ procedures.
 Copyright (C) 2016-2026 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
 
 Konata is released under the BSD 3-Clause License. See [LICENSE.md](LICENSE.md).
-The Web application includes third-party packages under their respective licenses. Electron is a
-development-only dependency used to run the Web smoke test. It is not included in the application.
+The Web application includes third-party packages under their respective licenses. See
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

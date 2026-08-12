@@ -13,14 +13,14 @@ RELEASE_ROOT := dist-release
 RELEASE_DIR := $(RELEASE_ROOT)/$(RELEASE_NAME)
 RELEASE_ARCHIVE := $(RELEASE_ROOT)/$(RELEASE_NAME).zip
 
-.PHONY: all production check versions init test typecheck serve web-render-smoke \
+.PHONY: all production check versions init test typecheck license-check serve web-render-smoke \
 	web-smoke production-smoke benchmark-op-store release-version-check release-archive \
 	clean distclean
 
 all:
 	$(WEBPACK) --mode development
 
-production:
+production: license-check
 	$(WEBPACK) --mode production
 
 # 型・Parser・単一HTML・Web描画を順番に検証する正式な確認入口。
@@ -46,6 +46,10 @@ test:
 
 typecheck:
 	$(TSC) --project tsconfig.json --noEmit
+
+# production依存と配布HTMLへ入るloader runtimeが、監査済み一覧と一致することを確認する。
+license-check:
+	node tools/check_third_party_licenses.js
 
 # 通常checkから分離し、store方式を同じ入力・同じ指標で比較するためにだけ実行する。
 benchmark-op-store:
@@ -78,7 +82,7 @@ release-version-check:
 release-archive: release-version-check check
 	rm -rf "$(RELEASE_DIR)" "$(RELEASE_ARCHIVE)"
 	mkdir -p "$(RELEASE_DIR)"
-	cp dist-web/index.html README.md LICENSE.md "$(RELEASE_DIR)/"
+	cp dist-web/index.html README.md LICENSE.md THIRD_PARTY_LICENSES.md "$(RELEASE_DIR)/"
 	cd "$(RELEASE_ROOT)" && zip -q -r "$(RELEASE_NAME).zip" "$(RELEASE_NAME)"
 	zip -T "$(RELEASE_ARCHIVE)"
 	@echo "Release archive created: $(RELEASE_ARCHIVE)"

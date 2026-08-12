@@ -1,12 +1,18 @@
 "use strict";
 
 const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 const HtmlInlineScriptPlugin = require("html-inline-script-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const TerserPlugin = require("terser-webpack-plugin");
 const webpack = require("webpack");
 const packageJSON = require("./package.json");
+const license = fs.readFileSync(path.join(__dirname, "LICENSE.md"), "utf8");
+const thirdPartyLicenses = fs.readFileSync(
+    path.join(__dirname, "THIRD_PARTY_LICENSES.md"),
+    "utf8",
+);
 
 function getGitBuildInfo() {
     try {
@@ -94,6 +100,9 @@ module.exports = (_env, argv) => {
                 __KONATA_VERSION__: JSON.stringify(packageJSON.version),
                 __KONATA_COMMIT__: JSON.stringify(gitBuildInfo.commit),
                 __KONATA_COMMIT_DATE__: JSON.stringify(gitBuildInfo.date),
+                // 単一HTMLだけを配布してもライセンスが必ず同伴するよう、正本をそのまま埋め込む。
+                __KONATA_LICENSE__: JSON.stringify(license),
+                __KONATA_THIRD_PARTY_LICENSES__: JSON.stringify(thirdPartyLicenses),
             }),
             new HtmlWebpackPlugin({
                 template: "./src/index.html",
