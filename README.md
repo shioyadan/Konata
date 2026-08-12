@@ -25,7 +25,7 @@ browser and is not uploaded.
 ### Generate and open a trace
 
 Generate a trace from gem5 with the O3 CPU model. This example is based on the
-[gem5 visualization documentation](http://www.m5sim.org/Visualization):
+[gem5 O3 Pipeline Viewer documentation](https://www.gem5.org/documentation/general_docs/cpu_models/visualization/):
 
 ```bash
 ./build/ARM/gem5.opt \
