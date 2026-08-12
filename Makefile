@@ -7,9 +7,15 @@ TSC := ./node_modules/.bin/tsc
 TSX := ./node_modules/.bin/tsx
 BENCHMARK_OPS ?= 100000
 BENCHMARK_TRACE ?=
+PACKAGE_VERSION := $(shell node -p 'require("./package.json").version')
+RELEASE_NAME := konata-v$(PACKAGE_VERSION)
+RELEASE_ROOT := dist-release
+RELEASE_DIR := $(RELEASE_ROOT)/$(RELEASE_NAME)
+RELEASE_ARCHIVE := $(RELEASE_ROOT)/$(RELEASE_NAME).zip
 
 .PHONY: all production check versions init test typecheck serve web-render-smoke \
-	web-smoke production-smoke benchmark-op-store clean distclean
+	web-smoke production-smoke benchmark-op-store release-version-check release-archive \
+	clean distclean
 
 all:
 	$(WEBPACK) --mode development
@@ -64,8 +70,21 @@ production-smoke: production
 	node test/single_html_smoke.js
 	$(MAKE) web-render-smoke
 
+# package.jsonをバージョンの基準とし、lockfileとの不一致を配布前に検出する。
+release-version-check:
+	node -e 'const packageJSON = require("./package.json"); const lock = require("./package-lock.json"); if (packageJSON.version !== lock.version || packageJSON.version !== lock.packages[""].version) { throw new Error("package.json and package-lock.json versions do not match."); }'
+
+# 検証済みの単一HTMLと利用・ライセンス文書だけを、バージョン付きZIPへまとめる。
+release-archive: release-version-check check
+	rm -rf "$(RELEASE_DIR)" "$(RELEASE_ARCHIVE)"
+	mkdir -p "$(RELEASE_DIR)"
+	cp dist-web/index.html README.md LICENSE.md "$(RELEASE_DIR)/"
+	cd "$(RELEASE_ROOT)" && zip -q -r "$(RELEASE_NAME).zip" "$(RELEASE_NAME)"
+	zip -T "$(RELEASE_ARCHIVE)"
+	@echo "Release archive created: $(RELEASE_ARCHIVE)"
+
 clean:
-	rm dist-web -r -f
+	rm dist-web dist-release -r -f
 
 distclean: clean
 	rm node_modules -r -f

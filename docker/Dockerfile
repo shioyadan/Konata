@@ -34,6 +34,7 @@ RUN apt-get update \
         util-linux \
         xauth \
         xvfb \
+        zip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

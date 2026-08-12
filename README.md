@@ -152,6 +152,7 @@ make               # Build the development Web application
 make serve         # Start the Web development server
 make production    # Build dist-web/index.html
 make check         # Run the complete verification set
+make release-archive
 ```
 
 ### GitHub Pages preview
@@ -160,6 +161,31 @@ Pushing `dev-v100` runs `.github/workflows/pages.yml`. The workflow installs the
 with `npm ci`, invokes the existing Make verification targets, uploads `dist-web`, and deploys it to
 GitHub Pages. In the repository settings, Pages must use GitHub Actions and the `github-pages`
 environment must allow deployments from `dev-v100`.
+
+## Release
+
+`make release-archive` runs the complete verification set and creates a versioned archive from the
+version in `package.json`:
+
+```text
+dist-release/konata-v1.0.0.zip
+└── konata-v1.0.0/
+    ├── index.html
+    ├── README.md
+    └── LICENSE.md
+```
+
+After updating the versions in `package.json` and `package-lock.json`, commit and merge the release
+to `master`. Create and push a matching annotated tag when that commit is ready to publish:
+
+```bash
+git tag -a v1.0.0 -m "Konata v1.0.0"
+git push origin v1.0.0
+```
+
+The release workflow verifies that the tag matches `package.json` and belongs to `master`, runs
+`make release-archive`, and publishes the ZIP as a GitHub Release asset. Its `GITHUB_TOKEN` requires
+`contents: write`, as declared in `.github/workflows/release.yml`.
 
 ## License
 

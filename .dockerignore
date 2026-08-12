@@ -1,6 +1,7 @@
 .git
 node_modules
 dist-web
+dist-release
 work
 docker/.image-*.stamp
 

@@ -1,5 +1,6 @@
 *.log
 dist-web
+dist-release
 work
 node_modules
 docker/.image-*.stamp
