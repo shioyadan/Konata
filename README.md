@@ -1,32 +1,36 @@
 # Konata
 
-* Konata is an instruction pipeline visualizer for Onikiri2-Kanata/Gem5-O3PipeView formats.
-* Since v1.0.0, Konata is Web-based rather than Electron-based. Use
-  [Konata Web](https://shioyadan.github.io/Konata/) or download a self-contained HTML file from
-  [GitHub Releases](https://github.com/shioyadan/Konata/releases). All trace processing stays local
-  in the browser.
-* Nearly all desktop features are retained, with faster, lower-memory processing for larger traces.
-* ASPLOS 2018 learning gem5 tutorial presentation is [here](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf
-)
-* The Onikiri2-Kanata format is described in [here](docs/kanata-log-format.md). It can represent a more detailed pipeline behavior than Gem5-O3PipeView.
+* Konata is an instruction pipeline visualizer for traces in the Onikiri2-Kanata and gem5
+  O3PipeView formats.
+* Starting with v1.0.0, Konata runs in the browser instead of as an Electron desktop application.
+  Open [Konata Web](https://shioyadan.github.io/Konata/) or download the self-contained HTML release
+  from [GitHub Releases](https://github.com/shioyadan/Konata/releases). All trace processing remains
+  local to the browser. Konata makes no background network requests, and trace data never leaves
+  the browser.
+* Nearly all features from the desktop version are retained. Faster processing and lower memory use
+  make it possible to open larger traces.
+* The [ASPLOS 2018 gem5 tutorial presentation](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf)
+  provides an introduction to Konata.
+* The [Onikiri2-Kanata format](docs/kanata-log-format.md) represents pipeline behavior in greater
+  detail than the gem5 O3PipeView format.
 
 ![demo](https://github.com/shioyadan/Konata/wiki/images/konata.gif)
 
 
 ## Run Konata
 
-Open [Konata Web](https://shioyadan.github.io/Konata/), then choose or drop a plain-text,
-gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. For local use, download the latest
-`konata-v*.zip` from [GitHub Releases](https://github.com/shioyadan/Konata/releases), extract it,
-and open `index.html` in a browser. In either case, the selected trace is processed locally in the
-browser and is not uploaded.
+Open [Konata Web](https://shioyadan.github.io/Konata/), then select or drag and drop a plain-text,
+gzip-compressed, or Zstandard-compressed Kanata/O3PipeView trace. To run Konata locally, download
+the latest `konata-v*.zip` from [GitHub Releases](https://github.com/shioyadan/Konata/releases),
+extract it, and open `index.html` in a browser. Konata processes the trace entirely in the browser
+and never uploads it.
 
 
 ## Usage
 
 ### Generate and open a trace
 
-Generate a trace from gem5 with the O3 CPU model. This example is based on the
+Generate an O3PipeView trace with the gem5 O3 CPU model. This example follows the
 [gem5 O3 Pipeline Viewer documentation](https://www.gem5.org/documentation/general_docs/cpu_models/visualization/):
 
 ```bash
@@ -40,45 +44,44 @@ Generate a trace from gem5 with the O3 CPU model. This example is based on the
     -m <last cycle of interest>
 ```
 
-Open `trace.out` from the Open menu or drag and drop it onto Konata. Using `O3CPUAll` together
-with `O3PipeView` adds detailed CPU messages and instruction dependencies:
+Open `trace.out` using the Open menu or drag and drop it onto Konata. Enabling `O3CPUAll` alongside
+`O3PipeView` adds detailed CPU messages and instruction dependencies:
 
 ```text
 --debug-flags=O3PipeView,O3CPUAll
 ```
 
-In `O3CPUAll` mode, Konata associates messages with instructions by tracking
-`[sn:<serial number>]`. Custom log messages containing the same serial information are shown with
-the corresponding instruction.
+With `O3CPUAll` enabled, Konata associates messages with instructions using
+`[sn:<serial number>]`. Custom log messages with the same serial number are shown with the
+corresponding instruction.
 
 ### Web controls
 
 - **Open:** Choose one or more traces, or drag and drop them onto the window.
-- **Recent and Reload:** Reopen a recently selected trace or reload the current trace after it
+- **Recent and Reload:** Reopen a recent trace or reload the current trace after its source file
   changes. If a change notice appears, choose Reload or Ignore.
-- **Search:** Find a regular expression in the current trace. F3 and Shift+F3 move to the next and
-  previous matches.
-- **Bookmark:** Number keys `0`–`9` go to bookmarks. Ctrl/Command+`0`–`9` stores the current position
-  and zoom in the corresponding slot.
+- **Search:** Search the current trace with a regular expression. F3 and Shift+F3 move to the next
+  and previous matches.
+- **Bookmark:** Press `0`–`9` to go to a bookmark. Press Ctrl/Command+`0`–`9` to save the current
+  position and zoom in that slot.
 - **Stats:** Show statistics for the current trace in a resizable dialog.
 - **View:** Change the theme, pipeline colors, dependency arrows, lane layout, flushed-op visibility,
   and minimum lane heights used for drawing details. Custom colors can be edited from the Custom
   color scheme.
-- **Zoom:** Change the zoom directly. Zoom steps per 2× controls how many input steps double or halve
-  the view.
+- **Zoom:** Change the zoom level. Zoom steps per 2× sets how many steps double or halve the view.
 - **Application log:** Review parser warnings and other messages in a resizable pane at the bottom
   of the window.
 
 Canvas and tab controls:
 
-- Drag the canvas to pan. A horizontal trackpad wheel scrolls horizontally.
-- Use the mouse wheel or Up/Down keys to follow instructions vertically.
+- Drag the canvas to pan. Use a horizontal trackpad gesture to scroll horizontally.
+- Use the mouse wheel or Up/Down keys to move through instructions vertically.
 - Use Ctrl/Command+wheel, `+`/`-`, or Ctrl/Command+Up/Down to zoom.
-- Double-click to zoom in; Shift+double-click zooms out. A two-pointer pinch also zooms.
+- Double-click to zoom in. Shift+double-click to zoom out. Pinch with two pointers to zoom.
 - Click an instruction label to align its fetch cycle with the left edge.
 - Use Adjust position (the crosshair beside Reset) when the pipeline is outside the viewport.
-  Adjust preserves the zoom; Reset restores both the position and zoom.
-- Click a tab with the middle mouse button to close it. Ctrl/Command+Tab moves between tabs.
+  Adjust position preserves the zoom. Reset restores both the position and zoom.
+- Middle-click a tab to close it. Ctrl/Command+Tab moves between tabs.
 
 F1 or Ctrl/Command+Shift+P opens the full command palette, which accepts these commands:
 
@@ -89,23 +92,21 @@ f  <pattern>  Find a regular expression
 l             Open the file picker
 ```
 
-Command history, bookmarks, and view settings are saved between browser sessions.
+Command palette history, bookmarks, and view settings are saved between browser sessions.
 
 ### Trace comparison
 
-Open two traces, activate the tab to use as A, and choose Compare. A comparison tab provides A,
-Overlay, and B modes. A and B modes keep the selected trace in its comparison color and show the
-other trace as a faint gray reference. Overlay uses complementary colors so matching stages become
-neutral and local stage or position differences remain colored. Dragging in A or B mode adjusts
-only that trace; Overlay moves both traces together. Align to A adjusts A and aligns B using a
-common retired-operation ID when one is available.
+Open two traces, select the tab to use as A, and choose Compare. Use A or B to inspect one trace with
+the other as a faint reference. Use Overlay to highlight differences. Dragging in A or B mode moves
+only that trace. Overlay mode moves both traces together. Align to A aligns them using a shared
+retired-operation ID when available.
 
 ### Browser limitations
 
-Recent files, persistent handles, and external-change detection depend on File System Access APIs
-currently available in compatible Chromium browsers. Other browsers retain file input and drag and
-drop. Remote-server/WSL reload will be considered together with a restricted read-only trace server.
-Arbitrary URL or path loading is intentionally disabled.
+Recent files, reload, and external-change detection require File System Access APIs supported by
+compatible Chromium-based browsers. Other browsers still support file selection and drag and drop.
+Support for reloading traces from remote servers or WSL may be added in the future with a restricted
+read-only trace server. Loading arbitrary URLs or paths is intentionally disabled.
 
 
 ## Development
@@ -117,7 +118,7 @@ Docker is the recommended development environment. Start a shell with the reposi
 ./docker/launch.sh
 ```
 
-Run all development operations from that shell:
+Run development commands from that shell:
 
 ```bash
 make init          # Install dependencies
@@ -126,49 +127,19 @@ make serve         # Start the Web development server
 make production    # Build dist-web/index.html
 make check         # Run the complete verification set
 make benchmark-op-store
-make release-archive
 ```
 
-All operations are Make targets; npm scripts are not used. `make check` uses Electron only as a
-sandboxed Chromium test runner, not as part of the application. Without Docker, install Node.js
-22.12 or later and run the same Make targets directly.
+All build and test operations are Make targets. npm scripts are not used. `make check` uses Electron
+only to run the Web smoke test in sandboxed Chromium. Electron is not part of the application. To
+work without Docker, install Node.js 22.12 or later and run the same Make targets directly.
 
-### GitHub Pages preview
-
-Pushing `master` runs `.github/workflows/pages.yml`. The workflow installs the locked dependencies
-with `npm ci`, invokes the existing Make verification targets, uploads `dist-web`, and deploys it to
-GitHub Pages. In the repository settings, Pages must use GitHub Actions and the `github-pages`
-environment must allow deployments from `master`.
-
-## Release
-
-`make release-archive` runs the complete verification set and creates a versioned archive from the
-version in `package.json`:
-
-```text
-dist-release/konata-v1.0.0.zip
-└── konata-v1.0.0/
-    ├── index.html
-    ├── README.md
-    └── LICENSE.md
-```
-
-After updating the versions in `package.json` and `package-lock.json`, commit and merge the release
-to `master`. Create and push a matching annotated tag when that commit is ready to publish:
-
-```bash
-git tag -a v1.0.0 -m "Konata v1.0.0"
-git push origin v1.0.0
-```
-
-The release workflow verifies that the tag matches `package.json` and belongs to `master`, runs
-`make release-archive`, and publishes the ZIP as a GitHub Release asset. Its `GITHUB_TOKEN` requires
-`contents: write`, as declared in `.github/workflows/release.yml`.
+See [Deployment and release](docs/releasing.md) for deployment to GitHub Pages and release
+procedures.
 
 ## License
 
 Copyright (C) 2016-2026 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
 
-This application is released under the 3-Clause BSD License, see LICENSE.md.
+Konata is released under the BSD 3-Clause License. See [LICENSE.md](LICENSE.md).
 The Web application includes third-party packages under their respective licenses. Electron is a
-development-only dependency used to run the Web smoke test and is not included in the application.
+development-only dependency used to run the Web smoke test. It is not included in the application.
