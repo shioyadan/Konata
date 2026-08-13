@@ -8,14 +8,14 @@ TSX := ./node_modules/.bin/tsx
 BENCHMARK_OPS ?= 100000
 BENCHMARK_TRACE ?=
 PACKAGE_VERSION := $(shell node -p 'require("./package.json").version')
-RELEASE_NAME := konata-v$(PACKAGE_VERSION)
-RELEASE_ROOT := dist-release
-RELEASE_DIR := $(RELEASE_ROOT)/$(RELEASE_NAME)
-RELEASE_ARCHIVE := $(RELEASE_ROOT)/$(RELEASE_NAME).zip
+ARCHIVE_NAME := konata-v$(PACKAGE_VERSION)
+ARCHIVE_ROOT := dist-release
+ARCHIVE_DIR := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME)
+ARCHIVE_PATH := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME).zip
 
 .PHONY: all production check versions init test typecheck license-check launcher-check serve web-render-smoke \
-	web-smoke production-smoke benchmark-op-store release-version-check release-archive \
-	clean distclean
+	web-smoke production-smoke benchmark-op-store release-version-check archive release-archive \
+	latest-archive clean distclean
 
 all:
 	$(WEBPACK) --mode development
@@ -84,14 +84,21 @@ production-smoke: production
 release-version-check:
 	node -e 'const packageJSON = require("./package.json"); const lock = require("./package-lock.json"); if (packageJSON.version !== lock.version || packageJSON.version !== lock.packages[""].version) { throw new Error("package.json and package-lock.json versions do not match."); }'
 
-# 検証済みの単一HTML、remote起動script、利用・ライセンス文書をバージョン付きZIPへまとめる。
+# 検証済みの単一HTML、remote起動script、利用・ライセンス文書をZIPへまとめる。
+archive:
+	rm -rf "$(ARCHIVE_DIR)" "$(ARCHIVE_PATH)"
+	mkdir -p "$(ARCHIVE_DIR)"
+	cp dist-web/index.html konata.sh README.md LICENSE.md THIRD_PARTY_LICENSES.md "$(ARCHIVE_DIR)/"
+	cd "$(ARCHIVE_ROOT)" && zip -q -r "$(ARCHIVE_NAME).zip" "$(ARCHIVE_NAME)"
+	zip -T "$(ARCHIVE_PATH)"
+	@echo "Archive created: $(ARCHIVE_PATH)"
+
+# releaseはpackage.jsonのversion名、Pagesはmasterを示す固定latest名で同じ内容を配布する。
 release-archive: release-version-check check
-	rm -rf "$(RELEASE_DIR)" "$(RELEASE_ARCHIVE)"
-	mkdir -p "$(RELEASE_DIR)"
-	cp dist-web/index.html konata.sh README.md LICENSE.md THIRD_PARTY_LICENSES.md "$(RELEASE_DIR)/"
-	cd "$(RELEASE_ROOT)" && zip -q -r "$(RELEASE_NAME).zip" "$(RELEASE_NAME)"
-	zip -T "$(RELEASE_ARCHIVE)"
-	@echo "Release archive created: $(RELEASE_ARCHIVE)"
+	$(MAKE) archive ARCHIVE_NAME="$(ARCHIVE_NAME)"
+
+latest-archive: check
+	$(MAKE) archive ARCHIVE_NAME=konata-latest
 
 clean:
 	rm dist-web dist-release -r -f

@@ -13,6 +13,10 @@ verifies, and builds both branches, then deploys them together:
 Both versions are included in one artifact because each GitHub Pages deployment replaces the whole
 site. The `stable` branch should only move to a tested release commit.
 
+The workflow also runs `make latest-archive` for `master` and publishes the result as
+`https://shioyadan.github.io/Konata/konata-latest.zip`. This fixed name always represents the latest
+tested development version. Versioned archives remain attached to GitHub Releases.
+
 In the repository settings, configure Pages to use GitHub Actions. The `github-pages` environment
 must also allow deployments from both `master` and `stable`.
 

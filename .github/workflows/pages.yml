@@ -47,12 +47,9 @@ jobs:
 
       # Electronはsandboxed Chromiumのテスト実行器としてだけ使い、配布物には含めない。
       # Pagesへ未検証の生成物を出さないよう、既存のMakeターゲットをそのまま使う。
-      - name: Verify and build unstable app
+      - name: Verify and package latest app
         working-directory: unstable
-        run: |
-          make typecheck
-          make test
-          make production-smoke
+        run: make latest-archive
 
       - name: Install stable dependencies
         working-directory: stable
@@ -65,11 +62,12 @@ jobs:
           make test
           make production-smoke
 
-      # masterを従来のURLへ置き、一般利用向けのrelease版だけをstable/へ分ける。
+      # masterのHTMLとlatest ZIPをrootへ置き、一般利用向けのrelease版だけをstable/へ分ける。
       - name: Assemble GitHub Pages site
         run: |
           mkdir -p dist-site/stable
           cp unstable/dist-web/index.html dist-site/index.html
+          cp unstable/dist-release/konata-latest.zip dist-site/konata-latest.zip
           cp stable/dist-web/index.html dist-site/stable/index.html
 
       - name: Configure GitHub Pages
