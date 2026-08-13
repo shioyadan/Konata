@@ -1,7 +1,6 @@
 import {
     FileLineReader,
     type ProgressCallback,
-    type TraceInput,
 } from "./file_line_reader";
 import {
     Dependency,
@@ -37,15 +36,14 @@ export class OnikiriParser {
     constructor(private readonly opStore_: MutableOpStore = new ArrayOpStore()) {}
 
     async parse(
-        file: TraceInput,
+        reader: FileLineReader,
         onProgress?: ProgressCallback,
         onUpdate?: TraceUpdateCallback,
         signal?: AbortSignal,
     ): Promise<ParsedTrace> {
-        const reader = new FileLineReader(file);
         // lane setとstoreを複製せず、読み込み完了後まで同じtraceを段階更新する。
         const trace = new ParsedTrace(
-            file.name,
+            reader.name,
             this.opStore_,
             this.stageLevelMap_,
             this.currentCycle_,

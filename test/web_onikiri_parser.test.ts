@@ -21,6 +21,11 @@ function fileFromFixture(relativePath: string, type: string): File {
     return new File([bytes], path.basename(filePath), { type });
 }
 
+// 形式Parser単体でも、入力媒体はFileLineReaderの境界で渡す。
+function reader(file: File): FileLineReader {
+    return new FileLineReader(file);
+}
+
 test("Web line reader preserves long UTF-8 lines across bounded decode chunks", async () => {
     // 8 KiB境界の直前から3-byte文字を置き、TextDecoderをまたいでも文字化けしないことを確認する。
     // 同じ行を8 KiBより長くし、内部の分割を改行と誤認せず、CRLFだけを除くことも固定する。
@@ -102,7 +107,7 @@ test("Web Onikiri parser preserves core commands for a plain-text trace", async 
     // I/L/S/E/R/W/Cを組み合わせたfixtureで、browser用のarray storeでも旧Parserと
     // 同じ命令寿命、stage、ラベル、依存関係が復元されることを確認する。
     const file = fileFromFixture("test/fixtures/kanata-basic.txt", "text/plain");
-    const trace = await new OnikiriParser().parse(file);
+    const trace = await new OnikiriParser().parse(reader(file));
 
     assert.equal(trace.lastID, 1);
     assert.equal(trace.lastRID, 0);
@@ -165,7 +170,7 @@ test("Web Onikiri parser assigns stable IDs to arbitrary lane names", async () =
         "R\t0\t0\t0",
     ].join("\n");
     const trace = await new OnikiriParser().parse(
-        new File([contents], "lane-name.log", { type: "text/plain" }),
+        reader(new File([contents], "lane-name.log", { type: "text/plain" })),
     );
     const op = trace.getOp(0);
     assert.ok(op);
@@ -187,7 +192,10 @@ test("Web Onikiri parser streams the bundled gzip sample", async () => {
     // gzip境界、行分割、EOF命令の回帰を旧Parserと共通の代表値で固定する。
     const file = fileFromFixture("docs/kanata-sample-2.log.gz", "application/gzip");
     const progressValues: number[] = [];
-    const trace = await new OnikiriParser().parse(file, (progress) => progressValues.push(progress));
+    const trace = await new OnikiriParser().parse(
+        reader(file),
+        (progress) => progressValues.push(progress),
+    );
 
     assert.equal(trace.lastID, 4040);
     assert.equal(trace.lastRID, 3625);
@@ -223,8 +231,8 @@ test("Web Onikiri parser streams concurrent Zstandard traces", async () => {
     // Node.jsテストではsingletonを安全に直列化する。browserでは各streamを別Workerへ分離し、
     // 同じ呼出し方のまま2ファイルを並行して展開できることをbrowser smokeで確認する。
     const [trace, secondTrace] = await Promise.all([
-        new OnikiriParser().parse(file, (progress) => progressValues.push(progress)),
-        new OnikiriParser().parse(secondFile),
+        new OnikiriParser().parse(reader(file), (progress) => progressValues.push(progress)),
+        new OnikiriParser().parse(reader(secondFile)),
     ]);
 
     assert.equal(trace.lastID, 1);
@@ -255,7 +263,7 @@ test("Web Onikiri parser warns and continues after invalid command lines", async
     const originalWarn = console.warn;
     console.warn = (message) => warnings.push(String(message));
     const trace = await new OnikiriParser().parse(
-        new File([contents], "warnings.log", { type: "text/plain" }),
+        reader(new File([contents], "warnings.log", { type: "text/plain" })),
     ).finally(() => {
         console.warn = originalWarn;
     });
@@ -275,7 +283,7 @@ test("Web Onikiri parser does not publish a trace before accepting its header", 
     let updateCount = 0;
     await assert.rejects(
         new OnikiriParser().parse(
-            new File(["O3PipeView:fetch:1000"], "gem5.log", { type: "text/plain" }),
+            reader(new File(["O3PipeView:fetch:1000"], "gem5.log", { type: "text/plain" })),
             undefined,
             () => updateCount++,
         ),
@@ -301,7 +309,7 @@ test("Web Onikiri parser publishes one live trace while loading", async () => {
 
     const updates: Array<{ trace: object; opCount: number; lastCycle: number }> = [];
     const trace = await new OnikiriParser().parse(
-        new File([lines.join("\n")], "incremental.log", { type: "text/plain" }),
+        reader(new File([lines.join("\n")], "incremental.log", { type: "text/plain" })),
         undefined,
         (partialTrace) => updates.push({
             trace: partialTrace,
@@ -344,7 +352,7 @@ test("Web Onikiri parser cancels its input stream through an AbortSignal", async
     const controller = new AbortController();
     const opStore = new ArrayOpStore();
     const parsing = new OnikiriParser(opStore).parse(
-        file,
+        reader(file),
         () => notifyProgress?.(),
         undefined,
         controller.signal,

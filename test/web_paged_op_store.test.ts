@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import { FileLineReader } from "../src/core/file_line_reader";
 import { Dependency, Lane, Op, Stage, getLastParsedStage } from "../src/core/model";
 import { OnikiriParser } from "../src/core/onikiri_parser";
 import { PagedOpStore } from "../src/core/paged_op_store";
@@ -247,7 +248,7 @@ test("OnikiriParser preserves post-retire updates through serialized pages", asy
         maxDecodedPages: 1,
         levelSpans: [1],
     });
-    const trace = await new OnikiriParser(store).parse(file);
+    const trace = await new OnikiriParser(store).parse(new FileLineReader(file));
 
     assert.equal(trace.lastID, 1);
     assert.equal(trace.lastRID, 0);
@@ -280,7 +281,7 @@ test("OnikiriParser writes dependencies back to an evicted producer page", async
         maxDecodedPages: 1,
         levelSpans: [1],
     });
-    const trace = await new OnikiriParser(store).parse(file);
+    const trace = await new OnikiriParser(store).parse(new FileLineReader(file));
 
     assert.deepEqual(trace.getOp(0)?.cons.map((dependency) => ({ ...dependency })), [
         { opID: 2, type: 7, cycle: 0 },

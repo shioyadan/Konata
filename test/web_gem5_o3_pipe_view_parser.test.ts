@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+import { FileLineReader } from "../src/core/file_line_reader";
 import { Gem5O3PipeViewParser } from "../src/core/gem5_o3_pipe_view_parser";
 
 function fileFromFixture(relativePath: string): File {
@@ -13,10 +14,15 @@ function fileFromFixture(relativePath: string): File {
     return new File([bytes], path.basename(filePath), { type: "text/plain" });
 }
 
+// 形式Parser単体でも、入力媒体はFileLineReaderの境界で渡す。
+function reader(file: File): FileLineReader {
+    return new FileLineReader(file);
+}
+
 test("Web gem5 parser preserves ticks and pipeline stages", async () => {
     // 旧Parserと共通のfixtureを使い、seqNumからのID/RID割り当てとtick変換を比較する。
     const trace = await new Gem5O3PipeViewParser().parse(
-        fileFromFixture("test/fixtures/gem5-basic.txt"),
+        reader(fileFromFixture("test/fixtures/gem5-basic.txt")),
     );
 
     assert.equal(trace.lastID, 0);
@@ -76,7 +82,7 @@ test("Web gem5 parser rejects input without O3PipeView records", async () => {
     const file = new File(["ordinary log line\n"], "ordinary.log", { type: "text/plain" });
     let updateCount = 0;
     await assert.rejects(
-        new Gem5O3PipeViewParser().parse(file, undefined, () => updateCount++),
+        new Gem5O3PipeViewParser().parse(reader(file), undefined, () => updateCount++),
         /not a gem5 O3PipeView trace/,
     );
     // O3PipeView recordを確認するまでは、fallback対象の空traceを画面へ公開しない。
@@ -86,7 +92,7 @@ test("Web gem5 parser rejects input without O3PipeView records", async () => {
 test("Web gem5 parser publishes one trace only after detecting its format", async () => {
     const partialTraces: object[] = [];
     const trace = await new Gem5O3PipeViewParser().parse(
-        fileFromFixture("test/fixtures/gem5-basic.txt"),
+        reader(fileFromFixture("test/fixtures/gem5-basic.txt")),
         undefined,
         (partialTrace) => partialTraces.push(partialTrace),
     );
@@ -117,7 +123,7 @@ test("Web gem5 parser reorders sequence numbers and keeps flushed operations", a
     );
 
     const trace = await new Gem5O3PipeViewParser().parse(
-        new File([lines.join("\n")], "out-of-order.log", { type: "text/plain" }),
+        reader(new File([lines.join("\n")], "out-of-order.log", { type: "text/plain" })),
     );
 
     assert.equal(trace.lastID, 2);
@@ -146,7 +152,7 @@ test("Web gem5 parser restores dependencies from rename logs", async () => {
         "O3PipeView:retire:8000",
     ].join("\n");
     const trace = await new Gem5O3PipeViewParser().parse(
-        new File([contents], "rename-dependency.log", { type: "text/plain" }),
+        reader(new File([contents], "rename-dependency.log", { type: "text/plain" })),
     );
     const producer = trace.getOp(0);
     const consumer = trace.getOp(1);
@@ -187,7 +193,7 @@ test("Web gem5 parser cancels its input stream through an AbortSignal", async ()
     });
     const controller = new AbortController();
     const parsing = new Gem5O3PipeViewParser().parse(
-        file,
+        reader(file),
         () => notifyProgress?.(),
         undefined,
         controller.signal,

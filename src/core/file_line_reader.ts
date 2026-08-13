@@ -43,9 +43,13 @@ export class FileLineReader {
     private canceled_ = false;
     private readonly isCompressed_: boolean;
 
-    constructor(readonly file: TraceInput) {
+    constructor(private readonly file: TraceInput) {
         this.isCompressed_ = /\.(?:gz|zst(?:d)?)$/i.test(file.name) ||
             file.type === "application/gzip" || file.type === "application/zstd";
+    }
+
+    get name(): string {
+        return this.file.name;
     }
 
     get progress(): number {

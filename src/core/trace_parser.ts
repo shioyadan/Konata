@@ -1,5 +1,5 @@
 /**
- * 選択済みの`File`を、描画可能な`ParsedTrace`へ変換する解析境界をまとめる。
+ * 選択済みの`TraceInput`を、描画可能な`ParsedTrace`へ変換する解析境界をまとめる。
  * Kanataを先に試して形式不一致だけをgem5へ渡し、使用するPagedOpStoreの生成と、
  * 途中Traceを公開するまでの所有権をこの層が受け持つ。進捗、途中Trace、取消は
  * callbackとAbortSignalだけで呼出側へ伝え、Tab、UI Store、Reactには依存しない。
@@ -7,7 +7,7 @@
  */
 
 import { Gem5O3PipeViewParser } from "./gem5_o3_pipe_view_parser";
-import type { TraceInput } from "./file_line_reader";
+import { FileLineReader, type TraceInput } from "./file_line_reader";
 import type { ParsedTrace } from "./model";
 import { OnikiriParser } from "./onikiri_parser";
 import { PagedOpStore } from "./paged_op_store";
@@ -52,7 +52,7 @@ export async function parseTraceFile(
             unpublishedStore = await PagedOpStore.createZstd();
             parsingStartedAt = performance.now();
             trace = await new OnikiriParser(unpublishedStore).parse(
-                file,
+                new FileLineReader(file),
                 callbacks.onProgress,
                 updateTrace,
                 signal,
@@ -68,7 +68,8 @@ export async function parseTraceFile(
             parserName = "Gem5O3PipeViewParser";
             parsingStartedAt = performance.now();
             trace = await new Gem5O3PipeViewParser(unpublishedStore).parse(
-                file,
+                // Kanata判定で読んだstreamは再利用せず、先頭から読むReaderを作り直す。
+                new FileLineReader(file),
                 callbacks.onProgress,
                 updateTrace,
                 signal,

@@ -1,7 +1,6 @@
 import {
     FileLineReader,
     type ProgressCallback,
-    type TraceInput,
 } from "./file_line_reader";
 import {
     Dependency,
@@ -71,14 +70,13 @@ export class Gem5O3PipeViewParser {
     constructor(private readonly opStore_: MutableOpStore = new ArrayOpStore()) {}
 
     async parse(
-        file: TraceInput,
+        reader: FileLineReader,
         onProgress?: ProgressCallback,
         onUpdate?: TraceUpdateCallback,
         signal?: AbortSignal,
     ): Promise<ParsedTrace> {
-        const reader = new FileLineReader(file);
         const trace = new ParsedTrace(
-            file.name,
+            reader.name,
             this.opStore_,
             this.stageLevelMap_,
             this.currentCycle_,
