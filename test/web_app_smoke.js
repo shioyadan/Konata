@@ -2801,22 +2801,30 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
-    // 大きいtraceを3.125%まで縮小し、矩形batchがWebGL2 instancingを実際に使うことを確認する。
+    // 枠と文字が消える12.5%まで縮小し、stage gradientをWebGL2で一括描画することを確認する。
     const webGLState = await window.webContents.executeJavaScript(`(async () => {
         const glPrototype = globalThis.WebGL2RenderingContext?.prototype;
         const canvasPrototype = HTMLCanvasElement.prototype;
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         const pipeline = document.querySelector('.pipeline-pane canvas');
-        if (glPrototype === undefined || !(zoomOut instanceof HTMLButtonElement) ||
+        if (glPrototype === undefined || !(theme instanceof HTMLSelectElement) ||
+            !(colorScheme instanceof HTMLSelectElement) ||
+            !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement) || !(pipeline instanceof HTMLCanvasElement)) {
             throw new Error("The WebGL2 simplified rendering controls were not found.");
         }
         const originalDraw = glPrototype.drawArraysInstanced;
+        const originalBufferData = glPrototype.bufferData;
         const originalGetContext = canvasPrototype.getContext;
+        const originalTheme = theme.value;
+        const originalColorScheme = colorScheme.value;
         let drawCalls = 0;
         let instances = 0;
         let maximumInstances = 0;
+        let gradientInstances = 0;
         let webGLRequests = 0;
         let webGLContexts = 0;
         let acceleratedContext = null;
@@ -2837,7 +2845,26 @@ async function run() {
             maximumInstances = Math.max(maximumInstances, args[3]);
             return Reflect.apply(originalDraw, this, args);
         };
-        for (let index = 0; index < 5; index++) {
+        glPrototype.bufferData = function(...args) {
+            const data = args[1];
+            if (data instanceof Uint8Array && data.byteLength % 8 === 0) {
+                for (let offset = 0; offset < data.byteLength; offset += 8) {
+                    if (data[offset] !== data[offset + 4] ||
+                        data[offset + 1] !== data[offset + 5] ||
+                        data[offset + 2] !== data[offset + 6] ||
+                        data[offset + 3] !== data[offset + 7]) {
+                        gradientInstances++;
+                    }
+                }
+            }
+            return Reflect.apply(originalBufferData, this, args);
+        };
+        theme.value = "light";
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        colorScheme.value = "Auto";
+        colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        for (let index = 0; index < 3; index++) {
             zoomOut.click();
         }
         await new Promise((resolve) => setTimeout(resolve, 350));
@@ -2854,9 +2881,26 @@ async function run() {
             }
             return count;
         };
+        const countColorfulPixels = (pixels) => {
+            let count = 0;
+            if (pixels === undefined) {
+                return count;
+            }
+            for (let index = 0; index < pixels.length; index += 4) {
+                const red = pixels[index];
+                const green = pixels[index + 1];
+                const blue = pixels[index + 2];
+                if (pixels[index + 3] !== 0 &&
+                    Math.max(red, green, blue) - Math.min(red, green, blue) >= 16) {
+                    count++;
+                }
+            }
+            return count;
+        };
         const context = pipeline.getContext("2d");
         const pixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
         const opaquePixels = countOpaquePixels(pixels);
+        const colorfulPixels = countColorfulPixels(pixels);
         const zoom = document.querySelector('.zoom-controls output')?.textContent ?? null;
 
         // context loss後も同じ操作を繰り返し、Canvas 2D fallbackだけで表示できることを確かめる。
@@ -2872,13 +2916,14 @@ async function run() {
         const drawCallsBeforeFallback = drawCalls;
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
-        for (let index = 0; index < 5; index++) {
+        for (let index = 0; index < 3; index++) {
             zoomOut.click();
         }
         await new Promise((resolve) => setTimeout(resolve, 350));
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const fallbackPixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
         const fallbackOpaquePixels = countOpaquePixels(fallbackPixels);
+        const fallbackColorfulPixels = countColorfulPixels(fallbackPixels);
         let differingPixels = 0;
         let maximumPixelDifference = 0;
         if (pixels !== undefined && fallbackPixels !== undefined && pixels.length === fallbackPixels.length) {
@@ -2903,21 +2948,31 @@ async function run() {
         const fallbackDrawCalls = drawCalls - drawCallsBeforeFallback;
         loseContext.restoreContext();
         glPrototype.drawArraysInstanced = originalDraw;
+        glPrototype.bufferData = originalBufferData;
         canvasPrototype.getContext = originalGetContext;
+        theme.value = originalTheme;
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        colorScheme.value = originalColorScheme;
+        colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
-        return {drawCalls, instances, maximumInstances, opaquePixels, fallbackOpaquePixels,
-            fallbackDrawCalls, differingPixels, maximumPixelDifference, zoom,
+        return {drawCalls, instances, maximumInstances, gradientInstances,
+            opaquePixels, colorfulPixels,
+            fallbackOpaquePixels, fallbackColorfulPixels, fallbackDrawCalls,
+            differingPixels, maximumPixelDifference, zoom,
             webGLRequests, webGLContexts};
     })()`);
     if (webGLState.drawCalls < 1 ||
         webGLState.instances < 64 ||
+        webGLState.gradientInstances < 1 ||
         webGLState.opaquePixels < 100 ||
+        webGLState.colorfulPixels < 100 ||
         webGLState.fallbackOpaquePixels < 100 ||
+        webGLState.fallbackColorfulPixels < 100 ||
         webGLState.fallbackDrawCalls !== 0 ||
         webGLState.differingPixels > webGLState.opaquePixels * 0.01 ||
-        webGLState.maximumPixelDifference > 128 ||
-        webGLState.zoom !== "3.13%") {
+        webGLState.maximumPixelDifference > 160 ||
+        webGLState.zoom !== "12.5%") {
         throw new Error(`WebGL2 simplified rendering is incomplete: ${JSON.stringify(webGLState)}`);
     }
 

@@ -396,7 +396,7 @@ test("Web renderer keeps minimum lane heights configurable", () => {
     assert.equal(pipeline.gradients.length, 1);
 });
 
-test("Web renderer keeps simplified rectangle order in the Canvas fallback", () => {
+test("Web renderer keeps stage gradients and flush order in the simplified Canvas fallback", () => {
     const { trace, op } = createTrace();
     op.flush = true;
     const renderer = new KonataRenderer();
@@ -404,15 +404,19 @@ test("Web renderer keeps simplified rectangle order in the Canvas fallback", () 
 
     renderer.drawPipelineSpec(
         trace,
-        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 5 },
+        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 5, theme: "light" },
         createCanvas(pipeline.context),
     );
 
-    // 簡略表示では命令色を先に、半透明のflush色を後に重ねる。
-    const opRectIndex = pipeline.fillStyles.indexOf("#888888");
-    assert.ok(opRectIndex >= 0);
-    assert.equal(pipeline.fillStyles[opRectIndex + 1], "rgba(0,0,0,0.5)");
-    assert.deepEqual(pipeline.fillRects[opRectIndex], pipeline.fillRects[opRectIndex + 1]);
+    // 簡略表示でも通常表示と同じ上下色を使い、半透明のflush色を後に重ねる。
+    assert.equal(pipeline.gradients.length, 1);
+    const gradientStops = pipeline.gradients[0].stops;
+    assert.equal(gradientStops.length, 2);
+    assert.ok(gradientStops.every(([, color]) => color.startsWith("hsl(")));
+    assert.notEqual(gradientStops[0][1], gradientStops[1][1]);
+    const stageRectIndex = pipeline.fillStyles.indexOf("[object Object]");
+    assert.ok(stageRectIndex >= 0);
+    assert.equal(pipeline.fillStyles[stageRectIndex + 1], "rgba(0,0,0,0.4)");
+    assert.deepEqual(pipeline.fillRects[stageRectIndex], pipeline.fillRects[stageRectIndex + 1]);
     assert.deepEqual(pipeline.fillTexts, []);
-    assert.deepEqual(pipeline.gradients, []);
 });

@@ -1,15 +1,23 @@
-// Konata固有の描画判断から独立した、solid rectangle用のCanvas互換境界。
-// 呼出側はfillStyle／fillRectだけを使い、WebGL2とCanvas 2Dの選択をこのfileへ閉じる。
+// Konata固有の描画判断から独立した、rectangle用のCanvas互換境界。
+// 基本のfillStyle／fillRectに2色縦gradientだけを加え、backend選択をこのfileへ閉じる。
 
 export interface RectContext {
     fillStyle: string | CanvasGradient | CanvasPattern;
     fillRect(x: number, y: number, width: number, height: number): void;
+    fillVerticalGradientRect(
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        topColor: string,
+        bottomColor: string,
+    ): void;
 }
 
 type WebGLState = "uninitialized" | "ready" | "lost" | "unavailable";
 
 /**
- * solid rectangleをCanvas互換の形で蓄積し、多数ある時だけWebGL2で一括描画する。
+ * rectangleをCanvas互換の形で蓄積し、多数ある時だけWebGL2で一括描画する。
  *
  * WebGLを利用できない場合も同じ矩形列をCanvas 2Dへ再生するため、呼出側はbackendを意識しない。
  * 小さいbatchではWebGLの固定費を避け、Canvas 2Dをそのまま使う。
@@ -29,6 +37,7 @@ export class RectRenderer implements RectContext {
     private capacity_ = 0;
     private count_ = 0;
     private rects_ = new Float32Array(0);
+    // 1矩形につき上端・下端のstyle indexを持ち、単色では両方を同じ値にする。
     private styleIndices_ = new Uint32Array(0);
     private colors_ = new Uint8Array(0);
 
@@ -54,14 +63,18 @@ export class RectRenderer implements RectContext {
             throw new Error("The accelerated rectangle layer only supports solid CSS colors.");
         }
         this.fillStyle_ = value;
+        this.fillStyleIndex_ = this.getStyleIndex_(value);
+    }
+
+    private getStyleIndex_(value: string): number {
         const existing = this.styleMap_.get(value);
         if (existing !== undefined) {
-            this.fillStyleIndex_ = existing;
-            return;
+            return existing;
         }
-        this.fillStyleIndex_ = this.styles_.length;
+        const index = this.styles_.length;
         this.styles_.push(value);
-        this.styleMap_.set(value, this.fillStyleIndex_);
+        this.styleMap_.set(value, index);
+        return index;
     }
 
     begin(
@@ -82,6 +95,35 @@ export class RectRenderer implements RectContext {
     }
 
     fillRect(x: number, y: number, width: number, height: number): void {
+        this.queueRect_(x, y, width, height, this.fillStyleIndex_, this.fillStyleIndex_);
+    }
+
+    fillVerticalGradientRect(
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        topColor: string,
+        bottomColor: string,
+    ): void {
+        this.queueRect_(
+            x,
+            y,
+            width,
+            height,
+            this.getStyleIndex_(topColor),
+            this.getStyleIndex_(bottomColor),
+        );
+    }
+
+    private queueRect_(
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        topStyleIndex: number,
+        bottomStyleIndex: number,
+    ): void {
         if (![x, y, width, height].every(Number.isFinite) || width === 0 || height === 0) {
             return;
         }
@@ -101,7 +143,9 @@ export class RectRenderer implements RectContext {
         this.rects_[offset + 1] = y;
         this.rects_[offset + 2] = width;
         this.rects_[offset + 3] = height;
-        this.styleIndices_[this.count_] = this.fillStyleIndex_;
+        const styleOffset = this.count_ * 2;
+        this.styleIndices_[styleOffset] = topStyleIndex;
+        this.styleIndices_[styleOffset + 1] = bottomStyleIndex;
         this.count_++;
     }
 
@@ -140,11 +184,11 @@ export class RectRenderer implements RectContext {
     private grow_(): void {
         const capacity = Math.max(RectRenderer.INITIAL_CAPACITY, this.capacity_ * 2);
         const rects = new Float32Array(capacity * 4);
-        const indices = new Uint32Array(capacity);
-        const colors = new Uint8Array(capacity * 4);
+        const indices = new Uint32Array(capacity * 2);
+        const colors = new Uint8Array(capacity * 8);
         rects.set(this.rects_.subarray(0, this.count_ * 4));
-        indices.set(this.styleIndices_.subarray(0, this.count_));
-        colors.set(this.colors_.subarray(0, this.count_ * 4));
+        indices.set(this.styleIndices_.subarray(0, this.count_ * 2));
+        colors.set(this.colors_.subarray(0, this.count_ * 8));
         this.rects_ = rects;
         this.styleIndices_ = indices;
         this.colors_ = colors;
@@ -156,14 +200,30 @@ export class RectRenderer implements RectContext {
         if (context === null) {
             return;
         }
-        let styleIndex = -1;
+        let solidStyleIndex = -1;
         for (let index = 0; index < this.count_; index++) {
-            const nextStyleIndex = this.styleIndices_[index];
-            if (nextStyleIndex !== styleIndex) {
-                context.fillStyle = this.styles_[nextStyleIndex];
-                styleIndex = nextStyleIndex;
-            }
             const offset = index * 4;
+            const styleOffset = index * 2;
+            const topStyleIndex = this.styleIndices_[styleOffset];
+            const bottomStyleIndex = this.styleIndices_[styleOffset + 1];
+            if (topStyleIndex === bottomStyleIndex) {
+                if (topStyleIndex !== solidStyleIndex) {
+                    context.fillStyle = this.styles_[topStyleIndex];
+                    solidStyleIndex = topStyleIndex;
+                }
+            }
+            else {
+                const gradient = context.createLinearGradient(
+                    0,
+                    this.rects_[offset + 1],
+                    0,
+                    this.rects_[offset + 1] + this.rects_[offset + 3],
+                );
+                gradient.addColorStop(0, this.styles_[topStyleIndex]);
+                gradient.addColorStop(1, this.styles_[bottomStyleIndex]);
+                context.fillStyle = gradient;
+                solidStyleIndex = -1;
+            }
             context.fillRect(
                 this.rects_[offset],
                 this.rects_[offset + 1],
@@ -232,14 +292,15 @@ export class RectRenderer implements RectContext {
         const vertexShader = this.compileShader_(gl.VERTEX_SHADER, `#version 300 es
             layout(location=0) in vec2 a_unit;
             layout(location=1) in vec4 a_rect;
-            layout(location=2) in vec4 a_color;
+            layout(location=2) in vec4 a_color_top;
+            layout(location=3) in vec4 a_color_bottom;
             uniform vec2 u_resolution;
             out vec4 v_color;
             void main() {
                 vec2 position = a_rect.xy + a_unit * a_rect.zw;
                 vec2 clip = position / u_resolution * 2.0 - 1.0;
                 gl_Position = vec4(clip * vec2(1.0, -1.0), 0.0, 1.0);
-                v_color = a_color;
+                v_color = mix(a_color_top, a_color_bottom, a_unit.y);
             }
         `);
         const fragmentShader = this.compileShader_(gl.FRAGMENT_SHADER, `#version 300 es
@@ -295,8 +356,11 @@ export class RectRenderer implements RectContext {
 
         gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
         gl.enableVertexAttribArray(2);
-        gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+        gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 8, 0);
         gl.vertexAttribDivisor(2, 1);
+        gl.enableVertexAttribArray(3);
+        gl.vertexAttribPointer(3, 4, gl.UNSIGNED_BYTE, true, 8, 4);
+        gl.vertexAttribDivisor(3, 1);
         gl.bindVertexArray(null);
     }
 
@@ -362,7 +426,7 @@ export class RectRenderer implements RectContext {
             gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer_);
             gl.bufferData(
                 gl.ARRAY_BUFFER,
-                this.colors_.subarray(0, this.count_ * 4),
+                this.colors_.subarray(0, this.count_ * 8),
                 gl.DYNAMIC_DRAW,
             );
             gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.count_);
@@ -397,12 +461,18 @@ export class RectRenderer implements RectContext {
             palette.push(color);
         }
         for (let index = 0; index < this.count_; index++) {
-            const color = palette[this.styleIndices_[index]];
-            const offset = index * 4;
-            this.colors_[offset] = color[0];
-            this.colors_[offset + 1] = color[1];
-            this.colors_[offset + 2] = color[2];
-            this.colors_[offset + 3] = color[3];
+            const styleOffset = index * 2;
+            const topColor = palette[this.styleIndices_[styleOffset]];
+            const bottomColor = palette[this.styleIndices_[styleOffset + 1]];
+            const colorOffset = index * 8;
+            this.colors_[colorOffset] = topColor[0];
+            this.colors_[colorOffset + 1] = topColor[1];
+            this.colors_[colorOffset + 2] = topColor[2];
+            this.colors_[colorOffset + 3] = topColor[3];
+            this.colors_[colorOffset + 4] = bottomColor[0];
+            this.colors_[colorOffset + 5] = bottomColor[1];
+            this.colors_[colorOffset + 6] = bottomColor[2];
+            this.colors_[colorOffset + 7] = bottomColor[3];
         }
         return true;
     }

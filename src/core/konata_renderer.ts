@@ -577,10 +577,6 @@ export class KonataRenderer {
         this.stageFontSize_ = fontSize * this.zoomScale_;
     }
 
-    private get canDrawDetailedly_(): boolean {
-        return this.metrics_.canDrawDetailedly;
-    }
-
     private get canDrawDependency_(): boolean {
         return this.metrics_.canDrawDependency;
     }
@@ -688,9 +684,12 @@ export class KonataRenderer {
             top = 0;
         }
 
-        const solidRects = this.canDrawDetailedly_
-            ? context
-            : this.simplifiedRects_.begin(canvas, context, size.width, size.height);
+        // 枠も文字もない縮小域では、stage形状だけをまとめてWebGLへ渡せる。
+        // 文字を個別設定で残した場合は、batch合成で文字を覆わないようCanvasへ戻す。
+        const simplifiedRects = !this.canDrawFrame_ && !this.canDrawText_
+            ? this.simplifiedRects_.begin(canvas, context, size.width, size.height)
+            : null;
+        const solidRects = simplifiedRects ?? context;
         try {
             let skipRendering = false;
             const step = this.opHeight_ < 0.25 ? Math.max(1, this.drawingInterval_) : 1;
@@ -716,14 +715,14 @@ export class KonataRenderer {
                     left,
                     left + logicalWidth,
                     context,
-                    solidRects,
+                    simplifiedRects,
                 )) {
                     skipRendering = true;
                 }
             }
         }
         finally {
-            if (solidRects === this.simplifiedRects_) {
+            if (simplifiedRects !== null) {
                 this.simplifiedRects_.end();
             }
         }
@@ -750,7 +749,7 @@ export class KonataRenderer {
         startCycle: number,
         endCycle: number,
         context: CanvasRenderingContext2D,
-        solidRects: RectContext,
+        simplifiedRects: RectContext | null,
     ): boolean {
         const top = logicalY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
         if (op.retiredCycle < startCycle) {
@@ -770,22 +769,30 @@ export class KonataRenderer {
         const left = leftCycle * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
         let right = rightCycle * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
 
-        if (this.canDrawDetailedly_) {
+        const detailed = simplifiedRects === null;
+        if (detailed) {
             context.strokeStyle = this.style_.pipelinePane.borderColor;
-            const laneNum = Math.max(1, this.trace_?.stageLevelMap.laneNum ?? 1);
-            for (let laneID = 0; laneID < op.lanes.length; laneID++) {
-                if (op.lanes[laneID] === null) {
-                    continue;
-                }
-                const laneTop = this.splitLanes_
-                    ? logicalY +
-                        (this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0) / laneNum
-                    : logicalY;
-                this.drawLane_(op, laneTop, startCycle, endCycle, context, laneID);
-            }
         }
-        else {
-            // 十分小さい時はstageを分けず、命令全体を単色で簡略表示する。
+
+        // 詳細時と縮小時でstage区間と色計算を共有し、出力する矩形の表現だけを替える。
+        const laneNum = Math.max(1, this.trace_?.stageLevelMap.laneNum ?? 1);
+        let drewStage = false;
+        for (let laneID = 0; laneID < op.lanes.length; laneID++) {
+            if (op.lanes[laneID] === null) {
+                continue;
+            }
+            const laneTop = this.splitLanes_
+                ? logicalY + (this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0) / laneNum
+                : logicalY;
+            drewStage = this.drawLane_(
+                op, laneTop, startCycle, endCycle, context, laneID,
+                simplifiedRects,
+            ) || drewStage;
+        }
+
+        if (simplifiedRects !== null && !drewStage) {
+            // stageを持たない命令も消えないよう、従来の命令全体表示をfallbackにする。
+            const solidRects = simplifiedRects;
             const colorScheme = this.activeColorScheme_;
             solidRects.fillStyle = this.isKnownCalculatedColorScheme_()
                 ? this.getComparisonOverviewColor_(colorScheme)
@@ -811,13 +818,15 @@ export class KonataRenderer {
         endCycle: number,
         context: CanvasRenderingContext2D,
         laneID: number,
-    ): void {
+        solidRects: RectContext | null = null,
+    ): boolean {
         const lane = op.lanes[laneID];
         if (lane === null || lane === undefined) {
-            return;
+            return false;
         }
         context.font = this.stageFont_;
         const top = logicalY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
+        let drewStage = false;
 
         for (const stage of lane.stages) {
             const stageEndCycle = stage.endCycle === 0 ? op.retiredCycle : stage.endCycle;
@@ -834,16 +843,32 @@ export class KonataRenderer {
             const logicalLeft = Math.max(startCycle - 1, stage.startCycle) - startCycle;
             const logicalRight = Math.min(endCycle + 1, stageEndCycle) - startCycle;
             const left = logicalLeft * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
-            const right = logicalRight * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
+            let right = logicalRight * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
             const rectTop = top + this.laneHeightMargin_;
-            const rectHeight = this.laneHeight_ - this.laneHeightMargin_ * 2;
+            let rectHeight = this.laneHeight_ - this.laneHeightMargin_ * 2;
 
-            // 旧Rendererはstageの開始色と終了色を上下方向のgradientとして描く。
-            const gradient = context.createLinearGradient(0, top, 0, top + this.laneHeight_);
-            gradient.addColorStop(0, this.getStageColor_(laneID, stage.name, true, op));
-            gradient.addColorStop(1, this.getStageColor_(laneID, stage.name, false, op));
-            context.fillStyle = gradient;
-            context.fillRect(left, rectTop, right - left, rectHeight);
+            if (solidRects === null) {
+                // 旧Rendererはstageの開始色と終了色を上下方向のgradientとして描く。
+                const gradient = context.createLinearGradient(0, top, 0, top + this.laneHeight_);
+                gradient.addColorStop(0, this.getStageColor_(laneID, stage.name, true, op));
+                gradient.addColorStop(1, this.getStageColor_(laneID, stage.name, false, op));
+                context.fillStyle = gradient;
+                context.fillRect(left, rectTop, right - left, rectHeight);
+            }
+            else {
+                // 縮小時も上下色を渡し、見失わない最小寸法でgradient batchへ積む。
+                right = Math.max(right, left + 1);
+                rectHeight = Math.max(rectHeight, 0.5);
+                solidRects.fillVerticalGradientRect(
+                    left,
+                    rectTop,
+                    right - left,
+                    rectHeight,
+                    this.getStageColor_(laneID, stage.name, true, op),
+                    this.getStageColor_(laneID, stage.name, false, op),
+                );
+            }
+            drewStage = true;
 
             if (!this.renderingReference_ && this.canDrawFrame_) {
                 context.lineWidth = Number(this.style_.pipelinePane.borderWeight);
@@ -877,10 +902,12 @@ export class KonataRenderer {
             }
 
             if (!this.renderingReference_ && op.flush) {
-                context.fillStyle = this.style_.pipelinePane.flushedRegionColor;
-                context.fillRect(left, rectTop, right - left, rectHeight);
+                const fillContext = solidRects ?? context;
+                fillContext.fillStyle = this.style_.pipelinePane.flushedRegionColor;
+                fillContext.fillRect(left, rectTop, right - left, rectHeight);
             }
         }
+        return drewStage;
     }
 
     private drawDependency_(
