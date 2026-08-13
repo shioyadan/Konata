@@ -815,44 +815,47 @@ export class KonataRenderer {
         const left = leftCycle * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
         let right = rightCycle * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
 
-        if (this.canDrawFrame_) {
+        const detailed = this.metrics_.canDrawDetailedly;
+        if (detailed && this.canDrawFrame_) {
             const rectContext = simplifiedRects ?? context;
             rectContext.strokeStyle = this.style_.pipelinePane.borderColor;
         }
 
         // 詳細時と縮小時でstage区間と色計算を共有し、出力する矩形の表現だけを替える。
-        const laneNum = Math.max(1, this.trace_?.stageLevelMap.laneNum ?? 1);
         let drewStage = false;
-        for (let laneID = 0; laneID < op.lanes.length; laneID++) {
-            if (op.lanes[laneID] === null) {
-                continue;
+        if (detailed) {
+            const laneNum = Math.max(1, this.trace_?.stageLevelMap.laneNum ?? 1);
+            for (let laneID = 0; laneID < op.lanes.length; laneID++) {
+                if (op.lanes[laneID] === null) {
+                    continue;
+                }
+                const laneTop = this.splitLanes_
+                    ? logicalY + (this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0) / laneNum
+                    : logicalY;
+                drewStage = this.drawLane_(
+                    op, laneTop, startCycle, endCycle, context, laneID,
+                    simplifiedRects,
+                ) || drewStage;
             }
-            const laneTop = this.splitLanes_
-                ? logicalY + (this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0) / laneNum
-                : logicalY;
-            drewStage = this.drawLane_(
-                op, laneTop, startCycle, endCycle, context, laneID,
-                simplifiedRects,
-            ) || drewStage;
         }
 
-        if (simplifiedRects !== null && !this.canDrawText_ && !drewStage) {
-            // stageを持たない命令も消えないよう、従来の命令全体表示をfallbackにする。
-            const solidRects = simplifiedRects;
-            const colorScheme = this.activeColorScheme_;
-            solidRects.fillStyle = this.isKnownCalculatedColorScheme_()
-                ? this.getComparisonOverviewColor_(colorScheme)
-                : colorScheme;
-            const laneTop = top + this.laneHeightMargin_;
-            const laneHeight = Math.max(0.5, this.laneHeight_ - this.laneHeightMargin_ * 2);
-            if (right - left < 1) {
-                right = left + 1;
-            }
+        if (detailed && (simplifiedRects === null || this.canDrawText_ || drewStage)) {
+            return true;
+        }
+        // 最縮小域では命令ごとの1矩形に留め、WebGLが使えない場合もCanvas負荷を抑える。
+        // 詳細域でもstageを持たない命令は同じoverview表示へfallbackする。
+        const solidRects = simplifiedRects ?? context;
+        const colorScheme = this.activeColorScheme_;
+        solidRects.fillStyle = this.isKnownCalculatedColorScheme_()
+            ? this.getComparisonOverviewColor_(colorScheme)
+            : colorScheme;
+        const laneTop = top + this.laneHeightMargin_;
+        const laneHeight = Math.max(0.5, this.laneHeight_ - this.laneHeightMargin_ * 2);
+        right = Math.max(right, left + 1);
+        solidRects.fillRect(left, laneTop, right - left, laneHeight);
+        if (!this.renderingReference_ && op.flush) {
+            solidRects.fillStyle = this.style_.pipelinePane.flushedRegionColor;
             solidRects.fillRect(left, laneTop, right - left, laneHeight);
-            if (!this.renderingReference_ && op.flush) {
-                solidRects.fillStyle = this.style_.pipelinePane.flushedRegionColor;
-                solidRects.fillRect(left, laneTop, right - left, laneHeight);
-            }
         }
         return true;
     }
