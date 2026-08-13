@@ -1,4 +1,8 @@
-import { FileLineReader, type ProgressCallback } from "./file_line_reader";
+import {
+    FileLineReader,
+    type ProgressCallback,
+    type TraceInput,
+} from "./file_line_reader";
 import {
     Dependency,
     Op,
@@ -33,7 +37,7 @@ export class OnikiriParser {
     constructor(private readonly opStore_: MutableOpStore = new ArrayOpStore()) {}
 
     async parse(
-        file: File,
+        file: TraceInput,
         onProgress?: ProgressCallback,
         onUpdate?: TraceUpdateCallback,
         signal?: AbortSignal,

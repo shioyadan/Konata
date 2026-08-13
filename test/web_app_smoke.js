@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const http = require("node:http");
 const path = require("node:path");
 const {app, BrowserWindow} = require("electron");
 
@@ -1070,6 +1071,95 @@ async function verifyLogPane(window) {
             closed: document.querySelector(".log-pane") === null
         };
     })()`);
+}
+
+async function verifyRemoteTraceWorkflow(window, webFile) {
+    const traces = new Map([
+        ["trace1", [
+            "Kanata\t0004",
+            "I\t0\t10\t0",
+            "S\t0\t0\tF",
+            "C\t1",
+            "R\t0\t0\t0",
+        ].join("\n")],
+        ["trace2", [
+            "Kanata\t0004",
+            "I\t0\t20\t0",
+            "S\t0\t0\tF",
+            "C\t1",
+            "R\t0\t0\t0",
+        ].join("\n")],
+    ]);
+    const html = fs.readFileSync(webFile);
+    const requests = [];
+    const server = http.createServer((request, response) => {
+        const pathname = decodeURIComponent(new URL(request.url, "http://127.0.0.1").pathname);
+        const name = pathname.slice(1);
+        const body = pathname === "/" || pathname === "/index.html"
+            ? html
+            : traces.get(name);
+        requests.push(`${request.method} ${pathname}`);
+        if (body === undefined || (request.method !== "GET" && request.method !== "HEAD")) {
+            response.writeHead(body === undefined ? 404 : 405).end();
+            return;
+        }
+        const bytes = typeof body === "string" ? Buffer.from(body) : body;
+        response.writeHead(200, {
+            "Content-Length": bytes.byteLength,
+            "Content-Type": pathname.endsWith(".html") || pathname === "/"
+                ? "text/html; charset=utf-8"
+                : "text/plain; charset=utf-8",
+        });
+        response.end(request.method === "HEAD" ? undefined : bytes);
+    });
+
+    await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+    });
+    try {
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+            throw new Error("The remote trace test server did not start.");
+        }
+        await window.loadURL(
+            `http://127.0.0.1:${address.port}/#name=remote-a.log&name=remote-b.log`,
+        );
+        const state = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+            const deadline = performance.now() + 10000;
+            const check = () => {
+                const tabs = [...document.querySelectorAll(".trace-tab")];
+                if (tabs.some((tab) => tab.dataset.loadState === "error")) {
+                    reject(new Error(document.querySelector(".status")?.textContent ??
+                        "Remote trace loading failed."));
+                    return;
+                }
+                if (tabs.length === 2 && tabs.every((tab) => tab.dataset.loadState === "ready")) {
+                    const open = document.querySelector(".open-controls");
+                    open?.querySelector(":scope > summary")?.click();
+                    const reload = [...(open?.querySelectorAll("button") ?? [])]
+                        .find((button) => button.textContent?.trim() === "Reload current");
+                    resolve({
+                        names: tabs.map((tab) =>
+                            tab.querySelector('[role="tab"]')?.textContent?.trim() ?? ""),
+                        activeOpCount: document.querySelector(".trace-app")?.dataset.opCount ?? null,
+                        reloadEnabled: reload instanceof HTMLButtonElement && !reload.disabled
+                    });
+                    return;
+                }
+                if (performance.now() >= deadline) {
+                    reject(new Error("Timed out while loading remote traces."));
+                    return;
+                }
+                setTimeout(check, 10);
+            };
+            check();
+        })`);
+        return { ...state, requests };
+    }
+    finally {
+        await new Promise((resolve) => server.close(resolve));
+    }
 }
 
 async function run() {
@@ -3167,7 +3257,16 @@ async function run() {
         throw new Error(`Persistent file workflow is incomplete: ${JSON.stringify(persistentFileState)}`);
     }
 
-    console.log(`Web smoke test passed: ${JSON.stringify(persistentFileState)}`);
+    const remoteTraceState = await verifyRemoteTraceWorkflow(window, webFile);
+    if (JSON.stringify(remoteTraceState.names) !== JSON.stringify(["remote-a.log", "remote-b.log"]) ||
+        remoteTraceState.activeOpCount !== "1" ||
+        !remoteTraceState.reloadEnabled ||
+        !remoteTraceState.requests.includes("GET /trace1") ||
+        !remoteTraceState.requests.includes("GET /trace2")) {
+        throw new Error(`Remote trace workflow is incomplete: ${JSON.stringify(remoteTraceState)}`);
+    }
+
+    console.log(`Web smoke test passed: ${JSON.stringify({persistentFileState, remoteTraceState})}`);
     window.destroy();
 }
 

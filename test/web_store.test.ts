@@ -9,6 +9,7 @@ import {
     KonataRenderer,
 } from "../src/renderer/konata_renderer";
 import { type Change, Store } from "../src/store";
+import { getRemoteTraceFileNames } from "../src/trace_file_access";
 
 function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpStore } {
     const op = new Op();
@@ -143,6 +144,86 @@ test("Store handles a file-open request through parsing result actions", async (
         change.type === "PROGRESS_BAR_FINISH" && change.tabID === tab.id));
 
     store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("remote trace fragment accepts at most two display file names", () => {
+    assert.deepEqual(
+        getRemoteTraceFileNames("#name=first.log&name=second%20trace.zst"),
+        ["first.log", "second trace.zst"],
+    );
+    assert.deepEqual(getRemoteTraceFileNames("#name=../secret.log"), []);
+    assert.deepEqual(getRemoteTraceFileNames("#name=https%3A%2F%2Fexample.com%2Ftrace.log"), []);
+    assert.deepEqual(getRemoteTraceFileNames("#name=a.log&name=b.log&name=c.log"), []);
+});
+
+test("Store streams and reloads same-origin remote traces", async () => {
+    const sources = new Map([
+        ["/viewer/trace1", [
+            "Kanata\t0004",
+            "I\t0\t10\t0",
+            "S\t0\t0\tF",
+            "C\t1",
+            "R\t0\t0\t0",
+        ].join("\n")],
+        ["/viewer/trace2", [
+            "Kanata\t0004",
+            "I\t0\t20\t0",
+            "S\t0\t0\tF",
+            "C\t1",
+            "R\t0\t0\t0",
+        ].join("\n")],
+    ]);
+    const requests: Array<{ readonly method: string; readonly url: string }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+        const url = new URL(typeof input === "string" ? input : input.url);
+        const method = init?.method ?? "GET";
+        requests.push({ method, url: url.toString() });
+        const source = sources.get(url.pathname);
+        if (source === undefined) {
+            return new Response(null, { status: 404 });
+        }
+        const headers = {
+            "content-length": String(new TextEncoder().encode(source).byteLength),
+            "content-type": "text/plain",
+        };
+        return new Response(source, { status: 200, headers });
+    };
+
+    const store = new Store();
+    try {
+        store.dispatch({
+            type: "FILE_REMOTE_OPEN_REQUEST",
+            fileNames: ["remote first.log", "remote-second.log"],
+            pageURL: "http://127.0.0.1:30080/viewer/index.html#name=ignored.log",
+        });
+        await waitFor(
+            () => store.getSnapshot().tabs.length === 2 &&
+                store.getSnapshot().tabs.every((tab) => tab.loadState === "ready"),
+            "Remote traces did not finish parsing.",
+        );
+
+        const first = store.getSnapshot().tabs.find((tab) => tab.fileName === "remote first.log");
+        assert.ok(first?.kind === "trace");
+        assert.equal(first.trace?.opCount, 1);
+        assert.ok(store.getSnapshot().reloadableTabIDs.has(first.id));
+        assert.ok(requests.some((request) => request.method === "GET" &&
+            request.url === "http://127.0.0.1:30080/viewer/trace1"));
+        assert.ok(requests.some((request) => request.method === "GET" &&
+            request.url === "http://127.0.0.1:30080/viewer/trace2"));
+
+        const requestCount = requests.length;
+        store.dispatch({ type: "FILE_RELOAD_REQUEST", tabID: first.id });
+        await waitFor(
+            () => first.loadState === "ready" && requests.length >= requestCount + 1,
+            "Remote trace did not reload.",
+        );
+        assert.equal(store.getSnapshot().tabs.filter((tab) => tab.id === first.id).length, 1);
+    }
+    finally {
+        store.dispatch({ type: "STORE_CLOSE" });
+        globalThis.fetch = originalFetch;
+    }
 });
 
 test("Store requests the DOM file input through a Change when no picker is available", () => {

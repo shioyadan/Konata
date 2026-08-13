@@ -7,8 +7,9 @@
     * Try [Konata Web unstable](https://shioyadan.github.io/Konata/) for the latest version from
       `master`.
 * Starting with v1.0.0, Konata runs in the browser instead of as an Electron desktop application.
-    * All trace processing remains local to the browser. Konata makes no background network
-      requests, and trace data never leaves the browser.
+    * All trace processing remains local to the browser.
+    * Local traces are never uploaded, and Konata makes no background network requests unless
+      remote loading is explicitly requested.
     * Nearly all features from the desktop version are retained.
         * Like the desktop version, Konata can load trace files several gigabytes in size.
 * The [ASPLOS 2018 gem5 tutorial presentation](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf)
@@ -27,6 +28,18 @@ download the latest `konata-v*.zip` from
 [GitHub Releases](https://github.com/shioyadan/Konata/releases), extract it, and open `index.html`
 in a browser. Konata processes the trace entirely in the browser and never uploads it. The latest
 development version is available as [Konata Web unstable](https://shioyadan.github.io/Konata/).
+
+To view traces generated on a remote server or in WSL, run the helper included in the release:
+
+```bash
+./konata.sh trace1.log.zst
+./konata.sh trace1.log.zst trace2.log.zst
+```
+
+The script prints the Konata URL and an SSH tunnel command. When running it on a remote server, run
+the printed SSH command on the local computer, then open the Konata URL in the local browser. Keep
+the script running while using Konata, and press Ctrl+C to stop it. Set `KONATA_PORT` before running
+the script to use another port.
 
 
 ## Usage
@@ -108,8 +121,8 @@ retired-operation ID when available.
 
 Recent files, reload, and external-change detection require File System Access APIs supported by
 compatible Chromium-based browsers. Other browsers still support file selection and drag and drop.
-Support for reloading traces from remote servers or WSL may be added in the future with a restricted
-read-only trace server. Loading arbitrary URLs or paths is intentionally disabled.
+Remote traces opened with `konata.sh` can be reloaded manually. Automatic external-change detection
+is not available for them. Loading arbitrary URLs or paths is intentionally disabled.
 
 
 ## Development

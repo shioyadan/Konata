@@ -52,6 +52,7 @@ import {
     type PersistedViewSettings,
     Store,
 } from "./store";
+import { getRemoteTraceFileNames } from "./trace_file_access";
 
 interface ViewBookmark {
     readonly x: number;
@@ -603,6 +604,22 @@ export function App() {
         // StrictModeの初回cleanup時点ではtabがなく、実際のunmountではStoreが全tabを閉じる。
         store.dispatch({ type: "STORE_CLOSE" });
     }, [cancelViewAnimation, store]);
+
+    useEffect(() => {
+        const fileNames = getRemoteTraceFileNames(window.location.hash);
+        if (fileNames.length === 0) {
+            return;
+        }
+        // StrictModeの再mountでは最初のopen要求を止め、同じremote traceを二重に開かない。
+        const abortController = new AbortController();
+        store.dispatch({
+            type: "FILE_REMOTE_OPEN_REQUEST",
+            fileNames,
+            pageURL: window.location.href,
+            signal: abortController.signal,
+        });
+        return () => abortController.abort();
+    }, [store]);
 
     const openFilePicker = useCallback(() => {
         openControlsRef.current?.removeAttribute("open");

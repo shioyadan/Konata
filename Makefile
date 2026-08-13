@@ -13,7 +13,7 @@ RELEASE_ROOT := dist-release
 RELEASE_DIR := $(RELEASE_ROOT)/$(RELEASE_NAME)
 RELEASE_ARCHIVE := $(RELEASE_ROOT)/$(RELEASE_NAME).zip
 
-.PHONY: all production check versions init test typecheck license-check serve web-render-smoke \
+.PHONY: all production check versions init test typecheck license-check launcher-check serve web-render-smoke \
 	web-smoke production-smoke benchmark-op-store release-version-check release-archive \
 	clean distclean
 
@@ -27,6 +27,7 @@ production: license-check
 check:
 	$(MAKE) typecheck
 	$(MAKE) test
+	$(MAKE) launcher-check
 	$(MAKE) production-smoke
 
 # ElectronはWeb smoke testの実行器なので、開発環境の確認値には残す。
@@ -50,6 +51,11 @@ typecheck:
 # production依存と配布HTMLへ入るloader runtimeが、監査済み一覧と一致することを確認する。
 license-check:
 	node tools/check_third_party_licenses.js
+
+# 配布するremote起動scriptの構文と実行permissionを、archive生成前にも検査する。
+launcher-check:
+	bash -n konata.sh
+	test -x konata.sh
 
 # 通常checkから分離し、store方式を同じ入力・同じ指標で比較するためにだけ実行する。
 benchmark-op-store:
@@ -78,11 +84,11 @@ production-smoke: production
 release-version-check:
 	node -e 'const packageJSON = require("./package.json"); const lock = require("./package-lock.json"); if (packageJSON.version !== lock.version || packageJSON.version !== lock.packages[""].version) { throw new Error("package.json and package-lock.json versions do not match."); }'
 
-# 検証済みの単一HTMLと利用・ライセンス文書だけを、バージョン付きZIPへまとめる。
+# 検証済みの単一HTML、remote起動script、利用・ライセンス文書をバージョン付きZIPへまとめる。
 release-archive: release-version-check check
 	rm -rf "$(RELEASE_DIR)" "$(RELEASE_ARCHIVE)"
 	mkdir -p "$(RELEASE_DIR)"
-	cp dist-web/index.html README.md LICENSE.md THIRD_PARTY_LICENSES.md "$(RELEASE_DIR)/"
+	cp dist-web/index.html konata.sh README.md LICENSE.md THIRD_PARTY_LICENSES.md "$(RELEASE_DIR)/"
 	cd "$(RELEASE_ROOT)" && zip -q -r "$(RELEASE_NAME).zip" "$(RELEASE_NAME)"
 	zip -T "$(RELEASE_ARCHIVE)"
 	@echo "Release archive created: $(RELEASE_ARCHIVE)"

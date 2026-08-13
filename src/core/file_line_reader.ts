@@ -3,6 +3,15 @@ import { KonataZstdDecompressionStream } from "./zstd_stream";
 export type ProgressCallback = (progress: number) => void;
 type LineCallback = (line: string) => void;
 
+// FileとHTTP入力を同じParserへ渡すために必要な、読み取り専用の最小境界。
+// stream()を呼ぶたびに先頭から読めるため、Kanataからgem5への形式fallbackも維持できる。
+export interface TraceInput {
+    readonly name: string;
+    readonly size: number;
+    readonly type: string;
+    stream(signal?: AbortSignal): ReadableStream<Uint8Array> | Promise<ReadableStream<Uint8Array>>;
+}
+
 // 部分文字列がzstd等の大きな展開chunk全体を保持しないよう、文字列化する単位だけを制限する。
 // 入力streamや展開器のchunkは分割せず、UTF-8境界は同じTextDecoderのstream状態で引き継ぐ。
 const DECODE_CHUNK_SIZE = 8 * 1024;
@@ -34,7 +43,7 @@ export class FileLineReader {
     private canceled_ = false;
     private readonly isCompressed_: boolean;
 
-    constructor(readonly file: File) {
+    constructor(readonly file: TraceInput) {
         this.isCompressed_ = /\.(?:gz|zst(?:d)?)$/i.test(file.name) ||
             file.type === "application/gzip" || file.type === "application/zstd";
     }
@@ -77,7 +86,12 @@ export class FileLineReader {
         };
         signal?.addEventListener("abort", handleAbort, { once: true });
 
-        const countedStream = this.file.stream().pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        const fileStream = await this.file.stream(signal);
+        if (this.canceled_) {
+            await fileStream.cancel().catch(() => undefined);
+            return;
+        }
+        const countedStream = fileStream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
             transform: (chunk, controller) => {
                 // gzip/zstdでは選択された圧縮済みFileサイズを分母にするため、展開前に数える。
                 this.inputBytesRead_ += chunk.byteLength;

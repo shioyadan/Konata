@@ -1,12 +1,13 @@
 /**
  * ブラウザのローカルファイル機能を、Appから利用するためのアクセス境界にまとめる。
  * `TraceFileAccess`はファイル内容ではなく、選択済みファイルを再取得できる権限付きの入口である。
- * `read()`は呼ぶたびに最新の`File` snapshotを返し、`observe()`は同じ入口の外部変更を通知する。
+ * `read()`は呼ぶたびに最新内容を読める`TraceInput`を返し、`observe()`は同じ入口の外部変更を通知する。
  * picker、権限、persistent handle、Recent保存、FileSystemObserverはこの層で隠蔽し、
  * Tab、UI Store、Reactには依存しない。どのTabへ対応付けるかは呼出側だけが決める。
  * 通常のfile inputやdropは永続的な入口を持たないため、この層を通さず`File`を直接読み込む。
  */
 
+import type { TraceInput } from "./core/file_line_reader";
 import { rememberRecentFile, type RecentFileRecord } from "./recent_files";
 
 interface PersistentFileHandle extends FileSystemFileHandle {
@@ -40,9 +41,91 @@ export class TraceFilePermissionError extends Error {}
 
 export interface TraceFileAccess {
     readonly name: string;
-    read(): Promise<File>;
-    remember(file: File): Promise<readonly RecentFileRecord[]>;
+    read(signal?: AbortSignal): Promise<TraceInput>;
+    remember?(file: File): Promise<readonly RecentFileRecord[]>;
     observe(onChanged: () => void): () => void;
+}
+
+const MAX_REMOTE_TRACE_FILES = 2;
+const REMOTE_TRACE_PATHS = ["trace1", "trace2"] as const;
+
+function isRemoteTraceFileName(fileName: string): boolean {
+    // 表示名はpathに使わないが、本来のbasenameに見えない文字列はUIに入れない。
+    return fileName.length > 0 && fileName.length <= 255 &&
+        !/[\\/\u0000-\u001f\u007f]/.test(fileName);
+}
+
+export function getRemoteTraceFileNames(hash: string): readonly string[] {
+    // fragmentはHTTP serverへ送られず、元のfilenameをtab表示と圧縮形式判定にだけ使える。
+    const fileNames = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash).getAll("name");
+    if (fileNames.length === 0 || fileNames.length > MAX_REMOTE_TRACE_FILES ||
+        fileNames.some((fileName) => !isRemoteTraceFileName(fileName))) {
+        return [];
+    }
+    return fileNames;
+}
+
+class RemoteTraceInput implements TraceInput {
+    private size_ = 0;
+    private type_ = "application/octet-stream";
+
+    constructor(
+        readonly name: string,
+        private readonly url_: string,
+    ) {}
+
+    get size(): number {
+        return this.size_;
+    }
+
+    get type(): string {
+        return this.type_;
+    }
+
+    async stream(signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+        const response = await fetch(this.url_, { cache: "no-store", redirect: "error", signal });
+        if (!response.ok || response.body === null) {
+            await response.body?.cancel().catch(() => undefined);
+            throw new Error(`Could not read ${this.name}. HTTP ${response.status}.`);
+        }
+        const size = Number(response.headers.get("content-length"));
+        if (!Number.isSafeInteger(size) || size < 0) {
+            await response.body.cancel().catch(() => undefined);
+            throw new Error(`Could not determine the size of ${this.name}.`);
+        }
+        this.size_ = size;
+        this.type_ = response.headers.get("content-type") ?? this.type_;
+        return response.body;
+    }
+}
+
+class RemoteTraceFileAccess implements TraceFileAccess {
+    private readonly url_: string;
+
+    constructor(readonly name: string, slot: number, pageURL: string) {
+        if (!isRemoteTraceFileName(name)) {
+            throw new Error("The remote trace name is invalid.");
+        }
+        const path = REMOTE_TRACE_PATHS[slot - 1];
+        if (path === undefined) {
+            throw new Error("The remote trace slot is invalid.");
+        }
+        const page = new URL(pageURL);
+        if (page.protocol !== "http:" && page.protocol !== "https:") {
+            throw new Error("Remote traces require an HTTP page.");
+        }
+        // 表示名からURLを組み立てず、HTMLと同じdirectoryの固定slotだけを参照する。
+        this.url_ = new URL(path, page).toString();
+    }
+
+    async read(): Promise<TraceInput> {
+        return new RemoteTraceInput(this.name, this.url_);
+    }
+
+    observe(): () => void {
+        // Python標準HTTPサーバーには変更通知がないため、更新はReloadで再取得する。
+        return () => undefined;
+    }
 }
 
 class HandleTraceFileAccess implements TraceFileAccess {
@@ -133,4 +216,8 @@ export async function pickTraceFileAccess(): Promise<TraceFileAccess | null> {
 
 export function recentTraceFileAccess(record: RecentFileRecord): TraceFileAccess {
     return new HandleTraceFileAccess(record.handle as PersistentFileHandle, record.name);
+}
+
+export function remoteTraceFileAccess(fileName: string, slot: number, pageURL: string): TraceFileAccess {
+    return new RemoteTraceFileAccess(fileName, slot, pageURL);
 }

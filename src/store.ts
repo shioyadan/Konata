@@ -4,6 +4,7 @@
  * Store自身へ戻す。AppはFileをDOM eventから取り出す以外、file accessやParserを扱わない。
  */
 
+import type { TraceInput } from "./core/file_line_reader";
 import type { Op, ParsedTrace } from "./core/model";
 import { parseTraceFile } from "./core/trace_parser";
 import {
@@ -22,6 +23,7 @@ import {
 import {
     pickTraceFileAccess,
     recentTraceFileAccess,
+    remoteTraceFileAccess,
     supportsTraceFilePicker,
     TraceFilePermissionError,
     type TraceFileAccess,
@@ -116,6 +118,12 @@ export interface FindContext {
 export type Action =
     | { readonly type: "FILE_PICK_REQUEST" }
     | { readonly type: "FILE_OPEN_REQUEST"; readonly files: readonly File[] }
+    | {
+        readonly type: "FILE_REMOTE_OPEN_REQUEST";
+        readonly fileNames: readonly string[];
+        readonly pageURL: string;
+        readonly signal?: AbortSignal;
+    }
     | { readonly type: "FILE_RECENT_LOAD_REQUEST" }
     | { readonly type: "FILE_RECENT_OPEN_REQUEST"; readonly id: string }
     | { readonly type: "FILE_RELOAD_REQUEST"; readonly tabID: number }
@@ -548,6 +556,10 @@ export class Store {
             for (const file of action.files) {
                 void this.openFile_(file);
             }
+            return;
+        }
+        case "FILE_REMOTE_OPEN_REQUEST": {
+            void this.openRemoteFiles_(action.fileNames, action.pageURL, action.signal);
             return;
         }
         case "FILE_RECENT_LOAD_REQUEST": {
@@ -1301,7 +1313,35 @@ export class Store {
         }
     }
 
-    private async openFile_(file: File, access?: TraceFileAccess): Promise<void> {
+    private async openRemoteFiles_(
+        fileNames: readonly string[],
+        pageURL: string,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        for (const [index, fileName] of fileNames.entries()) {
+            try {
+                const access = remoteTraceFileAccess(fileName, index + 1, pageURL);
+                const file = await access.read(signal);
+                if (signal?.aborted) {
+                    return;
+                }
+                // tab順は引数順に確定し、Parser完了は待たず次の読込みを開始する。
+                void this.openFile_(file, access);
+            }
+            catch (error) {
+                if (signal?.aborted || (typeof DOMException !== "undefined" &&
+                    error instanceof DOMException && error.name === "AbortError")) {
+                    return;
+                }
+                this.dispatch({
+                    type: "FILE_MESSAGE_UPDATE",
+                    message: `Could not open ${fileName}. ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+        }
+    }
+
+    private async openFile_(file: TraceInput, access?: TraceFileAccess): Promise<void> {
         this.dispatch({
             type: "FILE_OPEN",
             fileName: file.name,
@@ -1317,7 +1357,7 @@ export class Store {
         const binding = this.fileAccesses_.get(tab.id);
         if (access !== undefined && binding?.access === access) {
             this.watchFileAccess_(tab.id);
-            if (loaded) {
+            if (loaded && access.remember !== undefined && file instanceof File) {
                 await this.rememberFile_(access, file);
             }
         }
@@ -1341,7 +1381,7 @@ export class Store {
             const loaded = await this.parseFileInTab_(file, tab.id, tab.loadSignal);
             if (this.fileAccesses_.get(tabID) === binding) {
                 this.watchFileAccess_(tabID);
-                if (loaded) {
+                if (loaded && binding.access.remember !== undefined && file instanceof File) {
                     await this.rememberFile_(binding.access, file);
                 }
             }
@@ -1364,7 +1404,7 @@ export class Store {
     }
 
     private async parseFileInTab_(
-        file: File,
+        file: TraceInput,
         tabID: number,
         loadSignal: AbortSignal,
     ): Promise<boolean> {
@@ -1415,7 +1455,9 @@ export class Store {
 
     private async rememberFile_(access: TraceFileAccess, file: File): Promise<void> {
         try {
-            this.dispatch({ type: "FILE_RECENT_UPDATE", files: await access.remember(file) });
+            if (access.remember !== undefined) {
+                this.dispatch({ type: "FILE_RECENT_UPDATE", files: await access.remember(file) });
+            }
         }
         catch {
             // 履歴保存が使えなくても、開いたtraceとreload accessはこのsession中利用する。

@@ -7,6 +7,7 @@
  */
 
 import { Gem5O3PipeViewParser } from "./gem5_o3_pipe_view_parser";
+import type { TraceInput } from "./file_line_reader";
 import type { ParsedTrace } from "./model";
 import { OnikiriParser } from "./onikiri_parser";
 import { PagedOpStore } from "./paged_op_store";
@@ -23,7 +24,7 @@ export interface TraceParseResult {
 }
 
 export async function parseTraceFile(
-    file: File,
+    file: TraceInput,
     callbacks: TraceParseCallbacks = {},
     signal?: AbortSignal,
 ): Promise<TraceParseResult | null> {

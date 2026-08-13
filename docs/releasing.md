@@ -31,6 +31,7 @@ This runs the complete verification set and creates a versioned archive. The ver
 dist-release/konata-v1.0.0.zip
 └── konata-v1.0.0/
     ├── index.html
+    ├── konata.sh
     ├── README.md
     ├── LICENSE.md
     └── THIRD_PARTY_LICENSES.md
