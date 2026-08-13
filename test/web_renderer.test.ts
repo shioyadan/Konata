@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
+import { RectRenderer } from "../src/core/rect_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -495,4 +496,35 @@ test("Web renderer keeps stage borders in the accelerated Canvas fallback", () =
     assert.deepEqual(pipeline.strokeStyles, ["#444444"]);
     assert.deepEqual(pipeline.lineWidths, [1]);
     assert.deepEqual(pipeline.fillTexts, []);
+});
+
+test("Rectangle renderer joins only consecutive touching fills with the same appearance", () => {
+    const recorded = createRecordedContext();
+    const renderer = new RectRenderer();
+    const rects = renderer.begin(
+        createCanvas(recorded.context),
+        recorded.context,
+        320,
+        96,
+        false,
+    );
+
+    rects.fillVerticalGradientRect(4, 6, 8, 5, "#112233", "#445566", 0.1, 0.9);
+    rects.fillVerticalGradientRect(12, 6, 3, 5, "#112233", "#445566", 0.1, 0.9);
+    // 半透明色にも使える一般層なので、重なりはblend回数を保つため結合しない。
+    rects.fillVerticalGradientRect(14.5, 6, 3, 5, "#112233", "#445566", 0.1, 0.9);
+    // 座標が接してもgradientの形が異なるcommandは独立したままにする。
+    rects.fillVerticalGradientRect(17.5, 6, 2, 5, "#112233", "#445566", 0.2, 0.9);
+    renderer.end();
+
+    assert.deepEqual(recorded.fillRects, [
+        [4, 6, 11, 5],
+        [14.5, 6, 3, 5],
+        [17.5, 6, 2, 5],
+    ]);
+    assert.deepEqual(recorded.gradients.map((gradient) => gradient.stops), [
+        [[0, "#112233"], [1, "#445566"]],
+        [[0, "#112233"], [1, "#445566"]],
+        [[0, "#112233"], [1, "#445566"]],
+    ]);
 });

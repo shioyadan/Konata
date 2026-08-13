@@ -260,6 +260,8 @@ export class RectRenderer implements RectContext {
     private colors_ = new Uint8Array(0);
     // 0なら塗り、正数ならstroke、-1ならatlas文字として同じ描画順へ積む。
     private strokeWidths_ = new Float32Array(0);
+    // 直前のfillだけを結合候補にし、別commandを越えてpainter順を変えない。
+    private mergeableFillRight_: number | null = null;
     private textCount_ = 0;
     private textAtlasGeneration_ = -1;
     private textBatchValid_ = true;
@@ -349,6 +351,7 @@ export class RectRenderer implements RectContext {
         this.height_ = height;
         this.webGLEnabled_ = webGLEnabled;
         this.count_ = 0;
+        this.mergeableFillRight_ = null;
         this.textCount_ = 0;
         this.textAtlasGeneration_ = -1;
         this.textBatchValid_ = true;
@@ -478,6 +481,25 @@ export class RectRenderer implements RectContext {
             y += height;
             height = -height;
         }
+        if (strokeWidth === 0 && this.count_ > 0 && this.mergeableFillRight_ === x) {
+            const previousIndex = this.count_ - 1;
+            const previousOffset = previousIndex * 4;
+            const previousStyleOffset = previousIndex * 2;
+            // 同じ縦gradientが水平に接する場合、1矩形へしても最終画素は変わらない。
+            // 重なる矩形は半透明色のblend回数が変わるため、接する場合だけを対象にする。
+            if (this.strokeWidths_[previousIndex] === 0 &&
+                this.styleIndices_[previousStyleOffset] === topStyleIndex &&
+                this.styleIndices_[previousStyleOffset + 1] === bottomStyleIndex &&
+                this.rects_[previousOffset + 1] === Math.fround(y) &&
+                this.rects_[previousOffset + 3] === Math.fround(height) &&
+                this.textureRects_[previousOffset] === Math.fround(gradientTopPosition) &&
+                this.textureRects_[previousOffset + 1] === Math.fround(gradientBottomPosition)) {
+                const right = x + width;
+                this.rects_[previousOffset + 2] = right - this.rects_[previousOffset];
+                this.mergeableFillRight_ = right;
+                return;
+            }
+        }
         if (this.count_ >= this.capacity_) {
             this.grow_();
         }
@@ -496,9 +518,11 @@ export class RectRenderer implements RectContext {
         this.textureRects_[offset + 3] = 0;
         this.texts_[this.count_] = undefined;
         this.count_++;
+        this.mergeableFillRight_ = strokeWidth === 0 ? x + width : null;
     }
 
     private queueText_(text: string, x: number, baselineY: number): void {
+        this.mergeableFillRight_ = null;
         if (this.count_ >= this.capacity_) {
             this.grow_();
         }
