@@ -3,7 +3,6 @@ import {
     RectRenderer,
     type RectContext,
 } from "./rect_renderer";
-import { TextAtlas } from "./text_atlas";
 
 // fsで読むと配布後のcurrent directoryに依存するため、旧Rendererと同じく
 // style定義はmoduleとしてbundleへ取り込む。
@@ -443,11 +442,9 @@ export class KonataRenderer {
     private laneHeightMargin_ = 2;
     private drawingInterval_ = 1;
     private labelFont_ = "";
-    private stageFont_ = "";
     private labelFontSize_ = 12;
     private stageFontSize_ = 12;
-    private readonly simplifiedRects_ = new RectRenderer();
-    private readonly stageTextAtlas_ = new TextAtlas();
+    private readonly canvasRenderer_ = new RectRenderer();
 
     constructor() {
         this.metrics_ = new KonataRenderMetrics(null, DEFAULT_KONATA_RENDER_SPEC);
@@ -560,8 +557,7 @@ export class KonataRenderer {
     }
 
     releaseCanvasResources(): void {
-        this.simplifiedRects_.dispose();
-        this.stageTextAtlas_.dispose();
+        this.canvasRenderer_.dispose();
     }
 
     private updateDerivedValues_(): void {
@@ -575,7 +571,6 @@ export class KonataRenderer {
 
         const fontSize = Number(this.style_.fontSize);
         this.labelFont_ = `${this.style_.fontStyle} ${fontSize * Math.min(1, this.zoomScale_)}px ${this.style_.fontFamily}`;
-        this.stageFont_ = `${this.style_.fontStyle} ${fontSize * this.zoomScale_}px ${this.style_.fontFamily}`;
         this.labelFontSize_ = fontSize * Math.min(1, this.zoomScale_);
         this.stageFontSize_ = fontSize * this.zoomScale_;
     }
@@ -666,6 +661,16 @@ export class KonataRenderer {
         if (this.trace_ === null) {
             return;
         }
+        if (!this.renderingReference_ && this.canDrawText_) {
+            this.canvasRenderer_.setTextStyle(
+                context,
+                this.style_.fontStyle,
+                Number(this.style_.fontSize),
+                this.style_.fontFamily,
+                this.style_.pipelinePane.fontColor,
+                this.zoomScale_,
+            );
+        }
 
         let top = this.metrics_.spec.position[1];
         const left = this.metrics_.spec.position[0];
@@ -690,7 +695,7 @@ export class KonataRenderer {
         // 文字がない縮小域では、stageの塗りと枠を描画順ごとWebGLへまとめて渡せる。
         // 文字を個別設定で残した場合は、batch合成で文字を覆わないようCanvasへ戻す。
         const simplifiedRects = !this.canDrawText_
-            ? this.simplifiedRects_.begin(canvas, context, size.width, size.height)
+            ? this.canvasRenderer_.begin(canvas, context, size.width, size.height)
             : null;
         const solidRects = simplifiedRects ?? context;
         try {
@@ -726,7 +731,7 @@ export class KonataRenderer {
         }
         finally {
             if (simplifiedRects !== null) {
-                this.simplifiedRects_.end();
+                this.canvasRenderer_.end();
             }
         }
 
@@ -827,10 +832,6 @@ export class KonataRenderer {
         if (lane === null || lane === undefined) {
             return false;
         }
-        context.font = this.stageFont_;
-        if (this.canDrawText_) {
-            context.imageSmoothingEnabled = true;
-        }
         const top = logicalY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
         let drewStage = false;
 
@@ -883,7 +884,6 @@ export class KonataRenderer {
             }
 
             if (!this.renderingReference_ && this.canDrawText_) {
-                context.fillStyle = this.style_.pipelinePane.fontColor;
                 const textTop =
                     top +
                     (this.laneHeight_ - this.laneHeightMargin_ * 2 - this.stageFontSize_) / 2 +
@@ -899,8 +899,7 @@ export class KonataRenderer {
                         0,
                         (this.opWidth_ - String(offset).length * this.stageFontSize_ / 2) / 2,
                     );
-                    this.drawStageText_(
-                        context,
+                    this.canvasRenderer_.fillText(
                         String(offset),
                         textLeft + offset * this.opWidth_ + margin,
                         textTop,
@@ -910,7 +909,7 @@ export class KonataRenderer {
                     0,
                     (this.opWidth_ - stage.name.length * this.stageFontSize_ / 2) / 2,
                 );
-                this.drawStageText_(context, stage.name, textLeft + margin, textTop);
+                this.canvasRenderer_.fillText(stage.name, textLeft + margin, textTop);
             }
 
             if (!this.renderingReference_ && op.flush) {
@@ -920,31 +919,6 @@ export class KonataRenderer {
             }
         }
         return drewStage;
-    }
-
-    private drawStageText_(
-        context: CanvasRenderingContext2D,
-        text: string,
-        x: number,
-        baselineY: number,
-    ): void {
-        const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-        // 100%以下では同じ14px glyphを縮小し、zoom animation中の毎frame再生成を避ける。
-        // 拡大時はbitmap拡大でぼかさず、実際の表示サイズでrasterizeする。
-        const atlasScale = Math.min(1, this.zoomScale_);
-        const atlasFont = atlasScale < 1
-            ? `${this.style_.fontStyle} ${Number(this.style_.fontSize)}px ${this.style_.fontFamily}`
-            : this.stageFont_;
-        this.stageTextAtlas_.drawText(
-            context,
-            text,
-            x,
-            baselineY,
-            atlasFont,
-            this.style_.pipelinePane.fontColor,
-            pixelRatio,
-            atlasScale,
-        );
     }
 
     private drawDependency_(

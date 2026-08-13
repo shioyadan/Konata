@@ -1,5 +1,5 @@
-// Konata固有の描画判断から独立した、rectangle用のCanvas互換境界。
-// 基本のfill／stroke矩形に2色縦gradientだけを加え、backend選択をこのfileへ閉じる。
+// Konata固有の描画判断から独立したCanvas描画境界。
+// 矩形のbackend選択と、繰り返す短い文字列のrasterize／BLTをこのfileへ閉じる。
 
 export interface RectContext {
     fillStyle: string | CanvasGradient | CanvasPattern;
@@ -18,6 +18,185 @@ export interface RectContext {
 }
 
 type WebGLState = "uninitialized" | "ready" | "lost" | "unavailable";
+
+interface AtlasEntry {
+    readonly sourceX: number;
+    readonly sourceY: number;
+    readonly sourceWidth: number;
+    readonly sourceHeight: number;
+    readonly offsetX: number;
+    readonly offsetY: number;
+}
+
+class TextAtlas {
+    // backing pixel基準で固定し、高DPI環境でもCanvasごとの使用量を2 MiBに抑える。
+    private static readonly WIDTH = 1024;
+    private static readonly HEIGHT = 512;
+    private static readonly PADDING = 2;
+
+    private canvas_: HTMLCanvasElement | null = null;
+    private context_: CanvasRenderingContext2D | null = null;
+    private font_ = "";
+    private color_ = "";
+    private pixelRatio_ = 0;
+    private cursorX_ = 0;
+    private cursorY_ = 0;
+    private rowHeight_ = 0;
+    private readonly entries_ = new Map<string, AtlasEntry>();
+
+    drawText(
+        target: CanvasRenderingContext2D,
+        text: string,
+        x: number,
+        baselineY: number,
+        font: string,
+        color: string,
+        pixelRatio: number,
+        scale: number,
+    ): void {
+        if (text.length === 0 || typeof document === "undefined" ||
+            !Number.isFinite(scale) || scale <= 0) {
+            target.fillText(text, x, baselineY);
+            return;
+        }
+        const context = this.prepare_(font, color, pixelRatio);
+        if (context === null || this.canvas_ === null) {
+            target.fillText(text, x, baselineY);
+            return;
+        }
+
+        const entry = this.entries_.get(text) ?? this.add_(text);
+        if (entry === null) {
+            target.fillText(text, x, baselineY);
+            return;
+        }
+        target.drawImage(
+            this.canvas_,
+            entry.sourceX,
+            entry.sourceY,
+            entry.sourceWidth,
+            entry.sourceHeight,
+            x + entry.offsetX * scale,
+            baselineY + entry.offsetY * scale,
+            entry.sourceWidth / this.pixelRatio_ * scale,
+            entry.sourceHeight / this.pixelRatio_ * scale,
+        );
+    }
+
+    dispose(): void {
+        if (this.canvas_ !== null) {
+            this.canvas_.width = 1;
+            this.canvas_.height = 1;
+        }
+        this.canvas_ = null;
+        this.context_ = null;
+        this.font_ = "";
+        this.color_ = "";
+        this.pixelRatio_ = 0;
+        this.entries_.clear();
+    }
+
+    private prepare_(
+        font: string,
+        color: string,
+        pixelRatio: number,
+    ): CanvasRenderingContext2D | null {
+        if (!Number.isFinite(pixelRatio) || pixelRatio <= 0) {
+            return null;
+        }
+        if (this.canvas_ === null) {
+            this.canvas_ = document.createElement("canvas");
+            this.canvas_.width = TextAtlas.WIDTH;
+            this.canvas_.height = TextAtlas.HEIGHT;
+            this.context_ = this.canvas_.getContext("2d");
+        }
+        const context = this.context_;
+        if (context === null) {
+            return null;
+        }
+        if (this.font_ !== font || this.color_ !== color || this.pixelRatio_ !== pixelRatio) {
+            this.font_ = font;
+            this.color_ = color;
+            this.pixelRatio_ = pixelRatio;
+            this.clear_();
+        }
+        return context;
+    }
+
+    private clear_(): void {
+        const context = this.context_;
+        if (context === null) {
+            return;
+        }
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.clearRect(0, 0, TextAtlas.WIDTH, TextAtlas.HEIGHT);
+        context.setTransform(this.pixelRatio_, 0, 0, this.pixelRatio_, 0, 0);
+        context.font = this.font_;
+        context.fillStyle = this.color_;
+        context.textBaseline = "alphabetic";
+        this.entries_.clear();
+        this.cursorX_ = 0;
+        this.cursorY_ = 0;
+        this.rowHeight_ = 0;
+    }
+
+    private add_(text: string): AtlasEntry | null {
+        const context = this.context_;
+        if (context === null) {
+            return null;
+        }
+        const metrics = context.measureText(text);
+        const fontSize = Number(/([\d.]+)px/.exec(this.font_)?.[1] ?? 12);
+        const left = Number.isFinite(metrics.actualBoundingBoxLeft)
+            ? metrics.actualBoundingBoxLeft
+            : 0;
+        const right = Number.isFinite(metrics.actualBoundingBoxRight)
+            ? metrics.actualBoundingBoxRight
+            : metrics.width;
+        const ascent = metrics.actualBoundingBoxAscent > 0
+            ? metrics.actualBoundingBoxAscent
+            : fontSize;
+        const descent = metrics.actualBoundingBoxDescent >= 0
+            ? metrics.actualBoundingBoxDescent
+            : fontSize * 0.25;
+        const ratio = this.pixelRatio_;
+        const minX = Math.floor(-left * ratio) - TextAtlas.PADDING;
+        const maxX = Math.ceil(right * ratio) + TextAtlas.PADDING;
+        const minY = Math.floor(-ascent * ratio) - TextAtlas.PADDING;
+        const maxY = Math.ceil(descent * ratio) + TextAtlas.PADDING;
+        const width = Math.max(1, maxX - minX);
+        const height = Math.max(1, maxY - minY);
+        if (width > TextAtlas.WIDTH || height > TextAtlas.HEIGHT) {
+            return null;
+        }
+
+        if (this.cursorX_ + width > TextAtlas.WIDTH) {
+            this.cursorX_ = 0;
+            this.cursorY_ += this.rowHeight_;
+            this.rowHeight_ = 0;
+        }
+        if (this.cursorY_ + height > TextAtlas.HEIGHT) {
+            // 可視範囲を越えるほど種類が増えた場合も容量を増やさず、atlas領域を再利用する。
+            this.clear_();
+        }
+
+        const entry: AtlasEntry = {
+            sourceX: this.cursorX_,
+            sourceY: this.cursorY_,
+            sourceWidth: width,
+            sourceHeight: height,
+            offsetX: minX / ratio,
+            offsetY: minY / ratio,
+        };
+        const baselineX = (this.cursorX_ - minX) / ratio;
+        const baselineY = (this.cursorY_ - minY) / ratio;
+        context.fillText(text, baselineX, baselineY);
+        this.entries_.set(text, entry);
+        this.cursorX_ += width;
+        this.rowHeight_ = Math.max(this.rowHeight_, height);
+        return entry;
+    }
+}
 
 /**
  * rectangleをCanvas互換の形で蓄積し、多数ある時だけWebGL2で一括描画する。
@@ -62,6 +241,12 @@ export class RectRenderer implements RectContext {
     private colorCanvas_: HTMLCanvasElement | null = null;
     private colorContext_: CanvasRenderingContext2D | null = null;
     private readonly colorCache_ = new Map<string, readonly [number, number, number, number]>();
+    private readonly textAtlas_ = new TextAtlas();
+    private textContext_: CanvasRenderingContext2D | null = null;
+    private textFont_ = "";
+    private textColor_ = "#000000";
+    private textPixelRatio_ = 1;
+    private textScale_ = 1;
 
     get fillStyle(): string | CanvasGradient | CanvasPattern {
         return this.fillStyle_;
@@ -126,6 +311,48 @@ export class RectRenderer implements RectContext {
         this.strokeStyle = "#000000";
         this.lineWidth = 1;
         return this;
+    }
+
+    setTextStyle(
+        context: CanvasRenderingContext2D,
+        fontStyle: string,
+        baseFontSize: number,
+        fontFamily: string,
+        color: string,
+        scale: number,
+    ): void {
+        const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+        const displayFont = `${fontStyle} ${baseFontSize * scale}px ${fontFamily}`;
+        // 100%以下では基準glyphを縮小し、zoom animation中の毎frame再生成を避ける。
+        // 拡大時はbitmap拡大でぼかさず、実際の表示サイズでrasterizeする。
+        const atlasScale = Math.min(1, scale);
+        this.textContext_ = context;
+        this.textFont_ = atlasScale < 1
+            ? `${fontStyle} ${baseFontSize}px ${fontFamily}`
+            : displayFont;
+        this.textColor_ = color;
+        this.textPixelRatio_ = pixelRatio;
+        this.textScale_ = atlasScale;
+        context.font = displayFont;
+        context.fillStyle = color;
+        context.imageSmoothingEnabled = true;
+    }
+
+    fillText(text: string, x: number, baselineY: number): void {
+        const context = this.textContext_;
+        if (context === null) {
+            return;
+        }
+        this.textAtlas_.drawText(
+            context,
+            text,
+            x,
+            baselineY,
+            this.textFont_,
+            this.textColor_,
+            this.textPixelRatio_,
+            this.textScale_,
+        );
     }
 
     fillRect(x: number, y: number, width: number, height: number): void {
@@ -213,6 +440,8 @@ export class RectRenderer implements RectContext {
     }
 
     dispose(): void {
+        this.textAtlas_.dispose();
+        this.textContext_ = null;
         this.gl_?.getExtension("WEBGL_lose_context")?.loseContext();
         if (this.overlayCanvas_ !== null) {
             this.overlayCanvas_.width = 1;
