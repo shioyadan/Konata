@@ -169,6 +169,178 @@ test("Web gem5 parser restores dependencies from rename logs", async () => {
     assert.match(consumer.lanes[mainLaneID]?.stages[0].labels ?? "", /Looking up IntRegClass/);
 });
 
+test("Web gem5 parser does not treat missing intermediate stage ticks as a flush", async () => {
+    const contents = [
+        "O3PipeView:fetch:1000:0x10:0:10: nop",
+        "O3PipeView:decode:2000",
+        "O3PipeView:rename:3000",
+        "O3PipeView:dispatch:4000",
+        "O3PipeView:issue:0",
+        "O3PipeView:complete:0",
+        "O3PipeView:retire:5000:store:0",
+    ].join("\n");
+    const trace = await new Gem5O3PipeViewParser().parse(
+        reader(new File([contents], "retired-nop.log", { type: "text/plain" })),
+    );
+    const op = trace.getOp(0);
+    assert.ok(op);
+    assert.equal(op.retired, true);
+    assert.equal(op.flush, false);
+    assert.equal(trace.lastRID, 0);
+    assert.deepEqual(
+        op.lanes[trace.stageLevelMap.getLaneID("0") ?? -1]?.stages.map((stage) => stage.name),
+        ["F", "Dc", "Rn", "Ds"],
+    );
+});
+
+test("Web gem5 parser restores dependencies for underscored register classes", async () => {
+    const contents = [
+        "O3PipeView:fetch:1000:0x10:0:10: producer",
+        "1500: system.cpu.rename: [tid:0]: Renaming arch reg 1 (condition_code) to physical reg 152 (152). [sn:10]",
+        "O3PipeView:decode:2000",
+        "O3PipeView:complete:3000",
+        "O3PipeView:retire:4000:store:0",
+        "O3PipeView:fetch:5000:0x11:0:11: consumer",
+        "5500: system.cpu.rename: [tid:0]: Looking up condition_code arch reg 1, got phys reg 152 (condition_code) [sn:11]",
+        "O3PipeView:decode:6000",
+        "O3PipeView:complete:7000",
+        "O3PipeView:retire:8000:store:0",
+    ].join("\n");
+    const trace = await new Gem5O3PipeViewParser().parse(
+        reader(new File([contents], "underscore-register.log", { type: "text/plain" })),
+    );
+    assert.deepEqual(trace.getOp(1)?.prods.map((dependency) => dependency.opID), [0]);
+});
+
+test("Web gem5 parser preserves micro PC and retire suffix ticks without extending retirement", async () => {
+    const contents = [
+        "O3PipeView:fetch:1000:0x10:3:10: store",
+        "O3PipeView:decode:2000",
+        "O3PipeView:complete:3000",
+        // store completionはCPU clock境界に揃わず、同cycle内の順序を下位tickで持ち得る。
+        "O3PipeView:retire:4000:store:5001",
+    ].join("\n");
+    const trace = await new Gem5O3PipeViewParser().parse(
+        reader(new File([contents], "store-tick.log", { type: "text/plain" })),
+    );
+    assert.match(trace.getOp(0)?.labelDetail ?? "", /Micro PC: 3/);
+    assert.match(trace.getOp(0)?.labelDetail ?? "", /Retired Tick: 4000/);
+    assert.match(trace.getOp(0)?.labelDetail ?? "", /Store Tick: 5001/);
+    const op = trace.getOp(0);
+    assert.ok(op);
+    assert.equal(op.retiredCycle, 3);
+    assert.equal(trace.lastCycle, 3);
+    assert.equal(trace.stageLevelMap.getLaneID("memory"), undefined);
+    assert.equal(op.lanes.some((lane) => lane?.stages.some((stage) => stage.name === "Sc")), false);
+});
+
+test("Web gem5 parser preserves memory completion at and after retire as raw detail", async () => {
+    const contents = [
+        "4000: system.cpu.memDep0: Completed mem instruction [sn:10].",
+        "9000: system.cpu.memDep0: Completed mem instruction [sn:11].",
+        "O3PipeView:fetch:1000:0x10:0:10: equal-retire",
+        "O3PipeView:decode:2000",
+        "O3PipeView:complete:3000",
+        "O3PipeView:retire:4000:store:0",
+        "O3PipeView:fetch:5000:0x11:0:11: after-retire",
+        "O3PipeView:decode:6000",
+        "O3PipeView:complete:7000",
+        "O3PipeView:retire:8000:store:0",
+    ].join("\n");
+    const trace = await new Gem5O3PipeViewParser().parse(
+        reader(new File([contents], "late-memory-complete.log", { type: "text/plain" })),
+    );
+    for (let id = 0; id < 2; id++) {
+        const op = trace.getOp(id);
+        assert.ok(op);
+        assert.match(op.labelDetail, /Memory Complete: .*Completed mem instruction/);
+        assert.equal(op.lanes.some((lane) => lane?.stages.some((stage) => stage.name === "Mc")), false);
+    }
+    assert.equal(trace.getOp(1)?.retiredCycle, 7);
+    assert.equal(trace.lastCycle, 7);
+    const mainLaneID = trace.stageLevelMap.getLaneID("0") ?? -1;
+    assert.match(
+        trace.getOp(1)?.lanes[mainLaneID]?.stages.at(-1)?.labels ?? "",
+        /Completed mem instruction/,
+    );
+});
+
+test("Web gem5 parser keeps a pre-retire memory completion as the existing Mc stage", async () => {
+    const contents = [
+        "6000: system.cpu.memDep0: Completed mem instruction [sn:10].",
+        "O3PipeView:fetch:1000:0x10:0:10: load",
+        "O3PipeView:decode:3000",
+        "O3PipeView:complete:5000",
+        "O3PipeView:retire:7000:store:0",
+    ].join("\n");
+    const trace = await new Gem5O3PipeViewParser().parse(
+        reader(new File([contents], "pre-retire-memory-complete.log", { type: "text/plain" })),
+    );
+    const op = trace.getOp(0);
+    assert.ok(op);
+    const mainLaneID = trace.stageLevelMap.getLaneID("0") ?? -1;
+    assert.deepEqual(
+        op.lanes[mainLaneID]?.stages.map((stage) => [stage.name, stage.startCycle, stage.endCycle]),
+        [
+            ["F", 0, 2],
+            ["Dc", 2, 4],
+            ["Cm", 4, 5],
+            ["Mc", 5, 6],
+        ],
+    );
+    assert.match(op.labelDetail, /Memory Complete: .*Completed mem instruction/);
+    assert.equal(trace.lastCycle, 6);
+});
+
+test("Web gem5 parser does not backdate Mc when extra logs are not tick ordered", async () => {
+    const contents = [
+        "9000: system.cpu.memDep0: Completed mem instruction [sn:10].",
+        "6000: system.cpu.memDep0: Completed mem instruction [sn:10].",
+        "O3PipeView:fetch:1000:0x10:0:10: load",
+        "O3PipeView:decode:3000",
+        "O3PipeView:complete:7000",
+        "O3PipeView:retire:8000:store:0",
+    ].join("\n");
+    const trace = await new Gem5O3PipeViewParser().parse(
+        reader(new File([contents], "unordered-memory-complete.log", { type: "text/plain" })),
+    );
+    const op = trace.getOp(0);
+    assert.ok(op);
+    assert.equal(op.labelDetail.match(/Memory Complete:/g)?.length, 2);
+    const stages = op.lanes[trace.stageLevelMap.getLaneID("0") ?? -1]?.stages ?? [];
+    assert.equal(stages.some((stage) => stage.name === "Mc"), false);
+    assert.equal(stages.some((stage) => stage.endCycle < stage.startCycle), false);
+    assert.equal(
+        stages.some((stage, index) => index > 0 && stage.startCycle < stages[index - 1].startCycle),
+        false,
+    );
+});
+
+test("Web gem5 parser normalizes replayed stage ticks without losing the raw tick", async () => {
+    const contents = [
+        "O3PipeView:fetch:1000:0x10:0:10: replayed-load",
+        "O3PipeView:decode:2000",
+        "O3PipeView:rename:3000",
+        "O3PipeView:dispatch:4000",
+        "O3PipeView:issue:9000",
+        "O3PipeView:complete:5000",
+        "O3PipeView:retire:0:store:0",
+    ].join("\n");
+    const trace = await new Gem5O3PipeViewParser().parse(
+        reader(new File([contents], "replayed-stage.log", { type: "text/plain" })),
+    );
+    const op = trace.getOp(0);
+    assert.ok(op);
+    const stages = op.lanes[trace.stageLevelMap.getLaneID("0") ?? -1]?.stages ?? [];
+    assert.equal(op.flush, true);
+    assert.equal(stages.some((stage) => stage.endCycle < stage.startCycle), false);
+    assert.equal(
+        stages.some((stage, index) => index > 0 && stage.startCycle < stages[index - 1].startCycle),
+        false,
+    );
+    assert.match(op.labelDetail, /Out-of-order complete Tick: 5000 \(normalized to 9000\)/);
+});
+
 test("Web gem5 parser cancels its input stream through an AbortSignal", async () => {
     const lines = ["O3PipeView:fetch:1000:0x10:0:10: pending op"];
     while (lines.length < 8192) {
