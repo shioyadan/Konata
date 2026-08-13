@@ -6,7 +6,6 @@ import { ArrayOpStore } from "../src/core/op_store";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEP_ARROW_TYPE,
-    KonataRenderer,
 } from "../src/renderer/konata_renderer";
 import { type Change, Store } from "../src/store";
 import { getRemoteTraceFileNames } from "../src/trace_file_access";
@@ -32,24 +31,24 @@ async function waitFor(predicate: () => boolean, message: string): Promise<void>
     }
 }
 
-test("Store owns tab traces, renderers, activation, and close", () => {
+test("Store owns tab traces, render specs, activation, and close", () => {
     const store = new Store();
     const changes: Change[] = [];
     const unsubscribe = store.subscribeChange((change) => changes.push(change));
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "first.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "first.log" });
     const firstTab = store.activeTab;
     assert.ok(firstTab !== null);
     assert.equal(firstTab.loadSignal.aborted, false);
     const first = createTrace("first.log");
     store.dispatch({ type: "FILE_LOAD_FINISH", tabID: firstTab.id, trace: first.trace });
     store.dispatch({
-        type: "KONATA_MUTATE_VIEW",
+        type: "KONATA_SET_VIEW",
         tabID: firstTab.id,
-        mutation: (renderer) => renderer.zoomAbs(-1, 0, 0, false),
+        view: { position: firstTab.renderSpec.position, zoomLevel: -1 },
     });
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "second.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "second.log" });
     const secondTab = store.activeTab;
     assert.ok(secondTab !== null);
     const second = createTrace("second.log");
@@ -59,7 +58,7 @@ test("Store owns tab traces, renderers, activation, and close", () => {
     assert.deepEqual(store.getSnapshot().tabs.map((tab) => tab.id), [0, 1]);
     store.dispatch({ type: "TAB_ACTIVATE", tabID: firstTab.id });
     assert.equal(store.activeTab, firstTab);
-    assert.equal(store.activeTab.renderer.zoomPercent, 200);
+    assert.equal(store.activeTab.renderSpec.zoomLevel, -1);
 
     // active tabを閉じると隣へ移り、そのTabが所有していたOpStoreだけを解放する。
     store.dispatch({ type: "TAB_CLOSE", tabID: firstTab.id });
@@ -83,13 +82,16 @@ test("Store reloads a trace in place and restores its view", () => {
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "reload.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "reload.log" });
     const tab = store.activeTab;
     assert.ok(tab !== null && tab.kind === "trace");
     const first = createTrace("reload.log");
     store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: first.trace });
-    tab.renderer.zoomAbs(-1, 0, 0, false);
-    tab.renderer.moveLogicalPosition([12, 4]);
+    store.dispatch({
+        type: "KONATA_SET_VIEW",
+        tabID: tab.id,
+        view: { position: [12, 4], zoomLevel: -1 },
+    });
     const firstSignal = tab.loadSignal;
 
     store.dispatch({ type: "FILE_RELOAD", tabID: tab.id });
@@ -105,8 +107,8 @@ test("Store reloads a trace in place and restores its view", () => {
     const second = createTrace("reload.log");
     store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: second.trace });
     assert.equal(tab.trace, second.trace);
-    assert.equal(tab.renderer.zoomLevel, -1);
-    assert.deepEqual(tab.renderer.viewPosition, [12, 4]);
+    assert.equal(tab.renderSpec.zoomLevel, -1);
+    assert.deepEqual(tab.renderSpec.position, [12, 4]);
     assert.ok(changes.some((change) =>
         change.type === "PROGRESS_BAR_START" && change.tabID === tab.id && change.operation === "load"));
 
@@ -241,7 +243,7 @@ test("Store requests the DOM file input through a Change when no picker is avail
 test("Comparison tabs share source OpStores until the last view is closed", () => {
     const store = new Store();
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "baseline.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "baseline.log" });
     const baselineTab = store.activeTab;
     assert.ok(baselineTab !== null && baselineTab.kind === "trace");
     const baseline = createTrace("baseline.log");
@@ -252,10 +254,18 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     baselineOp.fetchedCycle = 10;
     baseline.opStore.setRetiredOp(0, baselineOp);
     store.dispatch({ type: "FILE_LOAD_FINISH", tabID: baselineTab.id, trace: baseline.trace });
-    baselineTab.renderer.moveLogicalPosition([12, 0]);
-    baselineTab.renderer.changeColorScheme("RoyalBlue");
+    store.dispatch({
+        type: "KONATA_SET_VIEW",
+        tabID: baselineTab.id,
+        view: { position: [12, 0], zoomLevel: 0 },
+    });
+    store.dispatch({
+        type: "KONATA_CHANGE_COLOR_SCHEME",
+        tabID: baselineTab.id,
+        scheme: "RoyalBlue",
+    });
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "candidate.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "candidate.log" });
     const candidateTab = store.activeTab;
     assert.ok(candidateTab !== null && candidateTab.kind === "trace");
     const candidate = createTrace("candidate.log");
@@ -266,9 +276,16 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     candidateOp.fetchedCycle = 20;
     candidate.opStore.setRetiredOp(0, candidateOp);
     store.dispatch({ type: "FILE_LOAD_FINISH", tabID: candidateTab.id, trace: candidate.trace });
-    candidateTab.renderer.zoomAbs(-1, 0, 0, false);
-    candidateTab.renderer.moveLogicalPosition([25, 8]);
-    candidateTab.renderer.changeColorScheme("Custom");
+    store.dispatch({
+        type: "KONATA_SET_VIEW",
+        tabID: candidateTab.id,
+        view: { position: [25, 8], zoomLevel: -1 },
+    });
+    store.dispatch({
+        type: "KONATA_CHANGE_COLOR_SCHEME",
+        tabID: candidateTab.id,
+        scheme: "Custom",
+    });
 
     store.dispatch({
         type: "COMPARISON_OPEN",
@@ -279,57 +296,62 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     assert.ok(comparison !== null && comparison.kind === "comparison");
     assert.equal(comparison.baselineTrace, baseline.trace);
     assert.equal(comparison.trace, candidate.trace);
-    assert.notEqual(comparison.baselineRenderer, baselineTab.renderer);
-    assert.notEqual(comparison.renderer, candidateTab.renderer);
-    // Renderer自身には元Tabの通常配色を引き継ぎ、比較専用色は描画時だけ上書きする。
-    assert.equal(comparison.baselineRenderer.colorScheme, "RoyalBlue");
-    assert.equal(comparison.renderer.colorScheme, "Custom");
+    assert.notEqual(comparison.baselineRenderSpec, baselineTab.renderSpec);
+    assert.notEqual(comparison.renderSpec, candidateTab.renderSpec);
+    // Specには元Tabの通常配色を引き継ぎ、比較専用色は描画時だけ上書きする。
+    assert.equal(comparison.baselineRenderSpec.colorScheme, "RoyalBlue");
+    assert.equal(comparison.renderSpec.colorScheme, "Custom");
     store.dispatch({
         type: "KONATA_CHANGE_COLOR_SCHEME",
         tabID: comparison.id,
         scheme: "DarkOrange",
     });
     // Store上の通常配色はA/Bへ同時に反映し、比較専用色から通常表示へ戻せるようにする。
-    assert.equal(comparison.baselineRenderer.colorScheme, "DarkOrange");
-    assert.equal(comparison.renderer.colorScheme, "DarkOrange");
-    assert.deepEqual(comparison.renderer.viewPosition, [25, 8]);
+    assert.equal(comparison.baselineRenderSpec.colorScheme, "DarkOrange");
+    assert.equal(comparison.renderSpec.colorScheme, "DarkOrange");
+    assert.deepEqual(comparison.renderSpec.position, [25, 8]);
     // 比較開始時は各元Tabの位置を保ち、overlayに必要な倍率だけを揃える。
-    assert.deepEqual(comparison.baselineRenderer.viewPosition, [12, 0]);
-    assert.equal(comparison.baselineRenderer.zoomLevel, -1);
+    assert.deepEqual(comparison.baselineRenderSpec.position, [12, 0]);
+    assert.equal(comparison.baselineRenderSpec.zoomLevel, -1);
     store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "baseline" });
     store.dispatch({ type: "COMPARISON_SET_OPACITY", tabID: comparison.id, opacity: 2 });
     assert.equal(comparison.mode, "baseline");
     assert.equal(comparison.opacity, 1);
     store.dispatch({ type: "COMPARISON_ALIGN_TO_BASELINE", tabID: comparison.id });
     // まずAをAdjust positionでRID 0のfetchへ戻し、Bの同じRIDも左上へ置く。
-    assert.deepEqual(comparison.baselineRenderer.viewPosition, [10, 0]);
-    assert.deepEqual(comparison.renderer.viewPosition, [20, 0]);
+    assert.deepEqual(comparison.baselineRenderSpec.position, [10, 0]);
+    assert.deepEqual(comparison.renderSpec.position, [20, 0]);
     store.dispatch({
-        type: "KONATA_MUTATE_VIEW",
+        type: "KONATA_PAN_VIEW",
         tabID: comparison.id,
-        mutation: (renderer) => renderer.moveLogicalDifference([2, 3], false),
-        baselineMutation: (renderer) => renderer.moveLogicalDifference([2, 3], false),
+        deltaX: 128,
+        deltaY: 144,
+        target: "both",
     });
     // RIDを探し直さず、両Rendererの現在位置へ同じ移動量を加える。
-    assert.deepEqual(comparison.renderer.viewPosition, [22, 3]);
-    assert.deepEqual(comparison.baselineRenderer.viewPosition, [12, 3]);
+    assert.deepEqual(comparison.renderSpec.position, [22, 3]);
+    assert.deepEqual(comparison.baselineRenderSpec.position, [12, 3]);
     store.dispatch({
-        type: "KONATA_MUTATE_VIEW",
+        type: "KONATA_PAN_VIEW",
         tabID: comparison.id,
-        baselineMutation: (renderer) => renderer.moveLogicalDifference([1, 0], false),
+        deltaX: 64,
+        deltaY: 0,
+        target: "selected",
     });
     // A単独表示のpanはAだけを動かし、薄いBを位置合わせの基準として残す。
-    assert.deepEqual(comparison.renderer.viewPosition, [22, 3]);
-    assert.deepEqual(comparison.baselineRenderer.viewPosition, [13, 3]);
+    assert.deepEqual(comparison.renderSpec.position, [22, 3]);
+    assert.deepEqual(comparison.baselineRenderSpec.position, [13, 3]);
     store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "candidate" });
     store.dispatch({
-        type: "KONATA_MUTATE_VIEW",
+        type: "KONATA_PAN_VIEW",
         tabID: comparison.id,
-        mutation: (renderer) => renderer.moveLogicalDifference([0, 2], false),
+        deltaX: 0,
+        deltaY: 96,
+        target: "selected",
     });
     // B単独表示では逆にBだけを動かせる。
-    assert.deepEqual(comparison.renderer.viewPosition, [22, 5]);
-    assert.deepEqual(comparison.baselineRenderer.viewPosition, [13, 3]);
+    assert.deepEqual(comparison.renderSpec.position, [22, 5]);
+    assert.deepEqual(comparison.baselineRenderSpec.position, [13, 3]);
 
     // 元Tabを両方閉じても、比較Tabがretainした同じTrace／OpStoreは利用可能なままにする。
     store.dispatch({ type: "TAB_CLOSE", tabID: baselineTab.id });
@@ -348,7 +370,7 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
 
 test("Store rejects a delayed trace update after its tab is closed", () => {
     const store = new Store();
-    store.dispatch({ type: "FILE_OPEN", fileName: "closed.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "closed.log" });
     const closedTabID = store.activeTab?.id;
     assert.equal(typeof closedTabID, "number");
     store.dispatch({ type: "TAB_CLOSE", tabID: closedTabID });
@@ -376,7 +398,7 @@ test("Store keeps search context per tab and rejects stale search updates", () =
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "first.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "first.log" });
     const firstTab = store.activeTab;
     assert.ok(firstTab !== null);
     const first = createTrace("first.log");
@@ -406,7 +428,7 @@ test("Store keeps search context per tab and rejects stale search updates", () =
         message: "",
     });
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "second.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "second.log" });
     const secondTab = store.activeTab;
     assert.ok(secondTab !== null);
     // 新しいTabには別のcontextを作り、元のTabへ戻ると検索条件と結果を復元する。
@@ -451,7 +473,7 @@ test("Store searches and jumps without exposing Ops in its UI result", () => {
     const store = new Store();
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
-    store.dispatch({ type: "FILE_OPEN", fileName: "search.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "search.log" });
     const tab = store.activeTab;
     assert.ok(tab !== null);
     const parsed = createTrace("search.log");
@@ -522,13 +544,12 @@ test("Store restores and publishes persistent view settings", () => {
     assert.equal(restored.splitLanes, false);
     assert.equal(restored.fixOpHeight, false);
 
-    const renderer = new KonataRenderer();
-    store.dispatch({ type: "FILE_OPEN", fileName: "restored.log", renderer });
+    store.dispatch({ type: "FILE_OPEN", fileName: "restored.log" });
     const tab = store.activeTab;
     assert.ok(tab !== null);
     assert.equal(tab.splitterPosition, 321);
-    assert.equal(renderer.colorScheme, "RoyalBlue");
-    assert.equal(renderer.theme, "light");
+    assert.equal(tab.renderSpec.colorScheme, "RoyalBlue");
+    assert.equal(tab.renderSpec.theme, "light");
 
     store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "dark" });
     store.dispatch({ type: "KONATA_SET_DEP_ARROW_TYPE", arrowType: DEP_ARROW_TYPE.NOT_SHOW });
@@ -572,8 +593,7 @@ test("Store separates global view settings from tab-specific settings", () => {
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
 
-    const firstRenderer = new KonataRenderer();
-    store.dispatch({ type: "FILE_OPEN", fileName: "first.log", renderer: firstRenderer });
+    store.dispatch({ type: "FILE_OPEN", fileName: "first.log" });
     const firstTab = store.activeTab;
     assert.ok(firstTab !== null);
     store.dispatch({
@@ -596,47 +616,46 @@ test("Store separates global view settings from tab-specific settings", () => {
         value: 12,
     });
 
-    const secondRenderer = new KonataRenderer();
-    store.dispatch({ type: "FILE_OPEN", fileName: "second.log", renderer: secondRenderer });
+    store.dispatch({ type: "FILE_OPEN", fileName: "second.log" });
     const secondTab = store.activeTab;
     assert.ok(secondTab !== null);
 
-    // 全体設定は既存Rendererと新しいRendererの双方へ同じ値を適用する。
-    for (const renderer of [firstRenderer, secondRenderer]) {
-        assert.equal(renderer.theme, "light");
-        assert.equal(renderer.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
-        assert.equal(renderer.splitLanes, true);
-        assert.equal(renderer.fixOpHeight, true);
-        assert.equal(renderer.textLabelMinimumLaneHeight, 12);
+    // 全体設定は既存Specと新しいSpecの双方へ同じ値を適用する。
+    for (const spec of [firstTab.renderSpec, secondTab.renderSpec]) {
+        assert.equal(spec.theme, "light");
+        assert.equal(spec.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
+        assert.equal(spec.splitLanes, true);
+        assert.equal(spec.fixOpHeight, true);
+        assert.equal(spec.textLabelMinimumLaneHeight, 12);
     }
     assert.equal(store.getSnapshot().settings.theme, "light");
     assert.ok(changes.some((change) => change.type === "WINDOW_CSS_UPDATE"));
     assert.ok(changes.some((change) =>
         change.type === "PANE_CONTENT_UPDATE" && change.tabID === null));
 
-    // Custom定義は全体設定なので、既存の全Rendererへ同じ値を即時反映する。
+    // Custom定義は全体設定なので、既存の全Specへ同じ値を即時反映する。
     const customColorScheme = {
         ...DEFAULT_CUSTOM_COLOR_SCHEME,
         defaultColor: { ...DEFAULT_CUSTOM_COLOR_SCHEME.defaultColor, h: 210 },
     };
     store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });
-    assert.deepEqual(firstRenderer.customColorScheme, customColorScheme);
-    assert.deepEqual(secondRenderer.customColorScheme, customColorScheme);
+    assert.deepEqual(firstTab.renderSpec.customColorScheme, customColorScheme);
+    assert.deepEqual(secondTab.renderSpec.customColorScheme, customColorScheme);
 
     // 色方式は最後の選択を新規Tabの既定値にするが、変更対象は指定したTabだけに限る。
-    assert.equal(firstRenderer.colorScheme, "Custom");
-    assert.equal(secondRenderer.colorScheme, "Custom");
+    assert.equal(firstTab.renderSpec.colorScheme, "Custom");
+    assert.equal(secondTab.renderSpec.colorScheme, "Custom");
     store.dispatch({
         type: "KONATA_CHANGE_COLOR_SCHEME",
         tabID: secondTab.id,
         scheme: "RoyalBlue",
     });
-    assert.equal(firstRenderer.colorScheme, "Custom");
-    assert.equal(secondRenderer.colorScheme, "RoyalBlue");
+    assert.equal(firstTab.renderSpec.colorScheme, "Custom");
+    assert.equal(secondTab.renderSpec.colorScheme, "RoyalBlue");
 
     // flush非表示は旧Tabと同じく新規Tabへ引き継がず、各Tabで独立させる。
-    assert.equal(firstRenderer.hideFlushedOps, true);
-    assert.equal(secondRenderer.hideFlushedOps, false);
+    assert.equal(firstTab.renderSpec.hideFlushedOps, true);
+    assert.equal(secondTab.renderSpec.hideFlushedOps, false);
 
     store.dispatch({ type: "STORE_CLOSE" });
 });
@@ -646,7 +665,7 @@ test("Store keeps splitter positions per tab and carries the latest position to 
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "first.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "first.log" });
     const firstTab = store.activeTab;
     assert.ok(firstTab !== null);
     // 初期値450pxは旧Configに合わせ、移動後も対象Tabだけを書き換える。
@@ -654,7 +673,7 @@ test("Store keeps splitter positions per tab and carries the latest position to 
     store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: firstTab.id, position: 320 });
     assert.equal(firstTab.splitterPosition, 320);
 
-    store.dispatch({ type: "FILE_OPEN", fileName: "second.log", renderer: new KonataRenderer() });
+    store.dispatch({ type: "FILE_OPEN", fileName: "second.log" });
     const secondTab = store.activeTab;
     assert.ok(secondTab !== null);
     // 旧Configと同様、新しく開くTabは最後に選んだ幅から開始する。

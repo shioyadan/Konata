@@ -67,6 +67,65 @@ const DEFAULT_CUSTOM_COLOR_SCHEMES: Readonly<Record<string, CustomColorScheme>> 
     Custom: DEFAULT_CUSTOM_COLOR_SCHEME,
 };
 
+/**
+ * KonataRendererへ渡す再現可能な描画指定。
+ *
+ * Traceとこの値が同じなら、Canvasの寸法とdevicePixelRatioを除く描画結果も同じになる。
+ * Canvas寸法はDOM layoutの結果なのでここへ含めず、TraceSheetが描画時に与える。
+ * Renderer内部に残す値は、この指定から再計算できるscaleやfontなどの派生値だけとする。
+ */
+export interface KonataRenderSpec {
+    readonly position: readonly [number, number];
+    readonly zoomLevel: number;
+    readonly theme: RendererTheme;
+    readonly colorScheme: string;
+    readonly customColorScheme: Readonly<CustomColorScheme>;
+    readonly dependencyArrowType: DependencyArrowType;
+    readonly splitLanes: boolean;
+    readonly fixOpHeight: boolean;
+    readonly hideFlushedOps: boolean;
+    readonly textLabelMinimumLaneHeight: number;
+    readonly stageDetailMinimumLaneHeight: number;
+    readonly dependencyArrowMinimumLaneHeight: number;
+    readonly stageBorderMinimumLaneHeight: number;
+}
+
+const ZOOM_RATIO = 1;
+const MAX_ZOOM_LEVEL = 24;
+
+export const DEFAULT_KONATA_RENDER_SPEC: Readonly<KonataRenderSpec> = {
+    position: [0, 0],
+    zoomLevel: 0,
+    theme: "dark",
+    colorScheme: "Auto",
+    customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
+    dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
+    splitLanes: false,
+    fixOpHeight: false,
+    hideFlushedOps: false,
+    textLabelMinimumLaneHeight: 10,
+    stageDetailMinimumLaneHeight: 1,
+    dependencyArrowMinimumLaneHeight: 4,
+    stageBorderMinimumLaneHeight: 4,
+};
+
+export function clampKonataZoomLevel(zoomLevel: number): number {
+    return Math.max(-1, Math.min(MAX_ZOOM_LEVEL, zoomLevel));
+}
+
+export function getKonataZoomScale(zoomLevel: number): number {
+    return 2 ** (-zoomLevel * ZOOM_RATIO);
+}
+
+export function formatKonataZoomPercent(zoomLevel: number): string {
+    const percent = getKonataZoomScale(zoomLevel) * 100;
+    // 大幅に縮小しても0%に丸めず、ツールバー内に収まる桁数で倍率を示す。
+    const value = percent >= 0.01
+        ? Number(percent.toPrecision(3)).toString()
+        : percent.toExponential(1);
+    return `${value}%`;
+}
+
 // 旧Rendererのlabel paneと同じ表示形式を、Canvasとテストから共有する。
 export function formatOpLabel(id: number, op: Op): string {
     return `${id}: s${op.gid} (t${op.tid}: r${op.rid}): ${op.labelName}`;
@@ -87,8 +146,6 @@ export class KonataRenderer {
     dependencyArrowMinimumLaneHeight = 4;
     stageBorderMinimumLaneHeight = 4;
 
-    private static readonly ZOOM_RATIO = 1;
-    private static readonly MAX_ZOOM_LEVEL = 24;
     private static readonly LANE_HEIGHT_MARGIN = 2;
     // Canvasの矩形をpixel境界へ合わせ、ぼけを抑える補正値。
     private static readonly PIXEL_ADJUST = 0.5;
@@ -126,13 +183,30 @@ export class KonataRenderer {
         this.updateScaleParameter_();
     }
 
-    setTrace(trace: ParsedTrace | null): void {
-        // 非表示tabを再表示するだけなら、tab固有の座標と倍率を維持する。
-        if (this.trace_ === trace) {
-            return;
-        }
+    // Storeの計算用engineとTraceSheetの描画用engineを、同じ正式入力へ同期する。
+    setInput(trace: ParsedTrace | null, spec: Readonly<KonataRenderSpec>): void {
         this.trace_ = trace;
-        this.resetView();
+        this.viewPosition_ = { left: spec.position[0], top: spec.position[1] };
+        this.zoomLevel_ = clampKonataZoomLevel(spec.zoomLevel);
+        this.zoomScale_ = getKonataZoomScale(this.zoomLevel_);
+        this.theme_ = spec.theme;
+        this.style_ = spec.theme === "light" ? lightStyle : darkStyle;
+        this.colorScheme_ = spec.colorScheme;
+        this.customColorSchemes_ = { Custom: spec.customColorScheme };
+        this.dependencyArrowType_ = spec.dependencyArrowType;
+        this.splitLanes_ = spec.splitLanes;
+        this.fixOpHeight_ = spec.fixOpHeight;
+        this.hideFlushedOps_ = spec.hideFlushedOps;
+        this.textLabelMinimumLaneHeight = spec.textLabelMinimumLaneHeight;
+        this.stageDetailMinimumLaneHeight = spec.stageDetailMinimumLaneHeight;
+        this.dependencyArrowMinimumLaneHeight = spec.dependencyArrowMinimumLaneHeight;
+        this.stageBorderMinimumLaneHeight = spec.stageBorderMinimumLaneHeight;
+        this.updateScaleParameter_();
+    }
+
+    setTrace(trace: ParsedTrace | null): void {
+        this.trace_ = trace;
+        this.updateScaleParameter_();
     }
 
     resetView(): void {
@@ -167,12 +241,7 @@ export class KonataRenderer {
     }
 
     get zoomPercentLabel(): string {
-        const percent = this.zoomPercent;
-        // 大幅に縮小しても0%に丸めず、ツールバー内に収まる桁数で倍率を示す。
-        const value = percent >= 0.01
-            ? Number(percent.toPrecision(3)).toString()
-            : percent.toExponential(1);
-        return `${value}%`;
+        return formatKonataZoomPercent(this.zoomLevel_);
     }
 
     // 縦方向は24px/opなので、2^5より小さくなった時だけ取得解像度を落とす。
@@ -254,7 +323,7 @@ export class KonataRenderer {
     }
 
     clampZoomLevel(zoomLevel: number): number {
-        return Math.max(-1, Math.min(KonataRenderer.MAX_ZOOM_LEVEL, zoomLevel));
+        return clampKonataZoomLevel(zoomLevel);
     }
 
     zoomAbs(zoomLevel: number, posX: number, posY: number, compensatePosition = true): void {
@@ -494,10 +563,29 @@ export class KonataRenderer {
         this.drawPipeline_(pipelineCanvas, pipelineSize);
     }
 
+    drawSpec(
+        trace: ParsedTrace | null,
+        spec: Readonly<KonataRenderSpec>,
+        labelCanvas: HTMLCanvasElement,
+        pipelineCanvas: HTMLCanvasElement,
+    ): void {
+        this.setInput(trace, spec);
+        this.draw(labelCanvas, pipelineCanvas);
+    }
+
     drawLabel(labelCanvas: HTMLCanvasElement): void {
         const labelSize = this.prepareCanvas_(labelCanvas);
         this.updateScaleParameter_();
         this.drawLabel_(labelCanvas, labelSize);
+    }
+
+    drawLabelSpec(
+        trace: ParsedTrace | null,
+        spec: Readonly<KonataRenderSpec>,
+        labelCanvas: HTMLCanvasElement,
+    ): void {
+        this.setInput(trace, spec);
+        this.drawLabel(labelCanvas);
     }
 
     drawPipeline(
@@ -521,6 +609,19 @@ export class KonataRenderer {
             this.renderingColorScheme_ = previousColorScheme;
             this.renderingReference_ = previousReference;
         }
+    }
+
+    drawPipelineSpec(
+        trace: ParsedTrace | null,
+        spec: Readonly<KonataRenderSpec>,
+        pipelineCanvas: HTMLCanvasElement,
+        width?: number,
+        height?: number,
+        colorScheme?: string,
+        referenceOnly = false,
+    ): void {
+        this.setInput(trace, spec);
+        this.drawPipeline(pipelineCanvas, width, height, colorScheme, referenceOnly);
     }
 
     composePipelineLayers(
@@ -550,7 +651,7 @@ export class KonataRenderer {
     }
 
     private calcScale_(level: number): number {
-        return 2 ** (-level * KonataRenderer.ZOOM_RATIO);
+        return getKonataZoomScale(level);
     }
 
     private updateScaleParameter_(): void {

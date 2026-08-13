@@ -11,7 +11,11 @@ import {
 import { BsX } from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
-import { COMPARISON_COLOR_SCHEME, KonataRenderer } from "../renderer/konata_renderer";
+import {
+    COMPARISON_COLOR_SCHEME,
+    KonataRenderer,
+    type KonataRenderSpec,
+} from "../renderer/konata_renderer";
 import type { ComparisonMode, FindResult, LoadState } from "../store";
 
 declare const __KONATA_VERSION__: string;
@@ -48,22 +52,27 @@ export interface TraceSheetHandle {
 }
 
 interface TraceSheetProps {
-    readonly renderer: KonataRenderer;
     readonly trace: ParsedTrace | null;
+    readonly renderSpec: Readonly<KonataRenderSpec>;
     readonly loadState: LoadState;
     readonly errorMessage: string;
     readonly renderVersion: number;
     readonly findResult: FindResult | null;
     readonly comparison: {
-        readonly baselineRenderer: KonataRenderer;
+        readonly baselineTrace: ParsedTrace | null;
+        readonly baselineRenderSpec: Readonly<KonataRenderSpec>;
         readonly mode: ComparisonMode;
         readonly opacity: number;
     } | null;
     readonly splitterPosition: number;
     readonly onMoveSplitter: (position: number) => void;
-    readonly onMutateView: (
-        mutation: (renderer: KonataRenderer) => void,
-        synchronizeComparison?: boolean,
+    readonly onPanView: (deltaX: number, deltaY: number) => void;
+    readonly onPinchView: (
+        panDeltaX: number,
+        panDeltaY: number,
+        zoomLevelDifference: number,
+        centerX: number,
+        centerY: number,
     ) => void;
     readonly onMoveView: (difference: readonly [number, number], adjustHorizontal: boolean) => void;
     readonly onScrollView: (position: readonly [number, number]) => void;
@@ -96,8 +105,8 @@ function highlightMatches(line: string, pattern: string): HighlightedText[] {
 
 // 旧app_sheetに相当し、label/pipeline Canvasとその直接操作を同じ単位で所有する。
 export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function TraceSheet({
-    renderer,
     trace,
+    renderSpec,
     loadState,
     errorMessage,
     renderVersion,
@@ -105,7 +114,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     comparison,
     splitterPosition,
     onMoveSplitter,
-    onMutateView,
+    onPanView,
+    onPinchView,
     onMoveView,
     onScrollView,
     onZoomView,
@@ -117,12 +127,28 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const rendererRef = useRef<KonataRenderer | null>(null);
+    const baselineRendererRef = useRef<KonataRenderer | null>(null);
+    if (rendererRef.current === null) {
+        rendererRef.current = new KonataRenderer();
+    }
+    if (baselineRendererRef.current === null) {
+        baselineRendererRef.current = new KonataRenderer();
+    }
+    const renderer = rendererRef.current;
+    const baselineRenderer = comparison === null ? null : baselineRendererRef.current;
+    const baselineTrace = comparison?.baselineTrace ?? null;
+    const baselineRenderSpec = comparison?.baselineRenderSpec ?? null;
+    // event処理にも同じ派生値を使うため、描画前だけでなく各renderで正式入力へ同期する。
+    renderer.setInput(trace, renderSpec);
+    if (baselineRenderer !== null && baselineRenderSpec !== null) {
+        baselineRenderer.setInput(baselineTrace, baselineRenderSpec);
+    }
     const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
     const splitterDraggingRef = useRef(false);
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
-    const baselineRenderer = comparison?.baselineRenderer ?? null;
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
     // A単独表示だけはラベルとマウス参照もAへ切り替え、それ以外はBを前面の情報源にする。
@@ -148,13 +174,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
         if (labelCanvas !== null && pipelineCanvas !== null) {
-            if (baselineRenderer === null || comparisonMode === null) {
-                renderer.draw(labelCanvas, pipelineCanvas);
+            if (baselineRenderer === null || comparisonMode === null || baselineRenderSpec === null) {
+                renderer.drawSpec(trace, renderSpec, labelCanvas, pipelineCanvas);
                 delete pipelineCanvas.dataset.comparisonMode;
                 return;
             }
 
-            displayRenderer.drawLabel(labelCanvas);
+            const displayTrace = comparisonMode === "baseline" ? baselineTrace : trace;
+            const displaySpec = comparisonMode === "baseline" && baselineRenderSpec !== null
+                ? baselineRenderSpec
+                : renderSpec;
+            displayRenderer.drawLabelSpec(displayTrace, displaySpec, labelCanvas);
             pipelineCanvas.dataset.comparisonMode = comparisonMode;
             // A/Bをそれぞれ不透明な完成画像にしてから、表示Canvasへ全体を一度だけ合成する。
             const baselineLayer = baselineLayerCanvasRef.current ?? document.createElement("canvas");
@@ -164,13 +194,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             const width = pipelineCanvas.clientWidth;
             const height = pipelineCanvas.clientHeight;
             if (comparisonMode === "baseline") {
-                baselineRenderer.drawPipeline(
+                baselineRenderer.drawPipelineSpec(
+                    baselineTrace,
+                    baselineRenderSpec,
                     baselineLayer,
                     width,
                     height,
                     COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
                 );
-                renderer.drawPipeline(
+                renderer.drawPipelineSpec(
+                    trace,
+                    renderSpec,
                     candidateLayer,
                     width,
                     height,
@@ -181,13 +215,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     pipelineCanvas, baselineLayer, candidateLayer, COMPARISON_REFERENCE_OPACITY);
             }
             else if (comparisonMode === "candidate") {
-                renderer.drawPipeline(
+                renderer.drawPipelineSpec(
+                    trace,
+                    renderSpec,
                     candidateLayer,
                     width,
                     height,
                     COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
                 );
-                baselineRenderer.drawPipeline(
+                baselineRenderer.drawPipelineSpec(
+                    baselineTrace,
+                    baselineRenderSpec,
                     baselineLayer,
                     width,
                     height,
@@ -198,13 +236,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     pipelineCanvas, candidateLayer, baselineLayer, COMPARISON_REFERENCE_OPACITY);
             }
             else {
-                baselineRenderer.drawPipeline(
+                baselineRenderer.drawPipelineSpec(
+                    baselineTrace,
+                    baselineRenderSpec,
                     baselineLayer,
                     width,
                     height,
                     COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
                 );
-                renderer.drawPipeline(
+                renderer.drawPipelineSpec(
+                    trace,
+                    renderSpec,
                     candidateLayer,
                     width,
                     height,
@@ -214,7 +256,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     pipelineCanvas, baselineLayer, candidateLayer, comparisonOpacity);
             }
         }
-    }, [baselineRenderer, comparisonMode, comparisonOpacity, displayRenderer, renderer]);
+    }, [
+        baselineRenderSpec,
+        baselineRenderer,
+        baselineTrace,
+        comparisonMode,
+        comparisonOpacity,
+        displayRenderer,
+        renderSpec,
+        renderer,
+        trace,
+    ]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
@@ -227,10 +279,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     }), [resetPipelineCanvases]);
 
     useLayoutEffect(() => resetPipelineCanvases, [resetPipelineCanvases]);
-
-    useLayoutEffect(() => {
-        renderer.setTrace(trace);
-    }, [renderer, trace]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
@@ -328,7 +376,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         if (positions.size === 1) {
             // 紙を掴む感覚に合わせ、pointer移動と逆向きへviewを進める。
-            onMutateView((target) => target.panPixels(previous.x - event.clientX, previous.y - event.clientY));
+            onPanView(previous.x - event.clientX, previous.y - event.clientY);
             positions.set(event.pointerId, { x: event.clientX, y: event.clientY });
             return;
         }
@@ -358,16 +406,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const factor = currentDistance / previousDistance;
-        onMutateView((target) => {
-            // 2点の中心移動もpanとして反映し、指の間にあった位置をzoom後も維持する。
-            target.panPixels(previousCenter.x - currentCenter.x, previousCenter.y - currentCenter.y);
-            target.zoomAbs(
-                // Rendererのscaleは2^-levelなので、距離比を連続したlevel差へ変換する。
-                target.zoomLevel - Math.log2(factor),
-                Math.max(0, currentCenter.x - pipelineRect.left),
-                Math.max(0, currentCenter.y - pipelineRect.top),
-            );
-        }, true);
+        // 2点の中心移動もpanとして反映し、指の間にあった位置をzoom後も維持する。
+        onPinchView(
+            previousCenter.x - currentCenter.x,
+            previousCenter.y - currentCenter.y,
+            // Rendererのscaleは2^-levelなので、距離比を連続したlevel差へ変換する。
+            -Math.log2(factor),
+            Math.max(0, currentCenter.x - pipelineRect.left),
+            Math.max(0, currentCenter.y - pipelineRect.top),
+        );
     };
 
     const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
@@ -545,7 +592,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     onPointerDown={(event) => event.stopPropagation()}
                 >
                     <div className="find-result-content">
-                        {renderer.hideFlushedOps && findResult.flushed && (
+                        {renderSpec.hideFlushedOps && findResult.flushed && (
                             <div>A found op is not shown because it is flushed.</div>
                         )}
                         {findResultLines.map((line, lineIndex) => (

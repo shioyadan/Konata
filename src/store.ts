@@ -14,10 +14,12 @@ import {
 } from "./recent_files";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
+    DEFAULT_KONATA_RENDER_SPEC,
     DEP_ARROW_TYPE,
     KonataRenderer,
     type CustomColorScheme,
     type DependencyArrowType,
+    type KonataRenderSpec,
     type RendererTheme,
 } from "./renderer/konata_renderer";
 import {
@@ -32,6 +34,11 @@ import {
 export type LoadState = "idle" | "loading" | "ready" | "error";
 export type Operation = "load" | "search";
 export type ComparisonMode = "baseline" | "overlay" | "candidate";
+export type KonataViewTarget = "selected" | "both";
+export interface KonataView {
+    readonly position: readonly [number, number];
+    readonly zoomLevel: number;
+}
 export type MinimumLaneHeightKey =
     | "textLabelMinimumLaneHeight"
     | "stageDetailMinimumLaneHeight"
@@ -133,7 +140,6 @@ export type Action =
     | {
         readonly type: "FILE_OPEN";
         readonly fileName: string;
-        readonly renderer: KonataRenderer;
         readonly access?: TraceFileAccess;
     }
     | { readonly type: "FILE_RELOAD"; readonly tabID: number }
@@ -212,13 +218,47 @@ export type Action =
         readonly value: number;
     }
     | { readonly type: "KONATA_CHANGE_ZOOM_FACTOR"; readonly value: number }
-    // 現行UIのRenderer操作をそのまま保つための移行用action。同期scrollを戻す段階で必要な操作だけ具体化する。
     | {
-        readonly type: "KONATA_MUTATE_VIEW";
+        readonly type: "KONATA_SET_VIEW";
         readonly tabID: number;
-        readonly mutation?: (renderer: KonataRenderer) => void;
-        // 比較表示では、各Rendererの現在位置を起点にした操作を別々に渡す。
-        readonly baselineMutation?: (renderer: KonataRenderer) => void;
+        readonly view?: KonataView;
+        readonly baselineView?: KonataView;
+    }
+    | {
+        readonly type: "KONATA_SET_ZOOM";
+        readonly tabID: number;
+        readonly zoomLevel: number;
+        readonly centerX: number;
+        readonly centerY: number;
+        readonly target: KonataViewTarget;
+    }
+    | {
+        readonly type: "KONATA_PAN_VIEW";
+        readonly tabID: number;
+        readonly deltaX: number;
+        readonly deltaY: number;
+        readonly target: KonataViewTarget;
+    }
+    | {
+        readonly type: "KONATA_PINCH_VIEW";
+        readonly tabID: number;
+        readonly panDeltaX: number;
+        readonly panDeltaY: number;
+        readonly zoomLevelDifference: number;
+        readonly centerX: number;
+        readonly centerY: number;
+    }
+    | {
+        readonly type: "KONATA_MOVE_VIEW_REQUEST";
+        readonly tabID: number;
+        readonly difference: readonly [number, number];
+        readonly adjustHorizontal: boolean;
+        readonly basePosition?: readonly [number, number];
+        readonly baselineBasePosition?: readonly [number, number];
+    }
+    | {
+        readonly type: "KONATA_ADJUST_VIEW_REQUEST";
+        readonly tabID: number;
     };
 
 export type Change =
@@ -234,6 +274,9 @@ export type Change =
         readonly type: "VIEW_SCROLL_REQUEST";
         readonly tabID: number;
         readonly position: readonly [number, number];
+        readonly baselinePosition?: readonly [number, number];
+        readonly candidatePosition?: readonly [number, number];
+        readonly accumulate?: boolean;
     }
     // nullは全TabのRendererへ同じ変更を適用したことを表す。
     | { readonly type: "PANE_CONTENT_UPDATE"; readonly tabID: number | null }
@@ -274,14 +317,17 @@ function makeFindTargetString(op: Op): string {
     return labelString;
 }
 
-// 旧Tabと同じく、1つの入力、その命令列、Renderer状態を同じ寿命で所有する。
+// 座標計算用RendererはStore module内だけの派生engineとし、snapshotの公開APIにしない。
+const RENDER_ENGINE: unique symbol = Symbol("renderEngine");
+const BASELINE_RENDER_ENGINE: unique symbol = Symbol("baselineRenderEngine");
+
+// 1つの入力と命令列に加え、再現可能な描画指定を同じ寿命で所有する。
+// renderEngineは検索・座標変換用であり、正式状態は常にrenderSpecである。
 export class Tab {
     readonly kind = "trace";
     private loadAbortController_ = new AbortController();
-    private reloadView_: {
-        readonly position: readonly [number, number];
-        readonly zoom: number;
-    } | null = null;
+    readonly [RENDER_ENGINE] = new KonataRenderer();
+    private renderSpec_: Readonly<KonataRenderSpec>;
     trace: ParsedTrace | null = null;
     loadState: LoadState = "loading";
     progress = 0;
@@ -292,9 +338,16 @@ export class Tab {
     constructor(
         readonly id: number,
         readonly fileName: string,
-        readonly renderer: KonataRenderer,
+        renderSpec: Readonly<KonataRenderSpec>,
         public splitterPosition = DEFAULT_SPLITTER_POSITION,
-    ) {}
+    ) {
+        this.renderSpec_ = renderSpec;
+        this.syncRenderEngine();
+    }
+
+    get renderSpec(): Readonly<KonataRenderSpec> {
+        return this.renderSpec_;
+    }
 
     get loadSignal(): AbortSignal {
         return this.loadAbortController_.signal;
@@ -302,33 +355,43 @@ export class Tab {
 
     setTrace(trace: ParsedTrace): void {
         if (this.trace === trace) {
+            // 読込み途中は同じTrace object内のlane数や末尾が増えるため、派生値だけ更新する。
+            this.syncRenderEngine();
             return;
         }
         const previousTrace = this.trace;
         this.trace = trace;
-        this.renderer.setTrace(trace);
-        if (this.reloadView_ !== null) {
-            this.renderer.zoomAbs(this.reloadView_.zoom, 0, 0, false);
-            this.renderer.moveLogicalPosition(this.reloadView_.position);
-            this.reloadView_ = null;
-        }
+        this.syncRenderEngine();
         previousTrace?.close();
+    }
+
+    setRenderSpec(spec: Readonly<KonataRenderSpec>): void {
+        this.renderSpec_ = spec;
+        this.syncRenderEngine();
+    }
+
+    captureRenderSpec(): void {
+        this.setRenderSpec({
+            ...this.renderSpec,
+            position: this[RENDER_ENGINE].viewPosition,
+            zoomLevel: this[RENDER_ENGINE].zoomLevel,
+        });
+    }
+
+    private syncRenderEngine(): void {
+        this[RENDER_ENGINE].setInput(this.trace, this.renderSpec);
     }
 
     beginReload(): void {
         const previousTrace = this.trace;
         this.trace = null;
-        this.reloadView_ = {
-            position: this.renderer.viewPosition,
-            zoom: this.renderer.zoomLevel,
-        };
         this.loadAbortController_.abort();
         this.loadAbortController_ = new AbortController();
         this.findContext.requestID++;
         this.findContext.progress = null;
         this.findContext.result = null;
         this.findContext.message = "";
-        this.renderer.setTrace(null);
+        this.syncRenderEngine();
         previousTrace?.close();
         this.loadState = "loading";
         this.progress = 0;
@@ -345,14 +408,13 @@ export class Tab {
         this.findContext.progress = null;
         this.findContext.result = null;
         this.findContext.message = "";
-        this.reloadView_ = null;
-        // Renderer側の参照も外し、このtabを閉じるだけでtrace全体を回収できるようにする。
-        this.renderer.setTrace(null);
+        // 計算用engineの参照も外し、このtabを閉じるだけでtrace全体を回収できるようにする。
+        this.syncRenderEngine();
         trace?.close();
     }
 }
 
-// 比較Tabは元Tabの表示状態を変更せず、同じTraceを別Rendererから参照する。
+// 比較Tabは元Tabの表示状態を変更せず、同じTraceを独立した描画指定から参照する。
 // retainしたTraceだけを所有するため、元Tabを閉じてもOpStoreは比較Tabの間は生存する。
 export class ComparisonTab {
     readonly kind = "comparison";
@@ -362,8 +424,10 @@ export class ComparisonTab {
     readonly findContext = createFindContext();
     trace: ParsedTrace | null;
     baselineTrace: ParsedTrace | null;
-    readonly renderer: KonataRenderer;
-    readonly baselineRenderer: KonataRenderer;
+    readonly [RENDER_ENGINE] = new KonataRenderer();
+    readonly [BASELINE_RENDER_ENGINE] = new KonataRenderer();
+    private renderSpec_: Readonly<KonataRenderSpec>;
+    private baselineRenderSpec_: Readonly<KonataRenderSpec>;
     mode: ComparisonMode = "overlay";
     opacity = 0.5;
 
@@ -376,21 +440,56 @@ export class ComparisonTab {
         readonly candidateSourceTabID: number,
         baselineTrace: ParsedTrace,
         candidateTrace: ParsedTrace,
-        baselineRenderer: KonataRenderer,
-        candidateRenderer: KonataRenderer,
+        baselineRenderSpec: Readonly<KonataRenderSpec>,
+        candidateRenderSpec: Readonly<KonataRenderSpec>,
         public splitterPosition = DEFAULT_SPLITTER_POSITION,
     ) {
         this.baselineTrace = baselineTrace.retain();
         this.trace = candidateTrace.retain();
-        this.baselineRenderer = baselineRenderer;
-        this.renderer = candidateRenderer;
-        this.baselineRenderer.setTrace(this.baselineTrace);
-        this.renderer.setTrace(this.trace);
+        this.baselineRenderSpec_ = baselineRenderSpec;
+        this.renderSpec_ = candidateRenderSpec;
+        this.syncRenderEngines();
+    }
+
+    get renderSpec(): Readonly<KonataRenderSpec> {
+        return this.renderSpec_;
+    }
+
+    get baselineRenderSpec(): Readonly<KonataRenderSpec> {
+        return this.baselineRenderSpec_;
+    }
+
+    setRenderSpec(spec: Readonly<KonataRenderSpec>): void {
+        this.renderSpec_ = spec;
+        this[RENDER_ENGINE].setInput(this.trace, spec);
+    }
+
+    setBaselineRenderSpec(spec: Readonly<KonataRenderSpec>): void {
+        this.baselineRenderSpec_ = spec;
+        this[BASELINE_RENDER_ENGINE].setInput(this.baselineTrace, spec);
+    }
+
+    captureRenderSpecs(): void {
+        this.setRenderSpec({
+            ...this.renderSpec,
+            position: this[RENDER_ENGINE].viewPosition,
+            zoomLevel: this[RENDER_ENGINE].zoomLevel,
+        });
+        this.setBaselineRenderSpec({
+            ...this.baselineRenderSpec,
+            position: this[BASELINE_RENDER_ENGINE].viewPosition,
+            zoomLevel: this[BASELINE_RENDER_ENGINE].zoomLevel,
+        });
+    }
+
+    private syncRenderEngines(): void {
+        this[RENDER_ENGINE].setInput(this.trace, this.renderSpec);
+        this[BASELINE_RENDER_ENGINE].setInput(this.baselineTrace, this.baselineRenderSpec);
     }
 
     alignCandidateToBaseline(): number | null {
-        const baseline = this.baselineRenderer;
-        const candidate = this.renderer;
+        const baseline = this[BASELINE_RENDER_ENGINE];
+        const candidate = this[RENDER_ENGINE];
         const originalBaselinePosition = baseline.viewPosition;
         const adjustedBaselinePosition = baseline.getAdjustedViewPosition();
         if (adjustedBaselinePosition === null) {
@@ -424,6 +523,7 @@ export class ComparisonTab {
             candidateAnchor.fetchedCycle + baselineX - baselineAnchor.fetchedCycle,
             candidateY + baselineTopY - baselineY,
         ]);
+        this.captureRenderSpecs();
         return baselineAnchor.rid;
     }
 
@@ -436,8 +536,7 @@ export class ComparisonTab {
         this.findContext.progress = null;
         this.findContext.result = null;
         this.findContext.message = "";
-        this.renderer.setTrace(null);
-        this.baselineRenderer.setTrace(null);
+        this.syncRenderEngines();
         candidateTrace?.close();
         baselineTrace?.close();
     }
@@ -620,13 +719,10 @@ export class Store {
             return;
         }
         case "FILE_OPEN": {
-            // 新しいTabにも、その時点の全体設定を既存Tabと同じ値で適用する。
-            this.applyGlobalViewSettings_(action.renderer);
-            action.renderer.changeColorScheme(this.defaultColorScheme_);
             const tab = new Tab(
                 this.nextOpenedTabID_++,
                 action.fileName,
-                action.renderer,
+                this.createRenderSpec_(this.defaultColorScheme_),
                 this.defaultSplitterPosition_,
             );
             this.tabs_.set(tab.id, tab);
@@ -792,15 +888,14 @@ export class Store {
                 return;
             }
 
-            const baselineRenderer = new KonataRenderer();
-            const candidateRenderer = new KonataRenderer();
-            for (const renderer of [baselineRenderer, candidateRenderer]) {
-                this.applyGlobalViewSettings_(renderer);
-                renderer.hideFlushedOps = candidate.renderer.hideFlushedOps;
-            }
-            // A/B単独表示では各元TabのView配色をそのまま再現する。
-            baselineRenderer.changeColorScheme(baseline.renderer.colorScheme);
-            candidateRenderer.changeColorScheme(candidate.renderer.colorScheme);
+            // A/B単独表示では各元TabのView配色と位置をそのまま再現する。
+            // overlayの縮尺だけは最初から一致させ、同じ移動量が同じ画面距離になるようにする。
+            const candidateRenderSpec = { ...candidate.renderSpec };
+            const baselineRenderSpec = {
+                ...baseline.renderSpec,
+                zoomLevel: candidate.renderSpec.zoomLevel,
+                hideFlushedOps: candidate.renderSpec.hideFlushedOps,
+            };
             const comparison = new ComparisonTab(
                 this.nextOpenedTabID_++,
                 `${baseline.fileName} ↔ ${candidate.fileName}`,
@@ -810,16 +905,10 @@ export class Store {
                 candidate.id,
                 baseline.trace,
                 candidate.trace,
-                baselineRenderer,
-                candidateRenderer,
+                baselineRenderSpec,
+                candidateRenderSpec,
                 candidate.splitterPosition,
             );
-            // 比較元の位置関係はそのまま残し、以後は旧sync scrollと同じ相対操作で動かす。
-            // overlayの縮尺だけは最初から一致させ、同じ移動量が同じ画面距離になるようにする。
-            comparison.baselineRenderer.zoomAbs(candidate.renderer.zoomLevel, 0, 0, false);
-            comparison.baselineRenderer.moveLogicalPosition(baseline.renderer.viewPosition);
-            comparison.renderer.zoomAbs(candidate.renderer.zoomLevel, 0, 0, false);
-            comparison.renderer.moveLogicalPosition(candidate.renderer.viewPosition);
             this.tabs_.set(comparison.id, comparison);
             this.publish_(comparison.id, [
                 { type: "TAB_OPEN", tabID: comparison.id },
@@ -905,7 +994,7 @@ export class Store {
         case "KONATA_FIND_REPEAT_REQUEST": {
             const tab = this.tabs_.get(action.tabID);
             const result = tab?.findContext.result ?? null;
-            const anchorOp = result === null ? undefined : tab?.renderer.getOpFromID(result.anchorID);
+            const anchorOp = result === null ? undefined : tab?.[RENDER_ENGINE].getOpFromID(result.anchorID);
             if (tab === undefined || result === null || anchorOp === undefined) {
                 return;
             }
@@ -913,7 +1002,7 @@ export class Store {
                 type: "KONATA_FIND_REQUEST",
                 tabID: tab.id,
                 targetPattern: result.targetPattern,
-                basePosition: tab.renderer.getPositionYFromOp(anchorOp),
+                basePosition: tab[RENDER_ENGINE].getPositionYFromOp(anchorOp),
                 reverse: action.reverse,
                 viewport: action.viewport,
             });
@@ -921,7 +1010,7 @@ export class Store {
         }
         case "KONATA_JUMP_REQUEST": {
             const tab = this.tabs_.get(action.tabID);
-            const renderer = tab?.renderer;
+            const renderer = tab?.[RENDER_ENGINE];
             const op = action.target === "id"
                 ? renderer?.getVisibleOp(action.value)
                 : renderer?.getOpFromRID(action.value);
@@ -945,7 +1034,13 @@ export class Store {
                 }]);
             }
             else {
-                tab.renderer.moveLogicalPosition(position);
+                tab[RENDER_ENGINE].moveLogicalPosition(position);
+                if (tab.kind === "comparison") {
+                    tab.captureRenderSpecs();
+                }
+                else {
+                    tab.captureRenderSpec();
+                }
                 this.publish_(this.snapshot_.activeTabID, [{
                     type: "PANE_CONTENT_UPDATE",
                     tabID: tab.id,
@@ -1006,7 +1101,13 @@ export class Store {
                 }
                 else {
                     // 非表示Tabではanimationを持たず、再表示時に最終位置だけを復元する。
-                    tab.renderer.moveLogicalPosition(action.scrollPosition);
+                    tab[RENDER_ENGINE].moveLogicalPosition(action.scrollPosition);
+                    if (tab.kind === "comparison") {
+                        tab.captureRenderSpecs();
+                    }
+                    else {
+                        tab.captureRenderSpec();
+                    }
                 }
             }
             this.publish_(this.snapshot_.activeTabID, changes);
@@ -1054,9 +1155,7 @@ export class Store {
             }
             // 旧Configと同様に、選択値は対象Tabだけへ適用し、新しいTabの既定値にもする。
             this.defaultColorScheme_ = action.scheme;
-            for (const renderer of this.getRenderers_(tab)) {
-                renderer.changeColorScheme(action.scheme);
-            }
+            this.updateTabRenderSpecs_(tab, (spec) => ({ ...spec, colorScheme: action.scheme }));
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "VIEW_SETTINGS_UPDATE" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
@@ -1076,15 +1175,37 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
-            for (const renderer of this.getRenderers_(tab)) {
+            const apply = (
+                renderer: KonataRenderer,
+                trace: ParsedTrace | null,
+                spec: Readonly<KonataRenderSpec>,
+                setSpec: (value: Readonly<KonataRenderSpec>) => void,
+            ) => {
                 // 表示方式を変えても、各traceで現在の先頭命令とそのfetch位置を維持する。
                 const current = renderer.getOpFromPixelPositionY(0);
                 const rid = current?.rid ?? 0;
-                renderer.hideFlushedOps = action.enabled;
+                renderer.setInput(trace, {
+                    ...spec,
+                    hideFlushedOps: action.enabled,
+                });
                 const op = renderer.getOpFromRID(rid);
                 if (op !== undefined) {
                     renderer.moveLogicalPosition([op.fetchedCycle, action.enabled ? rid : op.id]);
                 }
+                setSpec({
+                    ...spec,
+                    hideFlushedOps: action.enabled,
+                    position: renderer.viewPosition,
+                });
+            };
+            apply(tab[RENDER_ENGINE], tab.trace, tab.renderSpec, (spec) => tab.setRenderSpec(spec));
+            if (tab.kind === "comparison") {
+                apply(
+                    tab[BASELINE_RENDER_ENGINE],
+                    tab.baselineTrace,
+                    tab.baselineRenderSpec,
+                    (spec) => tab.setBaselineRenderSpec(spec),
+                );
             }
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
@@ -1110,18 +1231,117 @@ export class Store {
             );
             return;
         }
-        case "KONATA_MUTATE_VIEW": {
+        case "KONATA_SET_VIEW": {
             const tab = this.tabs_.get(action.tabID);
             if (tab === undefined) {
                 return;
             }
-            action.mutation?.(tab.renderer);
-            if (tab.kind === "comparison" && action.baselineMutation !== undefined) {
-                action.baselineMutation(tab.baselineRenderer);
+            if (action.view !== undefined) {
+                this.setView_(tab, false, action.view);
+            }
+            if (tab.kind === "comparison" && action.baselineView !== undefined) {
+                this.setView_(tab, true, action.baselineView);
             }
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
+            return;
+        }
+        case "KONATA_SET_ZOOM": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            this.forEachTargetRenderEngine_(tab, action.target, (renderer) => {
+                renderer.zoomAbs(action.zoomLevel, action.centerX, action.centerY);
+            });
+            this.captureRenderSpecs_(tab);
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "KONATA_PAN_VIEW": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            this.forEachTargetRenderEngine_(tab, action.target, (renderer) => {
+                renderer.panPixels(action.deltaX, action.deltaY);
+            });
+            this.captureRenderSpecs_(tab);
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "KONATA_PINCH_VIEW": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            this.forEachTargetRenderEngine_(tab, "both", (renderer) => {
+                renderer.panPixels(action.panDeltaX, action.panDeltaY);
+                renderer.zoomAbs(
+                    renderer.zoomLevel + action.zoomLevelDifference,
+                    action.centerX,
+                    action.centerY,
+                );
+            });
+            this.captureRenderSpecs_(tab);
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "KONATA_MOVE_VIEW_REQUEST": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            const candidatePosition = this.getMoveTarget_(
+                tab[RENDER_ENGINE],
+                action.basePosition ?? tab.renderSpec.position,
+                action.difference,
+                action.adjustHorizontal,
+            );
+            const baselinePosition = tab.kind === "comparison"
+                ? this.getMoveTarget_(
+                    tab[BASELINE_RENDER_ENGINE],
+                    action.baselineBasePosition ?? tab.baselineRenderSpec.position,
+                    action.difference,
+                    action.adjustHorizontal,
+                )
+                : undefined;
+            const selectedPosition = tab.kind === "comparison" && tab.mode === "baseline"
+                ? baselinePosition ?? candidatePosition
+                : candidatePosition;
+            this.publish_(this.snapshot_.activeTabID, [{
+                type: "VIEW_SCROLL_REQUEST",
+                tabID: tab.id,
+                position: selectedPosition,
+                candidatePosition,
+                baselinePosition,
+                accumulate: true,
+            }]);
+            return;
+        }
+        case "KONATA_ADJUST_VIEW_REQUEST": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined) {
+                return;
+            }
+            const renderer = tab.kind === "comparison" && tab.mode === "baseline"
+                ? tab[BASELINE_RENDER_ENGINE]
+                : tab[RENDER_ENGINE];
+            const position = renderer.getAdjustedViewPosition();
+            if (position !== null) {
+                this.publish_(this.snapshot_.activeTabID, [{
+                    type: "VIEW_SCROLL_REQUEST",
+                    tabID: tab.id,
+                    position,
+                }]);
+            }
             return;
         }
         }
@@ -1214,7 +1434,7 @@ export class Store {
                 return;
             }
 
-            const renderer = tab.renderer;
+            const renderer = tab[RENDER_ENGINE];
             const [viewLeft, viewTop] = renderer.viewPosition;
             const moveTo = renderer.getPositionYFromOp(foundOp);
             let left = viewLeft;
@@ -1345,7 +1565,6 @@ export class Store {
         this.dispatch({
             type: "FILE_OPEN",
             fileName: file.name,
-            renderer: new KonataRenderer(),
             access,
         });
         const tab = this.activeTab;
@@ -1517,9 +1736,7 @@ export class Store {
     ): void {
         this.settings_ = settings;
         for (const tab of this.tabs_.values()) {
-            for (const renderer of this.getRenderers_(tab)) {
-                this.applyGlobalViewSettings_(renderer);
-            }
+            this.updateTabRenderSpecs_(tab, (spec) => this.applyGlobalViewSettings_(spec));
         }
         const changes: Change[] = [{ type: "PANE_CONTENT_UPDATE", tabID: null }];
         if (persist) {
@@ -1531,23 +1748,93 @@ export class Store {
         this.publish_(this.snapshot_.activeTabID, changes);
     }
 
-    private getRenderers_(tab: StoreTab): readonly KonataRenderer[] {
-        return tab.kind === "comparison"
-            ? [tab.renderer, tab.baselineRenderer]
-            : [tab.renderer];
+    private createRenderSpec_(colorScheme: string): Readonly<KonataRenderSpec> {
+        return this.applyGlobalViewSettings_({
+            ...DEFAULT_KONATA_RENDER_SPEC,
+            colorScheme,
+        });
     }
 
-    private applyGlobalViewSettings_(renderer: KonataRenderer): void {
+    private applyGlobalViewSettings_(
+        spec: Readonly<KonataRenderSpec>,
+    ): Readonly<KonataRenderSpec> {
         const settings = this.settings_;
-        renderer.setTheme(settings.theme);
-        renderer.setCustomColorSchemes({ Custom: settings.customColorScheme });
-        renderer.dependencyArrowType = settings.dependencyArrowType;
-        renderer.splitLanes = settings.splitLanes;
-        renderer.fixOpHeight = settings.fixOpHeight;
-        renderer.textLabelMinimumLaneHeight = settings.textLabelMinimumLaneHeight;
-        renderer.stageDetailMinimumLaneHeight = settings.stageDetailMinimumLaneHeight;
-        renderer.dependencyArrowMinimumLaneHeight = settings.dependencyArrowMinimumLaneHeight;
-        renderer.stageBorderMinimumLaneHeight = settings.stageBorderMinimumLaneHeight;
+        return {
+            ...spec,
+            theme: settings.theme,
+            customColorScheme: settings.customColorScheme,
+            dependencyArrowType: settings.dependencyArrowType,
+            splitLanes: settings.splitLanes,
+            fixOpHeight: settings.fixOpHeight,
+            textLabelMinimumLaneHeight: settings.textLabelMinimumLaneHeight,
+            stageDetailMinimumLaneHeight: settings.stageDetailMinimumLaneHeight,
+            dependencyArrowMinimumLaneHeight: settings.dependencyArrowMinimumLaneHeight,
+            stageBorderMinimumLaneHeight: settings.stageBorderMinimumLaneHeight,
+        };
+    }
+
+    private updateTabRenderSpecs_(
+        tab: StoreTab,
+        update: (spec: Readonly<KonataRenderSpec>) => Readonly<KonataRenderSpec>,
+    ): void {
+        tab.setRenderSpec(update(tab.renderSpec));
+        if (tab.kind === "comparison") {
+            tab.setBaselineRenderSpec(update(tab.baselineRenderSpec));
+        }
+    }
+
+    private captureRenderSpecs_(tab: StoreTab): void {
+        if (tab.kind === "comparison") {
+            tab.captureRenderSpecs();
+        }
+        else {
+            tab.captureRenderSpec();
+        }
+    }
+
+    private setView_(tab: StoreTab, baseline: boolean, view: KonataView): void {
+        const spec = baseline && tab.kind === "comparison"
+            ? tab.baselineRenderSpec
+            : tab.renderSpec;
+        const next = {
+            ...spec,
+            position: view.position,
+            zoomLevel: view.zoomLevel,
+        };
+        if (baseline && tab.kind === "comparison") {
+            tab.setBaselineRenderSpec(next);
+        }
+        else {
+            tab.setRenderSpec(next);
+        }
+    }
+
+    private forEachTargetRenderEngine_(
+        tab: StoreTab,
+        target: KonataViewTarget,
+        apply: (renderer: KonataRenderer) => void,
+    ): void {
+        const applyCandidate = tab.kind !== "comparison" || target === "both" || tab.mode !== "baseline";
+        const applyBaseline = tab.kind === "comparison" &&
+            (target === "both" || tab.mode !== "candidate");
+        if (applyCandidate) {
+            apply(tab[RENDER_ENGINE]);
+        }
+        if (applyBaseline && tab.kind === "comparison") {
+            apply(tab[BASELINE_RENDER_ENGINE]);
+        }
+    }
+
+    private getMoveTarget_(
+        renderer: KonataRenderer,
+        basePosition: readonly [number, number],
+        difference: readonly [number, number],
+        adjustHorizontal: boolean,
+    ): readonly [number, number] {
+        const differenceX = adjustHorizontal
+            ? renderer.adjustScrollDifferenceXAt(basePosition, difference[1])
+            : difference[0];
+        return [basePosition[0] + differenceX, basePosition[1] + difference[1]];
     }
 
     private publish_(activeTabID: number | null, changes: readonly Change[]): void {

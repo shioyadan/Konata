@@ -6,6 +6,7 @@ import { ArrayOpStore } from "../src/core/op_store";
 import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
+    DEFAULT_KONATA_RENDER_SPEC,
     formatOpLabel,
     KonataRenderer,
 } from "../src/renderer/konata_renderer";
@@ -131,6 +132,46 @@ test("Web renderer draws stage names and elapsed cycles like the legacy renderer
     // 色はcycle方向ではなく、旧Rendererと同じstage上端から下端へのgradientにする。
     assert.deepEqual(pipeline.gradients[0]?.points, [0, 0.5, 0, 24.5]);
     assert.equal(pipeline.gradients[0]?.stops.length, 2);
+});
+
+test("Web renderer reproduces drawing from a trace and render spec", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    const spec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [1, 0] as const,
+        zoomLevel: -1,
+        theme: "light" as const,
+        colorScheme: "Custom",
+    };
+    const draw = () => {
+        const label = createRecordedContext();
+        const pipeline = createRecordedContext();
+        renderer.drawSpec(
+            trace,
+            spec,
+            createCanvas(label.context),
+            createCanvas(pipeline.context),
+        );
+        return {
+            labelTexts: label.fillTexts,
+            pipelineTexts: pipeline.fillTexts,
+            pipelineRects: pipeline.fillRects,
+            gradients: pipeline.gradients,
+        };
+    };
+
+    const first = draw();
+    // Renderer内の計算用値を別の操作で変えても、次の明示入力で全て上書きされる。
+    renderer.setTheme("dark");
+    renderer.changeColorScheme("Orange");
+    renderer.zoomAbs(8, 10, 10);
+    renderer.moveLogicalPosition([100, 100]);
+    assert.deepEqual(draw(), first);
+    assert.deepEqual(renderer.viewPosition, spec.position);
+    assert.equal(renderer.zoomLevel, spec.zoomLevel);
+    assert.equal(renderer.theme, spec.theme);
+    assert.equal(renderer.colorScheme, spec.colorScheme);
 });
 
 test("Web renderer preserves legacy zoom levels and lane heights", () => {
