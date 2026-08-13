@@ -17,6 +17,9 @@ The workflow also runs `make latest-archive` for `master` and publishes the resu
 `https://shioyadan.github.io/Konata/konata-latest.zip`. This fixed name always represents the latest
 tested development version. Versioned archives remain attached to GitHub Releases.
 
+The bundled `docs/kanata-sample-2.log.gz` is published as the fixed `trace1` input for the latest
+Web version. `https://shioyadan.github.io/Konata/#name=kanata-sample-2.log.gz` opens it as a demo.
+
 In the repository settings, configure Pages to use GitHub Actions. The `github-pages` environment
 must also allow deployments from both `master` and `stable`.
 

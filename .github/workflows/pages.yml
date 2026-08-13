@@ -62,12 +62,13 @@ jobs:
           make test
           make production-smoke
 
-      # masterのHTMLとlatest ZIPをrootへ置き、一般利用向けのrelease版だけをstable/へ分ける。
+      # masterのHTML、latest ZIP、demo traceをrootへ置き、release版だけをstable/へ分ける。
       - name: Assemble GitHub Pages site
         run: |
           mkdir -p dist-site/stable
           cp unstable/dist-web/index.html dist-site/index.html
           cp unstable/dist-release/konata-latest.zip dist-site/konata-latest.zip
+          cp unstable/docs/kanata-sample-2.log.gz dist-site/trace1
           cp stable/dist-web/index.html dist-site/stable/index.html
 
       - name: Configure GitHub Pages

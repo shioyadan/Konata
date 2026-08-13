@@ -2,6 +2,7 @@
 
 * Konata is an instruction pipeline visualizer for traces in the Onikiri2-Kanata and gem5
   O3PipeView formats.
+    * [Open the live demo](https://shioyadan.github.io/Konata/#name=kanata-sample-2.log.gz).
 * Starting with v1.0.0, Konata runs in the browser instead of as an Electron desktop application.
     * All trace processing remains local to the browser.
     * Local traces are never uploaded, and Konata makes no background network requests unless
