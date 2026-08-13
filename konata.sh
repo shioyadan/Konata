@@ -71,6 +71,28 @@ printf 'Konata URL: %s%s%s\n' "$cyan" "$url" "$reset"
 printf 'SSH tunnel: %sssh -L %s:127.0.0.1:%s <host>%s\n' "$green" "$port" "$port" "$reset"
 echo "Press Ctrl+C to stop the server."
 
-# URLを実fileへ直接対応付け、一致しないpathは存在しないpathへ送って404にする。
-python3 -c 'import http.server, sys, urllib.parse; index=sys.argv[2]; files={"/": index, "/index.html": index, **{f"/trace{i}": path for i, path in enumerate(sys.argv[3:], 1)}}; handler=type("Handler", (http.server.SimpleHTTPRequestHandler,), {"translate_path": lambda self, url: files.get(urllib.parse.urlsplit(url).path, index + "/not-found")}); http.server.test(handler, port=int(sys.argv[1]), bind="127.0.0.1")' \
+# URLを実fileへ直接対応付け、一致しないpathは本文なしの404にする。
+python3 -c '
+import http.server
+import sys
+import urllib.parse
+
+index = sys.argv[2]
+files = {"/": index, "/index.html": index}
+files.update({"/trace{}".format(i): path for i, path in enumerate(sys.argv[3:], 1)})
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def translate_path(self, url):
+        return files[urllib.parse.urlsplit(url).path]
+
+    def send_head(self):
+        if urllib.parse.urlsplit(self.path).path not in files:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        return super().send_head()
+
+http.server.test(Handler, port=int(sys.argv[1]), bind="127.0.0.1")
+' \
     "$port" "$index_file" "${trace_paths[@]}"
