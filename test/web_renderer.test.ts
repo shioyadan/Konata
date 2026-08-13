@@ -30,6 +30,9 @@ interface RecordedContext {
     readonly clearRects: Array<[number, number, number, number]>;
     readonly gradients: RecordedGradient[];
     readonly commands: string[];
+    readonly pathStrokeStyles: string[];
+    readonly pathFillStyles: string[];
+    readonly pathLineWidths: number[];
     readonly context: CanvasRenderingContext2D;
 }
 
@@ -43,6 +46,9 @@ function createRecordedContext(): RecordedContext {
     const clearRects: Array<[number, number, number, number]> = [];
     const gradients: RecordedGradient[] = [];
     const commands: string[] = [];
+    const pathStrokeStyles: string[] = [];
+    const pathFillStyles: string[] = [];
+    const pathLineWidths: number[] = [];
     const context = {
         fillStyle: "",
         strokeStyle: "",
@@ -63,12 +69,37 @@ function createRecordedContext(): RecordedContext {
             strokeStyles.push(String(this.strokeStyle));
             lineWidths.push(this.lineWidth);
         },
-        beginPath() {},
-        moveTo() {},
-        lineTo() {},
-        bezierCurveTo() {},
-        stroke() {},
-        fill() {},
+        beginPath() {
+            commands.push("beginPath");
+        },
+        moveTo(x: number, y: number) {
+            commands.push(`moveTo:${x},${y}`);
+        },
+        lineTo(x: number, y: number) {
+            commands.push(`lineTo:${x},${y}`);
+        },
+        bezierCurveTo(
+            controlPoint1X: number,
+            controlPoint1Y: number,
+            controlPoint2X: number,
+            controlPoint2Y: number,
+            x: number,
+            y: number,
+        ) {
+            commands.push(
+                `bezierCurveTo:${controlPoint1X},${controlPoint1Y},` +
+                `${controlPoint2X},${controlPoint2Y},${x},${y}`,
+            );
+        },
+        stroke() {
+            commands.push("stroke");
+            pathStrokeStyles.push(String(this.strokeStyle));
+            pathLineWidths.push(this.lineWidth);
+        },
+        fill() {
+            commands.push("fill");
+            pathFillStyles.push(String(this.fillStyle));
+        },
         fillText(text: string, x: number, y: number) {
             commands.push(`text:${text}`);
             fillTexts.push([text, x, y]);
@@ -93,6 +124,9 @@ function createRecordedContext(): RecordedContext {
         clearRects,
         gradients,
         commands,
+        pathStrokeStyles,
+        pathFillStyles,
+        pathLineWidths,
         context,
     };
 }
@@ -527,4 +561,50 @@ test("Rectangle renderer joins only consecutive touching fills with the same app
         [[0, "#112233"], [1, "#445566"]],
         [[0, "#112233"], [1, "#445566"]],
     ]);
+});
+
+test("Rectangle renderer batches dependency arrow paths in the Canvas fallback", () => {
+    const recorded = createRecordedContext();
+    const renderer = new RectRenderer();
+    const rects = renderer.begin(
+        createCanvas(recorded.context),
+        recorded.context,
+        320,
+        96,
+        false,
+    );
+    rects.strokeStyle = "#112233";
+    rects.fillStyle = "#445566";
+    rects.lineWidth = 2;
+
+    rects.beginPath();
+    rects.moveTo(1, 2);
+    rects.lineTo(11, 12);
+    rects.stroke();
+    rects.beginPath();
+    rects.moveTo(11, 12);
+    rects.lineTo(8, 10);
+    rects.lineTo(9, 8);
+    rects.fill();
+
+    rects.beginPath();
+    rects.moveTo(21, 22);
+    rects.bezierCurveTo(17, 22, 17, 32, 31, 32);
+    rects.stroke();
+    rects.beginPath();
+    rects.moveTo(31, 32);
+    rects.lineTo(28, 30);
+    rects.lineTo(29, 28);
+    rects.fill();
+    renderer.end();
+
+    assert.equal(recorded.commands.filter((command) => command === "stroke").length, 1);
+    assert.equal(recorded.commands.filter((command) => command === "fill").length, 1);
+    assert.equal(recorded.commands.filter((command) => command === "beginPath").length, 2);
+    assert.ok(recorded.commands.includes("moveTo:1,2"));
+    assert.ok(recorded.commands.includes("lineTo:11,12"));
+    assert.ok(recorded.commands.includes("bezierCurveTo:17,22,17,32,31,32"));
+    assert.deepEqual(recorded.pathStrokeStyles, ["#112233"]);
+    assert.deepEqual(recorded.pathFillStyles, ["#445566"]);
+    assert.deepEqual(recorded.pathLineWidths, [2]);
 });

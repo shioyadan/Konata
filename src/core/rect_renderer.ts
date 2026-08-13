@@ -1,5 +1,5 @@
 // Konata固有の描画判断から独立したCanvas描画境界。
-// 矩形のbackend選択と、繰り返す短い文字列のrasterize／BLTをこのfileへ閉じる。
+// 矩形・依存矢印のbackend選択と、短い文字列のrasterize／BLTをこのfileへ閉じる。
 
 export interface RectContext {
     fillStyle: string | CanvasGradient | CanvasPattern;
@@ -17,6 +17,19 @@ export interface RectContext {
         topPosition?: number,
         bottomPosition?: number,
     ): void;
+    beginPath(): void;
+    moveTo(x: number, y: number): void;
+    lineTo(x: number, y: number): void;
+    bezierCurveTo(
+        controlPoint1X: number,
+        controlPoint1Y: number,
+        controlPoint2X: number,
+        controlPoint2Y: number,
+        x: number,
+        y: number,
+    ): void;
+    stroke(): void;
+    fill(): void;
 }
 
 type WebGLState = "uninitialized" | "ready" | "lost" | "unavailable";
@@ -228,14 +241,15 @@ class TextAtlas {
 }
 
 /**
- * rectangleをCanvas互換の形で蓄積し、多数ある時だけWebGL2で一括描画する。
+ * rectangleと定型的な矢印pathをCanvas互換の形で蓄積し、多数ある時だけWebGL2で一括描画する。
  *
  * WebGLを利用できない場合も同じ矩形列をCanvas 2Dへ再生するため、呼出側はbackendを意識しない。
  * 小さいbatchではWebGLの固定費を避け、Canvas 2Dをそのまま使う。
  */
 export class RectRenderer implements RectContext {
-    private static readonly WEBGL_RECT_THRESHOLD = 64;
+    private static readonly WEBGL_BATCH_THRESHOLD = 64;
     private static readonly INITIAL_CAPACITY = 2048;
+    private static readonly ARROW_CURVE_SEGMENTS = 32;
 
     private targetCanvas_: HTMLCanvasElement | null = null;
     private targetContext_: CanvasRenderingContext2D | null = null;
@@ -265,6 +279,20 @@ export class RectRenderer implements RectContext {
     private textCount_ = 0;
     private textAtlasGeneration_ = -1;
     private textBatchValid_ = true;
+    // Konataの依存矢印が使う直線／3次Bezier／三角形だけをCanvas path互換で受ける。
+    private readonly pathPoints_: number[] = [];
+    private pathIsCurve_ = false;
+    private pathValid_ = true;
+    private arrowCapacity_ = 0;
+    private arrowCount_ = 0;
+    private arrowPoints_ = new Float32Array(0);
+    private arrowHeadPoints_ = new Float32Array(0);
+    private arrowStyleIndices_ = new Uint32Array(0);
+    private arrowColors_ = new Uint8Array(0);
+    private arrowWidths_ = new Float32Array(0);
+    private arrowCurveFlags_ = new Uint8Array(0);
+    private arrowHasCurve_ = false;
+    private pendingArrowIndex_ = -1;
 
     private state_: WebGLState = "uninitialized";
     private overlayCanvas_: HTMLCanvasElement | null = null;
@@ -279,6 +307,14 @@ export class RectRenderer implements RectContext {
     private textTexture_: WebGLTexture | null = null;
     private resolutionUniform_: WebGLUniformLocation | null = null;
     private textAtlasUniform_: WebGLUniformLocation | null = null;
+    private arrowProgram_: WebGLProgram | null = null;
+    private arrowVertexArray_: WebGLVertexArrayObject | null = null;
+    private arrowPointBuffer_: WebGLBuffer | null = null;
+    private arrowHeadPointBuffer_: WebGLBuffer | null = null;
+    private arrowColorBuffer_: WebGLBuffer | null = null;
+    private arrowWidthBuffer_: WebGLBuffer | null = null;
+    private arrowResolutionUniform_: WebGLUniformLocation | null = null;
+    private arrowSegmentCountUniform_: WebGLUniformLocation | null = null;
     private uploadedTextAtlasRevision_ = -1;
     private colorCanvas_: HTMLCanvasElement | null = null;
     private colorContext_: CanvasRenderingContext2D | null = null;
@@ -351,6 +387,12 @@ export class RectRenderer implements RectContext {
         this.height_ = height;
         this.webGLEnabled_ = webGLEnabled;
         this.count_ = 0;
+        this.arrowCount_ = 0;
+        this.arrowHasCurve_ = false;
+        this.pendingArrowIndex_ = -1;
+        this.pathPoints_.length = 0;
+        this.pathIsCurve_ = false;
+        this.pathValid_ = true;
         this.mergeableFillRight_ = null;
         this.textCount_ = 0;
         this.textAtlasGeneration_ = -1;
@@ -457,6 +499,112 @@ export class RectRenderer implements RectContext {
             topPosition,
             bottomPosition,
         );
+    }
+
+    beginPath(): void {
+        this.pathPoints_.length = 0;
+        this.pathIsCurve_ = false;
+        this.pathValid_ = true;
+        this.mergeableFillRight_ = null;
+    }
+
+    moveTo(x: number, y: number): void {
+        if (this.pathPoints_.length !== 0 || !Number.isFinite(x) || !Number.isFinite(y)) {
+            this.pathValid_ = false;
+            return;
+        }
+        this.pathPoints_.push(x, y);
+    }
+
+    lineTo(x: number, y: number): void {
+        if ((this.pathPoints_.length !== 2 && this.pathPoints_.length !== 4) ||
+            !Number.isFinite(x) || !Number.isFinite(y)) {
+            this.pathValid_ = false;
+            return;
+        }
+        this.pathPoints_.push(x, y);
+    }
+
+    bezierCurveTo(
+        controlPoint1X: number,
+        controlPoint1Y: number,
+        controlPoint2X: number,
+        controlPoint2Y: number,
+        x: number,
+        y: number,
+    ): void {
+        if (this.pathPoints_.length !== 2 ||
+            !Number.isFinite(controlPoint1X) || !Number.isFinite(controlPoint1Y) ||
+            !Number.isFinite(controlPoint2X) || !Number.isFinite(controlPoint2Y) ||
+            !Number.isFinite(x) || !Number.isFinite(y)) {
+            this.pathValid_ = false;
+            return;
+        }
+        this.pathPoints_.push(
+            controlPoint1X,
+            controlPoint1Y,
+            controlPoint2X,
+            controlPoint2Y,
+            x,
+            y,
+        );
+        this.pathIsCurve_ = true;
+    }
+
+    stroke(): void {
+        const points = this.pathPoints_;
+        if (!this.pathValid_ || (points.length !== 4 && !this.pathIsCurve_) ||
+            (points.length !== 8 && this.pathIsCurve_)) {
+            return;
+        }
+        if (this.arrowCount_ >= this.arrowCapacity_) {
+            this.growArrows_();
+        }
+        const index = this.arrowCount_;
+        const offset = index * 8;
+        const startX = points[0];
+        const startY = points[1];
+        const endX = this.pathIsCurve_ ? points[6] : points[2];
+        const endY = this.pathIsCurve_ ? points[7] : points[3];
+        this.arrowPoints_[offset] = startX;
+        this.arrowPoints_[offset + 1] = startY;
+        if (this.pathIsCurve_) {
+            this.arrowPoints_.set(points, offset);
+        }
+        else {
+            // 直線も3次Bezierの制御点へ直し、GL shaderの分岐をなくす。
+            const deltaX = (endX - startX) / 3;
+            const deltaY = (endY - startY) / 3;
+            this.arrowPoints_[offset + 2] = startX + deltaX;
+            this.arrowPoints_[offset + 3] = startY + deltaY;
+            this.arrowPoints_[offset + 4] = startX + deltaX * 2;
+            this.arrowPoints_[offset + 5] = startY + deltaY * 2;
+            this.arrowPoints_[offset + 6] = endX;
+            this.arrowPoints_[offset + 7] = endY;
+        }
+        const headOffset = index * 6;
+        for (let point = 0; point < 3; point++) {
+            this.arrowHeadPoints_[headOffset + point * 2] = endX;
+            this.arrowHeadPoints_[headOffset + point * 2 + 1] = endY;
+        }
+        const styleOffset = index * 2;
+        this.arrowStyleIndices_[styleOffset] = this.strokeStyleIndex_;
+        this.arrowStyleIndices_[styleOffset + 1] = this.strokeStyleIndex_;
+        this.arrowWidths_[index] = this.lineWidth_;
+        this.arrowCurveFlags_[index] = this.pathIsCurve_ ? 1 : 0;
+        this.arrowHasCurve_ ||= this.pathIsCurve_;
+        this.pendingArrowIndex_ = index;
+        this.arrowCount_++;
+    }
+
+    fill(): void {
+        if (!this.pathValid_ || this.pathPoints_.length !== 6 || this.pendingArrowIndex_ < 0) {
+            return;
+        }
+        const index = this.pendingArrowIndex_;
+        this.arrowHeadPoints_.set(this.pathPoints_, index * 6);
+        this.arrowStyleIndices_[index * 2 + 1] = this.fillStyleIndex_;
+        this.pendingArrowIndex_ = -1;
     }
 
     private queueRect_(
@@ -596,7 +744,7 @@ export class RectRenderer implements RectContext {
         }
         const useWebGL = this.webGLEnabled_ &&
             this.textBatchValid_ &&
-            this.count_ >= RectRenderer.WEBGL_RECT_THRESHOLD &&
+            this.count_ + this.arrowCount_ >= RectRenderer.WEBGL_BATCH_THRESHOLD &&
             this.ensureWebGL_() &&
             this.drawWebGL_();
         if (!useWebGL) {
@@ -606,6 +754,7 @@ export class RectRenderer implements RectContext {
         this.targetCanvas_ = null;
         this.targetContext_ = null;
         this.count_ = 0;
+        this.arrowCount_ = 0;
     }
 
     dispose(): void {
@@ -628,6 +777,14 @@ export class RectRenderer implements RectContext {
         this.textTexture_ = null;
         this.resolutionUniform_ = null;
         this.textAtlasUniform_ = null;
+        this.arrowProgram_ = null;
+        this.arrowVertexArray_ = null;
+        this.arrowPointBuffer_ = null;
+        this.arrowHeadPointBuffer_ = null;
+        this.arrowColorBuffer_ = null;
+        this.arrowWidthBuffer_ = null;
+        this.arrowResolutionUniform_ = null;
+        this.arrowSegmentCountUniform_ = null;
         this.uploadedTextAtlasRevision_ = -1;
         this.overlayCanvas_ = null;
     }
@@ -653,6 +810,29 @@ export class RectRenderer implements RectContext {
         this.colors_ = colors;
         this.strokeWidths_ = strokeWidths;
         this.capacity_ = capacity;
+    }
+
+    private growArrows_(): void {
+        const capacity = Math.max(RectRenderer.INITIAL_CAPACITY, this.arrowCapacity_ * 2);
+        const points = new Float32Array(capacity * 8);
+        const headPoints = new Float32Array(capacity * 6);
+        const styleIndices = new Uint32Array(capacity * 2);
+        const colors = new Uint8Array(capacity * 8);
+        const widths = new Float32Array(capacity);
+        const curveFlags = new Uint8Array(capacity);
+        points.set(this.arrowPoints_.subarray(0, this.arrowCount_ * 8));
+        headPoints.set(this.arrowHeadPoints_.subarray(0, this.arrowCount_ * 6));
+        styleIndices.set(this.arrowStyleIndices_.subarray(0, this.arrowCount_ * 2));
+        colors.set(this.arrowColors_.subarray(0, this.arrowCount_ * 8));
+        widths.set(this.arrowWidths_.subarray(0, this.arrowCount_));
+        curveFlags.set(this.arrowCurveFlags_.subarray(0, this.arrowCount_));
+        this.arrowPoints_ = points;
+        this.arrowHeadPoints_ = headPoints;
+        this.arrowStyleIndices_ = styleIndices;
+        this.arrowColors_ = colors;
+        this.arrowWidths_ = widths;
+        this.arrowCurveFlags_ = curveFlags;
+        this.arrowCapacity_ = capacity;
     }
 
     private drawCanvas2D_(): void {
@@ -732,6 +912,79 @@ export class RectRenderer implements RectContext {
                 this.rects_[offset + 3],
             );
         }
+        this.drawCanvasArrows_(context);
+    }
+
+    private drawCanvasArrows_(context: CanvasRenderingContext2D): void {
+        let openPath = false;
+        let styleIndex = -1;
+        let lineWidth = -1;
+        const flushStrokes = (): void => {
+            if (openPath) {
+                context.stroke();
+                openPath = false;
+            }
+        };
+        for (let index = 0; index < this.arrowCount_; index++) {
+            const nextStyleIndex = this.arrowStyleIndices_[index * 2];
+            const nextLineWidth = this.arrowWidths_[index];
+            if (!openPath || nextStyleIndex !== styleIndex || nextLineWidth !== lineWidth) {
+                flushStrokes();
+                styleIndex = nextStyleIndex;
+                lineWidth = nextLineWidth;
+                context.strokeStyle = this.styles_[styleIndex];
+                context.lineWidth = lineWidth;
+                context.beginPath();
+                openPath = true;
+            }
+            const offset = index * 8;
+            context.moveTo(this.arrowPoints_[offset], this.arrowPoints_[offset + 1]);
+            if (this.arrowCurveFlags_[index] !== 0) {
+                context.bezierCurveTo(
+                    this.arrowPoints_[offset + 2],
+                    this.arrowPoints_[offset + 3],
+                    this.arrowPoints_[offset + 4],
+                    this.arrowPoints_[offset + 5],
+                    this.arrowPoints_[offset + 6],
+                    this.arrowPoints_[offset + 7],
+                );
+            }
+            else {
+                context.lineTo(this.arrowPoints_[offset + 6], this.arrowPoints_[offset + 7]);
+            }
+        }
+        flushStrokes();
+
+        openPath = false;
+        styleIndex = -1;
+        const flushFills = (): void => {
+            if (openPath) {
+                context.fill();
+                openPath = false;
+            }
+        };
+        for (let index = 0; index < this.arrowCount_; index++) {
+            const offset = index * 6;
+            // 長さ0の矢印は旧実装と同じく線だけを残し、矢尻を描かない。
+            if (this.arrowHeadPoints_[offset] === this.arrowHeadPoints_[offset + 2] &&
+                this.arrowHeadPoints_[offset + 1] === this.arrowHeadPoints_[offset + 3] &&
+                this.arrowHeadPoints_[offset] === this.arrowHeadPoints_[offset + 4] &&
+                this.arrowHeadPoints_[offset + 1] === this.arrowHeadPoints_[offset + 5]) {
+                continue;
+            }
+            const nextStyleIndex = this.arrowStyleIndices_[index * 2 + 1];
+            if (!openPath || nextStyleIndex !== styleIndex) {
+                flushFills();
+                styleIndex = nextStyleIndex;
+                context.fillStyle = this.styles_[styleIndex];
+                context.beginPath();
+                openPath = true;
+            }
+            context.moveTo(this.arrowHeadPoints_[offset], this.arrowHeadPoints_[offset + 1]);
+            context.lineTo(this.arrowHeadPoints_[offset + 2], this.arrowHeadPoints_[offset + 3]);
+            context.lineTo(this.arrowHeadPoints_[offset + 4], this.arrowHeadPoints_[offset + 5]);
+        }
+        flushFills();
     }
 
     private ensureWebGL_(): boolean {
@@ -948,6 +1201,238 @@ export class RectRenderer implements RectContext {
             gl.UNSIGNED_BYTE,
             new Uint8Array(4),
         );
+
+        const arrowVertexShader = this.compileShader_(gl.VERTEX_SHADER, `#version 300 es
+            layout(location=0) in vec4 a_start_controls;
+            layout(location=1) in vec4 a_end_controls;
+            layout(location=2) in vec4 a_head_01;
+            layout(location=3) in vec2 a_head_2;
+            layout(location=4) in vec4 a_shaft_color;
+            layout(location=5) in vec4 a_head_color;
+            layout(location=6) in float a_width;
+            uniform vec2 u_resolution;
+            uniform int u_segment_count;
+            out vec4 v_color;
+            out float v_edge_position;
+            out float v_start_position;
+            out float v_end_position;
+            out vec2 v_position;
+            flat out float v_half_width;
+            flat out vec2 v_head_0;
+            flat out vec2 v_head_1;
+            flat out vec2 v_head_2;
+            flat out int v_shape;
+
+            vec2 curvePosition(float t) {
+                float s = 1.0 - t;
+                return s * s * s * a_start_controls.xy +
+                    3.0 * s * s * t * a_start_controls.zw +
+                    3.0 * s * t * t * a_end_controls.xy +
+                    t * t * t * a_end_controls.zw;
+            }
+            vec2 curveDirection(float t) {
+                float s = 1.0 - t;
+                vec2 direction = 3.0 * s * s * (a_start_controls.zw - a_start_controls.xy) +
+                    6.0 * s * t * (a_end_controls.xy - a_start_controls.zw) +
+                    3.0 * t * t * (a_end_controls.zw - a_end_controls.xy);
+                if (dot(direction, direction) < 0.000001) {
+                    direction = a_end_controls.zw - a_start_controls.xy;
+                }
+                return normalize(direction);
+            }
+            void main() {
+                int strip_vertex_count = (u_segment_count + 1) * 2;
+                int vertex = gl_VertexID;
+                vec2 position;
+                v_half_width = a_width * 0.5;
+                v_head_0 = a_head_01.xy;
+                v_head_1 = a_head_01.zw;
+                v_head_2 = a_head_2;
+                if (vertex < strip_vertex_count) {
+                    int point = vertex / 2;
+                    float t = float(point) / float(u_segment_count);
+                    float side = vertex % 2 == 0 ? -1.0 : 1.0;
+                    vec2 direction = curveDirection(t);
+                    vec2 normal = vec2(-direction.y, direction.x);
+                    vec2 center = curvePosition(t);
+                    v_start_position = length(center - a_start_controls.xy);
+                    v_end_position = length(center - a_end_controls.zw);
+                    if (point == 0) {
+                        center -= direction;
+                        v_start_position = -1.0;
+                    }
+                    else if (point == u_segment_count) {
+                        center += direction;
+                        v_end_position = -1.0;
+                    }
+                    v_edge_position = side * (v_half_width + 1.0);
+                    position = center + normal * v_edge_position;
+                    v_color = a_shaft_color;
+                    v_shape = 0;
+                }
+                else {
+                    int corner = vertex - strip_vertex_count;
+                    if (corner == 0) {
+                        vec2 direction = curveDirection(1.0);
+                        vec2 normal = vec2(-direction.y, direction.x);
+                        v_edge_position = v_half_width + 1.0;
+                        position = curvePosition(1.0) + direction + normal * v_edge_position;
+                        v_start_position = 1.0;
+                        v_end_position = -1.0;
+                        v_color = a_shaft_color;
+                        v_shape = 0;
+                    }
+                    else {
+                        vec2 minimum = min(v_head_0, min(v_head_1, v_head_2)) - vec2(1.5);
+                        vec2 maximum = max(v_head_0, max(v_head_1, v_head_2)) + vec2(1.5);
+                        int quad_corner = corner == 1 ? 0 : corner - 2;
+                        if (quad_corner == 0) {
+                            position = vec2(minimum.x, minimum.y);
+                        }
+                        else if (quad_corner == 1) {
+                            position = vec2(minimum.x, maximum.y);
+                        }
+                        else if (quad_corner == 2) {
+                            position = vec2(maximum.x, minimum.y);
+                        }
+                        else {
+                            position = vec2(maximum.x, maximum.y);
+                        }
+                        v_edge_position = 0.0;
+                        v_start_position = 1.0;
+                        v_end_position = 1.0;
+                        v_color = a_head_color;
+                        v_shape = 1;
+                    }
+                }
+                v_position = position;
+                vec2 clip = position / u_resolution * 2.0 - 1.0;
+                gl_Position = vec4(clip * vec2(1.0, -1.0), 0.0, 1.0);
+            }
+        `);
+        const arrowFragmentShader = this.compileShader_(gl.FRAGMENT_SHADER, `#version 300 es
+            precision highp float;
+            in vec4 v_color;
+            in float v_edge_position;
+            in float v_start_position;
+            in float v_end_position;
+            in vec2 v_position;
+            flat in float v_half_width;
+            flat in vec2 v_head_0;
+            flat in vec2 v_head_1;
+            flat in vec2 v_head_2;
+            flat in int v_shape;
+            out vec4 out_color;
+
+            float cross2d(vec2 lhs, vec2 rhs) {
+                return lhs.x * rhs.y - lhs.y * rhs.x;
+            }
+            void main() {
+                float coverage;
+                if (v_shape == 0) {
+                    float distance = abs(v_edge_position);
+                    float aa = max(fwidth(distance), 0.0001);
+                    coverage = 1.0 - smoothstep(
+                        v_half_width - aa * 0.5,
+                        v_half_width + aa * 0.5,
+                        distance
+                    );
+                    float start_aa = max(fwidth(v_start_position), 0.0001);
+                    float end_aa = max(fwidth(v_end_position), 0.0001);
+                    coverage *= smoothstep(
+                        -start_aa * 0.5,
+                        start_aa * 0.5,
+                        v_start_position
+                    );
+                    coverage *= smoothstep(
+                        -end_aa * 0.5,
+                        end_aa * 0.5,
+                        v_end_position
+                    );
+                }
+                else {
+                    float area = cross2d(v_head_1 - v_head_0, v_head_2 - v_head_0);
+                    if (abs(area) < 0.000001) {
+                        discard;
+                    }
+                    vec3 barycentric = vec3(
+                        cross2d(v_head_1 - v_position, v_head_2 - v_position),
+                        cross2d(v_head_2 - v_position, v_head_0 - v_position),
+                        cross2d(v_head_0 - v_position, v_head_1 - v_position)
+                    ) / area;
+                    float edge = min(barycentric.x, min(barycentric.y, barycentric.z));
+                    float aa = max(fwidth(edge), 0.0001);
+                    coverage = smoothstep(-aa * 0.5, aa * 0.5, edge);
+                }
+                if (coverage <= 0.0) {
+                    discard;
+                }
+                out_color = vec4(v_color.rgb, v_color.a * coverage);
+            }
+        `);
+        const arrowProgram = gl.createProgram();
+        if (arrowProgram === null) {
+            throw new Error("An arrow WebGL program could not be created.");
+        }
+        gl.attachShader(arrowProgram, arrowVertexShader);
+        gl.attachShader(arrowProgram, arrowFragmentShader);
+        gl.linkProgram(arrowProgram);
+        gl.deleteShader(arrowVertexShader);
+        gl.deleteShader(arrowFragmentShader);
+        if (!gl.getProgramParameter(arrowProgram, gl.LINK_STATUS)) {
+            const message = gl.getProgramInfoLog(arrowProgram) ?? "Unknown WebGL link error.";
+            gl.deleteProgram(arrowProgram);
+            throw new Error(message);
+        }
+
+        const arrowVertexArray = gl.createVertexArray();
+        const arrowPointBuffer = gl.createBuffer();
+        const arrowHeadPointBuffer = gl.createBuffer();
+        const arrowColorBuffer = gl.createBuffer();
+        const arrowWidthBuffer = gl.createBuffer();
+        if (arrowVertexArray === null || arrowPointBuffer === null ||
+            arrowHeadPointBuffer === null || arrowColorBuffer === null || arrowWidthBuffer === null) {
+            throw new Error("Arrow WebGL buffers could not be created.");
+        }
+        this.arrowProgram_ = arrowProgram;
+        this.arrowVertexArray_ = arrowVertexArray;
+        this.arrowPointBuffer_ = arrowPointBuffer;
+        this.arrowHeadPointBuffer_ = arrowHeadPointBuffer;
+        this.arrowColorBuffer_ = arrowColorBuffer;
+        this.arrowWidthBuffer_ = arrowWidthBuffer;
+        this.arrowResolutionUniform_ = gl.getUniformLocation(arrowProgram, "u_resolution");
+        this.arrowSegmentCountUniform_ = gl.getUniformLocation(arrowProgram, "u_segment_count");
+
+        gl.bindVertexArray(arrowVertexArray);
+        gl.bindBuffer(gl.ARRAY_BUFFER, arrowPointBuffer);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 32, 0);
+        gl.vertexAttribDivisor(0, 1);
+        gl.enableVertexAttribArray(1);
+        gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 16);
+        gl.vertexAttribDivisor(1, 1);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, arrowHeadPointBuffer);
+        gl.enableVertexAttribArray(2);
+        gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 24, 0);
+        gl.vertexAttribDivisor(2, 1);
+        gl.enableVertexAttribArray(3);
+        gl.vertexAttribPointer(3, 2, gl.FLOAT, false, 24, 16);
+        gl.vertexAttribDivisor(3, 1);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, arrowColorBuffer);
+        gl.enableVertexAttribArray(4);
+        gl.vertexAttribPointer(4, 4, gl.UNSIGNED_BYTE, true, 8, 0);
+        gl.vertexAttribDivisor(4, 1);
+        gl.enableVertexAttribArray(5);
+        gl.vertexAttribPointer(5, 4, gl.UNSIGNED_BYTE, true, 8, 4);
+        gl.vertexAttribDivisor(5, 1);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, arrowWidthBuffer);
+        gl.enableVertexAttribArray(6);
+        gl.vertexAttribPointer(6, 1, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribDivisor(6, 1);
+        gl.bindVertexArray(null);
     }
 
     private compileShader_(type: number, source: string): WebGLShader {
@@ -978,7 +1463,10 @@ export class RectRenderer implements RectContext {
             this.program_ === null || this.vertexArray_ === null ||
             this.rectBuffer_ === null || this.colorBuffer_ === null ||
             this.strokeWidthBuffer_ === null || this.textureRectBuffer_ === null ||
-            this.textTexture_ === null || gl.isContextLost()) {
+            this.textTexture_ === null || this.arrowProgram_ === null ||
+            this.arrowVertexArray_ === null || this.arrowPointBuffer_ === null ||
+            this.arrowHeadPointBuffer_ === null || this.arrowColorBuffer_ === null ||
+            this.arrowWidthBuffer_ === null || gl.isContextLost()) {
             return false;
         }
         if (!this.prepareColors_()) {
@@ -1002,38 +1490,79 @@ export class RectRenderer implements RectContext {
             );
             gl.clearColor(0, 0, 0, 0);
             gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.useProgram(this.program_);
-            gl.uniform2f(this.resolutionUniform_, this.width_, this.height_);
-            gl.uniform1i(this.textAtlasUniform_, 0);
-            if (!this.prepareTextTexture_()) {
-                return false;
+            if (this.count_ > 0) {
+                gl.useProgram(this.program_);
+                gl.uniform2f(this.resolutionUniform_, this.width_, this.height_);
+                gl.uniform1i(this.textAtlasUniform_, 0);
+                if (!this.prepareTextTexture_()) {
+                    return false;
+                }
+                gl.bindVertexArray(this.vertexArray_);
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.rectBuffer_);
+                gl.bufferData(
+                    gl.ARRAY_BUFFER,
+                    this.rects_.subarray(0, this.count_ * 4),
+                    gl.DYNAMIC_DRAW,
+                );
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer_);
+                gl.bufferData(
+                    gl.ARRAY_BUFFER,
+                    this.colors_.subarray(0, this.count_ * 8),
+                    gl.DYNAMIC_DRAW,
+                );
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.strokeWidthBuffer_);
+                gl.bufferData(
+                    gl.ARRAY_BUFFER,
+                    this.strokeWidths_.subarray(0, this.count_),
+                    gl.DYNAMIC_DRAW,
+                );
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.textureRectBuffer_);
+                gl.bufferData(
+                    gl.ARRAY_BUFFER,
+                    this.textureRects_.subarray(0, this.count_ * 4),
+                    gl.DYNAMIC_DRAW,
+                );
+                gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.count_);
             }
-            gl.bindVertexArray(this.vertexArray_);
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.rectBuffer_);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                this.rects_.subarray(0, this.count_ * 4),
-                gl.DYNAMIC_DRAW,
-            );
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer_);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                this.colors_.subarray(0, this.count_ * 8),
-                gl.DYNAMIC_DRAW,
-            );
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.strokeWidthBuffer_);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                this.strokeWidths_.subarray(0, this.count_),
-                gl.DYNAMIC_DRAW,
-            );
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.textureRectBuffer_);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                this.textureRects_.subarray(0, this.count_ * 4),
-                gl.DYNAMIC_DRAW,
-            );
-            gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.count_);
+            if (this.arrowCount_ > 0) {
+                const segmentCount = this.arrowHasCurve_
+                    ? RectRenderer.ARROW_CURVE_SEGMENTS
+                    : 1;
+                gl.useProgram(this.arrowProgram_);
+                gl.uniform2f(this.arrowResolutionUniform_, this.width_, this.height_);
+                gl.uniform1i(this.arrowSegmentCountUniform_, segmentCount);
+                gl.bindVertexArray(this.arrowVertexArray_);
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.arrowPointBuffer_);
+                gl.bufferData(
+                    gl.ARRAY_BUFFER,
+                    this.arrowPoints_.subarray(0, this.arrowCount_ * 8),
+                    gl.DYNAMIC_DRAW,
+                );
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.arrowHeadPointBuffer_);
+                gl.bufferData(
+                    gl.ARRAY_BUFFER,
+                    this.arrowHeadPoints_.subarray(0, this.arrowCount_ * 6),
+                    gl.DYNAMIC_DRAW,
+                );
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.arrowColorBuffer_);
+                gl.bufferData(
+                    gl.ARRAY_BUFFER,
+                    this.arrowColors_.subarray(0, this.arrowCount_ * 8),
+                    gl.DYNAMIC_DRAW,
+                );
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.arrowWidthBuffer_);
+                gl.bufferData(
+                    gl.ARRAY_BUFFER,
+                    this.arrowWidths_.subarray(0, this.arrowCount_),
+                    gl.DYNAMIC_DRAW,
+                );
+                gl.drawArraysInstanced(
+                    gl.TRIANGLE_STRIP,
+                    0,
+                    (segmentCount + 1) * 2 + 6,
+                    this.arrowCount_,
+                );
+            }
             gl.bindVertexArray(null);
 
             targetContext.save();
@@ -1116,6 +1645,20 @@ export class RectRenderer implements RectContext {
             this.colors_[colorOffset + 6] = bottomColor[2];
             this.colors_[colorOffset + 7] = bottomColor[3];
         }
+        for (let index = 0; index < this.arrowCount_; index++) {
+            const colorOffset = index * 8;
+            const styleOffset = index * 2;
+            const shaftColor = palette[this.arrowStyleIndices_[styleOffset]];
+            const headColor = palette[this.arrowStyleIndices_[styleOffset + 1]];
+            this.arrowColors_[colorOffset] = shaftColor[0];
+            this.arrowColors_[colorOffset + 1] = shaftColor[1];
+            this.arrowColors_[colorOffset + 2] = shaftColor[2];
+            this.arrowColors_[colorOffset + 3] = shaftColor[3];
+            this.arrowColors_[colorOffset + 4] = headColor[0];
+            this.arrowColors_[colorOffset + 5] = headColor[1];
+            this.arrowColors_[colorOffset + 6] = headColor[2];
+            this.arrowColors_[colorOffset + 7] = headColor[3];
+        }
         return true;
     }
 
@@ -1164,6 +1707,14 @@ export class RectRenderer implements RectContext {
         this.textTexture_ = null;
         this.resolutionUniform_ = null;
         this.textAtlasUniform_ = null;
+        this.arrowProgram_ = null;
+        this.arrowVertexArray_ = null;
+        this.arrowPointBuffer_ = null;
+        this.arrowHeadPointBuffer_ = null;
+        this.arrowColorBuffer_ = null;
+        this.arrowWidthBuffer_ = null;
+        this.arrowResolutionUniform_ = null;
+        this.arrowSegmentCountUniform_ = null;
         this.uploadedTextAtlasRevision_ = -1;
     }
 }

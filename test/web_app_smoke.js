@@ -3000,12 +3000,39 @@ async function run() {
         throw new Error(`Stage text atlas reuse is incomplete: ${JSON.stringify(textAtlasState)}`);
     }
 
-    // 70.7%でstage gradient、枠、atlas文字を元の順序のままWebGL2へ一括描画する。
+    // 可視範囲へ十分な依存を置き、曲線矢印も矩形と同じWebGL batchへ入ることを確認する。
+    const arrowFixtureLines = ["Kanata\t0004", "C=\t0"];
+    for (let id = 0; id < 80; id++) {
+        arrowFixtureLines.push(
+            `I\t${id}\t${1000 + id}\t${id}`,
+            `L\t${id}\t0\top ${id}`,
+            `S\t${id}\t0\tF`,
+            "C\t1",
+            `S\t${id}\t0\tX`,
+        );
+        if (id > 0) {
+            arrowFixtureLines.push(`W\t${id}\t${id - 1}\t0`);
+        }
+        arrowFixtureLines.push(
+            "C\t1",
+            `E\t${id}\t0\tX`,
+            `R\t${id}\t${id}\t0`,
+        );
+    }
+    await dropContents(
+        window,
+        Buffer.from(arrowFixtureLines.join("\n") + "\n"),
+        "webgl-arrows.log",
+        "text/plain",
+    );
+
+    // 70.7%でstage gradient、枠、atlas文字、依存矢印をWebGL2へ一括描画する。
     const webGLState = await window.webContents.executeJavaScript(`(async () => {
         const glPrototype = globalThis.WebGL2RenderingContext?.prototype;
         const canvasPrototype = HTMLCanvasElement.prototype;
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        const dependencyType = document.querySelector('select[aria-label="Dependency arrow type"]');
         const webGLToggle = document.querySelector('input[aria-label="WebGL rendering"]');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
@@ -3013,6 +3040,7 @@ async function run() {
         const pipeline = document.querySelector('.pipeline-pane canvas');
         if (glPrototype === undefined || !(theme instanceof HTMLSelectElement) ||
             !(colorScheme instanceof HTMLSelectElement) ||
+            !(dependencyType instanceof HTMLSelectElement) ||
             !(webGLToggle instanceof HTMLInputElement) ||
             !(zoomSteps instanceof HTMLInputElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
@@ -3023,8 +3051,11 @@ async function run() {
         const originalBufferData = glPrototype.bufferData;
         const originalTexImage2D = glPrototype.texImage2D;
         const originalGetContext = canvasPrototype.getContext;
+        const contextPrototype = CanvasRenderingContext2D.prototype;
+        const originalBezierCurveTo = contextPrototype.bezierCurveTo;
         const originalTheme = theme.value;
         const originalColorScheme = colorScheme.value;
+        const originalDependencyType = dependencyType.value;
         const originalWebGLEnabled = webGLToggle.checked;
         const originalZoomSteps = zoomSteps.value;
         let drawCalls = 0;
@@ -3037,6 +3068,9 @@ async function run() {
         let atlasUploads = 0;
         let webGLRequests = 0;
         let webGLContexts = 0;
+        let arrowDrawCalls = 0;
+        let arrowInstances = 0;
+        let canvasBezierCurveCalls = 0;
         let acceleratedContext = null;
         canvasPrototype.getContext = function(type, ...args) {
             if (type === "webgl2") {
@@ -3054,7 +3088,15 @@ async function run() {
             drawCalls++;
             instances += args[3];
             maximumInstances = Math.max(maximumInstances, args[3]);
+            if (args[0] === this.TRIANGLE_STRIP && args[2] === 72) {
+                arrowDrawCalls++;
+                arrowInstances += args[3];
+            }
             return Reflect.apply(originalDraw, this, args);
+        };
+        contextPrototype.bezierCurveTo = function(...args) {
+            canvasBezierCurveCalls++;
+            return Reflect.apply(originalBezierCurveTo, this, args);
         };
         glPrototype.bufferData = function(...args) {
             const data = args[1];
@@ -3098,6 +3140,8 @@ async function run() {
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         colorScheme.value = "Auto";
         colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+        dependencyType.value = "leftSideCurve";
+        dependencyType.dispatchEvent(new Event("change", {bubbles: true}));
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         for (let index = 0; index < 1; index++) {
             zoomOut.click();
@@ -3137,14 +3181,17 @@ async function run() {
         const opaquePixels = countOpaquePixels(pixels);
         const colorfulPixels = countColorfulPixels(pixels);
         const zoom = document.querySelector('.zoom-controls output')?.textContent ?? null;
+        const enabledBezierCurveCalls = canvasBezierCurveCalls;
 
         // View設定で無効にした直後は、同じ矩形列をWebGL drawなしでCanvasへ再生する。
         const drawCallsBeforeDisabled = drawCalls;
         const webGLRequestsBeforeDisabled = webGLRequests;
+        const bezierCurveCallsBeforeDisabled = canvasBezierCurveCalls;
         webGLToggle.click();
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const disabledDrawCalls = drawCalls - drawCallsBeforeDisabled;
         const disabledWebGLRequests = webGLRequests - webGLRequestsBeforeDisabled;
+        const disabledBezierCurveCalls = canvasBezierCurveCalls - bezierCurveCallsBeforeDisabled;
         const disabledPixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
         const disabledOpaquePixels = countOpaquePixels(disabledPixels);
         const disabledColorfulPixels = countColorfulPixels(disabledPixels);
@@ -3172,6 +3219,7 @@ async function run() {
         loseContext.loseContext();
         await contextLost;
         const drawCallsBeforeFallback = drawCalls;
+        const bezierCurveCallsBeforeFallback = canvasBezierCurveCalls;
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
         for (let index = 0; index < 1; index++) {
@@ -3211,15 +3259,19 @@ async function run() {
             maximumPixelDifference = Number.POSITIVE_INFINITY;
         }
         const fallbackDrawCalls = drawCalls - drawCallsBeforeFallback;
+        const fallbackBezierCurveCalls = canvasBezierCurveCalls - bezierCurveCallsBeforeFallback;
         loseContext.restoreContext();
         glPrototype.drawArraysInstanced = originalDraw;
         glPrototype.bufferData = originalBufferData;
         glPrototype.texImage2D = originalTexImage2D;
         canvasPrototype.getContext = originalGetContext;
+        contextPrototype.bezierCurveTo = originalBezierCurveTo;
         theme.value = originalTheme;
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         colorScheme.value = originalColorScheme;
         colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+        dependencyType.value = originalDependencyType;
+        dependencyType.dispatchEvent(new Event("change", {bubbles: true}));
         if (webGLToggle.checked !== originalWebGLEnabled) {
             webGLToggle.click();
         }
@@ -3228,7 +3280,8 @@ async function run() {
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
         return {drawCalls, instances, maximumInstances, gradientInstances, strokeInstances,
-            textInstances, interleavedText, atlasUploads,
+            textInstances, interleavedText, atlasUploads, arrowDrawCalls, arrowInstances,
+            enabledBezierCurveCalls, disabledBezierCurveCalls, fallbackBezierCurveCalls,
             opaquePixels, colorfulPixels,
             disabledOpaquePixels, disabledColorfulPixels, disabledDrawCalls,
             disabledWebGLRequests, reenabledDrawCalls,
@@ -3243,6 +3296,11 @@ async function run() {
         webGLState.textInstances < 1 ||
         !webGLState.interleavedText ||
         webGLState.atlasUploads < 1 ||
+        webGLState.arrowDrawCalls < 1 ||
+        webGLState.arrowInstances < 1 ||
+        webGLState.enabledBezierCurveCalls !== 0 ||
+        webGLState.disabledBezierCurveCalls < 1 ||
+        webGLState.fallbackBezierCurveCalls < 1 ||
         webGLState.opaquePixels < 100 ||
         webGLState.colorfulPixels < 100 ||
         webGLState.disabledOpaquePixels < 100 ||
@@ -3253,12 +3311,20 @@ async function run() {
         webGLState.fallbackOpaquePixels < 100 ||
         webGLState.fallbackColorfulPixels < 100 ||
         webGLState.fallbackDrawCalls !== 0 ||
-        // atlas文字のLINEAR samplingとnative drawImageの端だけは補間値が少し異なる。
+        // atlas文字と矢印edgeのcoverageはnative Canvasと完全には一致しないため、
+        // 差のある面積と最大差の両方に上限を置いて大きな形状崩れだけを検出する。
         webGLState.noticeablyDifferingPixels > webGLState.opaquePixels * 0.01 ||
-        webGLState.maximumPixelDifference > 64 ||
+        webGLState.maximumPixelDifference > 128 ||
         webGLState.zoom !== "70.7%") {
         throw new Error(`WebGL2 simplified rendering is incomplete: ${JSON.stringify(webGLState)}`);
     }
+    await window.webContents.executeJavaScript(`(() => {
+        const close = document.querySelector('button[aria-label="Close webgl-arrows.log"]');
+        if (!(close instanceof HTMLButtonElement)) {
+            throw new Error("The synthetic WebGL arrow tab was not found.");
+        }
+        close.click();
+    })()`);
 
     const {Zstd} = await import("@hpcc-js/wasm-zstd");
     const zstdSource = fs.readFileSync(gem5Fixture);

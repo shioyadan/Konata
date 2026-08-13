@@ -766,15 +766,14 @@ export class KonataRenderer {
                     skipRendering = true;
                 }
             }
+            if (!this.renderingReference_ && this.dependencyArrowType_ !== DEP_ARROW_TYPE.NOT_SHOW) {
+                this.drawDependency_(offsetY, top, left, logicalHeight, solidRects);
+            }
         }
         finally {
             if (simplifiedRects !== null) {
                 this.canvasRenderer_.end();
             }
-        }
-
-        if (!this.renderingReference_ && this.dependencyArrowType_ !== DEP_ARROW_TYPE.NOT_SHOW) {
-            this.drawDependency_(offsetY, top, left, logicalHeight, context);
         }
 
         // 最終命令より下へはみ出した領域もinvalid色で描く。
@@ -969,7 +968,7 @@ export class KonataRenderer {
         logicalTop: number,
         logicalLeft: number,
         logicalHeight: number,
-        context: CanvasRenderingContext2D,
+        context: CanvasRenderingContext2D | RectContext,
     ): void {
         if (!this.canDrawDependency_) {
             return;
@@ -1026,7 +1025,7 @@ export class KonataRenderer {
     }
 
     private drawArrow_(
-        context: CanvasRenderingContext2D,
+        context: CanvasRenderingContext2D | RectContext,
         start: readonly [number, number],
         end: readonly [number, number],
         vector: readonly [number, number],
