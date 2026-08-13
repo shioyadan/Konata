@@ -684,9 +684,9 @@ export class KonataRenderer {
             top = 0;
         }
 
-        // 枠も文字もない縮小域では、stage形状だけをまとめてWebGLへ渡せる。
+        // 文字がない縮小域では、stageの塗りと枠を描画順ごとWebGLへまとめて渡せる。
         // 文字を個別設定で残した場合は、batch合成で文字を覆わないようCanvasへ戻す。
-        const simplifiedRects = !this.canDrawFrame_ && !this.canDrawText_
+        const simplifiedRects = !this.canDrawText_
             ? this.simplifiedRects_.begin(canvas, context, size.width, size.height)
             : null;
         const solidRects = simplifiedRects ?? context;
@@ -769,9 +769,9 @@ export class KonataRenderer {
         const left = leftCycle * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
         let right = rightCycle * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
 
-        const detailed = simplifiedRects === null;
-        if (detailed) {
-            context.strokeStyle = this.style_.pipelinePane.borderColor;
+        if (this.canDrawFrame_) {
+            const rectContext = simplifiedRects ?? context;
+            rectContext.strokeStyle = this.style_.pipelinePane.borderColor;
         }
 
         // 詳細時と縮小時でstage区間と色計算を共有し、出力する矩形の表現だけを替える。
@@ -871,8 +871,9 @@ export class KonataRenderer {
             drewStage = true;
 
             if (!this.renderingReference_ && this.canDrawFrame_) {
-                context.lineWidth = Number(this.style_.pipelinePane.borderWeight);
-                context.strokeRect(left, rectTop, right - left, rectHeight);
+                const rectContext = solidRects ?? context;
+                rectContext.lineWidth = Number(this.style_.pipelinePane.borderWeight);
+                rectContext.strokeRect(left, rectTop, right - left, rectHeight);
             }
 
             if (!this.renderingReference_ && this.canDrawText_) {

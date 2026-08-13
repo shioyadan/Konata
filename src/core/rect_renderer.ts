@@ -1,9 +1,12 @@
 // Konata固有の描画判断から独立した、rectangle用のCanvas互換境界。
-// 基本のfillStyle／fillRectに2色縦gradientだけを加え、backend選択をこのfileへ閉じる。
+// 基本のfill／stroke矩形に2色縦gradientだけを加え、backend選択をこのfileへ閉じる。
 
 export interface RectContext {
     fillStyle: string | CanvasGradient | CanvasPattern;
+    strokeStyle: string | CanvasGradient | CanvasPattern;
+    lineWidth: number;
     fillRect(x: number, y: number, width: number, height: number): void;
+    strokeRect(x: number, y: number, width: number, height: number): void;
     fillVerticalGradientRect(
         x: number,
         y: number,
@@ -32,6 +35,9 @@ export class RectRenderer implements RectContext {
     private height_ = 1;
     private fillStyle_: string = "#000000";
     private fillStyleIndex_ = 0;
+    private strokeStyle_: string = "#000000";
+    private strokeStyleIndex_ = 0;
+    private lineWidth_ = 1;
     private styles_: string[] = [];
     private styleMap_ = new Map<string, number>();
     private capacity_ = 0;
@@ -40,6 +46,8 @@ export class RectRenderer implements RectContext {
     // 1矩形につき上端・下端のstyle indexを持ち、単色では両方を同じ値にする。
     private styleIndices_ = new Uint32Array(0);
     private colors_ = new Uint8Array(0);
+    // 0なら塗り、正数ならその幅のstrokeとして同じ描画順へ積む。
+    private strokeWidths_ = new Float32Array(0);
 
     private state_: WebGLState = "uninitialized";
     private overlayCanvas_: HTMLCanvasElement | null = null;
@@ -49,6 +57,7 @@ export class RectRenderer implements RectContext {
     private unitBuffer_: WebGLBuffer | null = null;
     private rectBuffer_: WebGLBuffer | null = null;
     private colorBuffer_: WebGLBuffer | null = null;
+    private strokeWidthBuffer_: WebGLBuffer | null = null;
     private resolutionUniform_: WebGLUniformLocation | null = null;
     private colorCanvas_: HTMLCanvasElement | null = null;
     private colorContext_: CanvasRenderingContext2D | null = null;
@@ -64,6 +73,29 @@ export class RectRenderer implements RectContext {
         }
         this.fillStyle_ = value;
         this.fillStyleIndex_ = this.getStyleIndex_(value);
+    }
+
+    get strokeStyle(): string | CanvasGradient | CanvasPattern {
+        return this.strokeStyle_;
+    }
+
+    set strokeStyle(value: string | CanvasGradient | CanvasPattern) {
+        if (typeof value !== "string") {
+            throw new Error("The accelerated rectangle layer only supports solid stroke colors.");
+        }
+        this.strokeStyle_ = value;
+        this.strokeStyleIndex_ = this.getStyleIndex_(value);
+    }
+
+    get lineWidth(): number {
+        return this.lineWidth_;
+    }
+
+    set lineWidth(value: number) {
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new Error("The accelerated rectangle layer requires a positive line width.");
+        }
+        this.lineWidth_ = value;
     }
 
     private getStyleIndex_(value: string): number {
@@ -91,11 +123,25 @@ export class RectRenderer implements RectContext {
         this.styles_ = [];
         this.styleMap_.clear();
         this.fillStyle = "#000000";
+        this.strokeStyle = "#000000";
+        this.lineWidth = 1;
         return this;
     }
 
     fillRect(x: number, y: number, width: number, height: number): void {
         this.queueRect_(x, y, width, height, this.fillStyleIndex_, this.fillStyleIndex_);
+    }
+
+    strokeRect(x: number, y: number, width: number, height: number): void {
+        this.queueRect_(
+            x,
+            y,
+            width,
+            height,
+            this.strokeStyleIndex_,
+            this.strokeStyleIndex_,
+            this.lineWidth_,
+        );
     }
 
     fillVerticalGradientRect(
@@ -123,6 +169,7 @@ export class RectRenderer implements RectContext {
         height: number,
         topStyleIndex: number,
         bottomStyleIndex: number,
+        strokeWidth = 0,
     ): void {
         if (![x, y, width, height].every(Number.isFinite) || width === 0 || height === 0) {
             return;
@@ -146,6 +193,7 @@ export class RectRenderer implements RectContext {
         const styleOffset = this.count_ * 2;
         this.styleIndices_[styleOffset] = topStyleIndex;
         this.styleIndices_[styleOffset + 1] = bottomStyleIndex;
+        this.strokeWidths_[this.count_] = strokeWidth;
         this.count_++;
     }
 
@@ -177,6 +225,7 @@ export class RectRenderer implements RectContext {
         this.unitBuffer_ = null;
         this.rectBuffer_ = null;
         this.colorBuffer_ = null;
+        this.strokeWidthBuffer_ = null;
         this.resolutionUniform_ = null;
         this.overlayCanvas_ = null;
     }
@@ -186,12 +235,15 @@ export class RectRenderer implements RectContext {
         const rects = new Float32Array(capacity * 4);
         const indices = new Uint32Array(capacity * 2);
         const colors = new Uint8Array(capacity * 8);
+        const strokeWidths = new Float32Array(capacity);
         rects.set(this.rects_.subarray(0, this.count_ * 4));
         indices.set(this.styleIndices_.subarray(0, this.count_ * 2));
         colors.set(this.colors_.subarray(0, this.count_ * 8));
+        strokeWidths.set(this.strokeWidths_.subarray(0, this.count_));
         this.rects_ = rects;
         this.styleIndices_ = indices;
         this.colors_ = colors;
+        this.strokeWidths_ = strokeWidths;
         this.capacity_ = capacity;
     }
 
@@ -201,11 +253,31 @@ export class RectRenderer implements RectContext {
             return;
         }
         let solidStyleIndex = -1;
+        let strokeStyleIndex = -1;
+        let lineWidth = -1;
         for (let index = 0; index < this.count_; index++) {
             const offset = index * 4;
             const styleOffset = index * 2;
             const topStyleIndex = this.styleIndices_[styleOffset];
             const bottomStyleIndex = this.styleIndices_[styleOffset + 1];
+            const strokeWidth = this.strokeWidths_[index];
+            if (strokeWidth > 0) {
+                if (topStyleIndex !== strokeStyleIndex) {
+                    context.strokeStyle = this.styles_[topStyleIndex];
+                    strokeStyleIndex = topStyleIndex;
+                }
+                if (strokeWidth !== lineWidth) {
+                    context.lineWidth = strokeWidth;
+                    lineWidth = strokeWidth;
+                }
+                context.strokeRect(
+                    this.rects_[offset],
+                    this.rects_[offset + 1],
+                    this.rects_[offset + 2],
+                    this.rects_[offset + 3],
+                );
+                continue;
+            }
             if (topStyleIndex === bottomStyleIndex) {
                 if (topStyleIndex !== solidStyleIndex) {
                     context.fillStyle = this.styles_[topStyleIndex];
@@ -294,20 +366,57 @@ export class RectRenderer implements RectContext {
             layout(location=1) in vec4 a_rect;
             layout(location=2) in vec4 a_color_top;
             layout(location=3) in vec4 a_color_bottom;
+            layout(location=4) in float a_stroke_width;
             uniform vec2 u_resolution;
             out vec4 v_color;
+            out vec2 v_position;
+            flat out vec2 v_rect_size;
+            flat out float v_stroke_width;
             void main() {
-                vec2 position = a_rect.xy + a_unit * a_rect.zw;
+                float antialias_padding = a_stroke_width > 0.0 ? 1.0 : 0.0;
+                float padding = a_stroke_width * 0.5 + antialias_padding;
+                vec2 size = a_rect.zw + vec2(padding * 2.0);
+                vec2 position = a_rect.xy - vec2(padding) + a_unit * size;
                 vec2 clip = position / u_resolution * 2.0 - 1.0;
                 gl_Position = vec4(clip * vec2(1.0, -1.0), 0.0, 1.0);
                 v_color = mix(a_color_top, a_color_bottom, a_unit.y);
+                v_position = -vec2(padding) + a_unit * size;
+                v_rect_size = a_rect.zw;
+                v_stroke_width = a_stroke_width;
             }
         `);
         const fragmentShader = this.compileShader_(gl.FRAGMENT_SHADER, `#version 300 es
-            precision mediump float;
+            precision highp float;
             in vec4 v_color;
+            in vec2 v_position;
+            flat in vec2 v_rect_size;
+            flat in float v_stroke_width;
             out vec4 out_color;
             void main() {
+                if (v_stroke_width > 0.0) {
+                    float half_width = v_stroke_width * 0.5;
+                    vec2 outer_distance = min(
+                        v_position + vec2(half_width),
+                        v_rect_size + vec2(half_width) - v_position
+                    );
+                    vec2 inner_distance = min(
+                        v_position - vec2(half_width),
+                        v_rect_size - vec2(half_width) - v_position
+                    );
+                    float outer_edge = min(outer_distance.x, outer_distance.y);
+                    float inner_edge = min(inner_distance.x, inner_distance.y);
+                    float outer_aa = max(fwidth(outer_edge), 0.0001);
+                    float inner_aa = max(fwidth(inner_edge), 0.0001);
+                    // 境界のcoverageを滑らかに補間し、縮小時も枠へ階段状のaliasを出さない。
+                    float outer_coverage = smoothstep(-outer_aa * 0.5, outer_aa * 0.5, outer_edge);
+                    float inner_coverage = smoothstep(-inner_aa * 0.5, inner_aa * 0.5, inner_edge);
+                    float coverage = outer_coverage * (1.0 - inner_coverage);
+                    if (coverage <= 0.0) {
+                        discard;
+                    }
+                    out_color = vec4(v_color.rgb, v_color.a * coverage);
+                    return;
+                }
                 out_color = v_color;
             }
         `);
@@ -330,7 +439,9 @@ export class RectRenderer implements RectContext {
         const unitBuffer = gl.createBuffer();
         const rectBuffer = gl.createBuffer();
         const colorBuffer = gl.createBuffer();
-        if (vertexArray === null || unitBuffer === null || rectBuffer === null || colorBuffer === null) {
+        const strokeWidthBuffer = gl.createBuffer();
+        if (vertexArray === null || unitBuffer === null || rectBuffer === null ||
+            colorBuffer === null || strokeWidthBuffer === null) {
             throw new Error("WebGL buffers could not be created.");
         }
         this.program_ = program;
@@ -338,6 +449,7 @@ export class RectRenderer implements RectContext {
         this.unitBuffer_ = unitBuffer;
         this.rectBuffer_ = rectBuffer;
         this.colorBuffer_ = colorBuffer;
+        this.strokeWidthBuffer_ = strokeWidthBuffer;
         this.resolutionUniform_ = gl.getUniformLocation(program, "u_resolution");
 
         gl.bindVertexArray(vertexArray);
@@ -361,6 +473,11 @@ export class RectRenderer implements RectContext {
         gl.enableVertexAttribArray(3);
         gl.vertexAttribPointer(3, 4, gl.UNSIGNED_BYTE, true, 8, 4);
         gl.vertexAttribDivisor(3, 1);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, strokeWidthBuffer);
+        gl.enableVertexAttribArray(4);
+        gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribDivisor(4, 1);
         gl.bindVertexArray(null);
     }
 
@@ -390,7 +507,8 @@ export class RectRenderer implements RectContext {
         const targetContext = this.targetContext_;
         if (gl === null || overlay === null || target === null || targetContext === null ||
             this.program_ === null || this.vertexArray_ === null ||
-            this.rectBuffer_ === null || this.colorBuffer_ === null || gl.isContextLost()) {
+            this.rectBuffer_ === null || this.colorBuffer_ === null ||
+            this.strokeWidthBuffer_ === null || gl.isContextLost()) {
             return false;
         }
         if (!this.prepareColors_()) {
@@ -427,6 +545,12 @@ export class RectRenderer implements RectContext {
             gl.bufferData(
                 gl.ARRAY_BUFFER,
                 this.colors_.subarray(0, this.count_ * 8),
+                gl.DYNAMIC_DRAW,
+            );
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.strokeWidthBuffer_);
+            gl.bufferData(
+                gl.ARRAY_BUFFER,
+                this.strokeWidths_.subarray(0, this.count_),
                 gl.DYNAMIC_DRAW,
             );
             gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.count_);
@@ -517,6 +641,7 @@ export class RectRenderer implements RectContext {
         this.unitBuffer_ = null;
         this.rectBuffer_ = null;
         this.colorBuffer_ = null;
+        this.strokeWidthBuffer_ = null;
         this.resolutionUniform_ = null;
     }
 }

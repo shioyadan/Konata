@@ -23,6 +23,9 @@ interface RecordedContext {
     readonly fillTexts: Array<[string, number, number]>;
     readonly fillRects: Array<[number, number, number, number]>;
     readonly fillStyles: string[];
+    readonly strokeRects: Array<[number, number, number, number]>;
+    readonly strokeStyles: string[];
+    readonly lineWidths: number[];
     readonly clearRects: Array<[number, number, number, number]>;
     readonly gradients: RecordedGradient[];
     readonly context: CanvasRenderingContext2D;
@@ -32,6 +35,9 @@ function createRecordedContext(): RecordedContext {
     const fillTexts: Array<[string, number, number]> = [];
     const fillRects: Array<[number, number, number, number]> = [];
     const fillStyles: string[] = [];
+    const strokeRects: Array<[number, number, number, number]> = [];
+    const strokeStyles: string[] = [];
+    const lineWidths: number[] = [];
     const clearRects: Array<[number, number, number, number]> = [];
     const gradients: RecordedGradient[] = [];
     const context = {
@@ -47,7 +53,11 @@ function createRecordedContext(): RecordedContext {
         clearRect(x: number, y: number, width: number, height: number) {
             clearRects.push([x, y, width, height]);
         },
-        strokeRect() {},
+        strokeRect(x: number, y: number, width: number, height: number) {
+            strokeRects.push([x, y, width, height]);
+            strokeStyles.push(String(this.strokeStyle));
+            lineWidths.push(this.lineWidth);
+        },
         beginPath() {},
         moveTo() {},
         lineTo() {},
@@ -67,7 +77,17 @@ function createRecordedContext(): RecordedContext {
             };
         },
     } as unknown as CanvasRenderingContext2D;
-    return { fillTexts, fillRects, fillStyles, clearRects, gradients, context };
+    return {
+        fillTexts,
+        fillRects,
+        fillStyles,
+        strokeRects,
+        strokeStyles,
+        lineWidths,
+        clearRects,
+        gradients,
+        context,
+    };
 }
 
 function createCanvas(context: CanvasRenderingContext2D, width = 320, height = 96): HTMLCanvasElement {
@@ -385,7 +405,7 @@ test("Web renderer keeps minimum lane heights configurable", () => {
 
     renderer.drawSpec(
         trace,
-        { ...DEFAULT_KONATA_RENDER_SPEC, textLabelMinimumLaneHeight: 100 },
+        { ...DEFAULT_KONATA_RENDER_SPEC, textLabelMinimumLaneHeight: 100, theme: "light" },
         createCanvas(label.context),
         createCanvas(pipeline.context),
     );
@@ -418,5 +438,25 @@ test("Web renderer keeps stage gradients and flush order in the simplified Canva
     assert.ok(stageRectIndex >= 0);
     assert.equal(pipeline.fillStyles[stageRectIndex + 1], "rgba(0,0,0,0.4)");
     assert.deepEqual(pipeline.fillRects[stageRectIndex], pipeline.fillRects[stageRectIndex + 1]);
+    assert.deepEqual(pipeline.fillTexts, []);
+});
+
+test("Web renderer keeps stage borders in the accelerated Canvas fallback", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    const pipeline = createRecordedContext();
+
+    renderer.drawPipelineSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 1, theme: "light" },
+        createCanvas(pipeline.context),
+    );
+
+    // 50%では文字を省略する一方、塗りと同じ矩形へlight themeの1px枠を残す。
+    const stageRectIndex = pipeline.fillStyles.indexOf("[object Object]");
+    assert.ok(stageRectIndex >= 0);
+    assert.deepEqual(pipeline.strokeRects, [pipeline.fillRects[stageRectIndex]]);
+    assert.deepEqual(pipeline.strokeStyles, ["#444444"]);
+    assert.deepEqual(pipeline.lineWidths, [1]);
     assert.deepEqual(pipeline.fillTexts, []);
 });

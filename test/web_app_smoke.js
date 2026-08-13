@@ -2801,7 +2801,7 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
-    // 枠と文字が消える12.5%まで縮小し、stage gradientをWebGL2で一括描画することを確認する。
+    // 文字だけが消える50%まで縮小し、stage gradientと枠をWebGL2で一括描画することを確認する。
     const webGLState = await window.webContents.executeJavaScript(`(async () => {
         const glPrototype = globalThis.WebGL2RenderingContext?.prototype;
         const canvasPrototype = HTMLCanvasElement.prototype;
@@ -2825,6 +2825,7 @@ async function run() {
         let instances = 0;
         let maximumInstances = 0;
         let gradientInstances = 0;
+        let strokeInstances = 0;
         let webGLRequests = 0;
         let webGLContexts = 0;
         let acceleratedContext = null;
@@ -2857,6 +2858,13 @@ async function run() {
                     }
                 }
             }
+            if (data instanceof Float32Array && data.length >= 64 &&
+                data.every((value) => value === 0 || value === 1)) {
+                strokeInstances += data.reduce(
+                    (count, value) => count + (value > 0 ? 1 : 0),
+                    0,
+                );
+            }
             return Reflect.apply(originalBufferData, this, args);
         };
         theme.value = "light";
@@ -2864,7 +2872,7 @@ async function run() {
         colorScheme.value = "Auto";
         colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        for (let index = 0; index < 3; index++) {
+        for (let index = 0; index < 1; index++) {
             zoomOut.click();
         }
         await new Promise((resolve) => setTimeout(resolve, 350));
@@ -2916,7 +2924,7 @@ async function run() {
         const drawCallsBeforeFallback = drawCalls;
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
-        for (let index = 0; index < 3; index++) {
+        for (let index = 0; index < 1; index++) {
             zoomOut.click();
         }
         await new Promise((resolve) => setTimeout(resolve, 350));
@@ -2925,24 +2933,31 @@ async function run() {
         const fallbackOpaquePixels = countOpaquePixels(fallbackPixels);
         const fallbackColorfulPixels = countColorfulPixels(fallbackPixels);
         let differingPixels = 0;
+        let noticeablyDifferingPixels = 0;
         let maximumPixelDifference = 0;
         if (pixels !== undefined && fallbackPixels !== undefined && pixels.length === fallbackPixels.length) {
             for (let index = 0; index < pixels.length; index += 4) {
                 let pixelDiffers = false;
+                let pixelDifference = 0;
                 for (let component = 0; component < 4; component++) {
                     const difference = Math.abs(pixels[index + component] - fallbackPixels[index + component]);
                     if (difference !== 0) {
                         pixelDiffers = true;
+                        pixelDifference = Math.max(pixelDifference, difference);
                         maximumPixelDifference = Math.max(maximumPixelDifference, difference);
                     }
                 }
                 if (pixelDiffers) {
                     differingPixels++;
                 }
+                if (pixelDifference > 8) {
+                    noticeablyDifferingPixels++;
+                }
             }
         }
         else {
             differingPixels = Number.POSITIVE_INFINITY;
+            noticeablyDifferingPixels = Number.POSITIVE_INFINITY;
             maximumPixelDifference = Number.POSITIVE_INFINITY;
         }
         const fallbackDrawCalls = drawCalls - drawCallsBeforeFallback;
@@ -2956,23 +2971,24 @@ async function run() {
         colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
-        return {drawCalls, instances, maximumInstances, gradientInstances,
+        return {drawCalls, instances, maximumInstances, gradientInstances, strokeInstances,
             opaquePixels, colorfulPixels,
             fallbackOpaquePixels, fallbackColorfulPixels, fallbackDrawCalls,
-            differingPixels, maximumPixelDifference, zoom,
+            differingPixels, noticeablyDifferingPixels, maximumPixelDifference, zoom,
             webGLRequests, webGLContexts};
     })()`);
     if (webGLState.drawCalls < 1 ||
         webGLState.instances < 64 ||
         webGLState.gradientInstances < 1 ||
+        webGLState.strokeInstances < 1 ||
         webGLState.opaquePixels < 100 ||
         webGLState.colorfulPixels < 100 ||
         webGLState.fallbackOpaquePixels < 100 ||
         webGLState.fallbackColorfulPixels < 100 ||
         webGLState.fallbackDrawCalls !== 0 ||
-        webGLState.differingPixels > webGLState.opaquePixels * 0.01 ||
-        webGLState.maximumPixelDifference > 160 ||
-        webGLState.zoom !== "12.5%") {
+        webGLState.noticeablyDifferingPixels > webGLState.opaquePixels * 0.01 ||
+        webGLState.maximumPixelDifference > 48 ||
+        webGLState.zoom !== "50%") {
         throw new Error(`WebGL2 simplified rendering is incomplete: ${JSON.stringify(webGLState)}`);
     }
 
