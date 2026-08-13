@@ -2801,6 +2801,114 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
+    // stage名と経過cycle数は最初の描画だけoffscreenへ描き、次の描画ではBLTだけになる。
+    const textAtlasState = await window.webContents.executeJavaScript(`(async () => {
+        const prototype = CanvasRenderingContext2D.prototype;
+        const originalFillText = prototype.fillText;
+        const originalDrawImage = prototype.drawImage;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        if (!(pipeline instanceof HTMLCanvasElement) ||
+            !(theme instanceof HTMLSelectElement) ||
+            !(colorScheme instanceof HTMLSelectElement) ||
+            !(zoomSteps instanceof HTMLInputElement) ||
+            !(zoomOut instanceof HTMLButtonElement) ||
+            !(reset instanceof HTMLButtonElement)) {
+            throw new Error("The text atlas controls were not found.");
+        }
+        const originalTheme = theme.value;
+        const originalColorScheme = colorScheme.value;
+        const originalZoomSteps = zoomSteps.value;
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        inputSetter?.call(zoomSteps, "2");
+        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        let atlasFillTexts = 0;
+        let pipelineFillTexts = 0;
+        let pipelineBlits = 0;
+        const blitScales = [];
+        prototype.fillText = function(...args) {
+            if (this.canvas === pipeline) {
+                pipelineFillTexts++;
+            }
+            else if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected) {
+                atlasFillTexts++;
+            }
+            return Reflect.apply(originalFillText, this, args);
+        };
+        prototype.drawImage = function(...args) {
+            if (this.canvas === pipeline && args[0] instanceof HTMLCanvasElement &&
+                !args[0].isConnected) {
+                pipelineBlits++;
+                if (args.length === 9) {
+                    blitScales.push(args[7] * devicePixelRatio / args[3]);
+                }
+            }
+            return Reflect.apply(originalDrawImage, this, args);
+        };
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        try {
+            theme.value = "light";
+            theme.dispatchEvent(new Event("change", {bubbles: true}));
+            await nextFrame();
+            const first = {atlasFillTexts, pipelineFillTexts, pipelineBlits};
+
+            // 半stepの縮小animationでも100%用atlasを共有し、表示時だけ縮小する。
+            zoomOut.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            await nextFrame();
+            const scaled = {
+                atlasFillTexts,
+                pipelineFillTexts,
+                pipelineBlits,
+                minimumBlitScale: Math.min(...blitScales),
+                zoom: document.querySelector('.zoom-controls output')?.textContent ?? null,
+            };
+
+            // stageの配色だけを変えた再描画でも、同じatlasを維持する。
+            colorScheme.value = "Unique";
+            colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+            await nextFrame();
+            return {
+                first,
+                scaled,
+                recolored: {atlasFillTexts, pipelineFillTexts, pipelineBlits}
+            };
+        }
+        finally {
+            prototype.fillText = originalFillText;
+            prototype.drawImage = originalDrawImage;
+            theme.value = originalTheme;
+            theme.dispatchEvent(new Event("change", {bubbles: true}));
+            colorScheme.value = originalColorScheme;
+            colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+            inputSetter?.call(zoomSteps, originalZoomSteps);
+            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            await nextFrame();
+        }
+    })()`);
+    if (textAtlasState.first.atlasFillTexts < 1 ||
+        textAtlasState.first.pipelineFillTexts !== 0 ||
+        textAtlasState.first.pipelineBlits <= textAtlasState.first.atlasFillTexts ||
+        textAtlasState.scaled.atlasFillTexts < textAtlasState.first.atlasFillTexts ||
+        textAtlasState.scaled.atlasFillTexts > textAtlasState.first.atlasFillTexts + 4 ||
+        textAtlasState.scaled.pipelineFillTexts !== 0 ||
+        textAtlasState.scaled.pipelineBlits <= textAtlasState.first.pipelineBlits ||
+        textAtlasState.scaled.minimumBlitScale < 0.65 ||
+        textAtlasState.scaled.minimumBlitScale > 0.75 ||
+        textAtlasState.scaled.zoom !== "70.7%" ||
+        textAtlasState.recolored.atlasFillTexts !== textAtlasState.scaled.atlasFillTexts ||
+        textAtlasState.recolored.pipelineFillTexts !== 0 ||
+        textAtlasState.recolored.pipelineBlits <= textAtlasState.scaled.pipelineBlits) {
+        throw new Error(`Stage text atlas reuse is incomplete: ${JSON.stringify(textAtlasState)}`);
+    }
+
     // 文字だけが消える50%まで縮小し、stage gradientと枠をWebGL2で一括描画することを確認する。
     const webGLState = await window.webContents.executeJavaScript(`(async () => {
         const glPrototype = globalThis.WebGL2RenderingContext?.prototype;
@@ -3464,7 +3572,12 @@ async function run() {
         throw new Error(`Remote trace workflow is incomplete: ${JSON.stringify(remoteTraceState)}`);
     }
 
-    console.log(`Web smoke test passed: ${JSON.stringify({webGLState, persistentFileState, remoteTraceState})}`);
+    console.log(`Web smoke test passed: ${JSON.stringify({
+        textAtlasState,
+        webGLState,
+        persistentFileState,
+        remoteTraceState,
+    })}`);
     window.destroy();
 }
 

@@ -3,6 +3,7 @@ import {
     RectRenderer,
     type RectContext,
 } from "./rect_renderer";
+import { TextAtlas } from "./text_atlas";
 
 // fsで読むと配布後のcurrent directoryに依存するため、旧Rendererと同じく
 // style定義はmoduleとしてbundleへ取り込む。
@@ -446,6 +447,7 @@ export class KonataRenderer {
     private labelFontSize_ = 12;
     private stageFontSize_ = 12;
     private readonly simplifiedRects_ = new RectRenderer();
+    private readonly stageTextAtlas_ = new TextAtlas();
 
     constructor() {
         this.metrics_ = new KonataRenderMetrics(null, DEFAULT_KONATA_RENDER_SPEC);
@@ -559,6 +561,7 @@ export class KonataRenderer {
 
     releaseCanvasResources(): void {
         this.simplifiedRects_.dispose();
+        this.stageTextAtlas_.dispose();
     }
 
     private updateDerivedValues_(): void {
@@ -825,6 +828,9 @@ export class KonataRenderer {
             return false;
         }
         context.font = this.stageFont_;
+        if (this.canDrawText_) {
+            context.imageSmoothingEnabled = true;
+        }
         const top = logicalY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
         let drewStage = false;
 
@@ -893,13 +899,18 @@ export class KonataRenderer {
                         0,
                         (this.opWidth_ - String(offset).length * this.stageFontSize_ / 2) / 2,
                     );
-                    context.fillText(String(offset), textLeft + offset * this.opWidth_ + margin, textTop);
+                    this.drawStageText_(
+                        context,
+                        String(offset),
+                        textLeft + offset * this.opWidth_ + margin,
+                        textTop,
+                    );
                 }
                 const margin = Math.max(
                     0,
                     (this.opWidth_ - stage.name.length * this.stageFontSize_ / 2) / 2,
                 );
-                context.fillText(stage.name, textLeft + margin, textTop);
+                this.drawStageText_(context, stage.name, textLeft + margin, textTop);
             }
 
             if (!this.renderingReference_ && op.flush) {
@@ -909,6 +920,31 @@ export class KonataRenderer {
             }
         }
         return drewStage;
+    }
+
+    private drawStageText_(
+        context: CanvasRenderingContext2D,
+        text: string,
+        x: number,
+        baselineY: number,
+    ): void {
+        const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+        // 100%以下では同じ14px glyphを縮小し、zoom animation中の毎frame再生成を避ける。
+        // 拡大時はbitmap拡大でぼかさず、実際の表示サイズでrasterizeする。
+        const atlasScale = Math.min(1, this.zoomScale_);
+        const atlasFont = atlasScale < 1
+            ? `${this.style_.fontStyle} ${Number(this.style_.fontSize)}px ${this.style_.fontFamily}`
+            : this.stageFont_;
+        this.stageTextAtlas_.drawText(
+            context,
+            text,
+            x,
+            baselineY,
+            atlasFont,
+            this.style_.pipelinePane.fontColor,
+            pixelRatio,
+            atlasScale,
+        );
     }
 
     private drawDependency_(
