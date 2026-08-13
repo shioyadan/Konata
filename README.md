@@ -45,32 +45,26 @@
 
 ## Usage
 
-### Generate and open a trace
+### Generate and open a gem5 trace
 
-Generate an O3PipeView trace with the gem5 O3 CPU model. This example follows the
-[gem5 O3 Pipeline Viewer documentation](https://www.gem5.org/documentation/general_docs/cpu_models/visualization/):
+Generate an O3PipeView trace with gem5's O3 CPU model. This gem5 v25.1 example uses the bundled
+legacy SE script to run an arbitrary binary:
 
 ```bash
-./build/ARM/gem5.opt \
-    --debug-flags=O3PipeView \
-    --debug-start=<first tick of interest> \
-    --debug-file=trace.out \
-    configs/example/se.py \
-    --cpu-type=detailed \
-    --caches -c <path to binary> \
-    -m <last cycle of interest>
+./build/ALL/gem5.opt \
+    --debug-flags=O3PipeView,Rename,MemDepUnit,LSQUnit \
+    --debug-file=trace.log \
+    configs/deprecated/example/se.py \
+    --cpu-type=ArmO3CPU --caches --mem-size=512MiB \
+    --cmd=<path-to-binary> --options="<program arguments>" \
+    --maxinsts=<instruction-limit>
 ```
 
-Open `trace.out` using the Open menu or drag and drop it onto Konata. Enabling `O3CPUAll` alongside
-`O3PipeView` adds detailed CPU messages and instruction dependencies:
-
-```text
---debug-flags=O3PipeView,O3CPUAll
-```
-
-With `O3CPUAll` enabled, Konata associates messages with instructions using
-`[sn:<serial number>]`. Custom log messages with the same serial number are shown with the
-corresponding instruction.
+- `Rename` adds register dependencies and information used to recover SMT thread IDs.
+- `MemDepUnit` adds memory-completion events, and `LSQUnit` adds load/store addresses.
+- Use only `O3PipeView` for a smaller trace, or `O3PipeView,O3CPUAll` for full troubleshooting.
+- Open `m5out/trace.log` using the Open menu or drag and drop it onto Konata.
+- Compress large traces with Zstandard (`zstd trace.log`); Konata opens `.zst` files directly.
 
 ### Toolbar controls
 
