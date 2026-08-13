@@ -18,6 +18,7 @@ class Gem5O3PipeViewExLogInfo {
     readonly logList: string[][] = [];
     readonly srcs: string[] = [];
     readonly dsts: string[] = [];
+    threadID: number | null = null;
 }
 
 const GIVING_UP_LINE = 20000;
@@ -34,6 +35,7 @@ const STAGE_LABELS: Readonly<Record<string, string>> = {
     mem_complete: "Mc",
 };
 const SERIAL_NUMBER_PATTERN = /sn:(\d+)/;
+const THREAD_ID_PATTERN = /\[tid:\s*(\d+)\]/;
 
 export class Gem5O3PipeViewParser {
     readonly name = "Gem5O3PipeViewParser";
@@ -168,6 +170,14 @@ export class Gem5O3PipeViewParser {
             exLog = new Gem5O3PipeViewExLogInfo();
             this.parsingExLogs_.set(seqNum, exLog);
         }
+        // sequence numberとthread IDが同じ行に明記された場合だけ対応付ける。
+        // snを持たないstage全体のログを直前命令へ誤帰属させないためである。
+        if (matched !== null) {
+            const matchedThreadID = THREAD_ID_PATTERN.exec(line);
+            if (matchedThreadID !== null && exLog.threadID === null) {
+                exLog.threadID = Number(matchedThreadID[1]);
+            }
+        }
         if (/^\s*\d+/.test(args[0])) {
             // tickで始まる継続行だけを同じ命令の追加ログとして保存する。
             exLog.logList.push(args);
@@ -283,6 +293,11 @@ export class Gem5O3PipeViewParser {
             }
             op.id = id;
             this.reorderedOps_.delete(id);
+            // 新しいgem5の明示recordを優先し、旧traceは追加debug logから補う。
+            // どちらにも情報がないO3PipeView単独traceは従来互換のthread 0とする。
+            if (op.tid === -1) {
+                op.tid = this.parsingExLogs_.get(op.gid)?.threadID ?? 0;
+            }
             this.opStore_.setOp(id, op);
             this.lastGID_ = op.gid;
             this.currentCycle_ = Math.max(this.currentCycle_, op.retiredCycle);
@@ -365,7 +380,6 @@ export class Gem5O3PipeViewParser {
         const op = new Op();
         op.id = -1; // seqNum順への並べ直しが終わるまでは未定。
         op.gid = seqNum;
-        op.tid = 0;
         op.fetchedCycle = tick;
         op.line = this.currentLine_;
         op.labelName = `${address}: ${disassembly}`;
@@ -483,6 +497,17 @@ export class Gem5O3PipeViewParser {
         const op = this.parsingOps_.get(this.currentSeqNum_);
         if (op === undefined) {
             throw new Error(`Line ${this.currentLine_}: ${String(command)} has no current instruction.`);
+        }
+        if (command === "thread") {
+            // args[2]を従来commandと同じtick位置に置くことで、未知commandを
+            // 無視する旧O3PipeView toolでもtickによる読み飛ばしを壊さない。
+            this.parseNumber_(args[2], "thread tick");
+            const threadID = this.parseNumber_(args[3], "thread ID");
+            if (!Number.isInteger(threadID) || threadID < 0) {
+                throw new Error(`Line ${this.currentLine_}: thread ID is not a non-negative integer.`);
+            }
+            op.tid = threadID;
+            return;
         }
         const tick = this.parseNumber_(args[2], `${String(command)} tick`);
         switch (command) {

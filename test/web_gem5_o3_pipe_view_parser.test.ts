@@ -42,6 +42,7 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
         {
             id: op.id,
             gid: op.gid,
+            tid: op.tid,
             rid: op.rid,
             retired: op.retired,
             flush: op.flush,
@@ -53,6 +54,7 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
         {
             id: 0,
             gid: 10,
+            tid: 0,
             rid: 0,
             retired: true,
             flush: false,
@@ -75,6 +77,31 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
             ["Cm", 5, 6],
         ],
     );
+});
+
+test("Web gem5 parser reads thread IDs with backward-compatible fallbacks", async () => {
+    const contents = [
+        "O3PipeView:fetch:1000:0x10:0:10: explicit-thread",
+        "O3PipeView:thread:1000:2",
+        // 詳細ログと矛盾しても、O3PipeViewの明示recordを優先する。
+        "1500: system.cpu.rename: [tid:1]: Processing instruction [sn:10]",
+        "O3PipeView:decode:2000",
+        "O3PipeView:retire:3000",
+        "O3PipeView:fetch:4000:0x11:0:11: inferred-thread",
+        "4500: system.cpu.rename: [tid:3]: Processing instruction [sn:11]",
+        "O3PipeView:decode:5000",
+        "O3PipeView:retire:6000",
+        "O3PipeView:fetch:7000:0x12:0:12: legacy-thread",
+        "O3PipeView:decode:8000",
+        "O3PipeView:retire:9000",
+    ].join("\n");
+    const trace = await new Gem5O3PipeViewParser().parse(
+        reader(new File([contents], "thread-ids.log", { type: "text/plain" })),
+    );
+
+    assert.equal(trace.getOp(0)?.tid, 2);
+    assert.equal(trace.getOp(1)?.tid, 3);
+    assert.equal(trace.getOp(2)?.tid, 0);
 });
 
 test("Web gem5 parser rejects input without O3PipeView records", async () => {
