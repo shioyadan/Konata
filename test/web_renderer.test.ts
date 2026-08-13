@@ -28,6 +28,7 @@ interface RecordedContext {
     readonly lineWidths: number[];
     readonly clearRects: Array<[number, number, number, number]>;
     readonly gradients: RecordedGradient[];
+    readonly commands: string[];
     readonly context: CanvasRenderingContext2D;
 }
 
@@ -40,6 +41,7 @@ function createRecordedContext(): RecordedContext {
     const lineWidths: number[] = [];
     const clearRects: Array<[number, number, number, number]> = [];
     const gradients: RecordedGradient[] = [];
+    const commands: string[] = [];
     const context = {
         fillStyle: "",
         strokeStyle: "",
@@ -47,6 +49,7 @@ function createRecordedContext(): RecordedContext {
         font: "",
         setTransform() {},
         fillRect(x: number, y: number, width: number, height: number) {
+            commands.push("fillRect");
             fillRects.push([x, y, width, height]);
             fillStyles.push(String(this.fillStyle));
         },
@@ -54,6 +57,7 @@ function createRecordedContext(): RecordedContext {
             clearRects.push([x, y, width, height]);
         },
         strokeRect(x: number, y: number, width: number, height: number) {
+            commands.push("strokeRect");
             strokeRects.push([x, y, width, height]);
             strokeStyles.push(String(this.strokeStyle));
             lineWidths.push(this.lineWidth);
@@ -65,6 +69,7 @@ function createRecordedContext(): RecordedContext {
         stroke() {},
         fill() {},
         fillText(text: string, x: number, y: number) {
+            commands.push(`text:${text}`);
             fillTexts.push([text, x, y]);
         },
         createLinearGradient(x0: number, y0: number, x1: number, y1: number) {
@@ -86,6 +91,7 @@ function createRecordedContext(): RecordedContext {
         lineWidths,
         clearRects,
         gradients,
+        commands,
         context,
     };
 }
@@ -160,8 +166,37 @@ test("Web renderer draws stage names and elapsed cycles like the legacy renderer
         ["1", "2", "X"],
     );
     // 色はcycle方向ではなく、旧Rendererと同じstage上端から下端へのgradientにする。
-    assert.deepEqual(pipeline.gradients[0]?.points, [0, 0.5, 0, 24.5]);
+    const gradientPoints = pipeline.gradients[0]?.points;
+    assert.ok(gradientPoints !== undefined);
+    assert.ok(gradientPoints.every((value, index) =>
+        Math.abs(value - [0, 0.5, 0, 24.5][index]) < 0.00001));
     assert.equal(pipeline.gradients[0]?.stops.length, 2);
+});
+
+test("Web renderer preserves text order between overlapping lanes in the Canvas fallback", () => {
+    const { trace, op } = createTrace();
+    const secondStage = new Stage();
+    secondStage.name = "Y";
+    secondStage.startCycle = 2;
+    secondStage.endCycle = 5;
+    const secondLane = new Lane();
+    secondLane.stages.push(secondStage);
+    const secondLaneID = trace.stageLevelMap.getOrCreateLaneID("1");
+    op.lanes[secondLaneID] = secondLane;
+    trace.stageLevelMap.update("1", "Y", secondLane);
+    const pipeline = createRecordedContext();
+
+    new KonataRenderer().drawPipelineSpec(
+        trace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(pipeline.context),
+    );
+
+    const firstLaneText = pipeline.commands.indexOf("text:X");
+    const secondLaneText = pipeline.commands.indexOf("text:Y");
+    assert.ok(firstLaneText >= 0 && secondLaneText > firstLaneText);
+    // 後続laneの矩形を先行laneの文字より後へ残し、重ね表示のpainter順を変えない。
+    assert.ok(pipeline.commands.slice(firstLaneText + 1, secondLaneText).includes("fillRect"));
 });
 
 test("Web renderer reproduces drawing from a trace and render spec", () => {

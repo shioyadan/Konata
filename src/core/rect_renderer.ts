@@ -14,6 +14,8 @@ export interface RectContext {
         height: number,
         topColor: string,
         bottomColor: string,
+        topPosition?: number,
+        bottomPosition?: number,
     ): void;
 }
 
@@ -42,32 +44,54 @@ class TextAtlas {
     private cursorX_ = 0;
     private cursorY_ = 0;
     private rowHeight_ = 0;
+    private revision_ = 0;
+    private generation_ = 0;
     private readonly entries_ = new Map<string, AtlasEntry>();
 
-    drawText(
-        target: CanvasRenderingContext2D,
+    get canvas(): HTMLCanvasElement | null {
+        return this.canvas_;
+    }
+
+    get width(): number {
+        return TextAtlas.WIDTH;
+    }
+
+    get height(): number {
+        return TextAtlas.HEIGHT;
+    }
+
+    get revision(): number {
+        return this.revision_;
+    }
+
+    get generation(): number {
+        return this.generation_;
+    }
+
+    getEntry(
         text: string,
-        x: number,
-        baselineY: number,
         font: string,
         color: string,
         pixelRatio: number,
-        scale: number,
-    ): void {
-        if (text.length === 0 || typeof document === "undefined" ||
-            !Number.isFinite(scale) || scale <= 0) {
-            target.fillText(text, x, baselineY);
-            return;
+    ): AtlasEntry | null {
+        if (text.length === 0 || typeof document === "undefined") {
+            return null;
         }
         const context = this.prepare_(font, color, pixelRatio);
         if (context === null || this.canvas_ === null) {
-            target.fillText(text, x, baselineY);
-            return;
+            return null;
         }
+        return this.entries_.get(text) ?? this.add_(text);
+    }
 
-        const entry = this.entries_.get(text) ?? this.add_(text);
-        if (entry === null) {
-            target.fillText(text, x, baselineY);
+    drawEntry(
+        target: CanvasRenderingContext2D,
+        entry: Readonly<AtlasEntry>,
+        x: number,
+        baselineY: number,
+        scale: number,
+    ): void {
+        if (this.canvas_ === null) {
             return;
         }
         target.drawImage(
@@ -94,6 +118,8 @@ class TextAtlas {
         this.color_ = "";
         this.pixelRatio_ = 0;
         this.entries_.clear();
+        this.revision_++;
+        this.generation_++;
     }
 
     private prepare_(
@@ -138,6 +164,8 @@ class TextAtlas {
         this.cursorX_ = 0;
         this.cursorY_ = 0;
         this.rowHeight_ = 0;
+        this.revision_++;
+        this.generation_++;
     }
 
     private add_(text: string): AtlasEntry | null {
@@ -194,6 +222,7 @@ class TextAtlas {
         this.entries_.set(text, entry);
         this.cursorX_ += width;
         this.rowHeight_ = Math.max(this.rowHeight_, height);
+        this.revision_++;
         return entry;
     }
 }
@@ -223,11 +252,17 @@ export class RectRenderer implements RectContext {
     private capacity_ = 0;
     private count_ = 0;
     private rects_ = new Float32Array(0);
+    private textureRects_ = new Float32Array(0);
+    private textPositions_ = new Float32Array(0);
+    private readonly texts_: Array<string | undefined> = [];
     // 1矩形につき上端・下端のstyle indexを持ち、単色では両方を同じ値にする。
     private styleIndices_ = new Uint32Array(0);
     private colors_ = new Uint8Array(0);
-    // 0なら塗り、正数ならその幅のstrokeとして同じ描画順へ積む。
+    // 0なら塗り、正数ならstroke、-1ならatlas文字として同じ描画順へ積む。
     private strokeWidths_ = new Float32Array(0);
+    private textCount_ = 0;
+    private textAtlasGeneration_ = -1;
+    private textBatchValid_ = true;
 
     private state_: WebGLState = "uninitialized";
     private overlayCanvas_: HTMLCanvasElement | null = null;
@@ -238,7 +273,11 @@ export class RectRenderer implements RectContext {
     private rectBuffer_: WebGLBuffer | null = null;
     private colorBuffer_: WebGLBuffer | null = null;
     private strokeWidthBuffer_: WebGLBuffer | null = null;
+    private textureRectBuffer_: WebGLBuffer | null = null;
+    private textTexture_: WebGLTexture | null = null;
     private resolutionUniform_: WebGLUniformLocation | null = null;
+    private textAtlasUniform_: WebGLUniformLocation | null = null;
+    private uploadedTextAtlasRevision_ = -1;
     private colorCanvas_: HTMLCanvasElement | null = null;
     private colorContext_: CanvasRenderingContext2D | null = null;
     private readonly colorCache_ = new Map<string, readonly [number, number, number, number]>();
@@ -310,6 +349,9 @@ export class RectRenderer implements RectContext {
         this.height_ = height;
         this.webGLEnabled_ = webGLEnabled;
         this.count_ = 0;
+        this.textCount_ = 0;
+        this.textAtlasGeneration_ = -1;
+        this.textBatchValid_ = true;
         this.styles_ = [];
         this.styleMap_.clear();
         this.fillStyle = "#000000";
@@ -368,16 +410,11 @@ export class RectRenderer implements RectContext {
             context.fillText(text, x, baselineY);
             return;
         }
-        this.textAtlas_.drawText(
-            context,
-            text,
-            x,
-            baselineY,
-            this.textFont_,
-            this.textColor_,
-            this.textPixelRatio_,
-            this.textScale_,
-        );
+        if (this.targetContext_ === context) {
+            this.queueText_(text, x, baselineY);
+            return;
+        }
+        this.drawText_(context, text, x, baselineY);
     }
 
     fillRect(x: number, y: number, width: number, height: number): void {
@@ -403,6 +440,8 @@ export class RectRenderer implements RectContext {
         height: number,
         topColor: string,
         bottomColor: string,
+        topPosition = 0,
+        bottomPosition = 1,
     ): void {
         this.queueRect_(
             x,
@@ -411,6 +450,9 @@ export class RectRenderer implements RectContext {
             height,
             this.getStyleIndex_(topColor),
             this.getStyleIndex_(bottomColor),
+            0,
+            topPosition,
+            bottomPosition,
         );
     }
 
@@ -422,6 +464,8 @@ export class RectRenderer implements RectContext {
         topStyleIndex: number,
         bottomStyleIndex: number,
         strokeWidth = 0,
+        gradientTopPosition = 0,
+        gradientBottomPosition = 0,
     ): void {
         if (![x, y, width, height].every(Number.isFinite) || width === 0 || height === 0) {
             return;
@@ -446,7 +490,80 @@ export class RectRenderer implements RectContext {
         this.styleIndices_[styleOffset] = topStyleIndex;
         this.styleIndices_[styleOffset + 1] = bottomStyleIndex;
         this.strokeWidths_[this.count_] = strokeWidth;
+        this.textureRects_[offset] = gradientTopPosition;
+        this.textureRects_[offset + 1] = gradientBottomPosition;
+        this.textureRects_[offset + 2] = 0;
+        this.textureRects_[offset + 3] = 0;
+        this.texts_[this.count_] = undefined;
         this.count_++;
+    }
+
+    private queueText_(text: string, x: number, baselineY: number): void {
+        if (this.count_ >= this.capacity_) {
+            this.grow_();
+        }
+        const index = this.count_;
+        const offset = index * 4;
+        const textOffset = index * 2;
+        const entry = this.textAtlas_.getEntry(
+            text,
+            this.textFont_,
+            this.textColor_,
+            this.textPixelRatio_,
+        );
+        if (entry === null || !Number.isFinite(this.textScale_) || this.textScale_ <= 0) {
+            this.rects_.fill(0, offset, offset + 4);
+            this.textureRects_.fill(0, offset, offset + 4);
+            this.textBatchValid_ = false;
+        }
+        else {
+            const generation = this.textAtlas_.generation;
+            if (this.textAtlasGeneration_ < 0) {
+                this.textAtlasGeneration_ = generation;
+            }
+            else if (this.textAtlasGeneration_ !== generation) {
+                // atlasが同じframe中に一周した場合、先に記録したUVは無効なのでCanvasへ戻す。
+                this.textBatchValid_ = false;
+            }
+            this.rects_[offset] = x + entry.offsetX * this.textScale_;
+            this.rects_[offset + 1] = baselineY + entry.offsetY * this.textScale_;
+            this.rects_[offset + 2] = entry.sourceWidth / this.textPixelRatio_ * this.textScale_;
+            this.rects_[offset + 3] = entry.sourceHeight / this.textPixelRatio_ * this.textScale_;
+            this.textureRects_[offset] = entry.sourceX / this.textAtlas_.width;
+            this.textureRects_[offset + 1] = entry.sourceY / this.textAtlas_.height;
+            this.textureRects_[offset + 2] = entry.sourceWidth / this.textAtlas_.width;
+            this.textureRects_[offset + 3] = entry.sourceHeight / this.textAtlas_.height;
+        }
+        this.styleIndices_[textOffset] = 0;
+        this.styleIndices_[textOffset + 1] = 0;
+        this.strokeWidths_[index] = -1;
+        this.textPositions_[textOffset] = x;
+        this.textPositions_[textOffset + 1] = baselineY;
+        this.texts_[index] = text;
+        this.count_++;
+        this.textCount_++;
+    }
+
+    private drawText_(
+        context: CanvasRenderingContext2D,
+        text: string,
+        x: number,
+        baselineY: number,
+    ): void {
+        const entry = this.textAtlas_.getEntry(
+            text,
+            this.textFont_,
+            this.textColor_,
+            this.textPixelRatio_,
+        );
+        if (entry !== null && Number.isFinite(this.textScale_) && this.textScale_ > 0) {
+            this.textAtlas_.drawEntry(context, entry, x, baselineY, this.textScale_);
+            return;
+        }
+        context.font = this.textDisplayFont_;
+        context.fillStyle = this.textColor_;
+        context.textBaseline = "alphabetic";
+        context.fillText(text, x, baselineY);
     }
 
     end(): void {
@@ -454,12 +571,14 @@ export class RectRenderer implements RectContext {
             return;
         }
         const useWebGL = this.webGLEnabled_ &&
+            this.textBatchValid_ &&
             this.count_ >= RectRenderer.WEBGL_RECT_THRESHOLD &&
             this.ensureWebGL_() &&
             this.drawWebGL_();
         if (!useWebGL) {
             this.drawCanvas2D_();
         }
+        this.texts_.fill(undefined, 0, this.count_);
         this.targetCanvas_ = null;
         this.targetContext_ = null;
         this.count_ = 0;
@@ -481,21 +600,31 @@ export class RectRenderer implements RectContext {
         this.rectBuffer_ = null;
         this.colorBuffer_ = null;
         this.strokeWidthBuffer_ = null;
+        this.textureRectBuffer_ = null;
+        this.textTexture_ = null;
         this.resolutionUniform_ = null;
+        this.textAtlasUniform_ = null;
+        this.uploadedTextAtlasRevision_ = -1;
         this.overlayCanvas_ = null;
     }
 
     private grow_(): void {
         const capacity = Math.max(RectRenderer.INITIAL_CAPACITY, this.capacity_ * 2);
         const rects = new Float32Array(capacity * 4);
+        const textureRects = new Float32Array(capacity * 4);
+        const textPositions = new Float32Array(capacity * 2);
         const indices = new Uint32Array(capacity * 2);
         const colors = new Uint8Array(capacity * 8);
         const strokeWidths = new Float32Array(capacity);
         rects.set(this.rects_.subarray(0, this.count_ * 4));
+        textureRects.set(this.textureRects_.subarray(0, this.count_ * 4));
+        textPositions.set(this.textPositions_.subarray(0, this.count_ * 2));
         indices.set(this.styleIndices_.subarray(0, this.count_ * 2));
         colors.set(this.colors_.subarray(0, this.count_ * 8));
         strokeWidths.set(this.strokeWidths_.subarray(0, this.count_));
         this.rects_ = rects;
+        this.textureRects_ = textureRects;
+        this.textPositions_ = textPositions;
         this.styleIndices_ = indices;
         this.colors_ = colors;
         this.strokeWidths_ = strokeWidths;
@@ -516,6 +645,21 @@ export class RectRenderer implements RectContext {
             const topStyleIndex = this.styleIndices_[styleOffset];
             const bottomStyleIndex = this.styleIndices_[styleOffset + 1];
             const strokeWidth = this.strokeWidths_[index];
+            if (strokeWidth < 0) {
+                const text = this.texts_[index];
+                if (text !== undefined) {
+                    this.drawText_(
+                        context,
+                        text,
+                        this.textPositions_[styleOffset],
+                        this.textPositions_[styleOffset + 1],
+                    );
+                }
+                // 直接fillTextへfallbackした場合に変更されるCanvas stateを次の矩形で再設定する。
+                solidStyleIndex = -1;
+                strokeStyleIndex = -1;
+                continue;
+            }
             if (strokeWidth > 0) {
                 if (topStyleIndex !== strokeStyleIndex) {
                     context.strokeStyle = this.styles_[topStyleIndex];
@@ -533,18 +677,24 @@ export class RectRenderer implements RectContext {
                 );
                 continue;
             }
-            if (topStyleIndex === bottomStyleIndex) {
+            const gradientTopPosition = this.textureRects_[offset];
+            const gradientBottomPosition = this.textureRects_[offset + 1];
+            if (gradientTopPosition === gradientBottomPosition) {
                 if (topStyleIndex !== solidStyleIndex) {
                     context.fillStyle = this.styles_[topStyleIndex];
                     solidStyleIndex = topStyleIndex;
                 }
             }
             else {
+                const gradientHeight = this.rects_[offset + 3] /
+                    (gradientBottomPosition - gradientTopPosition);
+                const gradientTop = this.rects_[offset + 1] -
+                    gradientTopPosition * gradientHeight;
                 const gradient = context.createLinearGradient(
                     0,
-                    this.rects_[offset + 1],
+                    gradientTop,
                     0,
-                    this.rects_[offset + 1] + this.rects_[offset + 3],
+                    gradientTop + gradientHeight,
                 );
                 gradient.addColorStop(0, this.styles_[topStyleIndex]);
                 gradient.addColorStop(1, this.styles_[bottomStyleIndex]);
@@ -622,32 +772,44 @@ export class RectRenderer implements RectContext {
             layout(location=2) in vec4 a_color_top;
             layout(location=3) in vec4 a_color_bottom;
             layout(location=4) in float a_stroke_width;
+            layout(location=5) in vec4 a_texture_rect;
             uniform vec2 u_resolution;
             out vec4 v_color;
             out vec2 v_position;
+            out vec2 v_texture_position;
             flat out vec2 v_rect_size;
             flat out float v_stroke_width;
             void main() {
-                float antialias_padding = a_stroke_width > 0.0 ? 1.0 : 0.0;
-                float padding = a_stroke_width * 0.5 + antialias_padding;
+                float padding = a_stroke_width > 0.0 ? a_stroke_width * 0.5 + 1.0 : 0.0;
                 vec2 size = a_rect.zw + vec2(padding * 2.0);
                 vec2 position = a_rect.xy - vec2(padding) + a_unit * size;
                 vec2 clip = position / u_resolution * 2.0 - 1.0;
                 gl_Position = vec4(clip * vec2(1.0, -1.0), 0.0, 1.0);
-                v_color = mix(a_color_top, a_color_bottom, a_unit.y);
+                float color_position = mix(a_texture_rect.x, a_texture_rect.y, a_unit.y);
+                v_color = mix(a_color_top, a_color_bottom, color_position);
                 v_position = -vec2(padding) + a_unit * size;
+                v_texture_position = a_texture_rect.xy + a_unit * a_texture_rect.zw;
                 v_rect_size = a_rect.zw;
                 v_stroke_width = a_stroke_width;
             }
         `);
         const fragmentShader = this.compileShader_(gl.FRAGMENT_SHADER, `#version 300 es
             precision highp float;
+            uniform sampler2D u_text_atlas;
             in vec4 v_color;
             in vec2 v_position;
+            in vec2 v_texture_position;
             flat in vec2 v_rect_size;
             flat in float v_stroke_width;
             out vec4 out_color;
             void main() {
+                if (v_stroke_width < 0.0) {
+                    out_color = texture(u_text_atlas, v_texture_position);
+                    if (out_color.a <= 0.0) {
+                        discard;
+                    }
+                    return;
+                }
                 if (v_stroke_width > 0.0) {
                     float half_width = v_stroke_width * 0.5;
                     vec2 outer_distance = min(
@@ -695,8 +857,11 @@ export class RectRenderer implements RectContext {
         const rectBuffer = gl.createBuffer();
         const colorBuffer = gl.createBuffer();
         const strokeWidthBuffer = gl.createBuffer();
+        const textureRectBuffer = gl.createBuffer();
+        const textTexture = gl.createTexture();
         if (vertexArray === null || unitBuffer === null || rectBuffer === null ||
-            colorBuffer === null || strokeWidthBuffer === null) {
+            colorBuffer === null || strokeWidthBuffer === null || textureRectBuffer === null ||
+            textTexture === null) {
             throw new Error("WebGL buffers could not be created.");
         }
         this.program_ = program;
@@ -705,7 +870,11 @@ export class RectRenderer implements RectContext {
         this.rectBuffer_ = rectBuffer;
         this.colorBuffer_ = colorBuffer;
         this.strokeWidthBuffer_ = strokeWidthBuffer;
+        this.textureRectBuffer_ = textureRectBuffer;
+        this.textTexture_ = textTexture;
         this.resolutionUniform_ = gl.getUniformLocation(program, "u_resolution");
+        this.textAtlasUniform_ = gl.getUniformLocation(program, "u_text_atlas");
+        this.uploadedTextAtlasRevision_ = -1;
 
         gl.bindVertexArray(vertexArray);
         gl.bindBuffer(gl.ARRAY_BUFFER, unitBuffer);
@@ -733,7 +902,28 @@ export class RectRenderer implements RectContext {
         gl.enableVertexAttribArray(4);
         gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
         gl.vertexAttribDivisor(4, 1);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, textureRectBuffer);
+        gl.enableVertexAttribArray(5);
+        gl.vertexAttribPointer(5, 4, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribDivisor(5, 1);
         gl.bindVertexArray(null);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, textTexture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA,
+            1,
+            1,
+            0,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            new Uint8Array(4),
+        );
     }
 
     private compileShader_(type: number, source: string): WebGLShader {
@@ -763,7 +953,8 @@ export class RectRenderer implements RectContext {
         if (gl === null || overlay === null || target === null || targetContext === null ||
             this.program_ === null || this.vertexArray_ === null ||
             this.rectBuffer_ === null || this.colorBuffer_ === null ||
-            this.strokeWidthBuffer_ === null || gl.isContextLost()) {
+            this.strokeWidthBuffer_ === null || this.textureRectBuffer_ === null ||
+            this.textTexture_ === null || gl.isContextLost()) {
             return false;
         }
         if (!this.prepareColors_()) {
@@ -789,6 +980,10 @@ export class RectRenderer implements RectContext {
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.useProgram(this.program_);
             gl.uniform2f(this.resolutionUniform_, this.width_, this.height_);
+            gl.uniform1i(this.textAtlasUniform_, 0);
+            if (!this.prepareTextTexture_()) {
+                return false;
+            }
             gl.bindVertexArray(this.vertexArray_);
             gl.bindBuffer(gl.ARRAY_BUFFER, this.rectBuffer_);
             gl.bufferData(
@@ -806,6 +1001,12 @@ export class RectRenderer implements RectContext {
             gl.bufferData(
                 gl.ARRAY_BUFFER,
                 this.strokeWidths_.subarray(0, this.count_),
+                gl.DYNAMIC_DRAW,
+            );
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.textureRectBuffer_);
+            gl.bufferData(
+                gl.ARRAY_BUFFER,
+                this.textureRects_.subarray(0, this.count_ * 4),
                 gl.DYNAMIC_DRAW,
             );
             gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.count_);
@@ -830,6 +1031,40 @@ export class RectRenderer implements RectContext {
         }
     }
 
+    private prepareTextTexture_(): boolean {
+        const gl = this.gl_;
+        const texture = this.textTexture_;
+        if (gl === null || texture === null) {
+            return false;
+        }
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        const filter = this.textScale_ < 1 ? gl.LINEAR : gl.NEAREST;
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+        if (this.textCount_ === 0) {
+            return true;
+        }
+        const atlas = this.textAtlas_.canvas;
+        if (atlas === null || this.textAtlasGeneration_ !== this.textAtlas_.generation) {
+            return false;
+        }
+        if (this.uploadedTextAtlasRevision_ !== this.textAtlas_.revision) {
+            // 画面上端のvertexへUV 0を対応させているため、Canvas sourceの上下は反転しない。
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGBA,
+                gl.RGBA,
+                gl.UNSIGNED_BYTE,
+                atlas,
+            );
+            this.uploadedTextAtlasRevision_ = this.textAtlas_.revision;
+        }
+        return true;
+    }
+
     private prepareColors_(): boolean {
         const palette: Array<readonly [number, number, number, number]> = [];
         for (const style of this.styles_) {
@@ -840,10 +1075,14 @@ export class RectRenderer implements RectContext {
             palette.push(color);
         }
         for (let index = 0; index < this.count_; index++) {
+            const colorOffset = index * 8;
+            if (this.strokeWidths_[index] < 0) {
+                this.colors_.fill(0, colorOffset, colorOffset + 8);
+                continue;
+            }
             const styleOffset = index * 2;
             const topColor = palette[this.styleIndices_[styleOffset]];
             const bottomColor = palette[this.styleIndices_[styleOffset + 1]];
-            const colorOffset = index * 8;
             this.colors_[colorOffset] = topColor[0];
             this.colors_[colorOffset + 1] = topColor[1];
             this.colors_[colorOffset + 2] = topColor[2];
@@ -897,6 +1136,10 @@ export class RectRenderer implements RectContext {
         this.rectBuffer_ = null;
         this.colorBuffer_ = null;
         this.strokeWidthBuffer_ = null;
+        this.textureRectBuffer_ = null;
+        this.textTexture_ = null;
         this.resolutionUniform_ = null;
+        this.textAtlasUniform_ = null;
+        this.uploadedTextAtlasRevision_ = -1;
     }
 }

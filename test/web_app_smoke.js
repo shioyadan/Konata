@@ -2830,6 +2830,7 @@ async function run() {
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const textCache = document.querySelector('input[aria-label="Text caching"]');
+        const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         if (!(pipeline instanceof HTMLCanvasElement) ||
@@ -2837,6 +2838,7 @@ async function run() {
             !(colorScheme instanceof HTMLSelectElement) ||
             !(zoomSteps instanceof HTMLInputElement) ||
             !(textCache instanceof HTMLInputElement) ||
+            !(webGL instanceof HTMLInputElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement)) {
             throw new Error("The text atlas controls were not found.");
@@ -2845,9 +2847,15 @@ async function run() {
         const originalColorScheme = colorScheme.value;
         const originalZoomSteps = zoomSteps.value;
         const originalTextCache = textCache.checked;
+        const originalWebGL = webGL.checked;
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         inputSetter?.call(zoomSteps, "2");
         zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        // Canvas fallbackでも従来のatlas BLTとcache無効時の直接描画を維持する。
+        if (webGL.checked) {
+            webGL.click();
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
         let atlasFillTexts = 0;
         let pipelineFillTexts = 0;
         let invalidPipelineTextStyles = 0;
@@ -2954,6 +2962,9 @@ async function run() {
             if (textCache.checked !== originalTextCache) {
                 textCache.click();
             }
+            if (webGL.checked !== originalWebGL) {
+                webGL.click();
+            }
             inputSetter?.call(zoomSteps, originalZoomSteps);
             zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
             reset.click();
@@ -2989,34 +3000,41 @@ async function run() {
         throw new Error(`Stage text atlas reuse is incomplete: ${JSON.stringify(textAtlasState)}`);
     }
 
-    // 文字だけが消える50%まで縮小し、stage gradientと枠をWebGL2で一括描画することを確認する。
+    // 70.7%でstage gradient、枠、atlas文字を元の順序のままWebGL2へ一括描画する。
     const webGLState = await window.webContents.executeJavaScript(`(async () => {
         const glPrototype = globalThis.WebGL2RenderingContext?.prototype;
         const canvasPrototype = HTMLCanvasElement.prototype;
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const webGLToggle = document.querySelector('input[aria-label="WebGL rendering"]');
+        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         const pipeline = document.querySelector('.pipeline-pane canvas');
         if (glPrototype === undefined || !(theme instanceof HTMLSelectElement) ||
             !(colorScheme instanceof HTMLSelectElement) ||
             !(webGLToggle instanceof HTMLInputElement) ||
+            !(zoomSteps instanceof HTMLInputElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement) || !(pipeline instanceof HTMLCanvasElement)) {
             throw new Error("The WebGL2 simplified rendering controls were not found.");
         }
         const originalDraw = glPrototype.drawArraysInstanced;
         const originalBufferData = glPrototype.bufferData;
+        const originalTexImage2D = glPrototype.texImage2D;
         const originalGetContext = canvasPrototype.getContext;
         const originalTheme = theme.value;
         const originalColorScheme = colorScheme.value;
         const originalWebGLEnabled = webGLToggle.checked;
+        const originalZoomSteps = zoomSteps.value;
         let drawCalls = 0;
         let instances = 0;
         let maximumInstances = 0;
         let gradientInstances = 0;
         let strokeInstances = 0;
+        let textInstances = 0;
+        let interleavedText = false;
+        let atlasUploads = 0;
         let webGLRequests = 0;
         let webGLContexts = 0;
         let acceleratedContext = null;
@@ -3032,6 +3050,7 @@ async function run() {
             return context;
         };
         glPrototype.drawArraysInstanced = function(...args) {
+            acceleratedContext = this;
             drawCalls++;
             instances += args[3];
             maximumInstances = Math.max(maximumInstances, args[3]);
@@ -3050,14 +3069,31 @@ async function run() {
                 }
             }
             if (data instanceof Float32Array && data.length >= 64 &&
-                data.every((value) => value === 0 || value === 1)) {
+                data.every((value) => value === -1 || value === 0 || value === 1)) {
                 strokeInstances += data.reduce(
                     (count, value) => count + (value > 0 ? 1 : 0),
                     0,
                 );
+                textInstances += data.reduce(
+                    (count, value) => count + (value < 0 ? 1 : 0),
+                    0,
+                );
+                const firstText = data.findIndex((value) => value < 0);
+                interleavedText ||= firstText >= 0 &&
+                    data.subarray(firstText + 1).some((value) => value >= 0);
             }
             return Reflect.apply(originalBufferData, this, args);
         };
+        glPrototype.texImage2D = function(...args) {
+            const source = args.at(-1);
+            if (source instanceof HTMLCanvasElement && source.width === 1024 && source.height === 512) {
+                atlasUploads++;
+            }
+            return Reflect.apply(originalTexImage2D, this, args);
+        };
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        inputSetter?.call(zoomSteps, "2");
+        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
         theme.value = "light";
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         colorScheme.value = "Auto";
@@ -3120,7 +3156,15 @@ async function run() {
         // context loss後も同じ操作を繰り返し、Canvas 2D fallbackだけで表示できることを確かめる。
         const loseContext = acceleratedContext?.getExtension("WEBGL_lose_context");
         if (acceleratedContext === null || loseContext === null || loseContext === undefined) {
-            throw new Error("The WebGL context-loss extension was not available.");
+            throw new Error("The WebGL context-loss extension was not available: " + JSON.stringify({
+                hasContext: acceleratedContext !== null,
+                contextLost: acceleratedContext?.isContextLost() ?? null,
+                drawCalls,
+                webGLRequests,
+                webGLContexts,
+                textInstances,
+                atlasUploads,
+            }));
         }
         const contextLost = new Promise((resolve) => {
             acceleratedContext.canvas.addEventListener("webglcontextlost", resolve, {once: true});
@@ -3170,6 +3214,7 @@ async function run() {
         loseContext.restoreContext();
         glPrototype.drawArraysInstanced = originalDraw;
         glPrototype.bufferData = originalBufferData;
+        glPrototype.texImage2D = originalTexImage2D;
         canvasPrototype.getContext = originalGetContext;
         theme.value = originalTheme;
         theme.dispatchEvent(new Event("change", {bubbles: true}));
@@ -3178,9 +3223,12 @@ async function run() {
         if (webGLToggle.checked !== originalWebGLEnabled) {
             webGLToggle.click();
         }
+        inputSetter?.call(zoomSteps, originalZoomSteps);
+        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
         return {drawCalls, instances, maximumInstances, gradientInstances, strokeInstances,
+            textInstances, interleavedText, atlasUploads,
             opaquePixels, colorfulPixels,
             disabledOpaquePixels, disabledColorfulPixels, disabledDrawCalls,
             disabledWebGLRequests, reenabledDrawCalls,
@@ -3192,6 +3240,9 @@ async function run() {
         webGLState.instances < 64 ||
         webGLState.gradientInstances < 1 ||
         webGLState.strokeInstances < 1 ||
+        webGLState.textInstances < 1 ||
+        !webGLState.interleavedText ||
+        webGLState.atlasUploads < 1 ||
         webGLState.opaquePixels < 100 ||
         webGLState.colorfulPixels < 100 ||
         webGLState.disabledOpaquePixels < 100 ||
@@ -3202,9 +3253,10 @@ async function run() {
         webGLState.fallbackOpaquePixels < 100 ||
         webGLState.fallbackColorfulPixels < 100 ||
         webGLState.fallbackDrawCalls !== 0 ||
+        // atlas文字のLINEAR samplingとnative drawImageの端だけは補間値が少し異なる。
         webGLState.noticeablyDifferingPixels > webGLState.opaquePixels * 0.01 ||
-        webGLState.maximumPixelDifference > 48 ||
-        webGLState.zoom !== "50%") {
+        webGLState.maximumPixelDifference > 64 ||
+        webGLState.zoom !== "70.7%") {
         throw new Error(`WebGL2 simplified rendering is incomplete: ${JSON.stringify(webGLState)}`);
     }
 

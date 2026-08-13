@@ -722,9 +722,11 @@ export class KonataRenderer {
             top = 0;
         }
 
-        // 文字がない縮小域では、stageの塗りと枠を描画順ごとWebGLへまとめて渡せる。
-        // 文字を個別設定で残した場合は、batch合成で文字を覆わないようCanvasへ戻す。
-        const simplifiedRects = !this.canDrawText_
+        // cache済み文字は矩形と同じ順序でtexture quadへ積み、laneやflushの重なりも維持する。
+        // 互換設定でWebGLか文字cacheを切った時は、文字を従来どおりCanvasへ直接描画する。
+        const canBatch = !this.canDrawText_ ||
+            (backend.webGLEnabled && backend.textCacheEnabled);
+        const simplifiedRects = canBatch
             ? this.canvasRenderer_.begin(
                 canvas,
                 context,
@@ -834,7 +836,7 @@ export class KonataRenderer {
             ) || drewStage;
         }
 
-        if (simplifiedRects !== null && !drewStage) {
+        if (simplifiedRects !== null && !this.canDrawText_ && !drewStage) {
             // stageを持たない命令も消えないよう、従来の命令全体表示をfallbackにする。
             const solidRects = simplifiedRects;
             const colorScheme = this.activeColorScheme_;
@@ -909,6 +911,8 @@ export class KonataRenderer {
                     rectHeight,
                     this.getStageColor_(laneID, stage.name, true, op),
                     this.getStageColor_(laneID, stage.name, false, op),
+                    this.laneHeightMargin_ / this.laneHeight_,
+                    1 - this.laneHeightMargin_ / this.laneHeight_,
                 );
             }
             drewStage = true;
