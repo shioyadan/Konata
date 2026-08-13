@@ -2,11 +2,6 @@
 
 * Konata is an instruction pipeline visualizer for traces in the Onikiri2-Kanata and gem5
   O3PipeView formats.
-    * Use [Konata Web stable](https://shioyadan.github.io/Konata/stable/) or download the
-      self-contained HTML release from [GitHub Releases](https://github.com/shioyadan/Konata/releases).
-    * Try [Konata Web unstable](https://shioyadan.github.io/Konata/) or download
-      [konata-latest.zip](https://shioyadan.github.io/Konata/konata-latest.zip) for the latest version
-      from `master`.
 * Starting with v1.0.0, Konata runs in the browser instead of as an Electron desktop application.
     * All trace processing remains local to the browser.
     * Local traces are never uploaded, and Konata makes no background network requests unless
@@ -31,8 +26,8 @@
   [GitHub Releases](https://github.com/shioyadan/Konata/releases), extract it, and open `index.html`
   in a browser.
 
-- **Latest development version:** Use [Konata Web unstable](https://shioyadan.github.io/Konata/)
-  or download [konata-latest.zip](https://shioyadan.github.io/Konata/konata-latest.zip).
+- **Latest development version:** [Konata Web](https://shioyadan.github.io/Konata/) and
+  [konata-latest.zip](https://shioyadan.github.io/Konata/konata-latest.zip) are built from `master`.
 
 - **Remote server or WSL:** Run the helper included in the downloaded version:
 
