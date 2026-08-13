@@ -8,6 +8,9 @@ import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEFAULT_KONATA_RENDER_SPEC,
     formatOpLabel,
+    formatKonataZoomPercent,
+    KONATA_OP_WIDTH,
+    KonataRenderMetrics,
     KonataRenderer,
 } from "../src/renderer/konata_renderer";
 
@@ -118,11 +121,15 @@ test("Web renderer keeps the legacy instruction label format", () => {
 test("Web renderer draws stage names and elapsed cycles like the legacy renderer", () => {
     const { trace } = createTrace();
     const renderer = new KonataRenderer();
-    renderer.setTrace(trace);
     const label = createRecordedContext();
     const pipeline = createRecordedContext();
 
-    renderer.draw(createCanvas(label.context), createCanvas(pipeline.context));
+    renderer.drawSpec(
+        trace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(label.context),
+        createCanvas(pipeline.context),
+    );
 
     // 3-cycleのX stageは先頭にX、後続cycleに1と2を個別に表示する。
     assert.deepEqual(
@@ -162,19 +169,17 @@ test("Web renderer reproduces drawing from a trace and render spec", () => {
     };
 
     const first = draw();
-    // Renderer内の計算用値を別の操作で変えても、次の明示入力で全て上書きされる。
-    renderer.setTheme("dark");
-    renderer.changeColorScheme("Orange");
-    renderer.zoomAbs(8, 10, 10);
-    renderer.moveLogicalPosition([100, 100]);
+    // 別の描画を挟んでも、TraceとSpecを再入力すれば同じ描画命令を再現する。
+    renderer.drawSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [100, 100], zoomLevel: 8 },
+        createCanvas(createRecordedContext().context),
+        createCanvas(createRecordedContext().context),
+    );
     assert.deepEqual(draw(), first);
-    assert.deepEqual(renderer.viewPosition, spec.position);
-    assert.equal(renderer.zoomLevel, spec.zoomLevel);
-    assert.equal(renderer.theme, spec.theme);
-    assert.equal(renderer.colorScheme, spec.colorScheme);
 });
 
-test("Web renderer preserves legacy zoom levels and lane heights", () => {
+test("Web render metrics preserve legacy zoom levels and lane heights", () => {
     const { trace, op } = createTrace();
     const secondLane = new Lane();
     const secondStage = new Stage();
@@ -186,59 +191,66 @@ test("Web renderer preserves legacy zoom levels and lane heights", () => {
     op.lanes[secondLaneID] = secondLane;
     trace.stageLevelMap.update("1", "Wb", secondLane);
 
-    const renderer = new KonataRenderer();
-    renderer.setTrace(trace);
-    renderer.zoomAt(1.2, 0, 0);
-    assert.equal(renderer.zoomLevel, -1);
-    assert.equal(renderer.zoomPercent, 200);
-    renderer.zoomAt(1 / 1.2, 0, 0);
-    assert.equal(renderer.zoomLevel, 0);
-    assert.equal(renderer.zoomPercent, 100);
+    const base = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
+    const zoomedSpec = base.withZoomLevel(-1, 0, 0);
+    const zoomed = new KonataRenderMetrics(trace, zoomedSpec);
+    assert.equal(zoomed.zoomLevel, -1);
+    assert.equal(zoomed.zoomScale * 100, 200);
+    const restored = new KonataRenderMetrics(trace, zoomed.withZoomLevel(0, 0, 0));
+    assert.equal(restored.zoomLevel, 0);
+    assert.equal(restored.zoomScale * 100, 100);
 
     // 大幅な縮小時も0%と表示せず、倍率の違いが読み取れる精度を残す。
-    renderer.zoomAbs(8, 0, 0, false);
-    assert.equal(renderer.zoomPercentLabel, "0.391%");
-    renderer.zoomAbs(24, 0, 0, false);
-    assert.equal(renderer.zoomPercentLabel, "6.0e-6%");
-    renderer.resetView();
+    assert.equal(formatKonataZoomPercent(8), "0.391%");
+    assert.equal(formatKonataZoomPercent(24), "6.0e-6%");
 
     // lane分割時は既定でlane数に応じて命令行を高くし、高さ固定時だけ24pxへ戻す。
-    renderer.splitLanes = true;
-    assert.equal(renderer.opHeight, 48);
-    renderer.fixOpHeight = true;
-    assert.equal(renderer.opHeight, 24);
+    const split = new KonataRenderMetrics(trace, {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        splitLanes: true,
+    });
+    assert.equal(split.opHeight, 48);
+    const fixed = new KonataRenderMetrics(trace, {
+        ...split.spec,
+        fixOpHeight: true,
+    });
+    assert.equal(fixed.opHeight, 24);
 });
 
-test("Web renderer finds an instruction anchor for position adjustment", () => {
+test("Web render metrics find an instruction anchor for position adjustment", () => {
     const { trace } = createTrace();
-    const renderer = new KonataRenderer();
-    renderer.setTrace(trace);
-    renderer.zoomAbs(8, 0, 0, false);
 
     // 横方向だけを見失った場合は、上端命令のfetch cycleへ倍率を変えずに戻せる。
-    renderer.moveLogicalPosition([100, 0]);
-    assert.deepEqual(renderer.getAdjustedViewPosition(), [2, 0]);
-    assert.deepEqual(renderer.viewPosition, [100, 0]);
-    assert.equal(renderer.zoomLevel, 8);
+    const metrics = new KonataRenderMetrics(trace, {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [100, 0],
+        zoomLevel: 8,
+    });
+    assert.deepEqual(metrics.getAdjustedViewPosition(), [2, 0]);
+    assert.deepEqual(metrics.spec.position, [100, 0]);
+    assert.equal(metrics.zoomLevel, 8);
 
     // 上下方向も範囲外なら、短いtraceでも先頭命令を復帰先にできる。
-    renderer.moveLogicalPosition([100, -10]);
-    assert.deepEqual(renderer.getAdjustedViewPosition(), [2, 0]);
-    renderer.moveLogicalPosition([100, 10]);
-    assert.deepEqual(renderer.getAdjustedViewPosition(), [2, 0]);
+    assert.deepEqual(
+        new KonataRenderMetrics(trace, metrics.withPosition([100, -10])).getAdjustedViewPosition(),
+        [2, 0],
+    );
+    assert.deepEqual(
+        new KonataRenderMetrics(trace, metrics.withPosition([100, 10])).getAdjustedViewPosition(),
+        [2, 0],
+    );
 });
 
-test("Web renderer preserves legacy tooltip contents", () => {
+test("Web render metrics preserve legacy tooltip contents", () => {
     const { trace } = createTrace();
-    const renderer = new KonataRenderer();
-    renderer.setTrace(trace);
+    const metrics = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
 
-    const labelText = renderer.getLabelToolTipText(0);
+    const labelText = metrics.getLabelToolTipText(0);
     assert.match(labelText ?? "", /Line: \t\t12/);
     assert.match(labelText ?? "", /Serial ID:\t100/);
 
     // cycle 3はX stageの2cycle目なので、stage長3とstage labelを表示する。
-    const pipelineText = renderer.getPipelineToolTipText(3 * KonataRenderer.OP_W, 0);
+    const pipelineText = metrics.getPipelineToolTipText(3 * KONATA_OP_WIDTH, 0);
     assert.match(pipelineText ?? "", /^\[3, 0\] X\[3\]/);
     assert.match(pipelineText ?? "", /X: executing/);
 });
@@ -246,16 +258,16 @@ test("Web renderer preserves legacy tooltip contents", () => {
 test("Web renderer applies the legacy light theme and Custom color scheme", () => {
     const { trace } = createTrace();
     const renderer = new KonataRenderer();
-    renderer.setTrace(trace);
-    renderer.setTheme("light");
-    renderer.changeColorScheme("Custom");
+    const spec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        theme: "light" as const,
+        colorScheme: "Custom",
+    };
     const label = createRecordedContext();
     const pipeline = createRecordedContext();
 
-    renderer.draw(createCanvas(label.context), createCanvas(pipeline.context));
+    renderer.drawSpec(trace, spec, createCanvas(label.context), createCanvas(pipeline.context));
 
-    assert.equal(renderer.theme, "light");
-    assert.equal(renderer.colorScheme, "Custom");
     // Customで未指定のX stageは、旧Configの既定hue 100とlight themeの彩度・明度を組み合わせる。
     assert.deepEqual(pipeline.gradients[0]?.stops, [
         [0, "hsl(100,95%,95%)"],
@@ -263,14 +275,20 @@ test("Web renderer applies the legacy light theme and Custom color scheme", () =
     ]);
 
     // 編集した既定色は未指定stageへ即時反映され、固定した彩度・明度はtheme値で上書きしない。
-    renderer.setCustomColorSchemes({
-        Custom: {
+    const editedSpec = {
+        ...spec,
+        customColorScheme: {
             ...DEFAULT_CUSTOM_COLOR_SCHEME,
             defaultColor: { h: 210, s: 25, l: 60 },
         },
-    });
+    };
     const editedPipeline = createRecordedContext();
-    renderer.draw(createCanvas(createRecordedContext().context), createCanvas(editedPipeline.context));
+    renderer.drawSpec(
+        trace,
+        editedSpec,
+        createCanvas(createRecordedContext().context),
+        createCanvas(editedPipeline.context),
+    );
     assert.deepEqual(editedPipeline.gradients[0]?.stops, [
         [0, "hsl(210,25%,60%)"],
         [1, "hsl(210,25%,60%)"],
@@ -280,18 +298,21 @@ test("Web renderer applies the legacy light theme and Custom color scheme", () =
 test("Web renderer uses comparison colors without changing the View color scheme", () => {
     const { trace, stage } = createTrace();
     const renderer = new KonataRenderer();
-    renderer.setTrace(trace);
-    renderer.changeColorScheme("Custom");
+    const spec = { ...DEFAULT_KONATA_RENDER_SPEC, colorScheme: "Custom" };
 
     const baseline = createRecordedContext();
-    renderer.drawPipeline(
+    renderer.drawPipelineSpec(
+        trace,
+        spec,
         createCanvas(baseline.context),
         undefined,
         undefined,
         COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
     );
     const candidate = createRecordedContext();
-    renderer.drawPipeline(
+    renderer.drawPipelineSpec(
+        trace,
+        spec,
         createCanvas(candidate.context),
         undefined,
         undefined,
@@ -299,7 +320,9 @@ test("Web renderer uses comparison colors without changing the View color scheme
     );
     stage.name = "Y";
     const changedCandidate = createRecordedContext();
-    renderer.drawPipeline(
+    renderer.drawPipelineSpec(
+        trace,
+        spec,
         createCanvas(changedCandidate.context),
         undefined,
         undefined,
@@ -322,17 +345,18 @@ test("Web renderer uses comparison colors without changing the View color scheme
     // 同じ矩形でもstage名がYへ変われば相補関係が崩れ、局所的な色として残る。
     const changedSum = addRGB(baselineStops[0][1], changedCandidateStops[0][1]);
     assert.ok(changedSum.some((component) => Math.abs(component - 280) >= 20));
-    // 一時配色で描いた後も、A/B単独表示とView欄には元の選択が残る。
-    assert.equal(renderer.colorScheme, "Custom");
+    // 比較色は一時的な描画引数なので、正式なSpecの選択値は変わらない。
+    assert.equal(spec.colorScheme, "Custom");
 });
 
 test("Web renderer draws a transparent gray reference for single-side comparison", () => {
     const { trace } = createTrace();
     const renderer = new KonataRenderer();
-    renderer.setTrace(trace);
     const reference = createRecordedContext();
 
-    renderer.drawPipeline(
+    renderer.drawPipelineSpec(
+        trace,
+        DEFAULT_KONATA_RENDER_SPEC,
         createCanvas(reference.context),
         undefined,
         undefined,
@@ -353,12 +377,15 @@ test("Web renderer draws a transparent gray reference for single-side comparison
 test("Web renderer keeps minimum lane heights configurable", () => {
     const { trace } = createTrace();
     const renderer = new KonataRenderer();
-    renderer.setTrace(trace);
-    renderer.textLabelMinimumLaneHeight = 100;
     const label = createRecordedContext();
     const pipeline = createRecordedContext();
 
-    renderer.draw(createCanvas(label.context), createCanvas(pipeline.context));
+    renderer.drawSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, textLabelMinimumLaneHeight: 100 },
+        createCanvas(label.context),
+        createCanvas(pipeline.context),
+    );
 
     // 24pxのlaneより最小高さを大きくすると、旧Settingsと同様にlabelとstage文字だけを省略する。
     assert.deepEqual(label.fillTexts, []);

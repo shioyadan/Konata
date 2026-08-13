@@ -16,9 +16,9 @@ import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEFAULT_KONATA_RENDER_SPEC,
     DEP_ARROW_TYPE,
-    KonataRenderer,
     type CustomColorScheme,
     type DependencyArrowType,
+    KonataRenderMetrics,
     type KonataRenderSpec,
     type RendererTheme,
 } from "./renderer/konata_renderer";
@@ -317,16 +317,10 @@ function makeFindTargetString(op: Op): string {
     return labelString;
 }
 
-// 座標計算用RendererはStore module内だけの派生engineとし、snapshotの公開APIにしない。
-const RENDER_ENGINE: unique symbol = Symbol("renderEngine");
-const BASELINE_RENDER_ENGINE: unique symbol = Symbol("baselineRenderEngine");
-
 // 1つの入力と命令列に加え、再現可能な描画指定を同じ寿命で所有する。
-// renderEngineは検索・座標変換用であり、正式状態は常にrenderSpecである。
 export class Tab {
     readonly kind = "trace";
     private loadAbortController_ = new AbortController();
-    readonly [RENDER_ENGINE] = new KonataRenderer();
     private renderSpec_: Readonly<KonataRenderSpec>;
     trace: ParsedTrace | null = null;
     loadState: LoadState = "loading";
@@ -342,7 +336,6 @@ export class Tab {
         public splitterPosition = DEFAULT_SPLITTER_POSITION,
     ) {
         this.renderSpec_ = renderSpec;
-        this.syncRenderEngine();
     }
 
     get renderSpec(): Readonly<KonataRenderSpec> {
@@ -355,31 +348,15 @@ export class Tab {
 
     setTrace(trace: ParsedTrace): void {
         if (this.trace === trace) {
-            // 読込み途中は同じTrace object内のlane数や末尾が増えるため、派生値だけ更新する。
-            this.syncRenderEngine();
             return;
         }
         const previousTrace = this.trace;
         this.trace = trace;
-        this.syncRenderEngine();
         previousTrace?.close();
     }
 
     setRenderSpec(spec: Readonly<KonataRenderSpec>): void {
         this.renderSpec_ = spec;
-        this.syncRenderEngine();
-    }
-
-    captureRenderSpec(): void {
-        this.setRenderSpec({
-            ...this.renderSpec,
-            position: this[RENDER_ENGINE].viewPosition,
-            zoomLevel: this[RENDER_ENGINE].zoomLevel,
-        });
-    }
-
-    private syncRenderEngine(): void {
-        this[RENDER_ENGINE].setInput(this.trace, this.renderSpec);
     }
 
     beginReload(): void {
@@ -391,7 +368,6 @@ export class Tab {
         this.findContext.progress = null;
         this.findContext.result = null;
         this.findContext.message = "";
-        this.syncRenderEngine();
         previousTrace?.close();
         this.loadState = "loading";
         this.progress = 0;
@@ -408,8 +384,6 @@ export class Tab {
         this.findContext.progress = null;
         this.findContext.result = null;
         this.findContext.message = "";
-        // 計算用engineの参照も外し、このtabを閉じるだけでtrace全体を回収できるようにする。
-        this.syncRenderEngine();
         trace?.close();
     }
 }
@@ -424,8 +398,6 @@ export class ComparisonTab {
     readonly findContext = createFindContext();
     trace: ParsedTrace | null;
     baselineTrace: ParsedTrace | null;
-    readonly [RENDER_ENGINE] = new KonataRenderer();
-    readonly [BASELINE_RENDER_ENGINE] = new KonataRenderer();
     private renderSpec_: Readonly<KonataRenderSpec>;
     private baselineRenderSpec_: Readonly<KonataRenderSpec>;
     mode: ComparisonMode = "overlay";
@@ -448,7 +420,6 @@ export class ComparisonTab {
         this.trace = candidateTrace.retain();
         this.baselineRenderSpec_ = baselineRenderSpec;
         this.renderSpec_ = candidateRenderSpec;
-        this.syncRenderEngines();
     }
 
     get renderSpec(): Readonly<KonataRenderSpec> {
@@ -461,69 +432,49 @@ export class ComparisonTab {
 
     setRenderSpec(spec: Readonly<KonataRenderSpec>): void {
         this.renderSpec_ = spec;
-        this[RENDER_ENGINE].setInput(this.trace, spec);
     }
 
     setBaselineRenderSpec(spec: Readonly<KonataRenderSpec>): void {
         this.baselineRenderSpec_ = spec;
-        this[BASELINE_RENDER_ENGINE].setInput(this.baselineTrace, spec);
-    }
-
-    captureRenderSpecs(): void {
-        this.setRenderSpec({
-            ...this.renderSpec,
-            position: this[RENDER_ENGINE].viewPosition,
-            zoomLevel: this[RENDER_ENGINE].zoomLevel,
-        });
-        this.setBaselineRenderSpec({
-            ...this.baselineRenderSpec,
-            position: this[BASELINE_RENDER_ENGINE].viewPosition,
-            zoomLevel: this[BASELINE_RENDER_ENGINE].zoomLevel,
-        });
-    }
-
-    private syncRenderEngines(): void {
-        this[RENDER_ENGINE].setInput(this.trace, this.renderSpec);
-        this[BASELINE_RENDER_ENGINE].setInput(this.baselineTrace, this.baselineRenderSpec);
     }
 
     alignCandidateToBaseline(): number | null {
-        const baseline = this[BASELINE_RENDER_ENGINE];
-        const candidate = this[RENDER_ENGINE];
-        const originalBaselinePosition = baseline.viewPosition;
+        const baseline = new KonataRenderMetrics(this.baselineTrace, this.baselineRenderSpec);
+        const candidate = new KonataRenderMetrics(this.trace, this.renderSpec);
         const adjustedBaselinePosition = baseline.getAdjustedViewPosition();
         if (adjustedBaselinePosition === null) {
             return null;
         }
 
         // Alignだけで見失った位置からも復帰できるよう、先にAへAdjust positionを適用する。
-        baseline.moveLogicalPosition(adjustedBaselinePosition);
-        const baselineTop = baseline.getOpFromPixelPositionY(0);
+        const adjustedBaselineSpec = baseline.withPosition(adjustedBaselinePosition);
+        const adjustedBaseline = new KonataRenderMetrics(this.baselineTrace, adjustedBaselineSpec);
+        const baselineTop = adjustedBaseline.getOpFromPixelPositionY(0);
         if (baselineTop === undefined || baselineTop.rid < 0) {
-            baseline.moveLogicalPosition(originalBaselinePosition);
             return null;
         }
 
         // flush命令とretire命令が同じRIDを持つ場合は、両traceともretire命令を基準にする。
-        const baselineAnchor = baseline.getOpFromRID(baselineTop.rid) ?? baselineTop;
+        const baselineAnchor = adjustedBaseline.getOpFromRID(baselineTop.rid) ?? baselineTop;
         const candidateAnchor = candidate.getOpFromRID(baselineAnchor.rid);
         if (candidateAnchor === undefined) {
-            // 共通RIDがなければAだけが動く中途半端な結果を残さない。
-            baseline.moveLogicalPosition(originalBaselinePosition);
             return null;
         }
 
-        const baselineY = baseline.hideFlushedOps ? baselineAnchor.rid : baselineAnchor.id;
-        const candidateY = candidate.hideFlushedOps ? candidateAnchor.rid : candidateAnchor.id;
-        const [baselineX, baselineTopY] = baseline.viewPosition;
+        const baselineY = adjustedBaselineSpec.hideFlushedOps ? baselineAnchor.rid : baselineAnchor.id;
+        const candidateY = this.renderSpec.hideFlushedOps ? candidateAnchor.rid : candidateAnchor.id;
+        const [baselineX, baselineTopY] = adjustedBaselineSpec.position;
 
         // Aは固定し、A上でanchorが見えている画面内offsetへB側の同じRIDを置く。
-        candidate.zoomAbs(baseline.zoomLevel, 0, 0, false);
-        candidate.moveLogicalPosition([
-            candidateAnchor.fetchedCycle + baselineX - baselineAnchor.fetchedCycle,
-            candidateY + baselineTopY - baselineY,
-        ]);
-        this.captureRenderSpecs();
+        this.setBaselineRenderSpec(adjustedBaselineSpec);
+        this.setRenderSpec({
+            ...this.renderSpec,
+            zoomLevel: adjustedBaselineSpec.zoomLevel,
+            position: [
+                candidateAnchor.fetchedCycle + baselineX - baselineAnchor.fetchedCycle,
+                candidateY + baselineTopY - baselineY,
+            ],
+        });
         return baselineAnchor.rid;
     }
 
@@ -536,7 +487,6 @@ export class ComparisonTab {
         this.findContext.progress = null;
         this.findContext.result = null;
         this.findContext.message = "";
-        this.syncRenderEngines();
         candidateTrace?.close();
         baselineTrace?.close();
     }
@@ -994,15 +944,19 @@ export class Store {
         case "KONATA_FIND_REPEAT_REQUEST": {
             const tab = this.tabs_.get(action.tabID);
             const result = tab?.findContext.result ?? null;
-            const anchorOp = result === null ? undefined : tab?.[RENDER_ENGINE].getOpFromID(result.anchorID);
-            if (tab === undefined || result === null || anchorOp === undefined) {
+            if (tab === undefined || result === null) {
+                return;
+            }
+            const metrics = new KonataRenderMetrics(tab.trace, tab.renderSpec);
+            const anchorOp = metrics.getOpFromID(result.anchorID);
+            if (anchorOp === undefined) {
                 return;
             }
             this.dispatch({
                 type: "KONATA_FIND_REQUEST",
                 tabID: tab.id,
                 targetPattern: result.targetPattern,
-                basePosition: tab[RENDER_ENGINE].getPositionYFromOp(anchorOp),
+                basePosition: metrics.getPositionYFromOp(anchorOp),
                 reverse: action.reverse,
                 viewport: action.viewport,
             });
@@ -1010,13 +964,15 @@ export class Store {
         }
         case "KONATA_JUMP_REQUEST": {
             const tab = this.tabs_.get(action.tabID);
-            const renderer = tab?.[RENDER_ENGINE];
+            const metrics = tab === undefined
+                ? null
+                : new KonataRenderMetrics(tab.trace, tab.renderSpec);
             const op = action.target === "id"
-                ? renderer?.getVisibleOp(action.value)
-                : renderer?.getOpFromRID(action.value);
+                ? metrics?.getVisibleOp(action.value)
+                : metrics?.getOpFromRID(action.value);
             const positionY = action.target === "id"
                 ? action.value
-                : renderer?.getPositionYFromRID(action.value) ?? -1;
+                : metrics?.getPositionYFromRID(action.value) ?? -1;
             if (tab === undefined || op === undefined || positionY < 0) {
                 const label = action.target === "id" ? "Op" : "Retired op";
                 this.publish_(this.snapshot_.activeTabID, [{
@@ -1034,13 +990,7 @@ export class Store {
                 }]);
             }
             else {
-                tab[RENDER_ENGINE].moveLogicalPosition(position);
-                if (tab.kind === "comparison") {
-                    tab.captureRenderSpecs();
-                }
-                else {
-                    tab.captureRenderSpec();
-                }
+                tab.setRenderSpec({ ...tab.renderSpec, position });
                 this.publish_(this.snapshot_.activeTabID, [{
                     type: "PANE_CONTENT_UPDATE",
                     tabID: tab.id,
@@ -1101,13 +1051,7 @@ export class Store {
                 }
                 else {
                     // 非表示Tabではanimationを持たず、再表示時に最終位置だけを復元する。
-                    tab[RENDER_ENGINE].moveLogicalPosition(action.scrollPosition);
-                    if (tab.kind === "comparison") {
-                        tab.captureRenderSpecs();
-                    }
-                    else {
-                        tab.captureRenderSpec();
-                    }
+                    tab.setRenderSpec({ ...tab.renderSpec, position: action.scrollPosition });
                 }
             }
             this.publish_(this.snapshot_.activeTabID, changes);
@@ -1176,36 +1120,25 @@ export class Store {
                 return;
             }
             const apply = (
-                renderer: KonataRenderer,
                 trace: ParsedTrace | null,
                 spec: Readonly<KonataRenderSpec>,
-                setSpec: (value: Readonly<KonataRenderSpec>) => void,
-            ) => {
+            ): Readonly<KonataRenderSpec> => {
                 // 表示方式を変えても、各traceで現在の先頭命令とそのfetch位置を維持する。
-                const current = renderer.getOpFromPixelPositionY(0);
+                const metrics = new KonataRenderMetrics(trace, spec);
+                const current = metrics.getOpFromPixelPositionY(0);
                 const rid = current?.rid ?? 0;
-                renderer.setInput(trace, {
+                const next = {
                     ...spec,
                     hideFlushedOps: action.enabled,
-                });
-                const op = renderer.getOpFromRID(rid);
-                if (op !== undefined) {
-                    renderer.moveLogicalPosition([op.fetchedCycle, action.enabled ? rid : op.id]);
-                }
-                setSpec({
-                    ...spec,
-                    hideFlushedOps: action.enabled,
-                    position: renderer.viewPosition,
-                });
+                };
+                const op = new KonataRenderMetrics(trace, next).getOpFromRID(rid);
+                return op === undefined
+                    ? next
+                    : { ...next, position: [op.fetchedCycle, action.enabled ? rid : op.id] };
             };
-            apply(tab[RENDER_ENGINE], tab.trace, tab.renderSpec, (spec) => tab.setRenderSpec(spec));
+            tab.setRenderSpec(apply(tab.trace, tab.renderSpec));
             if (tab.kind === "comparison") {
-                apply(
-                    tab[BASELINE_RENDER_ENGINE],
-                    tab.baselineTrace,
-                    tab.baselineRenderSpec,
-                    (spec) => tab.setBaselineRenderSpec(spec),
-                );
+                tab.setBaselineRenderSpec(apply(tab.baselineTrace, tab.baselineRenderSpec));
             }
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
@@ -1252,10 +1185,12 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
-            this.forEachTargetRenderEngine_(tab, action.target, (renderer) => {
-                renderer.zoomAbs(action.zoomLevel, action.centerX, action.centerY);
-            });
-            this.captureRenderSpecs_(tab);
+            this.updateTargetRenderSpecs_(tab, action.target, (trace, spec) =>
+                new KonataRenderMetrics(trace, spec).withZoomLevel(
+                    action.zoomLevel,
+                    action.centerX,
+                    action.centerY,
+                ));
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
@@ -1266,10 +1201,8 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
-            this.forEachTargetRenderEngine_(tab, action.target, (renderer) => {
-                renderer.panPixels(action.deltaX, action.deltaY);
-            });
-            this.captureRenderSpecs_(tab);
+            this.updateTargetRenderSpecs_(tab, action.target, (trace, spec) =>
+                new KonataRenderMetrics(trace, spec).withPixelPan(action.deltaX, action.deltaY));
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
@@ -1280,15 +1213,17 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
-            this.forEachTargetRenderEngine_(tab, "both", (renderer) => {
-                renderer.panPixels(action.panDeltaX, action.panDeltaY);
-                renderer.zoomAbs(
-                    renderer.zoomLevel + action.zoomLevelDifference,
+            this.updateTargetRenderSpecs_(tab, "both", (trace, spec) => {
+                const panned = new KonataRenderMetrics(trace, spec).withPixelPan(
+                    action.panDeltaX,
+                    action.panDeltaY,
+                );
+                return new KonataRenderMetrics(trace, panned).withZoomLevel(
+                    panned.zoomLevel + action.zoomLevelDifference,
                     action.centerX,
                     action.centerY,
                 );
             });
-            this.captureRenderSpecs_(tab);
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
@@ -1300,14 +1235,16 @@ export class Store {
                 return;
             }
             const candidatePosition = this.getMoveTarget_(
-                tab[RENDER_ENGINE],
+                tab.trace,
+                tab.renderSpec,
                 action.basePosition ?? tab.renderSpec.position,
                 action.difference,
                 action.adjustHorizontal,
             );
             const baselinePosition = tab.kind === "comparison"
                 ? this.getMoveTarget_(
-                    tab[BASELINE_RENDER_ENGINE],
+                    tab.baselineTrace,
+                    tab.baselineRenderSpec,
                     action.baselineBasePosition ?? tab.baselineRenderSpec.position,
                     action.difference,
                     action.adjustHorizontal,
@@ -1331,10 +1268,10 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
-            const renderer = tab.kind === "comparison" && tab.mode === "baseline"
-                ? tab[BASELINE_RENDER_ENGINE]
-                : tab[RENDER_ENGINE];
-            const position = renderer.getAdjustedViewPosition();
+            const metrics = tab.kind === "comparison" && tab.mode === "baseline"
+                ? new KonataRenderMetrics(tab.baselineTrace, tab.baselineRenderSpec)
+                : new KonataRenderMetrics(tab.trace, tab.renderSpec);
+            const position = metrics.getAdjustedViewPosition();
             if (position !== null) {
                 this.publish_(this.snapshot_.activeTabID, [{
                     type: "VIEW_SCROLL_REQUEST",
@@ -1434,9 +1371,9 @@ export class Store {
                 return;
             }
 
-            const renderer = tab[RENDER_ENGINE];
-            const [viewLeft, viewTop] = renderer.viewPosition;
-            const moveTo = renderer.getPositionYFromOp(foundOp);
+            const metrics = new KonataRenderMetrics(tab.trace, tab.renderSpec);
+            const [viewLeft, viewTop] = tab.renderSpec.position;
+            const moveTo = metrics.getPositionYFromOp(foundOp);
             let left = viewLeft;
             let top = viewTop;
             const pipelineWidth = viewport !== undefined && Number.isFinite(viewport.pipelineWidth)
@@ -1448,14 +1385,14 @@ export class Store {
 
             // ヒットした命令が画面外の場合だけ、旧版と同じく100pxの余白を付けて移動する。
             if (foundOp.fetchedCycle < left ||
-                foundOp.fetchedCycle > left + pipelineWidth / renderer.opWidth) {
-                left = foundOp.fetchedCycle - 100 / renderer.opWidth;
+                foundOp.fetchedCycle > left + pipelineWidth / metrics.opWidth) {
+                left = foundOp.fetchedCycle - 100 / metrics.opWidth;
             }
-            if (moveTo < top || moveTo > top + labelHeight / renderer.opHeight) {
-                top = moveTo - 100 / renderer.opHeight;
+            if (moveTo < top || moveTo > top + labelHeight / metrics.opHeight) {
+                top = moveTo - 100 / metrics.opHeight;
             }
 
-            const anchorOp = renderer.getVisibleOp(moveTo) ?? foundOp;
+            const anchorOp = metrics.getVisibleOp(moveTo) ?? foundOp;
             this.dispatch({
                 type: "KONATA_FIND_FINISH",
                 tabID: tab.id,
@@ -1783,15 +1720,6 @@ export class Store {
         }
     }
 
-    private captureRenderSpecs_(tab: StoreTab): void {
-        if (tab.kind === "comparison") {
-            tab.captureRenderSpecs();
-        }
-        else {
-            tab.captureRenderSpec();
-        }
-    }
-
     private setView_(tab: StoreTab, baseline: boolean, view: KonataView): void {
         const spec = baseline && tab.kind === "comparison"
             ? tab.baselineRenderSpec
@@ -1809,30 +1737,35 @@ export class Store {
         }
     }
 
-    private forEachTargetRenderEngine_(
+    private updateTargetRenderSpecs_(
         tab: StoreTab,
         target: KonataViewTarget,
-        apply: (renderer: KonataRenderer) => void,
+        update: (
+            trace: ParsedTrace | null,
+            spec: Readonly<KonataRenderSpec>,
+        ) => Readonly<KonataRenderSpec>,
     ): void {
-        const applyCandidate = tab.kind !== "comparison" || target === "both" || tab.mode !== "baseline";
-        const applyBaseline = tab.kind === "comparison" &&
+        const updateCandidate = tab.kind !== "comparison" || target === "both" || tab.mode !== "baseline";
+        const updateBaseline = tab.kind === "comparison" &&
             (target === "both" || tab.mode !== "candidate");
-        if (applyCandidate) {
-            apply(tab[RENDER_ENGINE]);
+        if (updateCandidate) {
+            tab.setRenderSpec(update(tab.trace, tab.renderSpec));
         }
-        if (applyBaseline && tab.kind === "comparison") {
-            apply(tab[BASELINE_RENDER_ENGINE]);
+        if (updateBaseline && tab.kind === "comparison") {
+            tab.setBaselineRenderSpec(update(tab.baselineTrace, tab.baselineRenderSpec));
         }
     }
 
     private getMoveTarget_(
-        renderer: KonataRenderer,
+        trace: ParsedTrace | null,
+        spec: Readonly<KonataRenderSpec>,
         basePosition: readonly [number, number],
         difference: readonly [number, number],
         adjustHorizontal: boolean,
     ): readonly [number, number] {
+        const metrics = new KonataRenderMetrics(trace, spec);
         const differenceX = adjustHorizontal
-            ? renderer.adjustScrollDifferenceXAt(basePosition, difference[1])
+            ? metrics.adjustScrollDifferenceXAt(basePosition, difference[1])
             : difference[0];
         return [basePosition[0] + differenceX, basePosition[1] + difference[1]];
     }

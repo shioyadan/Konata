@@ -13,6 +13,7 @@ import { BsX } from "react-icons/bs";
 import type { ParsedTrace } from "../core/model";
 import {
     COMPARISON_COLOR_SCHEME,
+    KonataRenderMetrics,
     KonataRenderer,
     type KonataRenderSpec,
 } from "../renderer/konata_renderer";
@@ -139,11 +140,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const baselineRenderer = comparison === null ? null : baselineRendererRef.current;
     const baselineTrace = comparison?.baselineTrace ?? null;
     const baselineRenderSpec = comparison?.baselineRenderSpec ?? null;
-    // event処理にも同じ派生値を使うため、描画前だけでなく各renderで正式入力へ同期する。
-    renderer.setInput(trace, renderSpec);
-    if (baselineRenderer !== null && baselineRenderSpec !== null) {
-        baselineRenderer.setInput(baselineTrace, baselineRenderSpec);
-    }
+    const metrics = new KonataRenderMetrics(trace, renderSpec);
+    const baselineMetrics = baselineRenderSpec === null
+        ? null
+        : new KonataRenderMetrics(baselineTrace, baselineRenderSpec);
     const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
     const splitterDraggingRef = useRef(false);
     const [isPanning, setIsPanning] = useState(false);
@@ -155,6 +155,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const displayRenderer = comparisonMode === "baseline" && baselineRenderer !== null
         ? baselineRenderer
         : renderer;
+    const displayMetrics = comparisonMode === "baseline" && baselineMetrics !== null
+        ? baselineMetrics
+        : metrics;
 
     const resetPipelineCanvases = useCallback(() => {
         for (const canvas of [
@@ -334,15 +337,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
         if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
             // trackpadの横移動は、旧キーボード横移動と同じ6cycle単位へ対応させる。
-            const differenceX = (event.deltaX > 0 ? 1 : -1) * 6 / renderer.zoomScale;
+            const differenceX = (event.deltaX > 0 ? 1 : -1) * 6 / metrics.zoomScale;
             onMoveView([differenceX, 0], false);
             return;
         }
 
         // 旧wheel操作と同じ3命令単位で移動し、左端を命令のfetch位置へ追従させる。
-        const differenceY = (event.deltaY > 0 ? 1 : -1) * 3 / renderer.zoomScale;
+        const differenceY = (event.deltaY > 0 ? 1 : -1) * 3 / metrics.zoomScale;
         onMoveView([0, differenceY], true);
-    }, [onMoveView, onZoomView, renderer, trace]);
+    }, [metrics.zoomScale, onMoveView, onZoomView, trace]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
@@ -455,12 +458,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const rect = event.currentTarget.getBoundingClientRect();
-        const op = displayRenderer.getOpFromPixelPositionY(event.clientY - rect.top);
+        const op = displayMetrics.getOpFromPixelPositionY(event.clientY - rect.top);
         if (op !== undefined) {
             // A/B単独表示では、ラベルを選んだ側だけをその命令のfetch cycleへ動かす。
             onScrollView([
                 op.fetchedCycle,
-                displayRenderer.viewPosition[1],
+                displayMetrics.spec.position[1],
             ]);
         }
     };
@@ -481,8 +484,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const x = event.clientX - canvasRect.left;
         const y = event.clientY - canvasRect.top;
         const text = pane === "label"
-            ? displayRenderer.getLabelToolTipText(y)
-            : displayRenderer.getPipelineToolTipText(x, y);
+            ? displayMetrics.getLabelToolTipText(y)
+            : displayMetrics.getPipelineToolTipText(x, y);
         setToolTip(text === null ? null : {
             left: event.clientX - viewerRect.left,
             top: event.clientY - viewerRect.top + 20,
@@ -496,7 +499,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             index === 0 || new RegExp(findResult.targetPattern).test(line));
     const findResultTop = findResult === null
         ? 0
-        : Math.floor(renderer.getPixelPositionYFromID(findResult.anchorID)) + renderer.opHeight;
+        : Math.floor(metrics.getPixelPositionYFromID(findResult.anchorID)) + metrics.opHeight;
 
     return (
         <div

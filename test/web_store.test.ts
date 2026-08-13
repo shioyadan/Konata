@@ -328,7 +328,7 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
         deltaY: 144,
         target: "both",
     });
-    // RIDを探し直さず、両Rendererの現在位置へ同じ移動量を加える。
+    // RIDを探し直さず、両Specの現在位置へ同じ移動量を加える。
     assert.deepEqual(comparison.renderSpec.position, [22, 3]);
     assert.deepEqual(comparison.baselineRenderSpec.position, [12, 3]);
     store.dispatch({

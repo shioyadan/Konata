@@ -5,15 +5,8 @@ import type { Op, ParsedTrace } from "../core/model";
 import darkStyle from "../../theme/dark/style.json";
 import lightStyle from "../../theme/light/style.json";
 
-interface CanvasSize {
-    width: number;
-    height: number;
-}
-
-interface ViewPosition {
-    left: number;
-    top: number;
-}
+// Traceと組み合わせて描画結果を再現するための、Canvasに依存しない正式入力を定義する。
+// UIとStoreはRenderer instanceではなくこの値を共有し、表示設定や描画位置を保持する。
 
 export const DEP_ARROW_TYPE = {
     INSIDE_LINE: "insideLine",
@@ -23,13 +16,6 @@ export const DEP_ARROW_TYPE = {
 
 export type DependencyArrowType = typeof DEP_ARROW_TYPE[keyof typeof DEP_ARROW_TYPE];
 export type RendererTheme = "dark" | "light";
-
-// 比較用の配色はView設定へ保存せず、比較表示の描画中だけ使う。
-export const COMPARISON_COLOR_SCHEME = {
-    OVERLAY_BASELINE: "__comparison_overlay_baseline",
-    OVERLAY_CANDIDATE: "__comparison_overlay_candidate",
-    REFERENCE: "__comparison_reference",
-} as const;
 
 export type CustomColorComponent = number | "auto";
 
@@ -44,8 +30,6 @@ export interface CustomColorScheme {
     readonly [laneName: string]:
         CustomColorDefinition | Readonly<Record<string, CustomColorDefinition>>;
 }
-
-type RendererStyle = typeof darkStyle;
 
 // 旧Configが既定で持っていたCustom schemeを、そのままWeb版でも選択できるようにする。
 export const DEFAULT_CUSTOM_COLOR_SCHEME: Readonly<CustomColorScheme> = {
@@ -63,16 +47,11 @@ export const DEFAULT_CUSTOM_COLOR_SCHEME: Readonly<CustomColorScheme> = {
     },
 };
 
-const DEFAULT_CUSTOM_COLOR_SCHEMES: Readonly<Record<string, CustomColorScheme>> = {
-    Custom: DEFAULT_CUSTOM_COLOR_SCHEME,
-};
-
 /**
  * KonataRendererへ渡す再現可能な描画指定。
  *
  * Traceとこの値が同じなら、Canvasの寸法とdevicePixelRatioを除く描画結果も同じになる。
  * Canvas寸法はDOM layoutの結果なのでここへ含めず、TraceSheetが描画時に与える。
- * Renderer内部に残す値は、この指定から再計算できるscaleやfontなどの派生値だけとする。
  */
 export interface KonataRenderSpec {
     readonly position: readonly [number, number];
@@ -126,240 +105,150 @@ export function formatKonataZoomPercent(zoomLevel: number): string {
     return `${value}%`;
 }
 
-// 旧Rendererのlabel paneと同じ表示形式を、Canvasとテストから共有する。
-export function formatOpLabel(id: number, op: Op): string {
-    return `${id}: s${op.gid} (t${op.tid}: r${op.rid}): ${op.labelName}`;
-}
+// TraceとKonataRenderSpecから、描画寸法・座標変換・hit testを純粋に計算する。
+// CanvasやDOMを参照せず、同じ入力から常に同じ結果を返す派生値だけを持つ。
 
-function isCustomColorDefinition(value: unknown): value is CustomColorDefinition {
-    return typeof value === "object" && value !== null && "h" in value && "s" in value && "l" in value;
-}
 
-export class KonataRenderer {
-    static readonly OP_W = 32;
-    static readonly OP_H = 24;
+export const KONATA_OP_WIDTH = 32;
+export const KONATA_OP_HEIGHT = 24;
+export const KONATA_LANE_HEIGHT_MARGIN = 2;
 
-    readonly name = "KonataRenderer";
-    // 各詳細を描画するlaneの最小高さは、旧Configの既定値を維持する。
-    textLabelMinimumLaneHeight = 10;
-    stageDetailMinimumLaneHeight = 1;
-    dependencyArrowMinimumLaneHeight = 4;
-    stageBorderMinimumLaneHeight = 4;
+export class KonataRenderMetrics {
+    readonly zoomLevel: number;
+    readonly zoomScale: number;
+    readonly laneNum: number;
+    readonly laneWidth: number;
+    readonly laneHeight: number;
+    readonly opWidth: number;
+    readonly opHeight: number;
+    readonly laneHeightMargin: number;
+    readonly drawingInterval: number;
+    readonly canDrawDetailedly: boolean;
+    readonly canDrawDependency: boolean;
+    readonly canDrawFrame: boolean;
+    readonly canDrawText: boolean;
 
-    private static readonly LANE_HEIGHT_MARGIN = 2;
-    // Canvasの矩形をpixel境界へ合わせ、ぼけを抑える補正値。
-    private static readonly PIXEL_ADJUST = 0.5;
+    constructor(
+        readonly trace: ParsedTrace | null,
+        readonly spec: Readonly<KonataRenderSpec>,
+    ) {
+        this.zoomLevel = clampKonataZoomLevel(spec.zoomLevel);
+        this.zoomScale = getKonataZoomScale(this.zoomLevel);
+        this.laneNum = trace?.stageLevelMap.laneNum ?? 1;
+        const visibleLaneNum = spec.splitLanes && this.laneNum !== 0 ? this.laneNum : 1;
+        this.laneWidth = KONATA_OP_WIDTH * this.zoomScale;
+        this.opWidth = this.laneWidth;
+        if (spec.fixOpHeight) {
+            this.laneHeight = KONATA_OP_HEIGHT * this.zoomScale / visibleLaneNum;
+            this.opHeight = this.laneHeight * visibleLaneNum;
+        }
+        else {
+            this.laneHeight = KONATA_OP_HEIGHT * this.zoomScale;
+            this.opHeight = this.laneHeight * visibleLaneNum;
+        }
 
-    // 論理位置の単位は、横がcycle、縦が命令である。
-    private viewPosition_: ViewPosition = { left: 0, top: 0 };
-    private trace_: ParsedTrace | null = null;
-    private style_: RendererStyle = darkStyle;
-    private theme_: RendererTheme = "dark";
-    private colorScheme_ = "Auto";
-    private renderingColorScheme_: string | null = null;
-    private renderingReference_ = false;
-    private customColorSchemes_: Readonly<Record<string, CustomColorScheme>> = DEFAULT_CUSTOM_COLOR_SCHEMES;
-    private dependencyArrowType_: DependencyArrowType = DEP_ARROW_TYPE.INSIDE_LINE;
-    private splitLanes_ = false;
-    private fixOpHeight_ = false;
-    private hideFlushedOps_ = false;
-
-    // 拡大率は旧Rendererと同じzoom levelの指数で管理する。
-    private zoomLevel_ = 0;
-    private zoomScale_ = 1;
-    private laneNum_ = 1;
-    private laneWidth_ = KonataRenderer.OP_W;
-    private laneHeight_ = KonataRenderer.OP_H;
-    private opWidth_ = KonataRenderer.OP_W;
-    private opHeight_ = KonataRenderer.OP_H;
-    private laneHeightMargin_ = KonataRenderer.LANE_HEIGHT_MARGIN;
-    private drawingInterval_ = 1;
-    private labelFont_ = "";
-    private stageFont_ = "";
-    private labelFontSize_ = 12;
-    private stageFontSize_ = 12;
-
-    constructor() {
-        this.updateScaleParameter_();
-    }
-
-    // Storeの計算用engineとTraceSheetの描画用engineを、同じ正式入力へ同期する。
-    setInput(trace: ParsedTrace | null, spec: Readonly<KonataRenderSpec>): void {
-        this.trace_ = trace;
-        this.viewPosition_ = { left: spec.position[0], top: spec.position[1] };
-        this.zoomLevel_ = clampKonataZoomLevel(spec.zoomLevel);
-        this.zoomScale_ = getKonataZoomScale(this.zoomLevel_);
-        this.theme_ = spec.theme;
-        this.style_ = spec.theme === "light" ? lightStyle : darkStyle;
-        this.colorScheme_ = spec.colorScheme;
-        this.customColorSchemes_ = { Custom: spec.customColorScheme };
-        this.dependencyArrowType_ = spec.dependencyArrowType;
-        this.splitLanes_ = spec.splitLanes;
-        this.fixOpHeight_ = spec.fixOpHeight;
-        this.hideFlushedOps_ = spec.hideFlushedOps;
-        this.textLabelMinimumLaneHeight = spec.textLabelMinimumLaneHeight;
-        this.stageDetailMinimumLaneHeight = spec.stageDetailMinimumLaneHeight;
-        this.dependencyArrowMinimumLaneHeight = spec.dependencyArrowMinimumLaneHeight;
-        this.stageBorderMinimumLaneHeight = spec.stageBorderMinimumLaneHeight;
-        this.updateScaleParameter_();
-    }
-
-    setTrace(trace: ParsedTrace | null): void {
-        this.trace_ = trace;
-        this.updateScaleParameter_();
-    }
-
-    resetView(): void {
-        this.viewPosition_ = { left: 0, top: 0 };
-        this.zoomLevel_ = 0;
-        this.zoomScale_ = this.calcScale_(this.zoomLevel_);
-        this.updateScaleParameter_();
-    }
-
-    get opWidth(): number {
-        return this.opWidth_;
-    }
-
-    get opHeight(): number {
-        return this.opHeight_;
-    }
-
-    get viewPosition(): readonly [number, number] {
-        return [this.viewPosition_.left, this.viewPosition_.top];
-    }
-
-    get zoomLevel(): number {
-        return this.zoomLevel_;
-    }
-
-    get zoomScale(): number {
-        return this.zoomScale_;
-    }
-
-    get zoomPercent(): number {
-        return this.zoomScale_ * 100;
-    }
-
-    get zoomPercentLabel(): string {
-        return formatKonataZoomPercent(this.zoomLevel_);
+        // 枠を描けるかを既定marginから一度で決め、直前に描いたSpecへの隠れた依存をなくす。
+        const margin = KONATA_LANE_HEIGHT_MARGIN * this.zoomScale;
+        this.canDrawFrame = this.laneHeight - margin * 2 > spec.stageBorderMinimumLaneHeight;
+        this.laneHeightMargin = this.canDrawFrame ? margin : 0;
+        const contentHeight = this.laneHeight - this.laneHeightMargin * 2;
+        this.canDrawDetailedly = contentHeight > spec.stageDetailMinimumLaneHeight;
+        this.canDrawDependency = contentHeight > spec.dependencyArrowMinimumLaneHeight;
+        this.canDrawText = contentHeight > spec.textLabelMinimumLaneHeight;
+        this.drawingInterval = Math.floor(1 / KONATA_OP_HEIGHT / this.zoomScale / 2);
     }
 
     // 縦方向は24px/opなので、2^5より小さくなった時だけ取得解像度を落とす。
     get opResolution(): number {
-        return this.zoomLevel_ - 5;
+        return this.zoomLevel - 5;
     }
 
-    get splitLanes(): boolean {
-        return this.splitLanes_;
+    getVisibleOp(y: number, resolution = 0): Op | undefined {
+        return this.spec.hideFlushedOps
+            ? this.getOpFromRID(y, resolution)
+            : this.getOpFromID(y, resolution);
     }
 
-    set splitLanes(value: boolean) {
-        this.splitLanes_ = value;
-        this.updateScaleParameter_();
-    }
-
-    get fixOpHeight(): boolean {
-        return this.fixOpHeight_;
-    }
-
-    set fixOpHeight(value: boolean) {
-        this.fixOpHeight_ = value;
-        this.updateScaleParameter_();
-    }
-
-    get hideFlushedOps(): boolean {
-        return this.hideFlushedOps_;
-    }
-
-    set hideFlushedOps(value: boolean) {
-        this.hideFlushedOps_ = value;
-        this.updateScaleParameter_();
-    }
-
-    get dependencyArrowType(): DependencyArrowType {
-        return this.dependencyArrowType_;
-    }
-
-    set dependencyArrowType(value: DependencyArrowType) {
-        this.dependencyArrowType_ = value;
-    }
-
-    setTheme(theme: RendererTheme): void {
-        this.theme_ = theme;
-        this.style_ = theme === "light" ? lightStyle : darkStyle;
-        this.updateScaleParameter_();
-    }
-
-    get theme(): RendererTheme {
-        return this.theme_;
-    }
-
-    changeColorScheme(scheme: string): void {
-        this.colorScheme_ = scheme;
-    }
-
-    get colorScheme(): string {
-        return this.colorScheme_;
-    }
-
-    setCustomColorSchemes(schemes: Readonly<Record<string, CustomColorScheme>>): void {
-        this.customColorSchemes_ = schemes;
-    }
-
-    get customColorScheme(): Readonly<CustomColorScheme> {
-        return this.customColorSchemes_.Custom ?? DEFAULT_CUSTOM_COLOR_SCHEME;
-    }
-
-    // 現在のReact UIの倍率指定を、旧Rendererの1段階zoomへ対応させる。
-    zoomAt(factor: number, posX: number, posY: number): void {
-        if (factor === 1) {
-            return;
+    getVisibleBottom(): number {
+        if (this.trace === null) {
+            return 0;
         }
-        this.zoom(factor > 1 ? -1 : 1, posX, posY);
+        return this.spec.hideFlushedOps ? this.trace.lastRID : this.trace.lastID;
     }
 
-    zoom(zoomLevelDifference: number, posX: number, posY: number): void {
-        this.zoomAbs(this.zoomLevel_ + zoomLevelDifference, posX, posY);
-    }
-
-    clampZoomLevel(zoomLevel: number): number {
-        return clampKonataZoomLevel(zoomLevel);
-    }
-
-    zoomAbs(zoomLevel: number, posX: number, posY: number, compensatePosition = true): void {
-        this.zoomLevel_ = this.clampZoomLevel(zoomLevel);
-        const oldScale = this.zoomScale_;
-        this.zoomScale_ = this.calcScale_(this.zoomLevel_);
-        this.updateScaleParameter_();
-
-        // pointer位置にあるcycle/opを固定したまま倍率を変える。
-        if (compensatePosition) {
-            const ratio = oldScale / this.zoomScale_;
-            this.moveLogicalPosition([
-                this.viewPosition_.left - (posX - posX / ratio) / this.opWidth_,
-                this.viewPosition_.top - (posY - posY / ratio) / this.opHeight_,
-            ]);
+    getPositionYFromRID(rid: number): number {
+        if (this.spec.hideFlushedOps) {
+            return rid;
         }
+        return this.getOpFromRID(rid)?.id ?? -1;
     }
 
-    // pixel数を論理cycle/opへ変換して表示位置を移動する。
-    panPixels(deltaX: number, deltaY: number): void {
-        this.moveLogicalDifference([
-            deltaX / this.opWidth_,
-            deltaY / this.opHeight_,
-        ], false);
+    getPositionYFromOp(baseOp: Op): number {
+        if (!this.spec.hideFlushedOps) {
+            return baseOp.id;
+        }
+        for (let id = baseOp.id; id >= 0; id--) {
+            const op = this.getOpFromID(id);
+            if (op !== undefined && !op.flush) {
+                return op.rid;
+            }
+        }
+        return 0;
     }
 
-    moveWheel(wheelUp: boolean): void {
-        const scroll = 3 / this.zoomScale_;
-        this.moveLogicalDifference([0, wheelUp ? scroll : -scroll], true);
+    getOpFromID(id: number, resolution = 0): Op | undefined {
+        return this.trace?.getOp(id, resolution);
     }
 
-    adjustScrollDifferenceX(differenceY: number): number {
-        return this.adjustScrollDifferenceXAt(this.viewPosition, differenceY);
+    getOpFromRID(rid: number, resolution = 0): Op | undefined {
+        return this.trace?.getOpFromRID(rid, resolution);
     }
 
-    // wheelの未到達目標へ次の入力を足す場合も、旧版と同じ命令追従量を計算する。
+    getOpFromPixelPositionY(y: number, resolution = 0): Op | undefined {
+        const logicalY = Math.floor(this.spec.position[1] + y / this.opHeight);
+        return this.getVisibleOp(logicalY, resolution);
+    }
+
+    getPixelPositionYFromOp(op: Op): number {
+        const y = this.spec.hideFlushedOps ? op.rid : op.id;
+        return (y - this.spec.position[1]) * this.opHeight;
+    }
+
+    getPixelPositionYFromID(id: number): number {
+        const op = this.getOpFromID(id);
+        return op === undefined ? 0 : this.getPixelPositionYFromOp(op);
+    }
+
+    getCycleFromPixelPositionX(x: number): number {
+        return Math.floor(this.spec.position[0] + x / this.opWidth);
+    }
+
+    getAdjustedViewPosition(): readonly [number, number] | null {
+        if (this.trace === null) {
+            return null;
+        }
+
+        const top = this.spec.position[1];
+        let op: Op | undefined;
+        if (top < 0) {
+            op = this.getOpFromID(0);
+        }
+        else if (top > this.getVisibleBottom()) {
+            // 旧版と同じく末尾に余白を残しつつ、短いtraceでも先頭へ復帰できるようにする。
+            op = this.getVisibleOp(Math.max(0, this.getVisibleBottom() - 30));
+        }
+        else {
+            op = this.getOpFromPixelPositionY(0);
+        }
+        if (op === undefined) {
+            return null;
+        }
+
+        // flushされた命令よりRIDに対応するretire済み命令を優先する。
+        op = this.getOpFromRID(op.rid) ?? op;
+        return [op.fetchedCycle, this.spec.hideFlushedOps ? op.rid : op.id];
+    }
+
     adjustScrollDifferenceXAt(
         position: readonly [number, number],
         differenceY: number,
@@ -381,116 +270,60 @@ export class KonataRenderer {
         return newOp.fetchedCycle - oldOp.fetchedCycle;
     }
 
-    moveLogicalDifference(difference: readonly [number, number], adjust: boolean): void {
-        const positionY = this.viewPosition_.top + difference[1];
-        const op = this.getVisibleOp(Math.floor(positionY), this.opResolution);
-        const oldTop = this.viewPosition_.top;
-        this.viewPosition_.top = positionY;
-
-        if (adjust && op !== undefined) {
-            const oldOp = this.getVisibleOp(Math.floor(oldTop), this.opResolution);
-            if (oldOp === undefined) {
-                this.viewPosition_.left = op.fetchedCycle;
-            }
-            else {
-                this.viewPosition_.left += op.fetchedCycle - oldOp.fetchedCycle;
-            }
-        }
-        else {
-            this.viewPosition_.left += difference[0];
-        }
-    }
-
-    moveLogicalPosition(position: readonly [number, number]): void {
+    withPosition(position: readonly [number, number]): Readonly<KonataRenderSpec> {
         // 旧Rendererは範囲外もinvalid領域として描くため、ここではclampしない。
-        this.viewPosition_.left = position[0];
-        this.viewPosition_.top = position[1];
+        return { ...this.spec, position };
     }
 
-    getAdjustedViewPosition(): readonly [number, number] | null {
-        if (this.trace_ === null) {
-            return null;
-        }
-
-        const top = this.viewPosition_.top;
-        let op: Op | undefined;
-        if (top < 0) {
-            op = this.getOpFromID(0);
-        }
-        else if (top > this.getVisibleBottom()) {
-            // 旧版と同じく末尾に余白を残しつつ、短いtraceでも先頭へ復帰できるようにする。
-            op = this.getVisibleOp(Math.max(0, this.getVisibleBottom() - 30));
+    withLogicalDifference(
+        difference: readonly [number, number],
+        adjustHorizontal: boolean,
+    ): Readonly<KonataRenderSpec> {
+        const oldTop = this.spec.position[1];
+        const positionY = oldTop + difference[1];
+        const op = this.getVisibleOp(Math.floor(positionY), this.opResolution);
+        let positionX = this.spec.position[0];
+        if (adjustHorizontal && op !== undefined) {
+            const oldOp = this.getVisibleOp(Math.floor(oldTop), this.opResolution);
+            positionX = oldOp === undefined
+                ? op.fetchedCycle
+                : positionX + op.fetchedCycle - oldOp.fetchedCycle;
         }
         else {
-            op = this.getOpFromPixelPositionY(0);
+            positionX += difference[0];
         }
-        if (op === undefined) {
-            return null;
+        return this.withPosition([positionX, positionY]);
+    }
+
+    withPixelPan(deltaX: number, deltaY: number): Readonly<KonataRenderSpec> {
+        return this.withLogicalDifference([
+            deltaX / this.opWidth,
+            deltaY / this.opHeight,
+        ], false);
+    }
+
+    withZoomLevel(
+        zoomLevel: number,
+        posX: number,
+        posY: number,
+        compensatePosition = true,
+    ): Readonly<KonataRenderSpec> {
+        const nextZoomLevel = clampKonataZoomLevel(zoomLevel);
+        const nextSpec = { ...this.spec, zoomLevel: nextZoomLevel };
+        if (!compensatePosition || nextZoomLevel === this.zoomLevel) {
+            return nextSpec;
         }
 
-        // flushされた命令よりRIDに対応するretire済み命令を優先し、将来のTab同期でも同じ基準を使う。
-        op = this.getOpFromRID(op.rid) ?? op;
-        return [op.fetchedCycle, this.hideFlushedOps_ ? op.rid : op.id];
-    }
-
-    getVisibleOp(y: number, resolution = 0): Op | undefined {
-        return this.hideFlushedOps_
-            ? this.getOpFromRID(y, resolution)
-            : this.getOpFromID(y, resolution);
-    }
-
-    getVisibleBottom(): number {
-        if (this.trace_ === null) {
-            return 0;
-        }
-        return this.hideFlushedOps_ ? this.trace_.lastRID : this.trace_.lastID;
-    }
-
-    getPositionYFromRID(rid: number): number {
-        if (this.hideFlushedOps_) {
-            return rid;
-        }
-        return this.getOpFromRID(rid)?.id ?? -1;
-    }
-
-    getPositionYFromOp(baseOp: Op): number {
-        if (!this.hideFlushedOps_) {
-            return baseOp.id;
-        }
-        for (let id = baseOp.id; id >= 0; id--) {
-            const op = this.getOpFromID(id);
-            if (op !== undefined && !op.flush) {
-                return op.rid;
-            }
-        }
-        return 0;
-    }
-
-    getOpFromID(id: number, resolution = 0): Op | undefined {
-        return this.trace_?.getOp(id, resolution);
-    }
-
-    getOpFromRID(rid: number, resolution = 0): Op | undefined {
-        return this.trace_?.getOpFromRID(rid, resolution);
-    }
-
-    getOpFromPixelPositionY(y: number, resolution = 0): Op | undefined {
-        const logicalY = Math.floor(this.viewPosition_.top + y / this.opHeight_);
-        return this.getVisibleOp(logicalY, resolution);
-    }
-
-    getPixelPositionYFromOp(op: Op): number {
-        const y = this.hideFlushedOps_ ? op.rid : op.id;
-        return (y - this.viewPosition_.top) * this.opHeight_;
-    }
-
-    getPixelPositionYFromID(id: number): number {
-        const op = this.getOpFromID(id);
-        return op === undefined ? 0 : this.getPixelPositionYFromOp(op);
-    }
-
-    getCycleFromPixelPositionX(x: number): number {
-        return Math.floor(this.viewPosition_.left + x / this.opWidth_);
+        const nextMetrics = new KonataRenderMetrics(this.trace, nextSpec);
+        const ratio = this.zoomScale / nextMetrics.zoomScale;
+        // pointer位置にあるcycle/opを固定したまま倍率を変える。
+        return {
+            ...nextSpec,
+            position: [
+                this.spec.position[0] - (posX - posX / ratio) / nextMetrics.opWidth,
+                this.spec.position[1] - (posY - posY / ratio) / nextMetrics.opHeight,
+            ],
+        };
     }
 
     getLabelToolTipText(y: number): string | null {
@@ -523,7 +356,6 @@ export class KonataRenderer {
             return text;
         }
 
-        // 同じcycleに複数laneが重なっている場合は、stage名をカンマ区切りで並べる。
         let stageText = "";
         let first = true;
         for (const lane of op.lanes) {
@@ -553,12 +385,84 @@ export class KonataRenderer {
         }
         return text;
     }
+}
 
-    draw(labelCanvas: HTMLCanvasElement, pipelineCanvas: HTMLCanvasElement): void {
+interface CanvasSize {
+    width: number;
+    height: number;
+}
+
+// 比較用の配色はView設定へ保存せず、比較表示の描画中だけ使う。
+export const COMPARISON_COLOR_SCHEME = {
+    OVERLAY_BASELINE: "__comparison_overlay_baseline",
+    OVERLAY_CANDIDATE: "__comparison_overlay_candidate",
+    REFERENCE: "__comparison_reference",
+} as const;
+
+type RendererStyle = typeof darkStyle;
+
+const DEFAULT_CUSTOM_COLOR_SCHEMES: Readonly<Record<string, CustomColorScheme>> = {
+    Custom: DEFAULT_CUSTOM_COLOR_SCHEME,
+};
+
+// 旧Rendererのlabel paneと同じ表示形式を、Canvasとテストから共有する。
+export function formatOpLabel(id: number, op: Op): string {
+    return `${id}: s${op.gid} (t${op.tid}: r${op.rid}): ${op.labelName}`;
+}
+
+function isCustomColorDefinition(value: unknown): value is CustomColorDefinition {
+    return typeof value === "object" && value !== null && "h" in value && "s" in value && "l" in value;
+}
+
+export class KonataRenderer {
+    // Canvasの矩形をpixel境界へ合わせ、ぼけを抑える補正値。
+    private static readonly PIXEL_ADJUST = 0.5;
+
+    private trace_: ParsedTrace | null = null;
+    private metrics_: KonataRenderMetrics;
+    private style_: RendererStyle = darkStyle;
+    private theme_: RendererTheme = "dark";
+    private colorScheme_ = "Auto";
+    private renderingColorScheme_: string | null = null;
+    private renderingReference_ = false;
+    private customColorSchemes_: Readonly<Record<string, CustomColorScheme>> = DEFAULT_CUSTOM_COLOR_SCHEMES;
+    private dependencyArrowType_: DependencyArrowType = DEP_ARROW_TYPE.INSIDE_LINE;
+    private splitLanes_ = false;
+    private hideFlushedOps_ = false;
+
+    private zoomScale_ = 1;
+    private laneNum_ = 1;
+    private laneHeight_ = 24;
+    private opWidth_ = 32;
+    private opHeight_ = 24;
+    private laneHeightMargin_ = 2;
+    private drawingInterval_ = 1;
+    private labelFont_ = "";
+    private stageFont_ = "";
+    private labelFontSize_ = 12;
+    private stageFontSize_ = 12;
+
+    constructor() {
+        this.metrics_ = new KonataRenderMetrics(null, DEFAULT_KONATA_RENDER_SPEC);
+        this.updateDerivedValues_();
+    }
+
+    private setInput_(trace: ParsedTrace | null, spec: Readonly<KonataRenderSpec>): void {
+        this.trace_ = trace;
+        this.metrics_ = new KonataRenderMetrics(trace, spec);
+        this.theme_ = spec.theme;
+        this.style_ = spec.theme === "light" ? lightStyle : darkStyle;
+        this.colorScheme_ = spec.colorScheme;
+        this.customColorSchemes_ = { Custom: spec.customColorScheme };
+        this.dependencyArrowType_ = spec.dependencyArrowType;
+        this.splitLanes_ = spec.splitLanes;
+        this.hideFlushedOps_ = spec.hideFlushedOps;
+        this.updateDerivedValues_();
+    }
+
+    private draw_(labelCanvas: HTMLCanvasElement, pipelineCanvas: HTMLCanvasElement): void {
         const labelSize = this.prepareCanvas_(labelCanvas);
         const pipelineSize = this.prepareCanvas_(pipelineCanvas);
-        // 非同期読み込み中はlane数が変わり得るため、旧Rendererと同じく描画直前に更新する。
-        this.updateScaleParameter_();
         this.drawLabel_(labelCanvas, labelSize);
         this.drawPipeline_(pipelineCanvas, pipelineSize);
     }
@@ -569,13 +473,12 @@ export class KonataRenderer {
         labelCanvas: HTMLCanvasElement,
         pipelineCanvas: HTMLCanvasElement,
     ): void {
-        this.setInput(trace, spec);
-        this.draw(labelCanvas, pipelineCanvas);
+        this.setInput_(trace, spec);
+        this.draw_(labelCanvas, pipelineCanvas);
     }
 
-    drawLabel(labelCanvas: HTMLCanvasElement): void {
+    private drawLabelCanvas_(labelCanvas: HTMLCanvasElement): void {
         const labelSize = this.prepareCanvas_(labelCanvas);
-        this.updateScaleParameter_();
         this.drawLabel_(labelCanvas, labelSize);
     }
 
@@ -584,11 +487,11 @@ export class KonataRenderer {
         spec: Readonly<KonataRenderSpec>,
         labelCanvas: HTMLCanvasElement,
     ): void {
-        this.setInput(trace, spec);
-        this.drawLabel(labelCanvas);
+        this.setInput_(trace, spec);
+        this.drawLabelCanvas_(labelCanvas);
     }
 
-    drawPipeline(
+    private drawPipelineCanvas_(
         pipelineCanvas: HTMLCanvasElement,
         width?: number,
         height?: number,
@@ -596,7 +499,6 @@ export class KonataRenderer {
         referenceOnly = false,
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas, width, height);
-        this.updateScaleParameter_();
         const previousColorScheme = this.renderingColorScheme_;
         const previousReference = this.renderingReference_;
         this.renderingColorScheme_ = colorScheme ?? null;
@@ -620,8 +522,8 @@ export class KonataRenderer {
         colorScheme?: string,
         referenceOnly = false,
     ): void {
-        this.setInput(trace, spec);
-        this.drawPipeline(pipelineCanvas, width, height, colorScheme, referenceOnly);
+        this.setInput_(trace, spec);
+        this.drawPipelineCanvas_(pipelineCanvas, width, height, colorScheme, referenceOnly);
     }
 
     composePipelineLayers(
@@ -650,33 +552,14 @@ export class KonataRenderer {
         }
     }
 
-    private calcScale_(level: number): number {
-        return getKonataZoomScale(level);
-    }
-
-    private updateScaleParameter_(): void {
-        this.laneNum_ = this.trace_?.stageLevelMap.laneNum ?? 1;
-        let laneNum = this.laneNum_;
-        this.laneWidth_ = KonataRenderer.OP_W * this.zoomScale_;
-        this.opWidth_ = this.laneWidth_;
-
-        if (!this.splitLanes_ || laneNum === 0) {
-            // lane mapが空の時にopHeightが0となり、描画loopが止まらなくなることを避ける。
-            laneNum = 1;
-        }
-        if (this.fixOpHeight_) {
-            this.laneHeight_ = KonataRenderer.OP_H * this.zoomScale_ / laneNum;
-            this.opHeight_ = this.laneHeight_ * laneNum;
-        }
-        else {
-            this.laneHeight_ = KonataRenderer.OP_H * this.zoomScale_;
-            this.opHeight_ = this.laneHeight_ * laneNum;
-        }
-
-        this.laneHeightMargin_ = this.canDrawFrame_
-            ? KonataRenderer.LANE_HEIGHT_MARGIN * this.zoomScale_
-            : 0;
-        this.drawingInterval_ = Math.floor(1 / KonataRenderer.OP_H / this.zoomScale_ / 2);
+    private updateDerivedValues_(): void {
+        this.zoomScale_ = this.metrics_.zoomScale;
+        this.laneNum_ = this.metrics_.laneNum;
+        this.laneHeight_ = this.metrics_.laneHeight;
+        this.opWidth_ = this.metrics_.opWidth;
+        this.opHeight_ = this.metrics_.opHeight;
+        this.laneHeightMargin_ = this.metrics_.laneHeightMargin;
+        this.drawingInterval_ = this.metrics_.drawingInterval;
 
         const fontSize = Number(this.style_.fontSize);
         this.labelFont_ = `${this.style_.fontStyle} ${fontSize * Math.min(1, this.zoomScale_)}px ${this.style_.fontFamily}`;
@@ -686,19 +569,19 @@ export class KonataRenderer {
     }
 
     private get canDrawDetailedly_(): boolean {
-        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.stageDetailMinimumLaneHeight;
+        return this.metrics_.canDrawDetailedly;
     }
 
     private get canDrawDependency_(): boolean {
-        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.dependencyArrowMinimumLaneHeight;
+        return this.metrics_.canDrawDependency;
     }
 
     private get canDrawFrame_(): boolean {
-        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.stageBorderMinimumLaneHeight;
+        return this.metrics_.canDrawFrame;
     }
 
     private get canDrawText_(): boolean {
-        return this.laneHeight_ - this.laneHeightMargin_ * 2 > this.textLabelMinimumLaneHeight;
+        return this.metrics_.canDrawText;
     }
 
     private prepareCanvas_(
@@ -745,16 +628,16 @@ export class KonataRenderer {
             this.labelFontSize_;
 
         for (
-            let logicalY = Math.floor(this.viewPosition_.top);
-            logicalY < this.viewPosition_.top + logicalHeight;
+            let logicalY = Math.floor(this.metrics_.spec.position[1]);
+            logicalY < this.metrics_.spec.position[1] + logicalHeight;
             logicalY++
         ) {
-            const op = this.getVisibleOp(logicalY);
+            const op = this.metrics_.getVisibleOp(logicalY);
             if (op === undefined) {
                 continue;
             }
             const x = marginLeft;
-            const y = (logicalY - this.viewPosition_.top) * this.opHeight_ + marginTop;
+            const y = (logicalY - this.metrics_.spec.position[1]) * this.opHeight_ + marginTop;
             context.fillText(formatOpLabel(logicalY, op), x, y);
         }
     }
@@ -776,8 +659,8 @@ export class KonataRenderer {
             return;
         }
 
-        let top = this.viewPosition_.top;
-        const left = this.viewPosition_.left;
+        let top = this.metrics_.spec.position[1];
+        const left = this.metrics_.spec.position[0];
         const logicalHeight = size.height / this.opHeight_;
         const logicalWidth = size.width / this.opWidth_;
 
@@ -809,7 +692,7 @@ export class KonataRenderer {
                 continue;
             }
 
-            const op = this.getVisibleOp(y, this.opResolution);
+            const op = this.metrics_.getVisibleOp(y, this.metrics_.opResolution);
             if (op === undefined) {
                 // gem5ではIDが不連続でも、後続に有効な命令が存在し得る。
                 continue;
@@ -824,7 +707,7 @@ export class KonataRenderer {
         }
 
         // 最終命令より下へはみ出した領域もinvalid色で描く。
-        const bottomOuterHeight = top - offsetY + logicalHeight - 1 - this.getVisibleBottom();
+        const bottomOuterHeight = top - offsetY + logicalHeight - 1 - this.metrics_.getVisibleBottom();
         if (!this.renderingReference_ && bottomOuterHeight > 0) {
             const begin = Math.max(
                 0,
@@ -994,12 +877,12 @@ export class KonataRenderer {
         context.fillStyle = this.style_.pipelinePane.arrowColor;
 
         for (let y = Math.floor(logicalTop); y < logicalTop + logicalHeight; y++) {
-            const consumer = this.getVisibleOp(y);
+            const consumer = this.metrics_.getVisibleOp(y);
             if (consumer === undefined || consumer.consCycle === -1) {
                 continue;
             }
             for (const dependency of consumer.prods) {
-                const producer = this.getOpFromID(dependency.opID);
+                const producer = this.metrics_.getOpFromID(dependency.opID);
                 if (producer === undefined || producer.prodCycle === -1) {
                     continue;
                 }
