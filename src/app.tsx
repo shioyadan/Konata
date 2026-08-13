@@ -195,6 +195,12 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
     const drawZoomFactor = settings.drawZoomFactor === undefined
         ? DEFAULT_PERSISTED_VIEW_SETTINGS.drawZoomFactor
         : settings.drawZoomFactor;
+    const webGLEnabled = settings.webGLEnabled === undefined
+        ? DEFAULT_PERSISTED_VIEW_SETTINGS.webGLEnabled
+        : settings.webGLEnabled;
+    const textCacheEnabled = settings.textCacheEnabled === undefined
+        ? DEFAULT_PERSISTED_VIEW_SETTINGS.textCacheEnabled
+        : settings.textCacheEnabled;
     if ((settings.theme !== "dark" && settings.theme !== "light") ||
         typeof settings.colorScheme !== "string" ||
         !PIPELINE_COLOR_SCHEMES.has(settings.colorScheme) ||
@@ -206,11 +212,15 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         !isNonNegativeFiniteNumber(stageDetailMinimumLaneHeight) ||
         !isNonNegativeFiniteNumber(dependencyArrowMinimumLaneHeight) ||
         !isNonNegativeFiniteNumber(stageBorderMinimumLaneHeight) ||
-        !isPositiveFiniteNumber(drawZoomFactor)) {
+        !isPositiveFiniteNumber(drawZoomFactor) ||
+        typeof webGLEnabled !== "boolean" ||
+        typeof textCacheEnabled !== "boolean") {
         return null;
     }
     return {
         theme: settings.theme,
+        webGLEnabled,
+        textCacheEnabled,
         colorScheme: settings.colorScheme,
         // 旧Web版の保存値にはこのfieldがないため、他の設定を捨てず既定配色で補う。
         customColorScheme: isCustomColorScheme(settings.customColorScheme)
@@ -1658,6 +1668,35 @@ export function App() {
                                 </label>
                             ))}
                         </details>
+                        <details className="compatibility-settings">
+                            <summary title="Rendering options for compatibility and troubleshooting.">
+                                Compatibility
+                            </summary>
+                            <label title="Disable WebGL if rendering problems occur.">
+                                <input
+                                    type="checkbox"
+                                    aria-label="WebGL rendering"
+                                    checked={settings.webGLEnabled}
+                                    onChange={(event) => store.dispatch({
+                                        type: "KONATA_SET_WEBGL_ENABLED",
+                                        enabled: event.target.checked,
+                                    })}
+                                />
+                                WebGL rendering
+                            </label>
+                            <label title="Disable if cached text appears blurred or otherwise incorrect.">
+                                <input
+                                    type="checkbox"
+                                    aria-label="Text caching"
+                                    checked={settings.textCacheEnabled}
+                                    onChange={(event) => store.dispatch({
+                                        type: "KONATA_SET_TEXT_CACHE_ENABLED",
+                                        enabled: event.target.checked,
+                                    })}
+                                />
+                                Text caching
+                            </label>
+                        </details>
                     </div>
                 </details>
                 <div className="zoom-controls" aria-label="Zoom controls">
@@ -1757,6 +1796,8 @@ export function App() {
                 loadState={loadState}
                 errorMessage={errorMessage}
                 renderVersion={renderVersion}
+                webGLEnabled={settings.webGLEnabled}
+                textCacheEnabled={settings.textCacheEnabled}
                 findResult={findResult}
                 comparison={comparisonTab === null ? null : {
                     baselineTrace: comparisonTab.baselineTrace,

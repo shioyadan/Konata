@@ -212,6 +212,7 @@ export class RectRenderer implements RectContext {
     private targetContext_: CanvasRenderingContext2D | null = null;
     private width_ = 1;
     private height_ = 1;
+    private webGLEnabled_ = true;
     private fillStyle_: string = "#000000";
     private fillStyleIndex_ = 0;
     private strokeStyle_: string = "#000000";
@@ -243,10 +244,12 @@ export class RectRenderer implements RectContext {
     private readonly colorCache_ = new Map<string, readonly [number, number, number, number]>();
     private readonly textAtlas_ = new TextAtlas();
     private textContext_: CanvasRenderingContext2D | null = null;
+    private textDisplayFont_ = "";
     private textFont_ = "";
     private textColor_ = "#000000";
     private textPixelRatio_ = 1;
     private textScale_ = 1;
+    private textCacheEnabled_ = true;
 
     get fillStyle(): string | CanvasGradient | CanvasPattern {
         return this.fillStyle_;
@@ -299,11 +302,13 @@ export class RectRenderer implements RectContext {
         context: CanvasRenderingContext2D,
         width: number,
         height: number,
+        webGLEnabled = true,
     ): RectContext {
         this.targetCanvas_ = canvas;
         this.targetContext_ = context;
         this.width_ = width;
         this.height_ = height;
+        this.webGLEnabled_ = webGLEnabled;
         this.count_ = 0;
         this.styles_ = [];
         this.styleMap_.clear();
@@ -327,6 +332,7 @@ export class RectRenderer implements RectContext {
         // 拡大時はbitmap拡大でぼかさず、実際の表示サイズでrasterizeする。
         const atlasScale = Math.min(1, scale);
         this.textContext_ = context;
+        this.textDisplayFont_ = displayFont;
         this.textFont_ = atlasScale < 1
             ? `${fontStyle} ${baseFontSize}px ${fontFamily}`
             : displayFont;
@@ -335,12 +341,31 @@ export class RectRenderer implements RectContext {
         this.textScale_ = atlasScale;
         context.font = displayFont;
         context.fillStyle = color;
-        context.imageSmoothingEnabled = true;
+        // 等倍BLTでは半pixel配置を再補間せず、縮小時だけ滑らかにsamplingする。
+        context.imageSmoothingEnabled = atlasScale < 1;
+    }
+
+    setTextCacheEnabled(enabled: boolean): void {
+        if (this.textCacheEnabled_ === enabled) {
+            return;
+        }
+        this.textCacheEnabled_ = enabled;
+        if (!enabled) {
+            this.textAtlas_.dispose();
+        }
     }
 
     fillText(text: string, x: number, baselineY: number): void {
         const context = this.textContext_;
         if (context === null) {
+            return;
+        }
+        if (!this.textCacheEnabled_) {
+            // stage矩形の描画で変更されたCanvas stateを、直接文字描画の前に戻す。
+            context.font = this.textDisplayFont_;
+            context.fillStyle = this.textColor_;
+            context.textBaseline = "alphabetic";
+            context.fillText(text, x, baselineY);
             return;
         }
         this.textAtlas_.drawText(
@@ -428,7 +453,8 @@ export class RectRenderer implements RectContext {
         if (this.targetCanvas_ === null || this.targetContext_ === null) {
             return;
         }
-        const useWebGL = this.count_ >= RectRenderer.WEBGL_RECT_THRESHOLD &&
+        const useWebGL = this.webGLEnabled_ &&
+            this.count_ >= RectRenderer.WEBGL_RECT_THRESHOLD &&
             this.ensureWebGL_() &&
             this.drawWebGL_();
         if (!useWebGL) {

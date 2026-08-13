@@ -2199,6 +2199,9 @@ async function run() {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
+        const textCache = document.querySelector('input[aria-label="Text caching"]');
+        const compatibility = document.querySelector(".compatibility-settings");
         const drawingThresholds = document.querySelector(".drawing-thresholds");
         const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
         if (!(viewControls instanceof HTMLDetailsElement) ||
@@ -2211,6 +2214,9 @@ async function run() {
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
             !(zoomSteps instanceof HTMLInputElement) ||
+            !(webGL instanceof HTMLInputElement) ||
+            !(textCache instanceof HTMLInputElement) ||
+            !(compatibility instanceof HTMLDetailsElement) ||
             !(drawingThresholds instanceof HTMLDetailsElement) ||
             !(textThreshold instanceof HTMLInputElement)) {
             throw new Error("The renderer view controls were not found.");
@@ -2262,10 +2268,15 @@ async function run() {
             arrows: arrows.value,
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
             color: color.value,
+            webGL: webGL.checked,
+            textCache: textCache.checked,
+            compatibilityOpen: compatibility.open,
+            compatibilitySummary: compatibility.querySelector("summary")?.textContent?.trim() ?? null,
+            compatibilityTitle: compatibility.querySelector("summary")?.title ?? null,
             textThreshold: textThreshold.value,
             thresholdSummary: drawingThresholds.querySelector("summary")?.textContent?.trim() ?? null,
             thresholdSummaryTitle: drawingThresholds.querySelector("summary")?.title ?? null,
-            settingTitles: [theme, hideFlushed, split, fixed, color, arrows, zoomSteps]
+            settingTitles: [theme, hideFlushed, split, fixed, color, arrows, zoomSteps, webGL, textCache]
                 .map((control) => control.closest("label")?.title ?? null),
             thresholdLabels: Array.from(drawingThresholds.querySelectorAll("label"), (label) => ({
                 text: label.childNodes[0]?.textContent?.trim() ?? null,
@@ -2281,6 +2292,12 @@ async function run() {
         viewControlState.arrows !== "leftSideCurve" ||
         viewControlState.theme !== "light" ||
         viewControlState.color !== "Custom" ||
+        !viewControlState.webGL ||
+        !viewControlState.textCache ||
+        viewControlState.compatibilityOpen ||
+        viewControlState.compatibilitySummary !== "Compatibility" ||
+        viewControlState.compatibilityTitle !==
+            "Rendering options for compatibility and troubleshooting." ||
         viewControlState.textThreshold !== "12" ||
         viewControlState.thresholdSummary !== "Minimum lane height (px)" ||
         viewControlState.thresholdSummaryTitle !==
@@ -2292,7 +2309,9 @@ async function run() {
             "Keep each instruction at a fixed total height when lanes are split.",
             "Choose how pipeline stages are colored.",
             "Choose how instruction dependencies are drawn.",
-            "Number of steps used to double or halve the zoom."
+            "Number of steps used to double or halve the zoom.",
+            "Disable WebGL if rendering problems occur.",
+            "Disable if cached text appears blurred or otherwise incorrect."
         ]) ||
         JSON.stringify(viewControlState.thresholdLabels) !== JSON.stringify([
             {
@@ -2810,12 +2829,14 @@ async function run() {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const textCache = document.querySelector('input[aria-label="Text caching"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         if (!(pipeline instanceof HTMLCanvasElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(colorScheme instanceof HTMLSelectElement) ||
             !(zoomSteps instanceof HTMLInputElement) ||
+            !(textCache instanceof HTMLInputElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement)) {
             throw new Error("The text atlas controls were not found.");
@@ -2823,16 +2844,24 @@ async function run() {
         const originalTheme = theme.value;
         const originalColorScheme = colorScheme.value;
         const originalZoomSteps = zoomSteps.value;
+        const originalTextCache = textCache.checked;
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         inputSetter?.call(zoomSteps, "2");
         zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
         let atlasFillTexts = 0;
         let pipelineFillTexts = 0;
+        let invalidPipelineTextStyles = 0;
         let pipelineBlits = 0;
+        let smoothedPipelineBlits = 0;
+        let unsmoothedPipelineBlits = 0;
         const blitScales = [];
         prototype.fillText = function(...args) {
             if (this.canvas === pipeline) {
                 pipelineFillTexts++;
+                if (this.fillStyle !== "#444444" || this.textBaseline !== "alphabetic" ||
+                    !this.font.includes("px")) {
+                    invalidPipelineTextStyles++;
+                }
             }
             else if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected) {
                 atlasFillTexts++;
@@ -2843,6 +2872,12 @@ async function run() {
             if (this.canvas === pipeline && args[0] instanceof HTMLCanvasElement &&
                 !args[0].isConnected) {
                 pipelineBlits++;
+                if (this.imageSmoothingEnabled) {
+                    smoothedPipelineBlits++;
+                }
+                else {
+                    unsmoothedPipelineBlits++;
+                }
                 if (args.length === 9) {
                     blitScales.push(args[7] * devicePixelRatio / args[3]);
                 }
@@ -2855,7 +2890,14 @@ async function run() {
             theme.value = "light";
             theme.dispatchEvent(new Event("change", {bubbles: true}));
             await nextFrame();
-            const first = {atlasFillTexts, pipelineFillTexts, pipelineBlits};
+            const first = {
+                atlasFillTexts,
+                pipelineFillTexts,
+                invalidPipelineTextStyles,
+                pipelineBlits,
+                smoothedPipelineBlits,
+                unsmoothedPipelineBlits,
+            };
 
             // 半stepの縮小animationでも100%用atlasを共有し、表示時だけ縮小する。
             zoomOut.click();
@@ -2865,6 +2907,8 @@ async function run() {
                 atlasFillTexts,
                 pipelineFillTexts,
                 pipelineBlits,
+                smoothedPipelineBlits,
+                unsmoothedPipelineBlits,
                 minimumBlitScale: Math.min(...blitScales),
                 zoom: document.querySelector('.zoom-controls output')?.textContent ?? null,
             };
@@ -2873,10 +2917,31 @@ async function run() {
             colorScheme.value = "Unique";
             colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
             await nextFrame();
+            const recolored = {atlasFillTexts, pipelineFillTexts, pipelineBlits};
+
+            // cacheを無効にするとatlasを破棄し、pipeline Canvasへ直接fillTextする。
+            textCache.click();
+            await nextFrame();
+            const disabled = {
+                enabled: textCache.checked,
+                atlasFillTexts,
+                pipelineFillTexts,
+                invalidPipelineTextStyles,
+                pipelineBlits,
+            };
+            textCache.click();
+            await nextFrame();
             return {
                 first,
                 scaled,
-                recolored: {atlasFillTexts, pipelineFillTexts, pipelineBlits}
+                recolored,
+                disabled,
+                reenabled: {
+                    enabled: textCache.checked,
+                    atlasFillTexts,
+                    pipelineFillTexts,
+                    pipelineBlits,
+                },
             };
         }
         finally {
@@ -2886,6 +2951,9 @@ async function run() {
             theme.dispatchEvent(new Event("change", {bubbles: true}));
             colorScheme.value = originalColorScheme;
             colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+            if (textCache.checked !== originalTextCache) {
+                textCache.click();
+            }
             inputSetter?.call(zoomSteps, originalZoomSteps);
             zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
             reset.click();
@@ -2896,16 +2964,28 @@ async function run() {
     if (textAtlasState.first.atlasFillTexts < 1 ||
         textAtlasState.first.pipelineFillTexts !== 0 ||
         textAtlasState.first.pipelineBlits <= textAtlasState.first.atlasFillTexts ||
+        textAtlasState.first.smoothedPipelineBlits !== 0 ||
+        textAtlasState.first.unsmoothedPipelineBlits !== textAtlasState.first.pipelineBlits ||
         textAtlasState.scaled.atlasFillTexts < textAtlasState.first.atlasFillTexts ||
         textAtlasState.scaled.atlasFillTexts > textAtlasState.first.atlasFillTexts + 4 ||
         textAtlasState.scaled.pipelineFillTexts !== 0 ||
         textAtlasState.scaled.pipelineBlits <= textAtlasState.first.pipelineBlits ||
+        textAtlasState.scaled.smoothedPipelineBlits <= textAtlasState.first.smoothedPipelineBlits ||
         textAtlasState.scaled.minimumBlitScale < 0.65 ||
         textAtlasState.scaled.minimumBlitScale > 0.75 ||
         textAtlasState.scaled.zoom !== "70.7%" ||
         textAtlasState.recolored.atlasFillTexts !== textAtlasState.scaled.atlasFillTexts ||
         textAtlasState.recolored.pipelineFillTexts !== 0 ||
-        textAtlasState.recolored.pipelineBlits <= textAtlasState.scaled.pipelineBlits) {
+        textAtlasState.recolored.pipelineBlits <= textAtlasState.scaled.pipelineBlits ||
+        textAtlasState.disabled.enabled ||
+        textAtlasState.disabled.atlasFillTexts !== textAtlasState.recolored.atlasFillTexts ||
+        textAtlasState.disabled.pipelineFillTexts <= textAtlasState.recolored.pipelineFillTexts ||
+        textAtlasState.disabled.invalidPipelineTextStyles !== 0 ||
+        textAtlasState.disabled.pipelineBlits !== textAtlasState.recolored.pipelineBlits ||
+        !textAtlasState.reenabled.enabled ||
+        textAtlasState.reenabled.atlasFillTexts <= textAtlasState.disabled.atlasFillTexts ||
+        textAtlasState.reenabled.pipelineFillTexts !== textAtlasState.disabled.pipelineFillTexts ||
+        textAtlasState.reenabled.pipelineBlits <= textAtlasState.disabled.pipelineBlits) {
         throw new Error(`Stage text atlas reuse is incomplete: ${JSON.stringify(textAtlasState)}`);
     }
 
@@ -2915,11 +2995,13 @@ async function run() {
         const canvasPrototype = HTMLCanvasElement.prototype;
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        const webGLToggle = document.querySelector('input[aria-label="WebGL rendering"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         const pipeline = document.querySelector('.pipeline-pane canvas');
         if (glPrototype === undefined || !(theme instanceof HTMLSelectElement) ||
             !(colorScheme instanceof HTMLSelectElement) ||
+            !(webGLToggle instanceof HTMLInputElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement) || !(pipeline instanceof HTMLCanvasElement)) {
             throw new Error("The WebGL2 simplified rendering controls were not found.");
@@ -2929,6 +3011,7 @@ async function run() {
         const originalGetContext = canvasPrototype.getContext;
         const originalTheme = theme.value;
         const originalColorScheme = colorScheme.value;
+        const originalWebGLEnabled = webGLToggle.checked;
         let drawCalls = 0;
         let instances = 0;
         let maximumInstances = 0;
@@ -3019,6 +3102,21 @@ async function run() {
         const colorfulPixels = countColorfulPixels(pixels);
         const zoom = document.querySelector('.zoom-controls output')?.textContent ?? null;
 
+        // View設定で無効にした直後は、同じ矩形列をWebGL drawなしでCanvasへ再生する。
+        const drawCallsBeforeDisabled = drawCalls;
+        const webGLRequestsBeforeDisabled = webGLRequests;
+        webGLToggle.click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const disabledDrawCalls = drawCalls - drawCallsBeforeDisabled;
+        const disabledWebGLRequests = webGLRequests - webGLRequestsBeforeDisabled;
+        const disabledPixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
+        const disabledOpaquePixels = countOpaquePixels(disabledPixels);
+        const disabledColorfulPixels = countColorfulPixels(disabledPixels);
+        const drawCallsBeforeReenabled = drawCalls;
+        webGLToggle.click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const reenabledDrawCalls = drawCalls - drawCallsBeforeReenabled;
+
         // context loss後も同じ操作を繰り返し、Canvas 2D fallbackだけで表示できることを確かめる。
         const loseContext = acceleratedContext?.getExtension("WEBGL_lose_context");
         if (acceleratedContext === null || loseContext === null || loseContext === undefined) {
@@ -3077,10 +3175,15 @@ async function run() {
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         colorScheme.value = originalColorScheme;
         colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+        if (webGLToggle.checked !== originalWebGLEnabled) {
+            webGLToggle.click();
+        }
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
         return {drawCalls, instances, maximumInstances, gradientInstances, strokeInstances,
             opaquePixels, colorfulPixels,
+            disabledOpaquePixels, disabledColorfulPixels, disabledDrawCalls,
+            disabledWebGLRequests, reenabledDrawCalls,
             fallbackOpaquePixels, fallbackColorfulPixels, fallbackDrawCalls,
             differingPixels, noticeablyDifferingPixels, maximumPixelDifference, zoom,
             webGLRequests, webGLContexts};
@@ -3091,6 +3194,11 @@ async function run() {
         webGLState.strokeInstances < 1 ||
         webGLState.opaquePixels < 100 ||
         webGLState.colorfulPixels < 100 ||
+        webGLState.disabledOpaquePixels < 100 ||
+        webGLState.disabledColorfulPixels < 100 ||
+        webGLState.disabledDrawCalls !== 0 ||
+        webGLState.disabledWebGLRequests !== 0 ||
+        webGLState.reenabledDrawCalls < 1 ||
         webGLState.fallbackOpaquePixels < 100 ||
         webGLState.fallbackColorfulPixels < 100 ||
         webGLState.fallbackDrawCalls !== 0 ||
@@ -3366,14 +3474,20 @@ async function run() {
         throw new Error(`Zoom rendering is incomplete: ${JSON.stringify(zoomedState)}`);
     }
 
-    // 非既定のthemeを保存し、旧Config対象外のlane分割は保存値へ混ぜない。
+    // 非既定のthemeとWebGL設定を保存し、Tab表示だけのlane分割は保存値へ混ぜない。
     const viewSettingsSetupState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
+        const textCache = document.querySelector('input[aria-label="Text caching"]');
+        const compatibility = document.querySelector(".compatibility-settings");
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
-            !(zoomSteps instanceof HTMLInputElement)) {
+            !(zoomSteps instanceof HTMLInputElement) ||
+            !(webGL instanceof HTMLInputElement) ||
+            !(textCache instanceof HTMLInputElement) ||
+            !(compatibility instanceof HTMLDetailsElement)) {
             throw new Error("The view settings controls were not found.");
         }
         theme.value = "light";
@@ -3382,14 +3496,21 @@ async function run() {
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         inputSetter?.call(zoomSteps, "2");
         zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        webGL.click();
+        textCache.click();
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
             resolve({
                 theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
                 split: split.checked,
                 zoomSteps: zoomSteps.value,
-                zoomStepsBeforeThresholds: zoomSteps.closest("label")?.nextElementSibling
+                webGL: webGL.checked,
+                textCache: textCache.checked,
+                thresholdsAfterZoomSteps: zoomSteps.closest("label")?.nextElementSibling
                     ?.classList.contains("drawing-thresholds") === true,
+                compatibilityAfterThresholds: compatibility.previousElementSibling
+                    ?.classList.contains("drawing-thresholds") === true,
+                compatibilityLast: compatibility === compatibility.parentElement?.lastElementChild,
                 stored,
                 storesSplitLanes: stored !== null && "splitLanes" in stored,
                 storesLegacyLaneHeight: stored !== null && "drawTextThreshold" in stored
@@ -3399,13 +3520,19 @@ async function run() {
     if (viewSettingsSetupState.theme !== "light" ||
         !viewSettingsSetupState.split ||
         viewSettingsSetupState.zoomSteps !== "2" ||
-        !viewSettingsSetupState.zoomStepsBeforeThresholds ||
+        viewSettingsSetupState.webGL ||
+        viewSettingsSetupState.textCache ||
+        !viewSettingsSetupState.thresholdsAfterZoomSteps ||
+        !viewSettingsSetupState.compatibilityAfterThresholds ||
+        !viewSettingsSetupState.compatibilityLast ||
         viewSettingsSetupState.stored?.theme !== "light" ||
         viewSettingsSetupState.stored?.colorScheme !== "RoyalBlue" ||
         viewSettingsSetupState.stored?.splitterPosition !== 280 ||
         viewSettingsSetupState.stored?.dependencyArrowType !== "notShow" ||
         viewSettingsSetupState.stored?.textLabelMinimumLaneHeight !== 14 ||
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
+        viewSettingsSetupState.stored?.webGLEnabled !== false ||
+        viewSettingsSetupState.stored?.textCacheEnabled !== false ||
         viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.h !== 210 ||
         viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.s !== 25 ||
         viewSettingsSetupState.storesSplitLanes ||
@@ -3431,6 +3558,8 @@ async function run() {
             arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
             hideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
+            webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
+            textCache: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
             textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
@@ -3445,6 +3574,8 @@ async function run() {
         persistedViewSettingsState.arrows !== "notShow" ||
         persistedViewSettingsState.color !== "RoyalBlue" ||
         persistedViewSettingsState.hideFlushed ||
+        persistedViewSettingsState.webGL ||
+        persistedViewSettingsState.textCache ||
         persistedViewSettingsState.textThreshold !== "14" ||
         persistedViewSettingsState.zoomSteps !== "2" ||
         persistedViewSettingsState.zoom !== "141%" ||
@@ -3454,7 +3585,7 @@ async function run() {
         throw new Error(`View settings persistence is incomplete: ${JSON.stringify(persistedViewSettingsState)}`);
     }
 
-    // 旧Webのthreshold名とzoom factorの欠落、Custom部分の破損が重なっても他の設定を維持する。
+    // 旧Webのthreshold名と新しい設定の欠落、Custom部分の破損が重なっても他の設定を維持する。
     await window.webContents.executeJavaScript(`(() => {
         const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
         const renamedLaneHeights = [
@@ -3468,6 +3599,8 @@ async function run() {
             delete stored[name];
         }
         delete stored.drawZoomFactor;
+        delete stored.webGLEnabled;
+        delete stored.textCacheEnabled;
         stored.customColorScheme.defaultColor.h = 999;
         localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
     })()`);
@@ -3497,6 +3630,8 @@ async function run() {
                 'input[aria-label="Text labels minimum lane height"]',
             )?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
+            webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
+            textCache: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
             fetchHue: document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null,
             fetchAutomatic: document.querySelector(
@@ -3515,6 +3650,8 @@ async function run() {
     if (recoveredCustomColorState.theme !== "light" ||
         recoveredCustomColorState.textMinimumLaneHeight !== "14" ||
         recoveredCustomColorState.zoomSteps !== "1" ||
+        !recoveredCustomColorState.webGL ||
+        !recoveredCustomColorState.textCache ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.fetchHue !== "0" ||
         !recoveredCustomColorState.fetchAutomatic ||
@@ -3535,6 +3672,8 @@ async function run() {
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
             textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
+            webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
+            textCache: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
         })));
     })`);
@@ -3543,6 +3682,8 @@ async function run() {
         recoveredViewSettingsState.color !== "Auto" ||
         recoveredViewSettingsState.textThreshold !== "10" ||
         recoveredViewSettingsState.zoomSteps !== "1" ||
+        !recoveredViewSettingsState.webGL ||
+        !recoveredViewSettingsState.textCache ||
         recoveredViewSettingsState.labelWidth !== 450) {
         throw new Error(`View settings recovery is incomplete: ${JSON.stringify(recoveredViewSettingsState)}`);
     }

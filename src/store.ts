@@ -50,6 +50,8 @@ export const DEFAULT_SPLITTER_POSITION = 450;
 
 export interface GlobalViewSettings {
     readonly theme: RendererTheme;
+    readonly webGLEnabled: boolean;
+    readonly textCacheEnabled: boolean;
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly dependencyArrowType: DependencyArrowType;
     readonly splitLanes: boolean;
@@ -63,6 +65,8 @@ export interface GlobalViewSettings {
 
 const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     theme: "dark",
+    webGLEnabled: true,
+    textCacheEnabled: true,
     customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
@@ -74,9 +78,11 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     drawZoomFactor: 1,
 };
 
-// 旧Configが再起動後も復元していた表示設定だけをlocalStorage境界へ公開する。
+// 再起動後も復元する全体表示設定だけをlocalStorage境界へ公開する。
 export interface PersistedViewSettings {
     readonly theme: RendererTheme;
+    readonly webGLEnabled: boolean;
+    readonly textCacheEnabled: boolean;
     readonly colorScheme: string;
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly splitterPosition: number;
@@ -90,6 +96,8 @@ export interface PersistedViewSettings {
 
 export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = {
     theme: DEFAULT_GLOBAL_VIEW_SETTINGS.theme,
+    webGLEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.webGLEnabled,
+    textCacheEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.textCacheEnabled,
     colorScheme: "Auto",
     customColorScheme: DEFAULT_GLOBAL_VIEW_SETTINGS.customColorScheme,
     splitterPosition: DEFAULT_SPLITTER_POSITION,
@@ -203,6 +211,8 @@ export type Action =
     }
     | { readonly type: "KONATA_FIND_HIDE_RESULT"; readonly tabID: number }
     | { readonly type: "KONATA_CHANGE_UI_COLOR_THEME"; readonly theme: RendererTheme }
+    | { readonly type: "KONATA_SET_WEBGL_ENABLED"; readonly enabled: boolean }
+    | { readonly type: "KONATA_SET_TEXT_CACHE_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_DEP_ARROW_TYPE"; readonly arrowType: DependencyArrowType }
     | { readonly type: "KONATA_SPLIT_LANES"; readonly enabled: boolean }
     | { readonly type: "KONATA_FIX_OP_HEIGHT"; readonly enabled: boolean }
@@ -532,6 +542,8 @@ export class Store {
         this.settings_ = {
             ...DEFAULT_GLOBAL_VIEW_SETTINGS,
             theme: viewSettings.theme,
+            webGLEnabled: viewSettings.webGLEnabled,
+            textCacheEnabled: viewSettings.textCacheEnabled,
             customColorScheme: viewSettings.customColorScheme,
             dependencyArrowType: viewSettings.dependencyArrowType,
             textLabelMinimumLaneHeight: viewSettings.textLabelMinimumLaneHeight,
@@ -577,6 +589,8 @@ export class Store {
     get persistedViewSettings(): PersistedViewSettings {
         return {
             theme: this.settings_.theme,
+            webGLEnabled: this.settings_.webGLEnabled,
+            textCacheEnabled: this.settings_.textCacheEnabled,
             colorScheme: this.defaultColorScheme_,
             customColorScheme: this.settings_.customColorScheme,
             splitterPosition: this.defaultSplitterPosition_,
@@ -1075,6 +1089,14 @@ export class Store {
         }
         case "KONATA_CHANGE_UI_COLOR_THEME": {
             this.setGlobalViewSettings_({ ...this.settings_, theme: action.theme }, true, true);
+            return;
+        }
+        case "KONATA_SET_WEBGL_ENABLED": {
+            this.setGlobalViewSettings_({ ...this.settings_, webGLEnabled: action.enabled }, false, true);
+            return;
+        }
+        case "KONATA_SET_TEXT_CACHE_ENABLED": {
+            this.setGlobalViewSettings_({ ...this.settings_, textCacheEnabled: action.enabled }, false, true);
             return;
         }
         case "KONATA_SET_DEP_ARROW_TYPE": {

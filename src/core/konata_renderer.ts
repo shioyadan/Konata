@@ -73,6 +73,17 @@ export interface KonataRenderSpec {
     readonly stageBorderMinimumLaneHeight: number;
 }
 
+// 描画結果の意味を変えないbackend選択は、再現可能なView指定とは分離する。
+export interface KonataRenderBackendOptions {
+    readonly webGLEnabled: boolean;
+    readonly textCacheEnabled: boolean;
+}
+
+const DEFAULT_RENDER_BACKEND_OPTIONS: Readonly<KonataRenderBackendOptions> = {
+    webGLEnabled: true,
+    textCacheEnabled: true,
+};
+
 const ZOOM_RATIO = 1;
 const MAX_ZOOM_LEVEL = 24;
 
@@ -464,11 +475,15 @@ export class KonataRenderer {
         this.updateDerivedValues_();
     }
 
-    private draw_(labelCanvas: HTMLCanvasElement, pipelineCanvas: HTMLCanvasElement): void {
+    private draw_(
+        labelCanvas: HTMLCanvasElement,
+        pipelineCanvas: HTMLCanvasElement,
+        backend: Readonly<KonataRenderBackendOptions>,
+    ): void {
         const labelSize = this.prepareCanvas_(labelCanvas);
         const pipelineSize = this.prepareCanvas_(pipelineCanvas);
         this.drawLabel_(labelCanvas, labelSize);
-        this.drawPipeline_(pipelineCanvas, pipelineSize);
+        this.drawPipeline_(pipelineCanvas, pipelineSize, backend);
     }
 
     drawSpec(
@@ -476,9 +491,10 @@ export class KonataRenderer {
         spec: Readonly<KonataRenderSpec>,
         labelCanvas: HTMLCanvasElement,
         pipelineCanvas: HTMLCanvasElement,
+        backend: Readonly<KonataRenderBackendOptions> = DEFAULT_RENDER_BACKEND_OPTIONS,
     ): void {
         this.setInput_(trace, spec);
-        this.draw_(labelCanvas, pipelineCanvas);
+        this.draw_(labelCanvas, pipelineCanvas, backend);
     }
 
     private drawLabelCanvas_(labelCanvas: HTMLCanvasElement): void {
@@ -501,6 +517,7 @@ export class KonataRenderer {
         height?: number,
         colorScheme?: string,
         referenceOnly = false,
+        backend: Readonly<KonataRenderBackendOptions> = DEFAULT_RENDER_BACKEND_OPTIONS,
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas, width, height);
         const previousColorScheme = this.renderingColorScheme_;
@@ -509,7 +526,7 @@ export class KonataRenderer {
         this.renderingReference_ = referenceOnly;
         try {
             // 比較色と参照表示は一時的な描画条件に留め、通常のView設定を変更しない。
-            this.drawPipeline_(pipelineCanvas, pipelineSize);
+            this.drawPipeline_(pipelineCanvas, pipelineSize, backend);
         }
         finally {
             this.renderingColorScheme_ = previousColorScheme;
@@ -525,9 +542,17 @@ export class KonataRenderer {
         height?: number,
         colorScheme?: string,
         referenceOnly = false,
+        backend: Readonly<KonataRenderBackendOptions> = DEFAULT_RENDER_BACKEND_OPTIONS,
     ): void {
         this.setInput_(trace, spec);
-        this.drawPipelineCanvas_(pipelineCanvas, width, height, colorScheme, referenceOnly);
+        this.drawPipelineCanvas_(
+            pipelineCanvas,
+            width,
+            height,
+            colorScheme,
+            referenceOnly,
+            backend,
+        );
     }
 
     composePipelineLayers(
@@ -645,11 +670,16 @@ export class KonataRenderer {
         }
     }
 
-    private drawPipeline_(canvas: HTMLCanvasElement, size: CanvasSize): void {
+    private drawPipeline_(
+        canvas: HTMLCanvasElement,
+        size: CanvasSize,
+        backend: Readonly<KonataRenderBackendOptions>,
+    ): void {
         const context = canvas.getContext("2d");
         if (context === null) {
             return;
         }
+        this.canvasRenderer_.setTextCacheEnabled(backend.textCacheEnabled);
         if (this.renderingReference_) {
             // 前回の参照形状を残さず、背景は透明なまま主表示へ重ねられるようにする。
             context.clearRect(0, 0, size.width, size.height);
@@ -695,7 +725,13 @@ export class KonataRenderer {
         // 文字がない縮小域では、stageの塗りと枠を描画順ごとWebGLへまとめて渡せる。
         // 文字を個別設定で残した場合は、batch合成で文字を覆わないようCanvasへ戻す。
         const simplifiedRects = !this.canDrawText_
-            ? this.canvasRenderer_.begin(canvas, context, size.width, size.height)
+            ? this.canvasRenderer_.begin(
+                canvas,
+                context,
+                size.width,
+                size.height,
+                backend.webGLEnabled,
+            )
             : null;
         const solidRects = simplifiedRects ?? context;
         try {

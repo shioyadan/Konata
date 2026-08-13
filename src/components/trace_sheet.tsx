@@ -15,6 +15,7 @@ import {
     COMPARISON_COLOR_SCHEME,
     KonataRenderMetrics,
     KonataRenderer,
+    type KonataRenderBackendOptions,
     type KonataRenderSpec,
 } from "../core/konata_renderer";
 import type { ComparisonMode, FindResult, LoadState } from "../store";
@@ -58,6 +59,8 @@ interface TraceSheetProps {
     readonly loadState: LoadState;
     readonly errorMessage: string;
     readonly renderVersion: number;
+    readonly webGLEnabled: boolean;
+    readonly textCacheEnabled: boolean;
     readonly findResult: FindResult | null;
     readonly comparison: {
         readonly baselineTrace: ParsedTrace | null;
@@ -111,6 +114,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     loadState,
     errorMessage,
     renderVersion,
+    webGLEnabled,
+    textCacheEnabled,
     findResult,
     comparison,
     splitterPosition,
@@ -178,9 +183,19 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const redraw = useCallback(() => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
+        const backend: Readonly<KonataRenderBackendOptions> = {
+            webGLEnabled,
+            textCacheEnabled,
+        };
         if (labelCanvas !== null && pipelineCanvas !== null) {
             if (baselineRenderer === null || comparisonMode === null || baselineRenderSpec === null) {
-                renderer.drawSpec(trace, renderSpec, labelCanvas, pipelineCanvas);
+                renderer.drawSpec(
+                    trace,
+                    renderSpec,
+                    labelCanvas,
+                    pipelineCanvas,
+                    backend,
+                );
                 delete pipelineCanvas.dataset.comparisonMode;
                 return;
             }
@@ -206,6 +221,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     width,
                     height,
                     COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
+                    false,
+                    backend,
                 );
                 renderer.drawPipelineSpec(
                     trace,
@@ -215,6 +232,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     height,
                     COMPARISON_COLOR_SCHEME.REFERENCE,
                     true,
+                    backend,
                 );
                 renderer.composePipelineLayers(
                     pipelineCanvas, baselineLayer, candidateLayer, COMPARISON_REFERENCE_OPACITY);
@@ -227,6 +245,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     width,
                     height,
                     COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
+                    false,
+                    backend,
                 );
                 baselineRenderer.drawPipelineSpec(
                     baselineTrace,
@@ -236,6 +256,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     height,
                     COMPARISON_COLOR_SCHEME.REFERENCE,
                     true,
+                    backend,
                 );
                 renderer.composePipelineLayers(
                     pipelineCanvas, candidateLayer, baselineLayer, COMPARISON_REFERENCE_OPACITY);
@@ -248,6 +269,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     width,
                     height,
                     COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
+                    false,
+                    backend,
                 );
                 renderer.drawPipelineSpec(
                     trace,
@@ -256,6 +279,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     width,
                     height,
                     COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
+                    false,
+                    backend,
                 );
                 renderer.composePipelineLayers(
                     pipelineCanvas, baselineLayer, candidateLayer, comparisonOpacity);
@@ -270,7 +295,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         displayRenderer,
         renderSpec,
         renderer,
+        textCacheEnabled,
         trace,
+        webGLEnabled,
     ]);
 
     useImperativeHandle(ref, () => ({
