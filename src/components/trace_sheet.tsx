@@ -16,7 +16,7 @@ import {
     KonataRenderMetrics,
     KonataRenderer,
     type KonataRenderSpec,
-} from "../renderer/konata_renderer";
+} from "../core/konata_renderer";
 import type { ComparisonMode, FindResult, LoadState } from "../store";
 
 declare const __KONATA_VERSION__: string;
@@ -160,6 +160,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         : metrics;
 
     const resetPipelineCanvases = useCallback(() => {
+        renderer.releaseCanvasResources();
+        baselineRenderer?.releaseCanvasResources();
         for (const canvas of [
             pipelineCanvasRef.current,
             baselineLayerCanvasRef.current,
@@ -171,7 +173,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 canvas.height = 1;
             }
         }
-    }, []);
+    }, [baselineRenderer, renderer]);
 
     const redraw = useCallback(() => {
         const labelCanvas = labelCanvasRef.current;

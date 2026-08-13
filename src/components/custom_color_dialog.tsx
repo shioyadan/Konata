@@ -16,7 +16,7 @@ import {
     type CustomColorComponent,
     type CustomColorDefinition,
     type CustomColorScheme,
-} from "../renderer/konata_renderer";
+} from "../core/konata_renderer";
 
 interface CustomColorDialogProps {
     readonly scheme: Readonly<CustomColorScheme>;

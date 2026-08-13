@@ -5,8 +5,15 @@ const http = require("node:http");
 const path = require("node:path");
 const {app, BrowserWindow} = require("electron");
 
-// Xvfb環境ではGPUを利用できないため、ウィンドウ生成前にsoftware描画へ固定する。
-app.commandLine.appendSwitch("disable-gpu");
+// XvfbではSwiftShaderを明示し、製品と同じWebGL2経路もsoftware GPU上で検査する。
+if (process.env.KONATA_TEST_WEBGL === "1") {
+    app.commandLine.appendSwitch("use-gl", "angle");
+    app.commandLine.appendSwitch("use-angle", "swiftshader");
+    app.commandLine.appendSwitch("enable-unsafe-swiftshader");
+}
+else {
+    app.commandLine.appendSwitch("disable-gpu");
+}
 
 async function dropContents(window, contents, fileName, mimeType, verifyProgressBar = false) {
     const encodedContents = contents.toString("base64");
@@ -2794,6 +2801,126 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
+    // 大きいtraceを3.125%まで縮小し、矩形batchがWebGL2 instancingを実際に使うことを確認する。
+    const webGLState = await window.webContents.executeJavaScript(`(async () => {
+        const glPrototype = globalThis.WebGL2RenderingContext?.prototype;
+        const canvasPrototype = HTMLCanvasElement.prototype;
+        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        if (glPrototype === undefined || !(zoomOut instanceof HTMLButtonElement) ||
+            !(reset instanceof HTMLButtonElement) || !(pipeline instanceof HTMLCanvasElement)) {
+            throw new Error("The WebGL2 simplified rendering controls were not found.");
+        }
+        const originalDraw = glPrototype.drawArraysInstanced;
+        const originalGetContext = canvasPrototype.getContext;
+        let drawCalls = 0;
+        let instances = 0;
+        let maximumInstances = 0;
+        let webGLRequests = 0;
+        let webGLContexts = 0;
+        let acceleratedContext = null;
+        canvasPrototype.getContext = function(type, ...args) {
+            if (type === "webgl2") {
+                webGLRequests++;
+            }
+            const context = Reflect.apply(originalGetContext, this, [type, ...args]);
+            if (type === "webgl2" && context !== null) {
+                webGLContexts++;
+                acceleratedContext = context;
+            }
+            return context;
+        };
+        glPrototype.drawArraysInstanced = function(...args) {
+            drawCalls++;
+            instances += args[3];
+            maximumInstances = Math.max(maximumInstances, args[3]);
+            return Reflect.apply(originalDraw, this, args);
+        };
+        for (let index = 0; index < 5; index++) {
+            zoomOut.click();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const countOpaquePixels = (pixels) => {
+            let count = 0;
+            if (pixels === undefined) {
+                return count;
+            }
+            for (let index = 3; index < pixels.length; index += 4) {
+                if (pixels[index] !== 0) {
+                    count++;
+                }
+            }
+            return count;
+        };
+        const context = pipeline.getContext("2d");
+        const pixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
+        const opaquePixels = countOpaquePixels(pixels);
+        const zoom = document.querySelector('.zoom-controls output')?.textContent ?? null;
+
+        // context loss後も同じ操作を繰り返し、Canvas 2D fallbackだけで表示できることを確かめる。
+        const loseContext = acceleratedContext?.getExtension("WEBGL_lose_context");
+        if (acceleratedContext === null || loseContext === null || loseContext === undefined) {
+            throw new Error("The WebGL context-loss extension was not available.");
+        }
+        const contextLost = new Promise((resolve) => {
+            acceleratedContext.canvas.addEventListener("webglcontextlost", resolve, {once: true});
+        });
+        loseContext.loseContext();
+        await contextLost;
+        const drawCallsBeforeFallback = drawCalls;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        for (let index = 0; index < 5; index++) {
+            zoomOut.click();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const fallbackPixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
+        const fallbackOpaquePixels = countOpaquePixels(fallbackPixels);
+        let differingPixels = 0;
+        let maximumPixelDifference = 0;
+        if (pixels !== undefined && fallbackPixels !== undefined && pixels.length === fallbackPixels.length) {
+            for (let index = 0; index < pixels.length; index += 4) {
+                let pixelDiffers = false;
+                for (let component = 0; component < 4; component++) {
+                    const difference = Math.abs(pixels[index + component] - fallbackPixels[index + component]);
+                    if (difference !== 0) {
+                        pixelDiffers = true;
+                        maximumPixelDifference = Math.max(maximumPixelDifference, difference);
+                    }
+                }
+                if (pixelDiffers) {
+                    differingPixels++;
+                }
+            }
+        }
+        else {
+            differingPixels = Number.POSITIVE_INFINITY;
+            maximumPixelDifference = Number.POSITIVE_INFINITY;
+        }
+        const fallbackDrawCalls = drawCalls - drawCallsBeforeFallback;
+        loseContext.restoreContext();
+        glPrototype.drawArraysInstanced = originalDraw;
+        canvasPrototype.getContext = originalGetContext;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return {drawCalls, instances, maximumInstances, opaquePixels, fallbackOpaquePixels,
+            fallbackDrawCalls, differingPixels, maximumPixelDifference, zoom,
+            webGLRequests, webGLContexts};
+    })()`);
+    if (webGLState.drawCalls < 1 ||
+        webGLState.instances < 64 ||
+        webGLState.opaquePixels < 100 ||
+        webGLState.fallbackOpaquePixels < 100 ||
+        webGLState.fallbackDrawCalls !== 0 ||
+        webGLState.differingPixels > webGLState.opaquePixels * 0.01 ||
+        webGLState.maximumPixelDifference > 128 ||
+        webGLState.zoom !== "3.13%") {
+        throw new Error(`WebGL2 simplified rendering is incomplete: ${JSON.stringify(webGLState)}`);
+    }
+
     const {Zstd} = await import("@hpcc-js/wasm-zstd");
     const zstdSource = fs.readFileSync(gem5Fixture);
     const zstdSourceBytes = new Uint8Array(
@@ -3266,7 +3393,7 @@ async function run() {
         throw new Error(`Remote trace workflow is incomplete: ${JSON.stringify(remoteTraceState)}`);
     }
 
-    console.log(`Web smoke test passed: ${JSON.stringify({persistentFileState, remoteTraceState})}`);
+    console.log(`Web smoke test passed: ${JSON.stringify({webGLState, persistentFileState, remoteTraceState})}`);
     window.destroy();
 }
 

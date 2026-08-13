@@ -12,7 +12,7 @@ import {
     KONATA_OP_WIDTH,
     KonataRenderMetrics,
     KonataRenderer,
-} from "../src/renderer/konata_renderer";
+} from "../src/core/konata_renderer";
 
 interface RecordedGradient {
     readonly points: [number, number, number, number];
@@ -22,6 +22,7 @@ interface RecordedGradient {
 interface RecordedContext {
     readonly fillTexts: Array<[string, number, number]>;
     readonly fillRects: Array<[number, number, number, number]>;
+    readonly fillStyles: string[];
     readonly clearRects: Array<[number, number, number, number]>;
     readonly gradients: RecordedGradient[];
     readonly context: CanvasRenderingContext2D;
@@ -30,6 +31,7 @@ interface RecordedContext {
 function createRecordedContext(): RecordedContext {
     const fillTexts: Array<[string, number, number]> = [];
     const fillRects: Array<[number, number, number, number]> = [];
+    const fillStyles: string[] = [];
     const clearRects: Array<[number, number, number, number]> = [];
     const gradients: RecordedGradient[] = [];
     const context = {
@@ -40,6 +42,7 @@ function createRecordedContext(): RecordedContext {
         setTransform() {},
         fillRect(x: number, y: number, width: number, height: number) {
             fillRects.push([x, y, width, height]);
+            fillStyles.push(String(this.fillStyle));
         },
         clearRect(x: number, y: number, width: number, height: number) {
             clearRects.push([x, y, width, height]);
@@ -64,7 +67,7 @@ function createRecordedContext(): RecordedContext {
             };
         },
     } as unknown as CanvasRenderingContext2D;
-    return { fillTexts, fillRects, clearRects, gradients, context };
+    return { fillTexts, fillRects, fillStyles, clearRects, gradients, context };
 }
 
 function createCanvas(context: CanvasRenderingContext2D, width = 320, height = 96): HTMLCanvasElement {
@@ -391,4 +394,25 @@ test("Web renderer keeps minimum lane heights configurable", () => {
     assert.deepEqual(label.fillTexts, []);
     assert.deepEqual(pipeline.fillTexts, []);
     assert.equal(pipeline.gradients.length, 1);
+});
+
+test("Web renderer keeps simplified rectangle order in the Canvas fallback", () => {
+    const { trace, op } = createTrace();
+    op.flush = true;
+    const renderer = new KonataRenderer();
+    const pipeline = createRecordedContext();
+
+    renderer.drawPipelineSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 5 },
+        createCanvas(pipeline.context),
+    );
+
+    // 簡略表示では命令色を先に、半透明のflush色を後に重ねる。
+    const opRectIndex = pipeline.fillStyles.indexOf("#888888");
+    assert.ok(opRectIndex >= 0);
+    assert.equal(pipeline.fillStyles[opRectIndex + 1], "rgba(0,0,0,0.5)");
+    assert.deepEqual(pipeline.fillRects[opRectIndex], pipeline.fillRects[opRectIndex + 1]);
+    assert.deepEqual(pipeline.fillTexts, []);
+    assert.deepEqual(pipeline.gradients, []);
 });

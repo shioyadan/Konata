@@ -47,7 +47,7 @@ import {
     type CustomColorScheme,
     type DependencyArrowType,
     type RendererTheme,
-} from "./renderer/konata_renderer";
+} from "./core/konata_renderer";
 import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,

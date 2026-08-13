@@ -21,7 +21,7 @@ import {
     KonataRenderMetrics,
     type KonataRenderSpec,
     type RendererTheme,
-} from "./renderer/konata_renderer";
+} from "./core/konata_renderer";
 import {
     pickTraceFileAccess,
     recentTraceFileAccess,

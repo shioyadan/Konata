@@ -1,4 +1,8 @@
-import type { Op, ParsedTrace } from "../core/model";
+import type { Op, ParsedTrace } from "./model";
+import {
+    RectRenderer,
+    type RectContext,
+} from "./rect_renderer";
 
 // fsで読むと配布後のcurrent directoryに依存するため、旧Rendererと同じく
 // style定義はmoduleとしてbundleへ取り込む。
@@ -441,6 +445,7 @@ export class KonataRenderer {
     private stageFont_ = "";
     private labelFontSize_ = 12;
     private stageFontSize_ = 12;
+    private readonly simplifiedRects_ = new RectRenderer();
 
     constructor() {
         this.metrics_ = new KonataRenderMetrics(null, DEFAULT_KONATA_RENDER_SPEC);
@@ -550,6 +555,10 @@ export class KonataRenderer {
         finally {
             context.restore();
         }
+    }
+
+    releaseCanvasResources(): void {
+        this.simplifiedRects_.dispose();
     }
 
     private updateDerivedValues_(): void {
@@ -679,26 +688,43 @@ export class KonataRenderer {
             top = 0;
         }
 
-        let skipRendering = false;
-        const step = this.opHeight_ < 0.25 ? Math.max(1, this.drawingInterval_) : 1;
-        for (let y = Math.floor(top); y < top + logicalHeight; y += step) {
-            const pixelY = y - top + offsetY;
-            if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
-                const fillTop = pixelY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
-                context.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
-                context.fillRect(0, fillTop, size.width, this.opHeight_);
-            }
-            if (skipRendering) {
-                continue;
-            }
+        const solidRects = this.canDrawDetailedly_
+            ? context
+            : this.simplifiedRects_.begin(canvas, context, size.width, size.height);
+        try {
+            let skipRendering = false;
+            const step = this.opHeight_ < 0.25 ? Math.max(1, this.drawingInterval_) : 1;
+            for (let y = Math.floor(top); y < top + logicalHeight; y += step) {
+                const pixelY = y - top + offsetY;
+                if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
+                    const fillTop = pixelY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
+                    solidRects.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
+                    solidRects.fillRect(0, fillTop, size.width, this.opHeight_);
+                }
+                if (skipRendering) {
+                    continue;
+                }
 
-            const op = this.metrics_.getVisibleOp(y, this.metrics_.opResolution);
-            if (op === undefined) {
-                // gem5ではIDが不連続でも、後続に有効な命令が存在し得る。
-                continue;
+                const op = this.metrics_.getVisibleOp(y, this.metrics_.opResolution);
+                if (op === undefined) {
+                    // gem5ではIDが不連続でも、後続に有効な命令が存在し得る。
+                    continue;
+                }
+                if (!this.drawOp_(
+                    op,
+                    y - top + offsetY,
+                    left,
+                    left + logicalWidth,
+                    context,
+                    solidRects,
+                )) {
+                    skipRendering = true;
+                }
             }
-            if (!this.drawOp_(op, y - top + offsetY, left, left + logicalWidth, context)) {
-                skipRendering = true;
+        }
+        finally {
+            if (solidRects === this.simplifiedRects_) {
+                this.simplifiedRects_.end();
             }
         }
 
@@ -724,6 +750,7 @@ export class KonataRenderer {
         startCycle: number,
         endCycle: number,
         context: CanvasRenderingContext2D,
+        solidRects: RectContext,
     ): boolean {
         const top = logicalY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
         if (op.retiredCycle < startCycle) {
@@ -760,7 +787,7 @@ export class KonataRenderer {
         else {
             // 十分小さい時はstageを分けず、命令全体を単色で簡略表示する。
             const colorScheme = this.activeColorScheme_;
-            context.fillStyle = this.isKnownCalculatedColorScheme_()
+            solidRects.fillStyle = this.isKnownCalculatedColorScheme_()
                 ? this.getComparisonOverviewColor_(colorScheme)
                 : colorScheme;
             const laneTop = top + this.laneHeightMargin_;
@@ -768,10 +795,10 @@ export class KonataRenderer {
             if (right - left < 1) {
                 right = left + 1;
             }
-            context.fillRect(left, laneTop, right - left, laneHeight);
+            solidRects.fillRect(left, laneTop, right - left, laneHeight);
             if (!this.renderingReference_ && op.flush) {
-                context.fillStyle = this.style_.pipelinePane.flushedRegionColor;
-                context.fillRect(left, laneTop, right - left, laneHeight);
+                solidRects.fillStyle = this.style_.pipelinePane.flushedRegionColor;
+                solidRects.fillRect(left, laneTop, right - left, laneHeight);
             }
         }
         return true;

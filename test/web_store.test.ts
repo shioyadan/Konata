@@ -6,7 +6,7 @@ import { ArrayOpStore } from "../src/core/op_store";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEP_ARROW_TYPE,
-} from "../src/renderer/konata_renderer";
+} from "../src/core/konata_renderer";
 import { type Change, Store } from "../src/store";
 import { getRemoteTraceFileNames } from "../src/trace_file_access";
 
