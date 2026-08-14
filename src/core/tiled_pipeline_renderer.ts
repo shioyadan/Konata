@@ -23,6 +23,8 @@ export interface TiledPipelineRenderOptions {
     readonly colorScheme?: string;
     readonly referenceOnly?: boolean;
     readonly backend: Readonly<KonataRenderBackendOptions>;
+    // 終点が既知のzoom animationでは、中間倍率を作らず最終倍率のtileだけを先行生成する。
+    readonly targetSpec?: Readonly<KonataRenderSpec>;
     // 比較用offscreen layerが更新された時に、表示Canvasの再合成を依頼する。
     readonly onUpdate?: () => void;
 }
@@ -37,6 +39,13 @@ interface TilePosition {
     readonly y: number;
     readonly visible: boolean;
     readonly priority: number;
+}
+
+interface TileNamespace {
+    readonly key: string;
+    readonly contentKey: string;
+    readonly opWidth: number;
+    readonly opHeight: number;
 }
 
 interface RenderRequest {
@@ -98,6 +107,10 @@ export class TiledPipelineRenderer {
     private contentKey_ = "";
     private namespaceKey_ = "";
     private current_: RenderRequest | null = null;
+    private build_: RenderRequest | null = null;
+    private buildingAhead_ = false;
+    // 最後に可視範囲が完成した倍率を、zoom中の穴を埋めるsource tile群として保持する。
+    private fallbackNamespace_: TileNamespace | null = null;
     private previousBase_: PreviousBase | null = null;
     private jobs_: TilePosition[] = [];
     private generation_ = 0;
@@ -141,18 +154,19 @@ export class TiledPipelineRenderer {
         const namespaceChanged = contentChanged || this.namespaceKey_ !== namespaceKey;
 
         if (contentChanged) {
+            this.cancelJobs_();
+            this.generation_++;
+            this.build_ = null;
             this.clearCache_();
             this.clearPreviousBase_();
             this.trace_ = trace;
             this.contentKey_ = contentKey;
         }
         if (namespaceChanged) {
-            this.cancelJobs_();
             this.namespaceKey_ = namespaceKey;
-            this.generation_++;
         }
 
-        this.current_ = {
+        const current: RenderRequest = {
             trace,
             spec,
             canvas,
@@ -169,15 +183,38 @@ export class TiledPipelineRenderer {
             backend: options.backend,
             onUpdate: options.onUpdate,
         };
+        this.current_ = current;
+        const targetSpec = options.targetSpec;
+        const targetMetrics = targetSpec === undefined ? null : new KonataRenderMetrics(trace, targetSpec);
+        const target: RenderRequest | null = targetSpec === undefined || targetMetrics === null
+            ? null
+            : {
+                ...current,
+                spec: targetSpec,
+                metrics: targetMetrics,
+                worldX: targetSpec.position[0] * targetMetrics.opWidth,
+                worldY: targetSpec.position[1] * targetMetrics.opHeight,
+                namespaceKey: `${contentKey}|zoom:${targetSpec.zoomLevel}`,
+            };
+        const build = target ?? current;
+        const buildChanged = this.build_?.namespaceKey !== build.namespaceKey;
+        if (buildChanged) {
+            this.cancelJobs_();
+            this.generation_++;
+        }
+        this.build_ = build;
+        this.buildingAhead_ = target !== null && target.namespaceKey !== current.namespaceKey;
         this.paint_(false);
-        this.rebuildJobs_();
-        this.scheduleNext_(namespaceChanged && !contentChanged);
+        this.rebuildJobs_(build);
+        this.scheduleNext_(!this.buildingAhead_ && buildChanged && namespaceChanged && !contentChanged);
     }
 
     clear(): void {
         this.cancelJobs_();
         this.generation_++;
         this.current_ = null;
+        this.build_ = null;
+        this.buildingAhead_ = false;
         this.trace_ = null;
         this.contentKey_ = "";
         this.namespaceKey_ = "";
@@ -243,6 +280,22 @@ export class TiledPipelineRenderer {
             (previous.opWidth !== request.metrics.opWidth || previous.opHeight !== request.metrics.opHeight);
         const previousCoverage = this.drawPreviousBase_(context, request);
         context.imageSmoothingEnabled = false;
+        let reusedCoverage = previousCoverage;
+        const fallback = this.fallbackNamespace_;
+        if (fallback !== null && fallback.key !== request.namespaceKey) {
+            reusedCoverage = Math.max(
+                reusedCoverage,
+                this.drawNamespaceTiles_(context, request, fallback),
+            );
+        }
+        const build = this.build_;
+        if (this.buildingAhead_ && build !== null && build.namespaceKey !== request.namespaceKey &&
+            build.namespaceKey !== fallback?.key) {
+            reusedCoverage = Math.max(
+                reusedCoverage,
+                this.drawNamespaceTiles_(context, request, this.getNamespace_(build)),
+            );
+        }
         let tileCount = 0;
         let hasMissingInstructionTile = false;
         for (const tilePosition of this.getTilePositions_(request, false)) {
@@ -268,11 +321,14 @@ export class TiledPipelineRenderer {
             );
             tileCount++;
         }
+        if (tileCount > 0 && !hasMissingInstructionTile) {
+            this.fallbackNamespace_ = this.getNamespace_(request);
+        }
 
         // 初回や大きなjumpでは再利用画素がほぼない。全tile完成まで空白を見せるより、
         // 従来の全体描画を一度だけ使い、その後の操作からcacheの利益を得る。
         if (tileCount === 0 && hasMissingInstructionTile &&
-            previousCoverage < request.width * request.height * 0.25) {
+            reusedCoverage < request.width * request.height * 0.25) {
             this.renderer_.drawPipelineSpec(
                 request.trace,
                 request.spec,
@@ -328,6 +384,54 @@ export class TiledPipelineRenderer {
         return intersectionWidth * intersectionHeight;
     }
 
+    private getNamespace_(request: RenderRequest): TileNamespace {
+        return {
+            key: request.namespaceKey,
+            contentKey: request.contentKey,
+            opWidth: request.metrics.opWidth,
+            opHeight: request.metrics.opHeight,
+        };
+    }
+
+    private drawNamespaceTiles_(
+        context: CanvasRenderingContext2D,
+        request: RenderRequest,
+        namespace: TileNamespace,
+    ): number {
+        if (namespace.contentKey !== request.contentKey || namespace.opWidth <= 0 || namespace.opHeight <= 0) {
+            return 0;
+        }
+        const size = TiledPipelineRenderer.TILE_SIZE;
+        const scaleX = request.metrics.opWidth / namespace.opWidth;
+        const scaleY = request.metrics.opHeight / namespace.opHeight;
+        const sourceWorldX = request.spec.position[0] * namespace.opWidth;
+        const sourceWorldY = request.spec.position[1] * namespace.opHeight;
+        const left = Math.floor(sourceWorldX / size);
+        const top = Math.floor(sourceWorldY / size);
+        const right = Math.floor((sourceWorldX + request.width / scaleX - Number.EPSILON) / size);
+        const bottom = Math.floor((sourceWorldY + request.height / scaleY - Number.EPSILON) / size);
+        let coverage = 0;
+        context.imageSmoothingEnabled = scaleX !== 1 || scaleY !== 1;
+        for (let y = top; y <= bottom; y++) {
+            for (let x = left; x <= right; x++) {
+                const tile = this.getTile_(this.tileKey_(namespace.key, x, y));
+                if (tile === undefined) {
+                    continue;
+                }
+                // source倍率のworld tileを論理座標へ戻し、現在倍率の画素位置へ再投影する。
+                const drawX = x * size * scaleX - request.worldX;
+                const drawY = y * size * scaleY - request.worldY;
+                const drawWidth = size * scaleX;
+                const drawHeight = size * scaleY;
+                context.drawImage(tile.canvas, drawX, drawY, drawWidth, drawHeight);
+                coverage += Math.max(0, Math.min(request.width, drawX + drawWidth) - Math.max(0, drawX)) *
+                    Math.max(0, Math.min(request.height, drawY + drawHeight) - Math.max(0, drawY));
+            }
+        }
+        context.imageSmoothingEnabled = false;
+        return Math.min(request.width * request.height, coverage);
+    }
+
     private capturePreviousBase_(request: RenderRequest): void {
         // backing store同士を等倍copyし、devicePixelRatioによる二重scaleを避ける。
         const previousCanvas = this.previousBase_?.canvas ?? document.createElement("canvas");
@@ -353,12 +457,7 @@ export class TiledPipelineRenderer {
         };
     }
 
-    private rebuildJobs_(): void {
-        const request = this.current_;
-        if (request === null) {
-            this.jobs_ = [];
-            return;
-        }
+    private rebuildJobs_(request: RenderRequest): void {
         // 可視tileを先に完成させた後、同じqueueで外周1 tileを低優先度に先読みする。
         this.jobs_ = this.getTilePositions_(request, true)
             .filter((position) => this.tileContainsInstruction_(request, position))
@@ -503,7 +602,7 @@ export class TiledPipelineRenderer {
     }
 
     private renderNextBatch_(): void {
-        const request = this.current_;
+        const request = this.build_;
         const generation = this.generation_;
         const firstJob = this.jobs_[0];
         if (request === null || firstJob === undefined) {
@@ -513,7 +612,10 @@ export class TiledPipelineRenderer {
         const budget = visibleBatch
             ? TiledPipelineRenderer.VISIBLE_RENDER_BUDGET_MS
             : TiledPipelineRenderer.PREFETCH_RENDER_BUDGET_MS;
-        const limit = visibleBatch
+        // animation中は入力frameを長く塞がないよう、終点tileを1 frameに1枚だけ先行生成する。
+        const limit = this.buildingAhead_
+            ? 1
+            : visibleBatch
             ? TiledPipelineRenderer.VISIBLE_MAX_TILES_PER_FRAME
             : TiledPipelineRenderer.PREFETCH_MAX_TILES_PER_FRAME;
         const begin = performance.now();
@@ -565,7 +667,7 @@ export class TiledPipelineRenderer {
             request.backend,
             "base",
         );
-        if (generation !== this.generation_ || this.current_?.namespaceKey !== request.namespaceKey) {
+        if (generation !== this.generation_ || this.build_?.namespaceKey !== request.namespaceKey) {
             canvas.width = 1;
             canvas.height = 1;
             return false;
@@ -634,6 +736,7 @@ export class TiledPipelineRenderer {
         }
         this.tiles_.clear();
         this.cacheBytes_ = 0;
+        this.fallbackNamespace_ = null;
     }
 
     private clearPreviousBase_(): void {

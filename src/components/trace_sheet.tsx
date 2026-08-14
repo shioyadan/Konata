@@ -62,6 +62,10 @@ interface TraceSheetProps {
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    readonly tileTarget: {
+        readonly renderSpec: Readonly<KonataRenderSpec>;
+        readonly baselineRenderSpec?: Readonly<KonataRenderSpec>;
+    } | null;
     readonly findResult: FindResult | null;
     readonly comparison: {
         readonly baselineTrace: ParsedTrace | null;
@@ -117,6 +121,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderVersion,
     webGLEnabled,
     tiledRenderingEnabled,
+    tileTarget,
     findResult,
     comparison,
     splitterPosition,
@@ -205,10 +210,18 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             cacheEnabled: tiledRenderingEnabled && loadState === "ready",
             backend,
         } as const;
+        const candidateTileOptions = {
+            ...tileOptions,
+            targetSpec: tileTarget?.renderSpec,
+        } as const;
+        const baselineTileOptions = {
+            ...tileOptions,
+            targetSpec: tileTarget?.baselineRenderSpec,
+        } as const;
         if (labelCanvas !== null && pipelineCanvas !== null) {
             if (baselineRenderer === null || comparisonMode === null || baselineRenderSpec === null) {
                 renderer.drawLabelSpec(trace, renderSpec, labelCanvas);
-                tiledRenderer.drawPipelineSpec(trace, renderSpec, pipelineCanvas, tileOptions);
+                tiledRenderer.drawPipelineSpec(trace, renderSpec, pipelineCanvas, candidateTileOptions);
                 delete pipelineCanvas.dataset.comparisonMode;
                 return;
             }
@@ -235,7 +248,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     baselineRenderSpec,
                     baselineLayer,
                     {
-                        ...tileOptions,
+                        ...baselineTileOptions,
                         width,
                         height,
                         colorScheme: COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
@@ -247,7 +260,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     renderSpec,
                     candidateLayer,
                     {
-                        ...tileOptions,
+                        ...candidateTileOptions,
                         width,
                         height,
                         colorScheme: COMPARISON_COLOR_SCHEME.REFERENCE,
@@ -265,7 +278,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     renderSpec,
                     candidateLayer,
                     {
-                        ...tileOptions,
+                        ...candidateTileOptions,
                         width,
                         height,
                         colorScheme: COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
@@ -277,7 +290,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     baselineRenderSpec,
                     baselineLayer,
                     {
-                        ...tileOptions,
+                        ...baselineTileOptions,
                         width,
                         height,
                         colorScheme: COMPARISON_COLOR_SCHEME.REFERENCE,
@@ -295,7 +308,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     baselineRenderSpec,
                     baselineLayer,
                     {
-                        ...tileOptions,
+                        ...baselineTileOptions,
                         width,
                         height,
                         colorScheme: COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
@@ -307,7 +320,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     renderSpec,
                     candidateLayer,
                     {
-                        ...tileOptions,
+                        ...candidateTileOptions,
                         width,
                         height,
                         colorScheme: COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
@@ -330,6 +343,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
+        tileTarget,
         trace,
         webGLEnabled,
     ]);

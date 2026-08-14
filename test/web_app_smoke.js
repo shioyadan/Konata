@@ -1708,10 +1708,12 @@ async function run() {
     const pinchZoomState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane");
+        const pipelineCanvas = document.querySelector(".pipeline-pane canvas");
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         if (!(viewer instanceof HTMLElement) ||
             !(pipeline instanceof HTMLElement) ||
+            !(pipelineCanvas instanceof HTMLCanvasElement) ||
             !(reset instanceof HTMLButtonElement)) {
             throw new Error("The touch zoom controls were not found.");
         }
@@ -1723,6 +1725,28 @@ async function run() {
             releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
         });
         const rect = pipeline.getBoundingClientRect();
+        const prototype = CanvasRenderingContext2D.prototype;
+        const originalDrawImage = prototype.drawImage;
+        const originalFillRect = prototype.fillRect;
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let generatedTiles = 0;
+        let scaledTileBlits = 0;
+        prototype.fillRect = function(...args) {
+            if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                generatedTiles++;
+            }
+            return Reflect.apply(originalFillRect, this, args);
+        };
+        prototype.drawImage = function(...args) {
+            const source = args[0];
+            if (this.canvas === pipelineCanvas && this.imageSmoothingEnabled &&
+                source instanceof HTMLCanvasElement && !source.isConnected &&
+                source.width === tileBackingSize && source.height === tileBackingSize) {
+                scaledTileBlits++;
+            }
+            return Reflect.apply(originalDrawImage, this, args);
+        };
         const dispatchPointer = (type, pointerId, x, buttons) => viewer.dispatchEvent(new PointerEvent(type, {
             pointerId,
             pointerType: "touch",
@@ -1744,8 +1768,12 @@ async function run() {
                 zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                 capturedPointers: captured.size,
                 panning: viewer.classList.contains("is-panning"),
-                touchAction: getComputedStyle(viewer).touchAction
+                touchAction: getComputedStyle(viewer).touchAction,
+                generatedTiles,
+                scaledTileBlits
             };
+            prototype.drawImage = originalDrawImage;
+            prototype.fillRect = originalFillRect;
             delete viewer.setPointerCapture;
             delete viewer.hasPointerCapture;
             delete viewer.releasePointerCapture;
@@ -1756,7 +1784,9 @@ async function run() {
     if (pinchZoomState.zoom !== "200%" ||
         pinchZoomState.capturedPointers !== 0 ||
         pinchZoomState.panning ||
-        pinchZoomState.touchAction !== "none") {
+        pinchZoomState.touchAction !== "none" ||
+        pinchZoomState.generatedTiles !== 0 ||
+        pinchZoomState.scaledTileBlits < 1) {
         throw new Error(`Pinch zoom handling is incomplete: ${JSON.stringify(pinchZoomState)}`);
     }
 
@@ -3171,8 +3201,8 @@ async function run() {
         textAtlasState.scaled.pipelineFillTexts !== 0 ||
         textAtlasState.scaled.pipelineBlits <= textAtlasState.first.pipelineBlits ||
         textAtlasState.scaled.smoothedPipelineBlits <= textAtlasState.first.smoothedPipelineBlits ||
-        // zoom animation中は直前frameのtile画像を少しずつ拡縮し、停止後に正確なtileへ替える。
-        textAtlasState.scaled.minimumBlitScale < 0.8 ||
+        // zoom前／後のtileは中間倍率へ再投影するため、最終倍率70.7%までの縮小を許容する。
+        textAtlasState.scaled.minimumBlitScale < 0.7 ||
         textAtlasState.scaled.minimumBlitScale >= 1 ||
         textAtlasState.scaled.zoom !== "70.7%" ||
         textAtlasState.recolored.atlasFillTexts !== textAtlasState.scaled.atlasFillTexts ||
@@ -3751,23 +3781,64 @@ async function run() {
         throw new Error(`Custom color editor is incomplete: ${JSON.stringify(customColorState)}`);
     }
 
-    // toolbar操作は即時に飛ばず、旧Rendererの1段階zoom（100%→200%）へ補間する。
-    const zoomAnimationStart = await window.webContents.executeJavaScript(`(() => {
+    // toolbar zoom中は旧倍率tileを拡縮しながら、既知の最終倍率tileを先行生成する。
+    const zoomAnimationState = await window.webContents.executeJavaScript(`(async () => {
+        const prototype = CanvasRenderingContext2D.prototype;
+        const originalDrawImage = prototype.drawImage;
+        const originalFillRect = prototype.fillRect;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
         const output = document.querySelector(".zoom-controls output");
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        if (!(pipeline instanceof HTMLCanvasElement) || !(tiledRendering instanceof HTMLInputElement)) {
+            throw new Error("The animated tiled zoom controls were not found.");
+        }
+        // 旧倍率だけを完成状態にし、最終倍率が既存cacheへ当たらない条件を作る。
+        tiledRendering.click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        tiledRendering.click();
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let generatedTargetTiles = 0;
+        let scaledTileBlits = 0;
+        prototype.fillRect = function(...args) {
+            if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                generatedTargetTiles++;
+            }
+            return Reflect.apply(originalFillRect, this, args);
+        };
+        prototype.drawImage = function(...args) {
+            const source = args[0];
+            if (this.canvas === pipeline && this.imageSmoothingEnabled &&
+                source instanceof HTMLCanvasElement && !source.isConnected &&
+                source.width === tileBackingSize && source.height === tileBackingSize) {
+                scaledTileBlits++;
+            }
+            return Reflect.apply(originalDrawImage, this, args);
+        };
         const before = output?.textContent ?? null;
-        document.querySelector('button[aria-label="Zoom in"]')?.click();
-        return {before, immediatelyAfter: output?.textContent ?? null};
+        try {
+            document.querySelector('button[aria-label="Zoom in"]')?.click();
+            const immediatelyAfter = output?.textContent ?? null;
+            await new Promise((resolve) => requestAnimationFrame(() =>
+                requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            return {
+                before,
+                immediatelyAfter,
+                middle: output?.textContent ?? null,
+                generatedTargetTiles,
+                scaledTileBlits,
+            };
+        }
+        finally {
+            prototype.drawImage = originalDrawImage;
+            prototype.fillRect = originalFillRect;
+        }
     })()`);
-    if (zoomAnimationStart.before !== "100%" || zoomAnimationStart.immediatelyAfter !== "100%") {
-        throw new Error(`Zoom animation started incorrectly: ${JSON.stringify(zoomAnimationStart)}`);
-    }
-    const zoomAnimationMiddle = await window.webContents.executeJavaScript(`new Promise((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => {
-            resolve(document.querySelector(".zoom-controls output")?.textContent ?? null);
-        })));
-    })`);
-    if (zoomAnimationMiddle === "100%" || zoomAnimationMiddle === "200%") {
-        throw new Error(`Zoom animation has no visible middle frame: ${JSON.stringify(zoomAnimationMiddle)}`);
+    if (zoomAnimationState.before !== "100%" || zoomAnimationState.immediatelyAfter !== "100%" ||
+        zoomAnimationState.middle === "100%" || zoomAnimationState.middle === "200%" ||
+        zoomAnimationState.generatedTargetTiles < 1 || zoomAnimationState.scaledTileBlits < 1) {
+        throw new Error(`Zoom animation tiling is incomplete: ${JSON.stringify(zoomAnimationState)}`);
     }
     await waitForViewAnimation(window);
     const zoomedState = await readRenderedState(window);
