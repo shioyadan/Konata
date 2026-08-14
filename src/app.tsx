@@ -201,6 +201,9 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
     const textCacheEnabled = settings.textCacheEnabled === undefined
         ? DEFAULT_PERSISTED_VIEW_SETTINGS.textCacheEnabled
         : settings.textCacheEnabled;
+    const tiledRenderingEnabled = settings.tiledRenderingEnabled === undefined
+        ? DEFAULT_PERSISTED_VIEW_SETTINGS.tiledRenderingEnabled
+        : settings.tiledRenderingEnabled;
     if ((settings.theme !== "dark" && settings.theme !== "light") ||
         typeof settings.colorScheme !== "string" ||
         !PIPELINE_COLOR_SCHEMES.has(settings.colorScheme) ||
@@ -214,13 +217,15 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         !isNonNegativeFiniteNumber(stageBorderMinimumLaneHeight) ||
         !isPositiveFiniteNumber(drawZoomFactor) ||
         typeof webGLEnabled !== "boolean" ||
-        typeof textCacheEnabled !== "boolean") {
+        typeof textCacheEnabled !== "boolean" ||
+        typeof tiledRenderingEnabled !== "boolean") {
         return null;
     }
     return {
         theme: settings.theme,
         webGLEnabled,
         textCacheEnabled,
+        tiledRenderingEnabled,
         colorScheme: settings.colorScheme,
         // 旧Web版の保存値にはこのfieldがないため、他の設定を捨てず既定配色で補う。
         customColorScheme: isCustomColorScheme(settings.customColorScheme)
@@ -1696,6 +1701,18 @@ export function App() {
                                 />
                                 Text caching
                             </label>
+                            <label title="Disable tiled rendering if scrolling or zooming displays stale or incomplete regions.">
+                                <input
+                                    type="checkbox"
+                                    aria-label="Tiled rendering"
+                                    checked={settings.tiledRenderingEnabled}
+                                    onChange={(event) => store.dispatch({
+                                        type: "KONATA_SET_TILED_RENDERING_ENABLED",
+                                        enabled: event.target.checked,
+                                    })}
+                                />
+                                Tiled rendering
+                            </label>
                         </details>
                     </div>
                 </details>
@@ -1798,6 +1815,7 @@ export function App() {
                 renderVersion={renderVersion}
                 webGLEnabled={settings.webGLEnabled}
                 textCacheEnabled={settings.textCacheEnabled}
+                tiledRenderingEnabled={settings.tiledRenderingEnabled}
                 findResult={findResult}
                 comparison={comparisonTab === null ? null : {
                     baselineTrace: comparisonTab.baselineTrace,

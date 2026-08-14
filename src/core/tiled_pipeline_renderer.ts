@@ -15,7 +15,7 @@ import {
 } from "./konata_renderer";
 
 export interface TiledPipelineRenderOptions {
-    // 読み込み中のtraceは後から内容が増えるためcacheせず、readyになった時だけ有効にする。
+    // 読み込み中または互換設定で無効な時は、tileを残さずRendererで直接描画する。
     readonly cacheEnabled: boolean;
     // 比較用offscreen CanvasにはCSS寸法がないため、表示先と同じ論理寸法を明示する。
     readonly width?: number;

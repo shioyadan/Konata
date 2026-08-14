@@ -62,6 +62,7 @@ interface TraceSheetProps {
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly textCacheEnabled: boolean;
+    readonly tiledRenderingEnabled: boolean;
     readonly findResult: FindResult | null;
     readonly comparison: {
         readonly baselineTrace: ParsedTrace | null;
@@ -117,6 +118,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderVersion,
     webGLEnabled,
     textCacheEnabled,
+    tiledRenderingEnabled,
     findResult,
     comparison,
     splitterPosition,
@@ -202,8 +204,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             textCacheEnabled,
         };
         const tileOptions = {
-            // Parserが追記中のtraceをraster化すると古いtileが残るため、公開完了後だけcacheする。
-            cacheEnabled: loadState === "ready",
+            // Parser追記中と互換設定での無効時は、raster tileを介さず直接描画する。
+            cacheEnabled: tiledRenderingEnabled && loadState === "ready",
             backend,
         } as const;
         if (labelCanvas !== null && pipelineCanvas !== null) {
@@ -331,6 +333,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         tiledRenderer,
         baselineTiledRenderer,
         textCacheEnabled,
+        tiledRenderingEnabled,
         trace,
         webGLEnabled,
     ]);

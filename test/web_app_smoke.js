@@ -2201,6 +2201,7 @@ async function run() {
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const textCache = document.querySelector('input[aria-label="Text caching"]');
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
         const compatibility = document.querySelector(".compatibility-settings");
         const drawingThresholds = document.querySelector(".drawing-thresholds");
         const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
@@ -2216,6 +2217,7 @@ async function run() {
             !(zoomSteps instanceof HTMLInputElement) ||
             !(webGL instanceof HTMLInputElement) ||
             !(textCache instanceof HTMLInputElement) ||
+            !(tiledRendering instanceof HTMLInputElement) ||
             !(compatibility instanceof HTMLDetailsElement) ||
             !(drawingThresholds instanceof HTMLDetailsElement) ||
             !(textThreshold instanceof HTMLInputElement)) {
@@ -2270,13 +2272,17 @@ async function run() {
             color: color.value,
             webGL: webGL.checked,
             textCache: textCache.checked,
+            tiledRendering: tiledRendering.checked,
             compatibilityOpen: compatibility.open,
             compatibilitySummary: compatibility.querySelector("summary")?.textContent?.trim() ?? null,
             compatibilityTitle: compatibility.querySelector("summary")?.title ?? null,
             textThreshold: textThreshold.value,
             thresholdSummary: drawingThresholds.querySelector("summary")?.textContent?.trim() ?? null,
             thresholdSummaryTitle: drawingThresholds.querySelector("summary")?.title ?? null,
-            settingTitles: [theme, hideFlushed, split, fixed, color, arrows, zoomSteps, webGL, textCache]
+            settingTitles: [
+                theme, hideFlushed, split, fixed, color, arrows, zoomSteps,
+                webGL, textCache, tiledRendering,
+            ]
                 .map((control) => control.closest("label")?.title ?? null),
             thresholdLabels: Array.from(drawingThresholds.querySelectorAll("label"), (label) => ({
                 text: label.childNodes[0]?.textContent?.trim() ?? null,
@@ -2294,6 +2300,7 @@ async function run() {
         viewControlState.color !== "Custom" ||
         !viewControlState.webGL ||
         !viewControlState.textCache ||
+        !viewControlState.tiledRendering ||
         viewControlState.compatibilityOpen ||
         viewControlState.compatibilitySummary !== "Compatibility" ||
         viewControlState.compatibilityTitle !==
@@ -2311,7 +2318,8 @@ async function run() {
             "Choose how instruction dependencies are drawn.",
             "Number of steps used to double or halve the zoom.",
             "Disable WebGL if rendering problems occur.",
-            "Disable if cached text appears blurred or otherwise incorrect."
+            "Disable if cached text appears blurred or otherwise incorrect.",
+            "Disable tiled rendering if scrolling or zooming displays stale or incomplete regions."
         ]) ||
         JSON.stringify(viewControlState.thresholdLabels) !== JSON.stringify([
             {
@@ -2913,6 +2921,110 @@ async function run() {
         tileReuseState.maxNewTilesPerFrame < 1 ||
         tileReuseState.maxNewTilesPerFrame > 2) {
         throw new Error(`Pipeline tiles were not reused while scrolling: ${JSON.stringify(tileReuseState)}`);
+    }
+
+    // 互換設定でタイリングを切ると、tile jobを止めて表示Canvasへ直接描画する。
+    const tiledRenderingToggleState = await window.webContents.executeJavaScript(`(async () => {
+        const prototype = CanvasRenderingContext2D.prototype;
+        const originalDrawImage = prototype.drawImage;
+        const originalFillRect = prototype.fillRect;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const viewer = document.querySelector('.viewer');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        if (!(pipeline instanceof HTMLCanvasElement) || !(viewer instanceof HTMLElement) ||
+            !(reset instanceof HTMLButtonElement) || !(webGL instanceof HTMLInputElement) ||
+            !(tiledRendering instanceof HTMLInputElement)) {
+            throw new Error("The tiled rendering compatibility control was not found.");
+        }
+        const originalWebGL = webGL.checked;
+        const originalTiledRendering = tiledRendering.checked;
+        if (!originalTiledRendering) {
+            throw new Error("Tiled rendering was not enabled by default.");
+        }
+        if (webGL.checked) {
+            webGL.click();
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let tileRenders = 0;
+        let tileBlits = 0;
+        let directFills = 0;
+        prototype.fillRect = function(...args) {
+            if (this.canvas === pipeline) {
+                directFills++;
+            }
+            else if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                tileRenders++;
+            }
+            return Reflect.apply(originalFillRect, this, args);
+        };
+        prototype.drawImage = function(...args) {
+            const source = args[0];
+            if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
+                !source.isConnected && source.width === tileBackingSize && source.height === tileBackingSize) {
+                tileBlits++;
+            }
+            return Reflect.apply(originalDrawImage, this, args);
+        };
+        try {
+            tiledRendering.click();
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const disabled = {
+                enabled: tiledRendering.checked,
+                directFills,
+                tileRenders,
+                tileBlits,
+            };
+            viewer.dispatchEvent(new WheelEvent("wheel", {
+                deltaX: 100,
+                deltaY: 0,
+                bubbles: true,
+                cancelable: true,
+            }));
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const scrolled = {directFills, tileRenders, tileBlits};
+            tiledRendering.click();
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            return {
+                disabled,
+                scrolled,
+                reenabled: {
+                    enabled: tiledRendering.checked,
+                    directFills,
+                    tileRenders,
+                    tileBlits,
+                },
+            };
+        }
+        finally {
+            prototype.drawImage = originalDrawImage;
+            prototype.fillRect = originalFillRect;
+            if (tiledRendering.checked !== originalTiledRendering) {
+                tiledRendering.click();
+            }
+            if (webGL.checked !== originalWebGL) {
+                webGL.click();
+            }
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+    })()`);
+    if (tiledRenderingToggleState.disabled.enabled ||
+        tiledRenderingToggleState.disabled.directFills < 1 ||
+        tiledRenderingToggleState.disabled.tileRenders !== 0 ||
+        tiledRenderingToggleState.disabled.tileBlits !== 0 ||
+        tiledRenderingToggleState.scrolled.directFills <= tiledRenderingToggleState.disabled.directFills ||
+        tiledRenderingToggleState.scrolled.tileRenders !== 0 ||
+        tiledRenderingToggleState.scrolled.tileBlits !== 0 ||
+        !tiledRenderingToggleState.reenabled.enabled ||
+        tiledRenderingToggleState.reenabled.tileRenders < 1 ||
+        tiledRenderingToggleState.reenabled.tileBlits < 1) {
+        throw new Error(
+            `Tiled rendering compatibility setting is incomplete: ${JSON.stringify(tiledRenderingToggleState)}`,
+        );
     }
 
     // stage名と経過cycle数は最初の描画だけoffscreenへ描き、次の描画ではBLTだけになる。
@@ -3717,12 +3829,14 @@ async function run() {
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const textCache = document.querySelector('input[aria-label="Text caching"]');
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
         const compatibility = document.querySelector(".compatibility-settings");
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
             !(zoomSteps instanceof HTMLInputElement) ||
             !(webGL instanceof HTMLInputElement) ||
             !(textCache instanceof HTMLInputElement) ||
+            !(tiledRendering instanceof HTMLInputElement) ||
             !(compatibility instanceof HTMLDetailsElement)) {
             throw new Error("The view settings controls were not found.");
         }
@@ -3734,6 +3848,7 @@ async function run() {
         zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
         webGL.click();
         textCache.click();
+        tiledRendering.click();
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
             resolve({
@@ -3742,6 +3857,7 @@ async function run() {
                 zoomSteps: zoomSteps.value,
                 webGL: webGL.checked,
                 textCache: textCache.checked,
+                tiledRendering: tiledRendering.checked,
                 thresholdsAfterZoomSteps: zoomSteps.closest("label")?.nextElementSibling
                     ?.classList.contains("drawing-thresholds") === true,
                 compatibilityAfterThresholds: compatibility.previousElementSibling
@@ -3758,6 +3874,7 @@ async function run() {
         viewSettingsSetupState.zoomSteps !== "2" ||
         viewSettingsSetupState.webGL ||
         viewSettingsSetupState.textCache ||
+        viewSettingsSetupState.tiledRendering ||
         !viewSettingsSetupState.thresholdsAfterZoomSteps ||
         !viewSettingsSetupState.compatibilityAfterThresholds ||
         !viewSettingsSetupState.compatibilityLast ||
@@ -3769,6 +3886,7 @@ async function run() {
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
         viewSettingsSetupState.stored?.webGLEnabled !== false ||
         viewSettingsSetupState.stored?.textCacheEnabled !== false ||
+        viewSettingsSetupState.stored?.tiledRenderingEnabled !== false ||
         viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.h !== 210 ||
         viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.s !== 25 ||
         viewSettingsSetupState.storesSplitLanes ||
@@ -3796,6 +3914,7 @@ async function run() {
             hideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             textCache: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
+            tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
@@ -3812,6 +3931,7 @@ async function run() {
         persistedViewSettingsState.hideFlushed ||
         persistedViewSettingsState.webGL ||
         persistedViewSettingsState.textCache ||
+        persistedViewSettingsState.tiledRendering ||
         persistedViewSettingsState.textThreshold !== "14" ||
         persistedViewSettingsState.zoomSteps !== "2" ||
         persistedViewSettingsState.zoom !== "141%" ||
@@ -3837,6 +3957,7 @@ async function run() {
         delete stored.drawZoomFactor;
         delete stored.webGLEnabled;
         delete stored.textCacheEnabled;
+        delete stored.tiledRenderingEnabled;
         stored.customColorScheme.defaultColor.h = 999;
         localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
     })()`);
@@ -3868,6 +3989,7 @@ async function run() {
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             textCache: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
+            tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
             fetchHue: document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null,
             fetchAutomatic: document.querySelector(
@@ -3888,6 +4010,7 @@ async function run() {
         recoveredCustomColorState.zoomSteps !== "1" ||
         !recoveredCustomColorState.webGL ||
         !recoveredCustomColorState.textCache ||
+        !recoveredCustomColorState.tiledRendering ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.fetchHue !== "0" ||
         !recoveredCustomColorState.fetchAutomatic ||
@@ -3910,6 +4033,7 @@ async function run() {
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             textCache: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
+            tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
         })));
     })`);
@@ -3920,6 +4044,7 @@ async function run() {
         recoveredViewSettingsState.zoomSteps !== "1" ||
         !recoveredViewSettingsState.webGL ||
         !recoveredViewSettingsState.textCache ||
+        !recoveredViewSettingsState.tiledRendering ||
         recoveredViewSettingsState.labelWidth !== 450) {
         throw new Error(`View settings recovery is incomplete: ${JSON.stringify(recoveredViewSettingsState)}`);
     }
