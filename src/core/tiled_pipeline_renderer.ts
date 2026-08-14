@@ -504,7 +504,9 @@ export class TiledPipelineRenderer {
         }
         const left = position.x * size / request.metrics.opWidth;
         const right = (position.x + 1) * size / request.metrics.opWidth;
-        for (let y = top; y <= bottom; y++) {
+        // Renderer本体と同じ命令だけを調べる。ここだけ全命令を走査すると、最縮小域では
+        // 1 tileが数万命令を覆い、実描画より空判定の方が大幅に重くなる。
+        for (let y = top; y <= bottom; y += request.metrics.drawingStep) {
             const op = request.metrics.getVisibleOp(y, request.metrics.opResolution);
             if (op !== undefined && op.retiredCycle !== op.fetchedCycle &&
                 op.retiredCycle >= left && op.fetchedCycle <= right) {

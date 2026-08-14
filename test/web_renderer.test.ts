@@ -297,6 +297,14 @@ test("Web render metrics preserve legacy zoom levels and lane heights", () => {
     assert.equal(formatKonataZoomPercent(8), "0.391%");
     assert.equal(formatKonataZoomPercent(24), "6.0e-6%");
 
+    // 0.069%付近ではRendererとタイル空判定の双方が30命令おきの代表だけを見る。
+    const overview = new KonataRenderMetrics(trace, {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        zoomLevel: 10.5,
+    });
+    assert.equal(formatKonataZoomPercent(overview.zoomLevel), "0.0691%");
+    assert.equal(overview.drawingStep, 30);
+
     // lane分割時は既定でlane数に応じて命令行を高くし、高さ固定時だけ24pxへ戻す。
     const split = new KonataRenderMetrics(trace, {
         ...DEFAULT_KONATA_RENDER_SPEC,

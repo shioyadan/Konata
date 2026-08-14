@@ -180,6 +180,12 @@ export class KonataRenderMetrics {
         return this.zoomLevel - 5;
     }
 
+    // 1 pixel未満へ多数の命令が重なる縮小域では、旧Rendererと同じ間隔で代表命令だけを見る。
+    // タイルの空判定もこの値を使い、実描画が取得しない命令を余分に走査しない。
+    get drawingStep(): number {
+        return this.opHeight < 0.25 ? Math.max(1, this.drawingInterval) : 1;
+    }
+
     getVisibleOp(y: number, resolution = 0): Op | undefined {
         return this.spec.hideFlushedOps
             ? this.getOpFromRID(y, resolution)
@@ -453,7 +459,6 @@ export class KonataRenderer {
     private opWidth_ = 32;
     private opHeight_ = 24;
     private laneHeightMargin_ = 2;
-    private drawingInterval_ = 1;
     private labelFont_ = "";
     private labelFontSize_ = 12;
     private stageFontSize_ = 12;
@@ -597,7 +602,6 @@ export class KonataRenderer {
         this.opWidth_ = this.metrics_.opWidth;
         this.opHeight_ = this.metrics_.opHeight;
         this.laneHeightMargin_ = this.metrics_.laneHeightMargin;
-        this.drawingInterval_ = this.metrics_.drawingInterval;
 
         const fontSize = Number(this.style_.fontSize);
         this.labelFont_ = `${this.style_.fontStyle} ${fontSize * Math.min(1, this.zoomScale_)}px ${this.style_.fontFamily}`;
@@ -747,7 +751,7 @@ export class KonataRenderer {
         try {
             if (drawBase) {
                 let skipRendering = false;
-                const step = this.opHeight_ < 0.25 ? Math.max(1, this.drawingInterval_) : 1;
+                const step = this.metrics_.drawingStep;
                 for (let y = Math.floor(top); y < top + logicalHeight; y += step) {
                     const pixelY = y - top + offsetY;
                     if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
