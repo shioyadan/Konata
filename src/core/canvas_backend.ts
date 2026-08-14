@@ -7,6 +7,7 @@ export interface CanvasDrawContext {
     lineWidth: number;
     fillRect(x: number, y: number, width: number, height: number): void;
     strokeRect(x: number, y: number, width: number, height: number): void;
+    fillText(text: string, x: number, baselineY: number): void;
     fillVerticalGradientRect(
         x: number,
         y: number,

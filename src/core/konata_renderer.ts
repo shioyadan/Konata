@@ -697,19 +697,15 @@ export class KonataRenderer {
             top = 0;
         }
 
-        // cache済み文字は矩形と同じ順序でtexture quadへ積み、laneやflushの重なりも維持する。
-        // WebGL無効時は文字atlasだけをCanvasへ転送し、矩形は従来どおり直接描画する。
-        const canBatch = !drawBase || !this.canDrawText_ || webGLEnabled;
-        const backendContext = canBatch
-            ? this.canvasBackend_.begin(
-                canvas,
-                context,
-                size.width,
-                size.height,
-                webGLEnabled,
-            )
-            : null;
-        const solidRects = backendContext ?? context;
+        // 矩形・文字・矢印を同じ呼出順でbackendへ積み、重なり順を維持する。
+        // WebGL無効時もbackendが同じcommand列をCanvas 2Dへ再生する。
+        const drawContext = this.canvasBackend_.begin(
+            canvas,
+            context,
+            size.width,
+            size.height,
+            webGLEnabled,
+        );
         try {
             if (drawBase) {
                 let skipRendering = false;
@@ -718,8 +714,8 @@ export class KonataRenderer {
                     const pixelY = y - top + offsetY;
                     if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
                         const fillTop = pixelY * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST;
-                        solidRects.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
-                        solidRects.fillRect(0, fillTop, size.width, this.metrics_.opHeight);
+                        drawContext.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
+                        drawContext.fillRect(0, fillTop, size.width, this.metrics_.opHeight);
                     }
                     if (skipRendering) {
                         continue;
@@ -735,8 +731,7 @@ export class KonataRenderer {
                         y - top + offsetY,
                         left,
                         left + logicalWidth,
-                        context,
-                        backendContext,
+                        drawContext,
                     )) {
                         skipRendering = true;
                     }
@@ -744,13 +739,11 @@ export class KonataRenderer {
             }
             if (drawDependencies && !this.renderingReference_ &&
                 this.metrics_.spec.dependencyArrowType !== DEP_ARROW_TYPE.NOT_SHOW) {
-                this.drawDependency_(offsetY, top, left, logicalHeight, solidRects);
+                this.drawDependency_(offsetY, top, left, logicalHeight, drawContext);
             }
         }
         finally {
-            if (backendContext !== null) {
-                this.canvasBackend_.end();
-            }
+            this.canvasBackend_.end();
         }
 
         // 最終命令より下へはみ出した領域もinvalid色で描く。dependency-onlyでは矢印が
@@ -772,8 +765,7 @@ export class KonataRenderer {
         logicalY: number,
         startCycle: number,
         endCycle: number,
-        context: CanvasRenderingContext2D,
-        backendContext: CanvasDrawContext | null,
+        context: CanvasDrawContext,
     ): boolean {
         const top = logicalY * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST;
         if (op.retiredCycle < startCycle) {
@@ -795,8 +787,7 @@ export class KonataRenderer {
 
         const detailed = this.metrics_.canDrawDetailedly;
         if (detailed && this.canDrawFrame_) {
-            const rectContext = backendContext ?? context;
-            rectContext.strokeStyle = this.style_.pipelinePane.borderColor;
+            context.strokeStyle = this.style_.pipelinePane.borderColor;
         }
 
         // 詳細時と縮小時でstage区間と色計算を共有し、出力する矩形の表現だけを替える。
@@ -813,19 +804,17 @@ export class KonataRenderer {
                     : logicalY;
                 drewStage = this.drawLane_(
                     op, laneTop, startCycle, endCycle, context, laneID,
-                    backendContext,
                 ) || drewStage;
             }
         }
 
-        if (detailed && (backendContext === null || this.canDrawText_ || drewStage)) {
+        if (detailed && (this.canDrawText_ || drewStage)) {
             return true;
         }
         // 最縮小域では命令ごとの1矩形に留め、WebGLが使えない場合もCanvas負荷を抑える。
         // 詳細域でもstageを持たない命令は同じoverview表示へfallbackする。
-        const solidRects = backendContext ?? context;
         const colorScheme = this.activeColorScheme_;
-        solidRects.fillStyle = this.isKnownCalculatedColorScheme_()
+        context.fillStyle = this.isKnownCalculatedColorScheme_()
             ? this.getComparisonOverviewColor_(colorScheme)
             : colorScheme;
         const laneTop = top + this.metrics_.laneHeightMargin;
@@ -834,10 +823,10 @@ export class KonataRenderer {
             this.metrics_.laneHeight - this.metrics_.laneHeightMargin * 2,
         );
         right = Math.max(right, left + 1);
-        solidRects.fillRect(left, laneTop, right - left, laneHeight);
+        context.fillRect(left, laneTop, right - left, laneHeight);
         if (!this.renderingReference_ && op.flush) {
-            solidRects.fillStyle = this.style_.pipelinePane.flushedRegionColor;
-            solidRects.fillRect(left, laneTop, right - left, laneHeight);
+            context.fillStyle = this.style_.pipelinePane.flushedRegionColor;
+            context.fillRect(left, laneTop, right - left, laneHeight);
         }
         return true;
     }
@@ -847,9 +836,8 @@ export class KonataRenderer {
         logicalY: number,
         startCycle: number,
         endCycle: number,
-        context: CanvasRenderingContext2D,
+        context: CanvasDrawContext,
         laneID: number,
-        solidRects: CanvasDrawContext | null = null,
     ): boolean {
         const lane = op.lanes[laneID];
         if (lane === null || lane === undefined) {
@@ -877,40 +865,24 @@ export class KonataRenderer {
             const rectTop = top + this.metrics_.laneHeightMargin;
             let rectHeight = this.metrics_.laneHeight - this.metrics_.laneHeightMargin * 2;
 
-            if (solidRects === null) {
-                // 旧Rendererはstageの開始色と終了色を上下方向のgradientとして描く。
-                const gradient = context.createLinearGradient(
-                    0,
-                    top,
-                    0,
-                    top + this.metrics_.laneHeight,
-                );
-                gradient.addColorStop(0, this.getStageColor_(laneID, stage.name, true, op));
-                gradient.addColorStop(1, this.getStageColor_(laneID, stage.name, false, op));
-                context.fillStyle = gradient;
-                context.fillRect(left, rectTop, right - left, rectHeight);
-            }
-            else {
-                // 縮小時も上下色を渡し、見失わない最小寸法でgradient batchへ積む。
-                right = Math.max(right, left + 1);
-                rectHeight = Math.max(rectHeight, 0.5);
-                solidRects.fillVerticalGradientRect(
-                    left,
-                    rectTop,
-                    right - left,
-                    rectHeight,
-                    this.getStageColor_(laneID, stage.name, true, op),
-                    this.getStageColor_(laneID, stage.name, false, op),
-                    this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
-                    1 - this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
-                );
-            }
+            // stageの開始色と終了色を渡し、最小寸法を保ってgradientを描く。
+            right = Math.max(right, left + 1);
+            rectHeight = Math.max(rectHeight, 0.5);
+            context.fillVerticalGradientRect(
+                left,
+                rectTop,
+                right - left,
+                rectHeight,
+                this.getStageColor_(laneID, stage.name, true, op),
+                this.getStageColor_(laneID, stage.name, false, op),
+                this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
+                1 - this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
+            );
             drewStage = true;
 
             if (!this.renderingReference_ && this.canDrawFrame_) {
-                const rectContext = solidRects ?? context;
-                rectContext.lineWidth = Number(this.style_.pipelinePane.borderWeight);
-                rectContext.strokeRect(left, rectTop, right - left, rectHeight);
+                context.lineWidth = Number(this.style_.pipelinePane.borderWeight);
+                context.strokeRect(left, rectTop, right - left, rectHeight);
             }
 
             if (!this.renderingReference_ && this.canDrawText_) {
@@ -932,7 +904,7 @@ export class KonataRenderer {
                         (this.metrics_.opWidth -
                             String(offset).length * this.stageFontSize_ / 2) / 2,
                     );
-                    this.canvasBackend_.fillText(
+                    context.fillText(
                         String(offset),
                         textLeft + offset * this.metrics_.opWidth + margin,
                         textTop,
@@ -942,13 +914,12 @@ export class KonataRenderer {
                     0,
                     (this.metrics_.opWidth - stage.name.length * this.stageFontSize_ / 2) / 2,
                 );
-                this.canvasBackend_.fillText(stage.name, textLeft + margin, textTop);
+                context.fillText(stage.name, textLeft + margin, textTop);
             }
 
             if (!this.renderingReference_ && op.flush) {
-                const fillContext = solidRects ?? context;
-                fillContext.fillStyle = this.style_.pipelinePane.flushedRegionColor;
-                fillContext.fillRect(left, rectTop, right - left, rectHeight);
+                context.fillStyle = this.style_.pipelinePane.flushedRegionColor;
+                context.fillRect(left, rectTop, right - left, rectHeight);
             }
         }
         return drewStage;
@@ -959,7 +930,7 @@ export class KonataRenderer {
         logicalTop: number,
         logicalLeft: number,
         logicalHeight: number,
-        context: CanvasRenderingContext2D | CanvasDrawContext,
+        context: CanvasDrawContext,
     ): void {
         if (!this.canDrawDependency_) {
             return;
@@ -1018,7 +989,7 @@ export class KonataRenderer {
     }
 
     private drawArrow_(
-        context: CanvasRenderingContext2D | CanvasDrawContext,
+        context: CanvasDrawContext,
         start: readonly [number, number],
         end: readonly [number, number],
         vector: readonly [number, number],
