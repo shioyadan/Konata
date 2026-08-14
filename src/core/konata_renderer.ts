@@ -901,11 +901,17 @@ export class KonataRenderer {
                     this.stageFontSize_;
                 const textLeft = (stage.startCycle - startCycle) * this.metrics_.opWidth;
                 // stage先頭へ名前、後続cycleへ経過cycle数を表示する。
-                for (let offset = 1; offset < stageEndCycle - stage.startCycle; offset++) {
-                    if (offset + stage.startCycle > endCycle) {
-                        // 異常に長いstageでも画面外のfillTextを繰り返さない。
-                        break;
-                    }
+                // 左端へ一部かかる文字を残すためfloorし、画面外の1..Nをbackendへ積まない。
+                const firstVisibleOffset = Math.max(
+                    1,
+                    Math.floor(startCycle - stage.startCycle),
+                );
+                for (
+                    let offset = firstVisibleOffset;
+                    offset < stageEndCycle - stage.startCycle &&
+                        offset + stage.startCycle <= endCycle;
+                    offset++
+                ) {
                     const margin = Math.max(
                         0,
                         (this.metrics_.opWidth -

@@ -213,6 +213,29 @@ test("Web renderer draws stage names and elapsed cycles like the legacy renderer
     assert.equal(pipeline.gradients[0]?.stops.length, 2);
 });
 
+test("Web renderer skips elapsed-cycle text left of a long stage viewport", () => {
+    const { trace, op, stage } = createTrace();
+    op.fetchedCycle = 0;
+    op.retiredCycle = 1000;
+    stage.startCycle = 0;
+    stage.endCycle = 1000;
+    const pipeline = createRecordedContext();
+
+    new KonataRenderer().drawPipelineSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [200.5, 0] },
+        createCanvas(pipeline.context),
+    );
+
+    // 左端に一部かかる200から右端の210だけを残し、画面外の1..199はbackendへ渡さない。
+    assert.deepEqual(
+        pipeline.fillTexts
+            .map(([text]) => text)
+            .filter((text) => /^\d+$/.test(text)),
+        Array.from({ length: 11 }, (_, index) => String(200 + index)),
+    );
+});
+
 test("Web renderer preserves text order between overlapping lanes in the Canvas fallback", () => {
     const { trace, op } = createTrace();
     const secondStage = new Stage();
