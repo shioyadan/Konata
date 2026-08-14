@@ -300,7 +300,6 @@ export class CanvasBackend implements CanvasDrawContext {
     private gl_: WebGL2RenderingContext | null = null;
     private program_: WebGLProgram | null = null;
     private vertexArray_: WebGLVertexArrayObject | null = null;
-    private unitBuffer_: WebGLBuffer | null = null;
     private rectBuffer_: WebGLBuffer | null = null;
     private colorBuffer_: WebGLBuffer | null = null;
     private strokeWidthBuffer_: WebGLBuffer | null = null;
@@ -748,26 +747,7 @@ export class CanvasBackend implements CanvasDrawContext {
             this.overlayCanvas_.height = 1;
         }
         this.state_ = "uninitialized";
-        this.gl_ = null;
-        this.program_ = null;
-        this.vertexArray_ = null;
-        this.unitBuffer_ = null;
-        this.rectBuffer_ = null;
-        this.colorBuffer_ = null;
-        this.strokeWidthBuffer_ = null;
-        this.textureRectBuffer_ = null;
-        this.textTexture_ = null;
-        this.resolutionUniform_ = null;
-        this.textAtlasUniform_ = null;
-        this.arrowProgram_ = null;
-        this.arrowVertexArray_ = null;
-        this.arrowPointBuffer_ = null;
-        this.arrowHeadPointBuffer_ = null;
-        this.arrowColorBuffer_ = null;
-        this.arrowWidthBuffer_ = null;
-        this.arrowResolutionUniform_ = null;
-        this.arrowSegmentCountUniform_ = null;
-        this.uploadedTextAtlasRevision_ = -1;
+        this.clearGLResources_();
         this.overlayCanvas_ = null;
     }
 
@@ -1125,7 +1105,6 @@ export class CanvasBackend implements CanvasDrawContext {
         }
         this.program_ = program;
         this.vertexArray_ = vertexArray;
-        this.unitBuffer_ = unitBuffer;
         this.rectBuffer_ = rectBuffer;
         this.colorBuffer_ = colorBuffer;
         this.strokeWidthBuffer_ = strokeWidthBuffer;
@@ -1681,7 +1660,6 @@ export class CanvasBackend implements CanvasDrawContext {
         this.gl_ = null;
         this.program_ = null;
         this.vertexArray_ = null;
-        this.unitBuffer_ = null;
         this.rectBuffer_ = null;
         this.colorBuffer_ = null;
         this.strokeWidthBuffer_ = null;

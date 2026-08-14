@@ -454,7 +454,6 @@ export class KonataRenderer {
     private hideFlushedOps_ = false;
 
     private zoomScale_ = 1;
-    private laneNum_ = 1;
     private laneHeight_ = 24;
     private opWidth_ = 32;
     private opHeight_ = 24;
@@ -597,7 +596,6 @@ export class KonataRenderer {
 
     private updateDerivedValues_(): void {
         this.zoomScale_ = this.metrics_.zoomScale;
-        this.laneNum_ = this.metrics_.laneNum;
         this.laneHeight_ = this.metrics_.laneHeight;
         this.opWidth_ = this.metrics_.opWidth;
         this.opHeight_ = this.metrics_.opHeight;

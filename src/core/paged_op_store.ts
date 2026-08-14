@@ -268,7 +268,7 @@ class OpPageLevel {
     }
 }
 
-// 旧BigKeyValueStoreと同じ多段pageとOp LRUを、JSONまたはzstd pageで再現する試作。
+// 旧BigKeyValueStoreと同じ多段pageとOp LRUを、JSONまたはzstd pageで再現する。
 export class PagedOpStore implements MutableOpStore {
     private readonly levels_: readonly OpPageLevel[];
     private readonly maxCachedOps_: number;
