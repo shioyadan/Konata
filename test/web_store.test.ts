@@ -116,7 +116,7 @@ test("Store reloads a trace in place and restores its view", () => {
     assert.equal(second.opStore.opCount, 0);
 });
 
-test("Store owns view transition endpoints without storing intermediate frames", () => {
+test("Store applies view targets immediately without animation state", () => {
     const store = new Store();
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
@@ -124,77 +124,28 @@ test("Store owns view transition endpoints without storing intermediate frames",
     const tab = store.activeTab;
     assert.ok(tab !== null && tab.kind === "trace");
 
-    const from = { ...tab.renderSpec, position: [10, 20] as const, zoomLevel: -1 };
-    const target = { ...tab.renderSpec, position: [30, 40] as const, zoomLevel: -2 };
+    const target = { position: [30, 40] as const, zoomLevel: -2 };
     store.dispatch({
-        type: "KONATA_VIEW_TRANSITION_START",
+        type: "KONATA_SET_VIEW",
         tabID: tab.id,
-        from,
-        target,
-        motion: { type: "linear", duration: 100 },
+        view: target,
     });
 
-    // Storeには描画済みの始点と終点だけを置き、中間位置はCanvas側だけで導出する。
-    assert.deepEqual(tab.renderSpec, from);
-    assert.deepEqual(tab.viewTransition?.target, {
-        position: target.position,
-        zoomLevel: target.zoomLevel,
-    });
-    const transitionID = tab.viewTransition?.id;
-    assert.notEqual(transitionID, undefined);
+    // 補間中の表示位置は描画controllerだけが持ち、Storeからは最終値が即座に見える。
+    assert.deepEqual(tab.renderSpec.position, [30, 40]);
+    assert.equal(tab.renderSpec.zoomLevel, -2);
+    assert.ok(changes.some((change) =>
+        change.type === "PANE_CONTENT_UPDATE" && change.tabID === tab.id));
 
-    // 連続scrollは中間画像ではなく既知の終点へ積み上げる。
-    store.dispatch({
-        type: "KONATA_MOVE_VIEW_REQUEST",
-        tabID: tab.id,
-        difference: [3, 4],
-        adjustHorizontal: false,
-    });
-    const scroll = changes.findLast((change) => change.type === "VIEW_SCROLL_REQUEST");
-    assert.ok(scroll?.type === "VIEW_SCROLL_REQUEST");
-    assert.deepEqual(scroll.position, [33, 44]);
-
-    // 描画設定は確定Specだけを更新し、位置・zoomだけの終点には複製しない。
+    // 通常の描画設定を変えても、確定済みの目標位置はそのまま維持する。
     store.dispatch({
         type: "KONATA_CHANGE_COLOR_SCHEME",
         tabID: tab.id,
         scheme: "RoyalBlue",
     });
     assert.equal(tab.renderSpec.colorScheme, "RoyalBlue");
-    assert.deepEqual(tab.viewTransition?.target.position, [30, 40]);
-
-    store.dispatch({
-        type: "KONATA_VIEW_TRANSITION_FINISH",
-        tabID: tab.id,
-        transitionID: (transitionID ?? 0) + 1,
-    });
-    assert.notEqual(tab.viewTransition, null);
-    store.dispatch({
-        type: "KONATA_VIEW_TRANSITION_FINISH",
-        tabID: tab.id,
-        transitionID: transitionID ?? -1,
-    });
-    assert.equal(tab.viewTransition, null);
     assert.deepEqual(tab.renderSpec.position, [30, 40]);
     assert.equal(tab.renderSpec.zoomLevel, -2);
-    assert.equal(tab.renderSpec.colorScheme, "RoyalBlue");
-
-    // 直接操作はその位置を確定値にして、進行中の遷移を取り消す。
-    store.dispatch({
-        type: "KONATA_VIEW_TRANSITION_START",
-        tabID: tab.id,
-        from: tab.renderSpec,
-        target: { ...tab.renderSpec, position: [50, 60] },
-        motion: { type: "linear", duration: 100 },
-    });
-    store.dispatch({
-        type: "KONATA_SET_VIEW",
-        tabID: tab.id,
-        view: { position: [35, 45], zoomLevel: -1.5 },
-    });
-    assert.equal(tab.viewTransition, null);
-    assert.deepEqual(tab.renderSpec.position, [35, 45]);
-    assert.equal(tab.renderSpec.zoomLevel, -1.5);
 
     store.dispatch({ type: "STORE_CLOSE" });
 });
@@ -405,32 +356,33 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     assert.deepEqual(comparison.baselineRenderSpec.position, [10, 0]);
     assert.deepEqual(comparison.renderSpec.position, [20, 0]);
     store.dispatch({
-        type: "KONATA_PAN_VIEW",
+        type: "KONATA_SET_VIEW",
         tabID: comparison.id,
-        deltaX: 128,
-        deltaY: 144,
-        target: "both",
+        view: { position: [22, 3], zoomLevel: comparison.renderSpec.zoomLevel },
+        baselineView: {
+            position: [12, 3],
+            zoomLevel: comparison.baselineRenderSpec.zoomLevel,
+        },
     });
-    // RIDを探し直さず、両Specの現在位置へ同じ移動量を加える。
+    // Controllerが求めたA/Bの目標値を、Storeは同時に確定する。
     assert.deepEqual(comparison.renderSpec.position, [22, 3]);
     assert.deepEqual(comparison.baselineRenderSpec.position, [12, 3]);
     store.dispatch({
-        type: "KONATA_PAN_VIEW",
+        type: "KONATA_SET_VIEW",
         tabID: comparison.id,
-        deltaX: 64,
-        deltaY: 0,
-        target: "selected",
+        baselineView: {
+            position: [13, 3],
+            zoomLevel: comparison.baselineRenderSpec.zoomLevel,
+        },
     });
     // A単独表示のpanはAだけを動かし、薄いBを位置合わせの基準として残す。
     assert.deepEqual(comparison.renderSpec.position, [22, 3]);
     assert.deepEqual(comparison.baselineRenderSpec.position, [13, 3]);
     store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "candidate" });
     store.dispatch({
-        type: "KONATA_PAN_VIEW",
+        type: "KONATA_SET_VIEW",
         tabID: comparison.id,
-        deltaX: 0,
-        deltaY: 96,
-        target: "selected",
+        view: { position: [22, 5], zoomLevel: comparison.renderSpec.zoomLevel },
     });
     // B単独表示では逆にBだけを動かせる。
     assert.deepEqual(comparison.renderSpec.position, [22, 5]);

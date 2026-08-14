@@ -1516,7 +1516,7 @@ async function run() {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
 
-    // Ctrl+wheelはbrowser zoomを抑止し、Konata内では移動経路が見えるよう補間する。
+    // Ctrl+wheelはbrowser zoomを抑止する。外側の倍率は目標へ進み、Canvasだけが補間する。
     const wheelZoomState = await window.webContents.executeJavaScript(`(async () => {
         const viewer = document.querySelector(".viewer");
         const reset = [...document.querySelectorAll(".zoom-controls button")]
@@ -1559,8 +1559,7 @@ async function run() {
     if (!wheelZoomState.canceled ||
         wheelZoomState.before !== "100%" ||
         wheelZoomState.immediatelyAfter !== "100%" ||
-        wheelZoomState.during === "100%" ||
-        wheelZoomState.during === "200%" ||
+        wheelZoomState.during !== "200%" ||
         wheelZoomState.zoom !== "200%" ||
         wheelZoomState.resetImmediatelyAfter !== "200%" ||
         wheelZoomState.resetZoom !== "100%") {
@@ -1623,9 +1622,8 @@ async function run() {
         };
     })()`);
     if (doubleClickSetup.zoom !== "25%" ||
-        doubleClickZoomState.immediatelyAfter !== "25%" ||
-        doubleClickZoomState.during === "25%" ||
-        doubleClickZoomState.during === "100%" ||
+        doubleClickZoomState.immediatelyAfter !== "100%" ||
+        doubleClickZoomState.during !== "100%" ||
         doubleClickZoomState.zoom !== "100%" ||
         doubleClickZoomState.resetZoom !== "100%") {
         throw new Error(`Double click zoom is incomplete: ${JSON.stringify(doubleClickZoomState)}`);
@@ -3772,7 +3770,7 @@ async function run() {
         throw new Error(`Custom color editor is incomplete: ${JSON.stringify(customColorState)}`);
     }
 
-    // toolbar zoom中は旧倍率tileを拡縮しながら、既知の最終倍率tileを先行生成する。
+    // toolbarの外側状態は最終倍率へ進み、Canvasは旧倍率tileを拡縮しながら最終tileを先行生成する。
     const zoomAnimationState = await window.webContents.executeJavaScript(`(async () => {
         ${METHOD_OBSERVER_HELPER}
         const prototype = CanvasRenderingContext2D.prototype;
@@ -3823,7 +3821,7 @@ async function run() {
         }
     })()`);
     if (zoomAnimationState.before !== "100%" || zoomAnimationState.immediatelyAfter !== "100%" ||
-        zoomAnimationState.middle === "100%" || zoomAnimationState.middle === "200%" ||
+        zoomAnimationState.middle !== "200%" ||
         zoomAnimationState.generatedTargetTiles < 1 || zoomAnimationState.scaledTileBlits < 1) {
         throw new Error(`Zoom animation tiling is incomplete: ${JSON.stringify(zoomAnimationState)}`);
     }

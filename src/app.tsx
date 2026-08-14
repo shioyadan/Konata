@@ -45,6 +45,7 @@ import {
     type CustomColorDefinition,
     type CustomColorScheme,
     type DependencyArrowType,
+    type KonataView,
     type RendererTheme,
 } from "./core/konata_renderer";
 import {
@@ -53,7 +54,6 @@ import {
     type MinimumLaneHeightKey,
     type PersistedViewSettings,
     Store,
-    type ViewTransitionAction,
 } from "./store";
 import { getRemoteTraceFileNames } from "./trace_file_access";
 
@@ -314,7 +314,6 @@ export function App() {
     const bookmarkControlsRef = useRef<HTMLDetailsElement>(null);
     const comparisonControlsRef = useRef<HTMLDetailsElement>(null);
     const viewControlsRef = useRef<HTMLDetailsElement>(null);
-    const zoomOutputRef = useRef<HTMLOutputElement>(null);
     const traceSheetRef = useRef<TraceSheetHandle>(null);
     const storeRef = useRef<Store | null>(null);
     if (storeRef.current === null) {
@@ -445,18 +444,15 @@ export function App() {
         store.dispatch({ type: "FILE_MESSAGE_DISMISS" });
     }, [store]);
 
-    const dispatchViewAction = useCallback((action: ViewTransitionAction) => {
-        store.dispatch(action);
+    const setView = useCallback((view: KonataView, baselineView?: KonataView) => {
+        const tab = store.activeTab;
+        if (tab !== null) {
+            store.dispatch({ type: "KONATA_SET_VIEW", tabID: tab.id, view, baselineView });
+        }
     }, [store]);
 
     const cancelViewTransition = useCallback(() => {
         traceSheetRef.current?.cancelViewTransition();
-    }, []);
-
-    const updateRenderedZoom = useCallback((zoomLevel: number) => {
-        if (zoomOutputRef.current !== null) {
-            zoomOutputRef.current.textContent = formatKonataZoomPercent(zoomLevel);
-        }
     }, []);
 
     const hideSearchResult = useCallback(() => {
@@ -575,44 +571,6 @@ export function App() {
         }
     };
 
-    const panView = useCallback((deltaX: number, deltaY: number) => {
-        traceSheetRef.current?.clearToolTip();
-        const tab = store.activeTab;
-        if (tab === null) {
-            return;
-        }
-        store.dispatch({
-            type: "KONATA_PAN_VIEW",
-            tabID: tab.id,
-            deltaX,
-            deltaY,
-            target: "selected",
-        });
-    }, [store]);
-
-    const pinchView = useCallback((
-        panDeltaX: number,
-        panDeltaY: number,
-        zoomLevelDifference: number,
-        centerX: number,
-        centerY: number,
-    ) => {
-        traceSheetRef.current?.clearToolTip();
-        const tab = store.activeTab;
-        if (tab === null) {
-            return;
-        }
-        store.dispatch({
-            type: "KONATA_PINCH_VIEW",
-            tabID: tab.id,
-            panDeltaX,
-            panDeltaY,
-            zoomLevelDifference,
-            centerX,
-            centerY,
-        });
-    }, [store]);
-
     useEffect(() => store.subscribeChange((change) => {
         if (change.type === "VIEW_SCROLL_REQUEST" && store.activeTab?.id === change.tabID) {
             traceSheetRef.current?.scrollTo(change.position, change.baselinePosition);
@@ -623,17 +581,8 @@ export function App() {
         difference: readonly [number, number],
         adjustHorizontal: boolean,
     ) => {
-        const tab = store.activeTab;
-        if (tab === null) {
-            return;
-        }
-        store.dispatch({
-            type: "KONATA_MOVE_VIEW_REQUEST",
-            tabID: tab.id,
-            difference,
-            adjustHorizontal,
-        });
-    }, [store]);
+        traceSheetRef.current?.moveView(difference, adjustHorizontal);
+    }, []);
 
     const adjustPosition = useCallback(() => {
         const tab = store.activeTab;
@@ -782,28 +731,28 @@ export function App() {
 
     const moveVertical = useCallback((delta: number, adjust: boolean) => {
         const zoomScale = getKonataZoomScale(
-            traceSheetRef.current?.getRenderedSpec().zoomLevel ?? 0,
+            store.activeTab?.renderSpec.zoomLevel ?? 0,
         );
         const differenceY = delta * 3 / zoomScale;
         moveView([0, differenceY], adjust);
-    }, [moveView]);
+    }, [moveView, store]);
 
     const moveHorizontal = useCallback((delta: number) => {
         const zoomScale = getKonataZoomScale(
-            traceSheetRef.current?.getRenderedSpec().zoomLevel ?? 0,
+            store.activeTab?.renderSpec.zoomLevel ?? 0,
         );
         const differenceX = delta * 6 / zoomScale;
         moveView([differenceX, 0], false);
-    }, [moveView]);
+    }, [moveView, store]);
 
     const setBookmark = useCallback((index: number) => {
-        const spec = traceSheetRef.current?.getRenderedSpec() ?? DEFAULT_KONATA_RENDER_SPEC;
+        const spec = store.activeTab?.renderSpec ?? DEFAULT_KONATA_RENDER_SPEC;
         const [x, y] = spec.position;
         // 旧Configの保存値と同じく、論理座標は整数へ切り下げる。
         const bookmark = { x: Math.floor(x), y: Math.floor(y), zoom: spec.zoomLevel };
         setBookmarks((current) => current.map((value, position) =>
             position === index ? bookmark : value));
-    }, []);
+    }, [store]);
 
     const goToBookmark = useCallback((index: number) => {
         const bookmark = bookmarks[index];
@@ -1501,7 +1450,7 @@ export function App() {
                     >
                         <BsZoomOut aria-hidden="true" />
                     </button>
-                    <output ref={zoomOutputRef}>{formatKonataZoomPercent(renderSpec.zoomLevel)}</output>
+                    <output>{formatKonataZoomPercent(renderSpec.zoomLevel)}</output>
                     <button
                         className="icon-button"
                         type="button"
@@ -1583,7 +1532,6 @@ export function App() {
                 key={activeTabID ?? "empty"}
                 ref={traceSheetRef}
                 trace={trace}
-                tabID={activeTabID}
                 renderSpec={renderSpec}
                 loadState={loadState}
                 errorMessage={errorMessage}
@@ -1591,7 +1539,6 @@ export function App() {
                 webGLEnabled={settings.webGLEnabled}
                 tiledRenderingEnabled={settings.tiledRenderingEnabled}
                 zoomStep={1 / settings.drawZoomFactor}
-                viewTransition={activeTab?.viewTransition ?? null}
                 findResult={findResult}
                 comparison={comparisonTab === null ? null : {
                     baselineTrace: comparisonTab.baselineTrace,
@@ -1601,11 +1548,7 @@ export function App() {
                 }}
                 splitterPosition={activeTab?.splitterPosition ?? DEFAULT_SPLITTER_POSITION}
                 onMoveSplitter={moveSplitter}
-                onPanView={panView}
-                onPinchView={pinchView}
-                onMoveView={moveView}
-                onRenderedZoomChange={updateRenderedZoom}
-                onViewAction={dispatchViewAction}
+                onSetView={setView}
                 onCloseFindResult={hideSearchResult}
                 onOpenTrace={openFilePicker}
             />

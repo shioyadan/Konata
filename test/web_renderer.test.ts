@@ -14,6 +14,11 @@ import {
     KonataRenderMetrics,
     KonataRenderer,
 } from "../src/core/konata_renderer";
+import {
+    KonataViewController,
+    type KonataAnimationScheduler,
+    type KonataViewFrame,
+} from "../src/core/konata_view_controller";
 
 interface RecordedGradient {
     readonly points: [number, number, number, number];
@@ -616,4 +621,54 @@ test("Canvas backend batches dependency arrow paths in the Canvas fallback", () 
     assert.deepEqual(recorded.pathStrokeStyles, ["#112233"]);
     assert.deepEqual(recorded.pathFillStyles, ["#445566"]);
     assert.deepEqual(recorded.pathLineWidths, [2]);
+});
+
+test("View controller publishes targets immediately and keeps intermediate frames private", () => {
+    let now = 0;
+    let pendingFrame: FrameRequestCallback | null = null;
+    const scheduler: KonataAnimationScheduler = {
+        now: () => now,
+        request: (callback) => {
+            pendingFrame = callback;
+            return 1;
+        },
+        cancel: () => {
+            pendingFrame = null;
+        },
+    };
+    const frames: Readonly<KonataViewFrame>[] = [];
+    const targets: Array<{ readonly position: readonly [number, number]; readonly zoomLevel: number }> = [];
+    const controller = new KonataViewController(
+        { trace: null, targetSpec: DEFAULT_KONATA_RENDER_SPEC },
+        (frame) => frames.push(frame),
+        (target) => targets.push(target),
+        scheduler,
+    );
+    const targetSpec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [20, 10] as const,
+        zoomLevel: -1,
+    };
+
+    controller.transitionTo(targetSpec, undefined, { type: "linear", duration: 100 });
+
+    assert.deepEqual(targets, [{ position: [20, 10], zoomLevel: -1 }]);
+    assert.deepEqual(frames.at(-1)?.spec.position, [0, 0]);
+    assert.deepEqual(frames.at(-1)?.prefetchSpec?.position, [20, 10]);
+
+    now = 50;
+    const middleFrame = pendingFrame;
+    pendingFrame = null;
+    middleFrame?.(now);
+    assert.deepEqual(controller.currentSpec.position, [10, 5]);
+    assert.equal(controller.currentSpec.zoomLevel, -0.5);
+    // 中間frameを描いても、外側へ新しい状態通知は出さない。
+    assert.equal(targets.length, 1);
+
+    now = 100;
+    const finalFrame = pendingFrame;
+    pendingFrame = null;
+    finalFrame?.(now);
+    assert.deepEqual(controller.currentSpec, targetSpec);
+    assert.equal(pendingFrame, null);
 });
