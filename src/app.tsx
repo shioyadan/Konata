@@ -96,6 +96,7 @@ const COMMAND_HISTORY_STORAGE_KEY = "konata.commandHistory";
 const VIEW_SETTINGS_STORAGE_KEY = "konata.viewSettings";
 const MAX_COMMAND_HISTORY = 20;
 const MAX_LOG_ENTRIES = 500;
+const KEYBOARD_ZOOM_COOLDOWN_MS = 40;
 const PIPELINE_COLOR_SCHEMES = new Set([
     "Auto",
     "Unique",
@@ -328,6 +329,10 @@ export function App() {
     const commandHistory = commandHistoryRef.current;
     const logEntryIDRef = useRef(0);
     const logPaneOpenRef = useRef(false);
+    const keyboardZoomRef = useRef<Readonly<{
+        direction: number;
+        acceptedAt: number;
+    }> | null>(null);
 
     const {
         tabs,
@@ -867,6 +872,18 @@ export function App() {
             }
 
             const zoomKey = commandKey;
+            const zoomWithKeyboard = (factor: number) => {
+                const direction = factor > 1 ? 1 : -1;
+                const now = performance.now();
+                const previous = keyboardZoomRef.current;
+                // OSごとのkey repeat速度を倍率変化へ直結させず、超過入力は保留せず捨てる。
+                if (event.repeat && previous?.direction === direction &&
+                    now - previous.acceptedAt < KEYBOARD_ZOOM_COOLDOWN_MS) {
+                    return;
+                }
+                keyboardZoomRef.current = { direction, acceptedAt: now };
+                zoomAtCenter(factor);
+            };
             let handled = true;
             if (event.key === "F3") {
                 repeatSearch(event.shiftKey);
@@ -875,10 +892,10 @@ export function App() {
                 hideSearchResult();
             }
             else if (event.key === "ArrowUp") {
-                zoomKey ? zoomAtCenter(2) : moveVertical(-1, !event.shiftKey);
+                zoomKey ? zoomWithKeyboard(2) : moveVertical(-1, !event.shiftKey);
             }
             else if (event.key === "ArrowDown") {
-                zoomKey ? zoomAtCenter(1 / 2) : moveVertical(1, !event.shiftKey);
+                zoomKey ? zoomWithKeyboard(1 / 2) : moveVertical(1, !event.shiftKey);
             }
             else if (event.key === "PageUp") {
                 moveVertical(-10, !zoomKey);
@@ -893,10 +910,10 @@ export function App() {
                 moveHorizontal(1);
             }
             else if (event.key === "+") {
-                zoomAtCenter(2);
+                zoomWithKeyboard(2);
             }
             else if (event.key === "-") {
-                zoomAtCenter(1 / 2);
+                zoomWithKeyboard(1 / 2);
             }
             else if (/^[0-9]$/.test(event.key) && !event.altKey && !event.shiftKey) {
                 const index = Number(event.key);

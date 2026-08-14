@@ -1632,30 +1632,50 @@ async function run() {
     // shortcut一覧に示すCtrl/Command+上下が、browser scrollではなくKonataのzoomになることを確認する。
     const keyboardZoomState = await window.webContents.executeJavaScript(`(async () => {
         const output = document.querySelector(".zoom-controls output");
-        const zoom = async (key) => {
+        const zoom = (key, repeat = false) => {
             const event = new KeyboardEvent("keydown", {
                 key,
                 ctrlKey: true,
+                repeat,
                 bubbles: true,
                 cancelable: true
             });
             const dispatched = document.dispatchEvent(event);
-            await new Promise((resolve) => setTimeout(resolve, 220));
-            await new Promise((resolve) => requestAnimationFrame(resolve));
-            return {
-                canceled: !dispatched && event.defaultPrevented,
-                value: output?.textContent ?? null
-            };
+            return !dispatched && event.defaultPrevented;
         };
+        const firstCanceled = zoom("ArrowDown");
+        const repeatedCanceled = Array.from({length: 6}, () => zoom("ArrowDown", true))
+            .every(Boolean);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const duringCooldown = output?.textContent ?? null;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const cooledCanceled = zoom("ArrowDown", true);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const afterCooldown = output?.textContent ?? null;
+        const reversedCanceled = zoom("ArrowUp", true);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const reversed = output?.textContent ?? null;
+        const restoredCanceled = zoom("ArrowUp");
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
-            out: await zoom("ArrowDown"),
-            in: await zoom("ArrowUp")
+            firstCanceled,
+            repeatedCanceled,
+            cooledCanceled,
+            reversedCanceled,
+            restoredCanceled,
+            duringCooldown,
+            afterCooldown,
+            reversed,
+            restored: output?.textContent ?? null,
         };
     })()`);
-    if (!keyboardZoomState.out.canceled ||
-        keyboardZoomState.out.value !== "50%" ||
-        !keyboardZoomState.in.canceled ||
-        keyboardZoomState.in.value !== "100%") {
+    if (!keyboardZoomState.firstCanceled || !keyboardZoomState.repeatedCanceled ||
+        !keyboardZoomState.cooledCanceled || !keyboardZoomState.reversedCanceled ||
+        !keyboardZoomState.restoredCanceled ||
+        keyboardZoomState.duringCooldown !== "50%" ||
+        keyboardZoomState.afterCooldown !== "25%" || keyboardZoomState.reversed !== "50%" ||
+        keyboardZoomState.restored !== "100%") {
         throw new Error(`Keyboard zoom is incomplete: ${JSON.stringify(keyboardZoomState)}`);
     }
 
@@ -3010,7 +3030,7 @@ async function run() {
             }
         });
         try {
-            // OSのkey repeatに近い間隔で、animation途中のfallback tileを連続して再投影する。
+            // animation途中のfallback tileを連続して再投影する。
             inputSetter?.call(zoomSteps, "1");
             zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
             reset.click();
@@ -3019,13 +3039,7 @@ async function run() {
             previousFrame = performance.now();
             const repeatBegin = performance.now();
             for (let index = 0; index < 10; index++) {
-                document.dispatchEvent(new KeyboardEvent("keydown", {
-                    key: "ArrowDown",
-                    ctrlKey: true,
-                    repeat: index > 0,
-                    bubbles: true,
-                    cancelable: true,
-                }));
+                zoomOut.click();
                 await new Promise((resolve) => setTimeout(resolve, 33));
             }
             await new Promise((resolve) => setTimeout(resolve, 300));
