@@ -1,6 +1,9 @@
 // Konata固有の描画判断から独立したCanvas描画境界。
 // 矩形・依存矢印のbackend選択と、短い文字列のrasterize／BLTをこのfileへ閉じる。
+// Rendererはbegin/end間でこのCanvas APIの部分集合だけを使い、Canvas 2DとWebGLを分岐しない。
 
+// WebGLへ直接変換できる操作に限定した、KonataRenderer用のCanvas互換interface。
+// CanvasGradient自体は転送できないため、上下gradientは色と位置を明示的に渡す。
 export interface CanvasDrawContext {
     fillStyle: string | CanvasGradient | CanvasPattern;
     strokeStyle: string | CanvasGradient | CanvasPattern;
@@ -44,6 +47,8 @@ interface AtlasEntry {
     readonly offsetY: number;
 }
 
+// 頻出するstage名と経過cycle数を1枚のCanvasへ棚詰めし、再描画をBLTに変える。
+// revisionはtexture内容の更新、generationは配置の作り直しを表す。後者が変わると旧UVは使えない。
 class TextAtlas {
     // backing pixel基準で固定し、高DPI環境でもCanvasごとの使用量を2 MiBに抑える。
     private static readonly WIDTH = 1024;
@@ -253,11 +258,14 @@ export class CanvasBackend implements CanvasDrawContext {
     private static readonly INITIAL_CAPACITY = 2048;
     private static readonly ARROW_CURVE_SEGMENTS = 32;
 
+    // begin/endで1回のbatchに必要な出力先だけを差し替える。
+    // command bufferの容量、atlas、GL resourceはframe間で再利用する。
     private targetCanvas_: HTMLCanvasElement | null = null;
     private targetContext_: CanvasRenderingContext2D | null = null;
     private width_ = 1;
     private height_ = 1;
     private webGLEnabled_ = true;
+    // CSS色はbatch内のstyle tableで共有し、各commandにはindexだけを保存する。
     private fillStyle_: string = "#000000";
     private fillStyleIndex_ = 0;
     private strokeStyle_: string = "#000000";
@@ -265,6 +273,8 @@ export class CanvasBackend implements CanvasDrawContext {
     private lineWidth_ = 1;
     private styles_: string[] = [];
     private styleMap_ = new Map<string, number>();
+    // 矩形と文字を共通indexのSoAとして持つ。Canvas fallbackでもこの順に再生するため、
+    // lane、文字、flush overlayの重なり順はbackendによらず一致する。
     private capacity_ = 0;
     private count_ = 0;
     private rects_ = new Float32Array(0);
@@ -282,6 +292,7 @@ export class CanvasBackend implements CanvasDrawContext {
     private textAtlasGeneration_ = -1;
     private textBatchValid_ = true;
     // Konataの依存矢印が使う直線／3次Bezier／三角形だけをCanvas path互換で受ける。
+    // 矢印はpipeline本体の後に描く契約なので、矩形／文字とは別のbatchにできる。
     private readonly pathPoints_: number[] = [];
     private pathIsCurve_ = false;
     private pathValid_ = true;
@@ -296,6 +307,8 @@ export class CanvasBackend implements CanvasDrawContext {
     private arrowHasCurve_ = false;
     private pendingArrowIndex_ = -1;
 
+    // 2D contextを持つ表示CanvasにWebGL contextは作れないため、offscreen Canvasへ描いて
+    // 最後に1回のdrawImageで転送する。lost/unavailableは毎frameの再初期化を防ぐ。
     private state_: WebGLState = "uninitialized";
     private overlayCanvas_: HTMLCanvasElement | null = null;
     private gl_: WebGL2RenderingContext | null = null;
@@ -381,6 +394,7 @@ export class CanvasBackend implements CanvasDrawContext {
         height: number,
         webGLEnabled = true,
     ): CanvasDrawContext {
+        // 保持済み配列は捨てず、有効command数とbatch固有のstateだけを戻す。
         this.targetCanvas_ = canvas;
         this.targetContext_ = context;
         this.width_ = width;
@@ -437,6 +451,7 @@ export class CanvasBackend implements CanvasDrawContext {
         if (context === null) {
             return;
         }
+        // pipeline本体は矩形と同じ列へ積む。別Canvasの文字はatlasから直接転送する。
         if (this.targetContext_ === context) {
             this.queueText_(text, x, baselineY);
             return;
@@ -542,6 +557,7 @@ export class CanvasBackend implements CanvasDrawContext {
         if (this.arrowCount_ >= this.arrowCapacity_) {
             this.growArrows_();
         }
+        // strokeで矢の軸を確定し、直後のfillが同じindexの矢尻を完成させる。
         const index = this.arrowCount_;
         const offset = index * 8;
         const startX = points[0];
@@ -724,6 +740,8 @@ export class CanvasBackend implements CanvasDrawContext {
         if (this.targetCanvas_ === null || this.targetContext_ === null) {
             return;
         }
+        // 明示的な無効化、小さいbatch、atlasの途中巻き戻し、GL失敗はすべて
+        // 同じcommand bufferのCanvas 2D再生へ退避する。
         const useWebGL = this.webGLEnabled_ &&
             this.textBatchValid_ &&
             this.count_ + this.arrowCount_ >= CanvasBackend.WEBGL_BATCH_THRESHOLD &&
@@ -803,6 +821,7 @@ export class CanvasBackend implements CanvasDrawContext {
         if (context === null) {
             return;
         }
+        // styleが続く間はCanvas stateの再設定を省きつつ、commandのpainter順は変えない。
         let solidStyleIndex = -1;
         let strokeStyleIndex = -1;
         let lineWidth = -1;
@@ -958,6 +977,7 @@ export class CanvasBackend implements CanvasDrawContext {
             return false;
         }
 
+        // context restore後はJS側のresource referenceも無効なので、次回描画時に全て作り直す。
         const canvas = this.overlayCanvas_ ?? document.createElement("canvas");
         if (this.overlayCanvas_ === null) {
             canvas.addEventListener("webglcontextlost", (event) => {
@@ -1436,6 +1456,8 @@ export class CanvasBackend implements CanvasDrawContext {
         }
 
         try {
+            // 矩形／文字は1 commandを1 instance、矢印も1本を1 instanceとしてGPUへ送る。
+            // depth bufferは使わず、発行順とalpha blendでCanvasのpainter modelを再現する。
             if (overlay.width !== target.width || overlay.height !== target.height) {
                 overlay.width = target.width;
                 overlay.height = target.height;
@@ -1564,6 +1586,7 @@ export class CanvasBackend implements CanvasDrawContext {
         if (atlas === null || this.textAtlasGeneration_ !== this.textAtlas_.generation) {
             return false;
         }
+        // entry追加がないframeでは前回のGPU textureをそのま使う。
         if (this.uploadedTextAtlasRevision_ !== this.textAtlas_.revision) {
             // 画面上端のvertexへUV 0を対応させているため、Canvas sourceの上下は反転しない。
             gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
@@ -1581,6 +1604,7 @@ export class CanvasBackend implements CanvasDrawContext {
     }
 
     private prepareColors_(): boolean {
+        // shaderにCSS色文字列は渡せないため、style tableを1度だけRGBAへ展開する。
         const palette: Array<readonly [number, number, number, number]> = [];
         for (const style of this.styles_) {
             const color = this.parseColor_(style);
@@ -1632,6 +1656,7 @@ export class CanvasBackend implements CanvasDrawContext {
         if (typeof document === "undefined") {
             return null;
         }
+        // CSS color parserを再実装せず、1x1 Canvasの標準解釈を使ってRGBAを得る。
         if (this.colorContext_ === null) {
             this.colorCanvas_ = document.createElement("canvas");
             this.colorCanvas_.width = 1;
