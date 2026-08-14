@@ -2843,6 +2843,14 @@ async function run() {
         let operationOrder = 0;
         let firstTileBlitOrder = null;
         let firstNewTileRenderOrder = null;
+        let frameIndex = 0;
+        let observeFrames = true;
+        const renderedTilesByFrame = new Map();
+        const observeFrame = () => {
+            frameIndex++;
+            if (observeFrames) requestAnimationFrame(observeFrame);
+        };
+        requestAnimationFrame(observeFrame);
         prototype.drawImage = function(...args) {
             const source = args[0];
             if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
@@ -2861,21 +2869,35 @@ async function run() {
             if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
                 this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
                 firstNewTileRenderOrder ??= ++operationOrder;
+                const canvases = renderedTilesByFrame.get(frameIndex) ?? new Set();
+                canvases.add(this.canvas);
+                renderedTilesByFrame.set(frameIndex, canvases);
             }
             return Reflect.apply(originalFillRect, this, args);
         };
         try {
-            // 100%では4 wheelで288 px移動し、先読みringを使いつつ次の外周生成も発生する。
-            for (let index = 0; index < 4; index++) {
+            // 横へ1 tile index進み、先読みringを使いつつ次の外周生成も発生させる。
+            for (let index = 0; index < 2; index++) {
                 viewer.dispatchEvent(new WheelEvent("wheel", {
-                    deltaY: 100,
+                    deltaX: 100,
+                    deltaY: 0,
                     bubbles: true,
                     cancelable: true,
                 }));
             }
             await new Promise((resolve) => setTimeout(resolve, 300));
             await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-            return {tileBlits, previousFrameBlits, firstTileBlitOrder, firstNewTileRenderOrder};
+            observeFrames = false;
+            return {
+                tileBlits,
+                previousFrameBlits,
+                firstTileBlitOrder,
+                firstNewTileRenderOrder,
+                maxNewTilesPerFrame: Math.max(
+                    0,
+                    ...[...renderedTilesByFrame.values()].map((canvases) => canvases.size),
+                ),
+            };
         }
         finally {
             prototype.drawImage = originalDrawImage;
@@ -2887,7 +2909,8 @@ async function run() {
     if (tileReuseState.tileBlits < 1 || tileReuseState.previousFrameBlits < 1 ||
         tileReuseState.firstTileBlitOrder === null ||
         tileReuseState.firstNewTileRenderOrder === null ||
-        tileReuseState.firstTileBlitOrder >= tileReuseState.firstNewTileRenderOrder) {
+        tileReuseState.firstTileBlitOrder >= tileReuseState.firstNewTileRenderOrder ||
+        tileReuseState.maxNewTilesPerFrame !== 2) {
         throw new Error(`Pipeline tiles were not reused while scrolling: ${JSON.stringify(tileReuseState)}`);
     }
 

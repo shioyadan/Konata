@@ -84,6 +84,11 @@ export class TiledPipelineRenderer {
     private static readonly PREFETCH_MARGIN_TILES = 1;
     private static readonly MAX_CACHE_BYTES = 128 * 1024 * 1024;
     private static readonly ZOOM_SETTLE_DELAY_MS = 80;
+    // 軽いtileは同じframeで進め、重いtileではUI時間を残す。GLの非同期実行を積み過ぎないよう枚数も制限する。
+    private static readonly VISIBLE_RENDER_BUDGET_MS = 8;
+    private static readonly VISIBLE_MAX_TILES_PER_FRAME = 8;
+    private static readonly PREFETCH_RENDER_BUDGET_MS = 4;
+    private static readonly PREFETCH_MAX_TILES_PER_FRAME = 2;
 
     private readonly renderer_: KonataRenderer;
     // Mapの挿入順をLRU順として兼用し、別のqueueや世代表を増やさない。
@@ -403,21 +408,55 @@ export class TiledPipelineRenderer {
         }
         this.frameID_ = window.requestAnimationFrame(() => {
             this.frameID_ = null;
-            this.renderNextTile_();
+            this.renderNextBatch_();
         });
     }
 
-    private renderNextTile_(): void {
+    private renderNextBatch_(): void {
         const request = this.current_;
-        const job = this.jobs_.shift();
         const generation = this.generation_;
-        if (request === null || job === undefined) {
+        const firstJob = this.jobs_[0];
+        if (request === null || firstJob === undefined) {
             return;
         }
+        const visibleBatch = firstJob.visible;
+        const budget = visibleBatch
+            ? TiledPipelineRenderer.VISIBLE_RENDER_BUDGET_MS
+            : TiledPipelineRenderer.PREFETCH_RENDER_BUDGET_MS;
+        const limit = visibleBatch
+            ? TiledPipelineRenderer.VISIBLE_MAX_TILES_PER_FRAME
+            : TiledPipelineRenderer.PREFETCH_MAX_TILES_PER_FRAME;
+        const begin = performance.now();
+        let renderedCount = 0;
+        let visibleUpdated = false;
+
+        while (renderedCount < limit) {
+            const job = this.jobs_[0];
+            // 可視分の最後と先読みを同じbatchへ混ぜず、次frameから小さい先読み予算へ切り替える。
+            if (job === undefined || job.visible !== visibleBatch) {
+                break;
+            }
+            this.jobs_.shift();
+            if (this.renderTile_(request, job, generation)) {
+                renderedCount++;
+                visibleUpdated ||= job.visible;
+            }
+            if (renderedCount > 0 && performance.now() - begin >= budget) {
+                break;
+            }
+        }
+
+        // viewport全体のBLTと依存矢印はtileごとでなくbatch後に一度だけ行う。
+        if (visibleUpdated) {
+            this.paint_(true);
+        }
+        this.scheduleNext_(false);
+    }
+
+    private renderTile_(request: RenderRequest, job: TilePosition, generation: number): boolean {
         const key = this.tileKey_(request.namespaceKey, job.x, job.y);
         if (this.tiles_.has(key)) {
-            this.scheduleNext_(false);
-            return;
+            return false;
         }
         const canvas = document.createElement("canvas");
         // tile左上のworld pixelをRendererの論理positionへ戻す。Renderer自身はtileの存在を知らない。
@@ -439,17 +478,13 @@ export class TiledPipelineRenderer {
         if (generation !== this.generation_ || this.current_?.namespaceKey !== request.namespaceKey) {
             canvas.width = 1;
             canvas.height = 1;
-            return;
+            return false;
         }
         this.putTile_(key, {
             canvas,
             bytes: canvas.width * canvas.height * 4,
         });
-        // 可視tileは完成ごとに公開し、先読みtileは次の操作時に自然に使われる。
-        if (job.visible) {
-            this.paint_(true);
-        }
-        this.scheduleNext_(false);
+        return true;
     }
 
     private tileKey_(namespaceKey: string, x: number, y: number): string {
