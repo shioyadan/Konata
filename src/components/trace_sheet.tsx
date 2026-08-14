@@ -235,96 +235,48 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             candidateLayerCanvasRef.current = candidateLayer;
             const width = pipelineCanvas.clientWidth;
             const height = pipelineCanvas.clientHeight;
-            if (comparisonMode === "baseline") {
-                // tileは非同期に完成するので、各layerの更新時にも最終Canvasだけを再合成する。
-                const compose = () => renderer.composePipelineLayers(
-                    pipelineCanvas, baselineLayer, candidateLayer, COMPARISON_REFERENCE_OPACITY);
-                baselineTiledRenderer.drawPipelineSpec(
-                    baselineTrace,
-                    baselineRenderSpec,
-                    baselineLayer,
-                    {
-                        ...baselineTileOptions,
-                        width,
-                        height,
-                        colorScheme: COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
-                        onUpdate: compose,
-                    },
-                );
-                tiledRenderer.drawPipelineSpec(
-                    trace,
-                    renderSpec,
-                    candidateLayer,
-                    {
-                        ...candidateTileOptions,
-                        width,
-                        height,
-                        colorScheme: COMPARISON_COLOR_SCHEME.REFERENCE,
-                        referenceOnly: true,
-                        onUpdate: compose,
-                    },
-                );
-                compose();
-            }
-            else if (comparisonMode === "candidate") {
-                const compose = () => renderer.composePipelineLayers(
-                    pipelineCanvas, candidateLayer, baselineLayer, COMPARISON_REFERENCE_OPACITY);
-                tiledRenderer.drawPipelineSpec(
-                    trace,
-                    renderSpec,
-                    candidateLayer,
-                    {
-                        ...candidateTileOptions,
-                        width,
-                        height,
-                        colorScheme: COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
-                        onUpdate: compose,
-                    },
-                );
-                baselineTiledRenderer.drawPipelineSpec(
-                    baselineTrace,
-                    baselineRenderSpec,
-                    baselineLayer,
-                    {
-                        ...baselineTileOptions,
-                        width,
-                        height,
-                        colorScheme: COMPARISON_COLOR_SCHEME.REFERENCE,
-                        referenceOnly: true,
-                        onUpdate: compose,
-                    },
-                );
-                compose();
-            }
-            else {
-                const compose = () => renderer.composePipelineLayers(
-                    pipelineCanvas, baselineLayer, candidateLayer, comparisonOpacity);
-                baselineTiledRenderer.drawPipelineSpec(
-                    baselineTrace,
-                    baselineRenderSpec,
-                    baselineLayer,
-                    {
-                        ...baselineTileOptions,
-                        width,
-                        height,
-                        colorScheme: COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
-                        onUpdate: compose,
-                    },
-                );
-                tiledRenderer.drawPipelineSpec(
-                    trace,
-                    renderSpec,
-                    candidateLayer,
-                    {
-                        ...candidateTileOptions,
-                        width,
-                        height,
-                        colorScheme: COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
-                        onUpdate: compose,
-                    },
-                );
-                compose();
-            }
+            const baselineIsReference = comparisonMode === "candidate";
+            const candidateIsReference = comparisonMode === "baseline";
+            const bottomLayer = baselineIsReference ? candidateLayer : baselineLayer;
+            const topLayer = baselineIsReference ? baselineLayer : candidateLayer;
+            const opacity = comparisonMode === "overlay"
+                ? comparisonOpacity
+                : COMPARISON_REFERENCE_OPACITY;
+            // tileは非同期に完成するので、各layerの更新時にも同じ順序で最終Canvasを再合成する。
+            const compose = () => renderer.composePipelineLayers(
+                pipelineCanvas, bottomLayer, topLayer, opacity);
+
+            baselineTiledRenderer.drawPipelineSpec(
+                baselineTrace,
+                baselineRenderSpec,
+                baselineLayer,
+                {
+                    ...baselineTileOptions,
+                    width,
+                    height,
+                    colorScheme: baselineIsReference
+                        ? COMPARISON_COLOR_SCHEME.REFERENCE
+                        : COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE,
+                    referenceOnly: baselineIsReference,
+                    onUpdate: compose,
+                },
+            );
+            tiledRenderer.drawPipelineSpec(
+                trace,
+                renderSpec,
+                candidateLayer,
+                {
+                    ...candidateTileOptions,
+                    width,
+                    height,
+                    colorScheme: candidateIsReference
+                        ? COMPARISON_COLOR_SCHEME.REFERENCE
+                        : COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE,
+                    referenceOnly: candidateIsReference,
+                    onUpdate: compose,
+                },
+            );
+            compose();
         }
     }, [
         baselineRenderSpec,
