@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
-import { RectRenderer } from "../src/core/rect_renderer";
+import { CanvasBackend } from "../src/core/canvas_backend";
 import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -541,10 +541,10 @@ test("Web renderer keeps stage borders in the accelerated Canvas fallback", () =
     assert.deepEqual(pipeline.fillTexts, []);
 });
 
-test("Rectangle renderer joins only consecutive touching fills with the same appearance", () => {
+test("Canvas backend joins only consecutive touching fills with the same appearance", () => {
     const recorded = createRecordedContext();
-    const renderer = new RectRenderer();
-    const rects = renderer.begin(
+    const backend = new CanvasBackend();
+    const draw = backend.begin(
         createCanvas(recorded.context),
         recorded.context,
         320,
@@ -552,13 +552,13 @@ test("Rectangle renderer joins only consecutive touching fills with the same app
         false,
     );
 
-    rects.fillVerticalGradientRect(4, 6, 8, 5, "#112233", "#445566", 0.1, 0.9);
-    rects.fillVerticalGradientRect(12, 6, 3, 5, "#112233", "#445566", 0.1, 0.9);
+    draw.fillVerticalGradientRect(4, 6, 8, 5, "#112233", "#445566", 0.1, 0.9);
+    draw.fillVerticalGradientRect(12, 6, 3, 5, "#112233", "#445566", 0.1, 0.9);
     // 半透明色にも使える一般層なので、重なりはblend回数を保つため結合しない。
-    rects.fillVerticalGradientRect(14.5, 6, 3, 5, "#112233", "#445566", 0.1, 0.9);
+    draw.fillVerticalGradientRect(14.5, 6, 3, 5, "#112233", "#445566", 0.1, 0.9);
     // 座標が接してもgradientの形が異なるcommandは独立したままにする。
-    rects.fillVerticalGradientRect(17.5, 6, 2, 5, "#112233", "#445566", 0.2, 0.9);
-    renderer.end();
+    draw.fillVerticalGradientRect(17.5, 6, 2, 5, "#112233", "#445566", 0.2, 0.9);
+    backend.end();
 
     assert.deepEqual(recorded.fillRects, [
         [4, 6, 11, 5],
@@ -572,40 +572,40 @@ test("Rectangle renderer joins only consecutive touching fills with the same app
     ]);
 });
 
-test("Rectangle renderer batches dependency arrow paths in the Canvas fallback", () => {
+test("Canvas backend batches dependency arrow paths in the Canvas fallback", () => {
     const recorded = createRecordedContext();
-    const renderer = new RectRenderer();
-    const rects = renderer.begin(
+    const backend = new CanvasBackend();
+    const draw = backend.begin(
         createCanvas(recorded.context),
         recorded.context,
         320,
         96,
         false,
     );
-    rects.strokeStyle = "#112233";
-    rects.fillStyle = "#445566";
-    rects.lineWidth = 2;
+    draw.strokeStyle = "#112233";
+    draw.fillStyle = "#445566";
+    draw.lineWidth = 2;
 
-    rects.beginPath();
-    rects.moveTo(1, 2);
-    rects.lineTo(11, 12);
-    rects.stroke();
-    rects.beginPath();
-    rects.moveTo(11, 12);
-    rects.lineTo(8, 10);
-    rects.lineTo(9, 8);
-    rects.fill();
+    draw.beginPath();
+    draw.moveTo(1, 2);
+    draw.lineTo(11, 12);
+    draw.stroke();
+    draw.beginPath();
+    draw.moveTo(11, 12);
+    draw.lineTo(8, 10);
+    draw.lineTo(9, 8);
+    draw.fill();
 
-    rects.beginPath();
-    rects.moveTo(21, 22);
-    rects.bezierCurveTo(17, 22, 17, 32, 31, 32);
-    rects.stroke();
-    rects.beginPath();
-    rects.moveTo(31, 32);
-    rects.lineTo(28, 30);
-    rects.lineTo(29, 28);
-    rects.fill();
-    renderer.end();
+    draw.beginPath();
+    draw.moveTo(21, 22);
+    draw.bezierCurveTo(17, 22, 17, 32, 31, 32);
+    draw.stroke();
+    draw.beginPath();
+    draw.moveTo(31, 32);
+    draw.lineTo(28, 30);
+    draw.lineTo(29, 28);
+    draw.fill();
+    backend.end();
 
     assert.equal(recorded.commands.filter((command) => command === "stroke").length, 1);
     assert.equal(recorded.commands.filter((command) => command === "fill").length, 1);

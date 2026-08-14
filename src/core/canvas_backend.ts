@@ -1,7 +1,7 @@
 // Konata固有の描画判断から独立したCanvas描画境界。
 // 矩形・依存矢印のbackend選択と、短い文字列のrasterize／BLTをこのfileへ閉じる。
 
-export interface RectContext {
+export interface CanvasDrawContext {
     fillStyle: string | CanvasGradient | CanvasPattern;
     strokeStyle: string | CanvasGradient | CanvasPattern;
     lineWidth: number;
@@ -241,12 +241,13 @@ class TextAtlas {
 }
 
 /**
- * rectangleと定型的な矢印pathをCanvas互換の形で蓄積し、多数ある時だけWebGL2で一括描画する。
+ * 矩形、短い文字列、定型的な矢印pathをCanvas互換commandとして受け取り、
+ * 多数ある時だけWebGL2で一括描画する。
  *
  * WebGLを利用できない場合も同じ矩形列をCanvas 2Dへ再生するため、呼出側はbackendを意識しない。
  * 小さいbatchではWebGLの固定費を避け、Canvas 2Dをそのまま使う。
  */
-export class RectRenderer implements RectContext {
+export class CanvasBackend implements CanvasDrawContext {
     private static readonly WEBGL_BATCH_THRESHOLD = 64;
     private static readonly INITIAL_CAPACITY = 2048;
     private static readonly ARROW_CURVE_SEGMENTS = 32;
@@ -333,7 +334,7 @@ export class RectRenderer implements RectContext {
 
     set fillStyle(value: string | CanvasGradient | CanvasPattern) {
         if (typeof value !== "string") {
-            throw new Error("The accelerated rectangle layer only supports solid CSS colors.");
+            throw new Error("The Canvas backend only supports solid CSS fill colors.");
         }
         this.fillStyle_ = value;
         this.fillStyleIndex_ = this.getStyleIndex_(value);
@@ -345,7 +346,7 @@ export class RectRenderer implements RectContext {
 
     set strokeStyle(value: string | CanvasGradient | CanvasPattern) {
         if (typeof value !== "string") {
-            throw new Error("The accelerated rectangle layer only supports solid stroke colors.");
+            throw new Error("The Canvas backend only supports solid CSS stroke colors.");
         }
         this.strokeStyle_ = value;
         this.strokeStyleIndex_ = this.getStyleIndex_(value);
@@ -357,7 +358,7 @@ export class RectRenderer implements RectContext {
 
     set lineWidth(value: number) {
         if (!Number.isFinite(value) || value <= 0) {
-            throw new Error("The accelerated rectangle layer requires a positive line width.");
+            throw new Error("The Canvas backend requires a positive line width.");
         }
         this.lineWidth_ = value;
     }
@@ -379,7 +380,7 @@ export class RectRenderer implements RectContext {
         width: number,
         height: number,
         webGLEnabled = true,
-    ): RectContext {
+    ): CanvasDrawContext {
         this.targetCanvas_ = canvas;
         this.targetContext_ = context;
         this.width_ = width;
@@ -725,7 +726,7 @@ export class RectRenderer implements RectContext {
         }
         const useWebGL = this.webGLEnabled_ &&
             this.textBatchValid_ &&
-            this.count_ + this.arrowCount_ >= RectRenderer.WEBGL_BATCH_THRESHOLD &&
+            this.count_ + this.arrowCount_ >= CanvasBackend.WEBGL_BATCH_THRESHOLD &&
             this.ensureWebGL_() &&
             this.drawWebGL_();
         if (!useWebGL) {
@@ -771,7 +772,7 @@ export class RectRenderer implements RectContext {
     }
 
     private grow_(): void {
-        const capacity = Math.max(RectRenderer.INITIAL_CAPACITY, this.capacity_ * 2);
+        const capacity = Math.max(CanvasBackend.INITIAL_CAPACITY, this.capacity_ * 2);
         const rects = new Float32Array(capacity * 4);
         const textureRects = new Float32Array(capacity * 4);
         const textPositions = new Float32Array(capacity * 2);
@@ -794,7 +795,7 @@ export class RectRenderer implements RectContext {
     }
 
     private growArrows_(): void {
-        const capacity = Math.max(RectRenderer.INITIAL_CAPACITY, this.arrowCapacity_ * 2);
+        const capacity = Math.max(CanvasBackend.INITIAL_CAPACITY, this.arrowCapacity_ * 2);
         const points = new Float32Array(capacity * 8);
         const headPoints = new Float32Array(capacity * 6);
         const styleIndices = new Uint32Array(capacity * 2);
@@ -1507,7 +1508,7 @@ export class RectRenderer implements RectContext {
             }
             if (this.arrowCount_ > 0) {
                 const segmentCount = this.arrowHasCurve_
-                    ? RectRenderer.ARROW_CURVE_SEGMENTS
+                    ? CanvasBackend.ARROW_CURVE_SEGMENTS
                     : 1;
                 gl.useProgram(this.arrowProgram_);
                 gl.uniform2f(this.arrowResolutionUniform_, this.width_, this.height_);

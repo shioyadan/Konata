@@ -1,8 +1,8 @@
 import type { Op, ParsedTrace } from "./model";
 import {
-    RectRenderer,
-    type RectContext,
-} from "./rect_renderer";
+    CanvasBackend,
+    type CanvasDrawContext,
+} from "./canvas_backend";
 
 // fsで読むと配布後のcurrent directoryに依存するため、旧Rendererと同じく
 // style定義はmoduleとしてbundleへ取り込む。
@@ -462,7 +462,7 @@ export class KonataRenderer {
     private labelFont_ = "";
     private labelFontSize_ = 12;
     private stageFontSize_ = 12;
-    private readonly canvasRenderer_ = new RectRenderer();
+    private readonly canvasBackend_ = new CanvasBackend();
 
     constructor() {
         this.metrics_ = new KonataRenderMetrics(null, DEFAULT_KONATA_RENDER_SPEC);
@@ -592,7 +592,7 @@ export class KonataRenderer {
     }
 
     releaseCanvasResources(): void {
-        this.canvasRenderer_.dispose();
+        this.canvasBackend_.dispose();
     }
 
     private updateDerivedValues_(): void {
@@ -705,7 +705,7 @@ export class KonataRenderer {
             return;
         }
         if (drawBase && !this.renderingReference_ && this.canDrawText_) {
-            this.canvasRenderer_.setTextStyle(
+            this.canvasBackend_.setTextStyle(
                 context,
                 this.style_.fontStyle,
                 Number(this.style_.fontSize),
@@ -738,8 +738,8 @@ export class KonataRenderer {
         // cache済み文字は矩形と同じ順序でtexture quadへ積み、laneやflushの重なりも維持する。
         // WebGL無効時は文字atlasだけをCanvasへ転送し、矩形は従来どおり直接描画する。
         const canBatch = !drawBase || !this.canDrawText_ || backend.webGLEnabled;
-        const simplifiedRects = canBatch
-            ? this.canvasRenderer_.begin(
+        const backendContext = canBatch
+            ? this.canvasBackend_.begin(
                 canvas,
                 context,
                 size.width,
@@ -747,7 +747,7 @@ export class KonataRenderer {
                 backend.webGLEnabled,
             )
             : null;
-        const solidRects = simplifiedRects ?? context;
+        const solidRects = backendContext ?? context;
         try {
             if (drawBase) {
                 let skipRendering = false;
@@ -774,7 +774,7 @@ export class KonataRenderer {
                         left,
                         left + logicalWidth,
                         context,
-                        simplifiedRects,
+                        backendContext,
                     )) {
                         skipRendering = true;
                     }
@@ -786,8 +786,8 @@ export class KonataRenderer {
             }
         }
         finally {
-            if (simplifiedRects !== null) {
-                this.canvasRenderer_.end();
+            if (backendContext !== null) {
+                this.canvasBackend_.end();
             }
         }
 
@@ -811,7 +811,7 @@ export class KonataRenderer {
         startCycle: number,
         endCycle: number,
         context: CanvasRenderingContext2D,
-        simplifiedRects: RectContext | null,
+        backendContext: CanvasDrawContext | null,
     ): boolean {
         const top = logicalY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
         if (op.retiredCycle < startCycle) {
@@ -833,7 +833,7 @@ export class KonataRenderer {
 
         const detailed = this.metrics_.canDrawDetailedly;
         if (detailed && this.canDrawFrame_) {
-            const rectContext = simplifiedRects ?? context;
+            const rectContext = backendContext ?? context;
             rectContext.strokeStyle = this.style_.pipelinePane.borderColor;
         }
 
@@ -850,17 +850,17 @@ export class KonataRenderer {
                     : logicalY;
                 drewStage = this.drawLane_(
                     op, laneTop, startCycle, endCycle, context, laneID,
-                    simplifiedRects,
+                    backendContext,
                 ) || drewStage;
             }
         }
 
-        if (detailed && (simplifiedRects === null || this.canDrawText_ || drewStage)) {
+        if (detailed && (backendContext === null || this.canDrawText_ || drewStage)) {
             return true;
         }
         // 最縮小域では命令ごとの1矩形に留め、WebGLが使えない場合もCanvas負荷を抑える。
         // 詳細域でもstageを持たない命令は同じoverview表示へfallbackする。
-        const solidRects = simplifiedRects ?? context;
+        const solidRects = backendContext ?? context;
         const colorScheme = this.activeColorScheme_;
         solidRects.fillStyle = this.isKnownCalculatedColorScheme_()
             ? this.getComparisonOverviewColor_(colorScheme)
@@ -883,7 +883,7 @@ export class KonataRenderer {
         endCycle: number,
         context: CanvasRenderingContext2D,
         laneID: number,
-        solidRects: RectContext | null = null,
+        solidRects: CanvasDrawContext | null = null,
     ): boolean {
         const lane = op.lanes[laneID];
         if (lane === null || lane === undefined) {
@@ -958,7 +958,7 @@ export class KonataRenderer {
                         0,
                         (this.opWidth_ - String(offset).length * this.stageFontSize_ / 2) / 2,
                     );
-                    this.canvasRenderer_.fillText(
+                    this.canvasBackend_.fillText(
                         String(offset),
                         textLeft + offset * this.opWidth_ + margin,
                         textTop,
@@ -968,7 +968,7 @@ export class KonataRenderer {
                     0,
                     (this.opWidth_ - stage.name.length * this.stageFontSize_ / 2) / 2,
                 );
-                this.canvasRenderer_.fillText(stage.name, textLeft + margin, textTop);
+                this.canvasBackend_.fillText(stage.name, textLeft + margin, textTop);
             }
 
             if (!this.renderingReference_ && op.flush) {
@@ -985,7 +985,7 @@ export class KonataRenderer {
         logicalTop: number,
         logicalLeft: number,
         logicalHeight: number,
-        context: CanvasRenderingContext2D | RectContext,
+        context: CanvasRenderingContext2D | CanvasDrawContext,
     ): void {
         if (!this.canDrawDependency_) {
             return;
@@ -1042,7 +1042,7 @@ export class KonataRenderer {
     }
 
     private drawArrow_(
-        context: CanvasRenderingContext2D | RectContext,
+        context: CanvasRenderingContext2D | CanvasDrawContext,
         start: readonly [number, number],
         end: readonly [number, number],
         vector: readonly [number, number],
