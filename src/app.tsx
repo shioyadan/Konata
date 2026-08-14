@@ -47,7 +47,6 @@ import {
     type CustomColorDefinition,
     type CustomColorScheme,
     type DependencyArrowType,
-    type KonataRenderSpec,
     type RendererTheme,
 } from "./core/konata_renderer";
 import {
@@ -56,6 +55,8 @@ import {
     type MinimumLaneHeightKey,
     type PersistedViewSettings,
     Store,
+    type ViewRenderSpecs,
+    type ViewTransitionMotion,
 } from "./store";
 import { getRemoteTraceFileNames } from "./trace_file_access";
 
@@ -63,31 +64,6 @@ interface ViewBookmark {
     readonly x: number;
     readonly y: number;
     readonly zoom: number;
-}
-
-interface ViewAnimation {
-    readonly tabID: number;
-    readonly startedAt: number;
-    readonly duration: number;
-    readonly apply: (progress: number) => void;
-    frameID: number;
-}
-
-interface PendingScroll {
-    readonly tabID: number;
-    readonly position: readonly [number, number];
-    readonly baselinePosition?: readonly [number, number];
-}
-
-interface PendingZoom {
-    readonly tabID: number;
-    readonly level: number;
-}
-
-interface PipelineTileTarget {
-    readonly tabID: number;
-    readonly renderSpec: Readonly<KonataRenderSpec>;
-    readonly baselineRenderSpec?: Readonly<KonataRenderSpec>;
 }
 
 // 各詳細を描画するlaneの最小高さと、UIの説明を1か所で対応付ける。
@@ -346,6 +322,7 @@ export function App() {
     const bookmarkControlsRef = useRef<HTMLDetailsElement>(null);
     const comparisonControlsRef = useRef<HTMLDetailsElement>(null);
     const viewControlsRef = useRef<HTMLDetailsElement>(null);
+    const zoomOutputRef = useRef<HTMLOutputElement>(null);
     const traceSheetRef = useRef<TraceSheetHandle>(null);
     const storeRef = useRef<Store | null>(null);
     if (storeRef.current === null) {
@@ -358,10 +335,6 @@ export function App() {
         commandHistoryRef.current = loadCommandHistory();
     }
     const commandHistory = commandHistoryRef.current;
-    // timer IDなどの途中状態は表示結果ではないため、StoreではなくAppの寿命にだけ結び付ける。
-    const viewAnimationRef = useRef<ViewAnimation | null>(null);
-    const pendingScrollRef = useRef<PendingScroll | null>(null);
-    const pendingZoomRef = useRef<PendingZoom | null>(null);
     const logEntryIDRef = useRef(0);
     const logPaneOpenRef = useRef(false);
 
@@ -391,7 +364,6 @@ export function App() {
     const [bookmarks, setBookmarks] = useState<readonly ViewBookmark[]>(loadBookmarks);
     // CanvasはReact DOMを持たないため、Storeの明示的な内容更新を再描画へ結び付ける番号を持つ。
     const [renderVersion, setRenderVersion] = useState(0);
-    const [pipelineTileTarget, setPipelineTileTarget] = useState<PipelineTileTarget | null>(null);
 
     const activeTab = store.activeTab;
     const comparisonTab = activeTab?.kind === "comparison" ? activeTab : null;
@@ -406,9 +378,6 @@ export function App() {
     const progress = activeTab?.progress ?? 0;
     const errorMessage = activeTab?.errorMessage ?? "";
     const renderSpec = activeTab?.renderSpec ?? DEFAULT_KONATA_RENDER_SPEC;
-    const activePipelineTileTarget = pipelineTileTarget?.tabID === activeTab?.id
-        ? pipelineTileTarget
-        : null;
     const searchProgress = activeTab?.findContext.progress ?? null;
     const findResult = activeTab?.findContext.result ?? null;
     const searchMessage = activeTab?.findContext.message ?? "";
@@ -484,71 +453,77 @@ export function App() {
         store.dispatch({ type: "FILE_MESSAGE_DISMISS" });
     }, [store]);
 
+    const getRenderedSpecs = useCallback((): Readonly<ViewRenderSpecs> | null => {
+        const tab = store.activeTab;
+        if (tab === null) {
+            return null;
+        }
+        return traceSheetRef.current?.getRenderedSpecs() ?? {
+            renderSpec: tab.renderSpec,
+            baselineRenderSpec: tab.kind === "comparison" ? tab.baselineRenderSpec : undefined,
+        };
+    }, [store]);
+
     const cancelViewAnimation = useCallback(() => {
-        pendingScrollRef.current = null;
-        pendingZoomRef.current = null;
-        setPipelineTileTarget(null);
-        const animation = viewAnimationRef.current;
-        if (animation === null) {
+        const tab = store.activeTab;
+        if (tab === null || tab.viewTransition === null) {
             return;
         }
-        cancelAnimationFrame(animation.frameID);
-        viewAnimationRef.current = null;
-    }, []);
+        const rendered = getRenderedSpecs() ?? {
+            renderSpec: tab.renderSpec,
+            baselineRenderSpec: tab.kind === "comparison" ? tab.baselineRenderSpec : undefined,
+        };
+        store.dispatch({
+            type: "KONATA_SET_VIEW",
+            tabID: tab.id,
+            view: {
+                position: rendered.renderSpec.position,
+                zoomLevel: rendered.renderSpec.zoomLevel,
+            },
+            baselineView: tab.kind === "comparison" && rendered.baselineRenderSpec !== undefined
+                ? {
+                    position: rendered.baselineRenderSpec.position,
+                    zoomLevel: rendered.baselineRenderSpec.zoomLevel,
+                }
+                : undefined,
+        });
+    }, [getRenderedSpecs, store]);
 
     const startViewAnimation = useCallback((
-        duration: number,
-        apply: (progress: number) => void,
-        tileTarget: PipelineTileTarget | null = null,
+        from: Readonly<ViewRenderSpecs>,
+        target: Readonly<ViewRenderSpecs>,
+        motion: Readonly<ViewTransitionMotion>,
     ) => {
         const tab = store.activeTab;
         if (tab === null) {
             return;
         }
-
-        cancelViewAnimation();
-        setPipelineTileTarget(tileTarget);
         traceSheetRef.current?.clearToolTip();
-        const tabID = tab.id;
-        const animation: ViewAnimation = {
-            tabID,
-            startedAt: performance.now(),
-            duration,
-            apply,
-            frameID: 0,
-        };
-        const animate = (now: number) => {
-            if (viewAnimationRef.current !== animation) {
-                return;
-            }
-            // Tab切替後に、以前の表示状態を画面外で更新し続けない。
-            if (store.activeTab?.id !== animation.tabID) {
-                viewAnimationRef.current = null;
-                pendingScrollRef.current = null;
-                pendingZoomRef.current = null;
-                setPipelineTileTarget(null);
-                return;
-            }
+        store.dispatch({
+            type: "KONATA_VIEW_TRANSITION_START",
+            tabID: tab.id,
+            from,
+            target,
+            motion,
+        });
+    }, [store]);
 
-            const progress = Math.max(
-                0,
-                Math.min(1, (now - animation.startedAt) / animation.duration),
-            );
-            animation.apply(progress);
-            if (progress >= 1) {
-                viewAnimationRef.current = null;
-                pendingScrollRef.current = null;
-                pendingZoomRef.current = null;
-                setPipelineTileTarget(null);
-            }
-            else {
-                animation.frameID = requestAnimationFrame(animate);
-            }
-        };
+    const finishViewAnimation = useCallback((transitionID: number) => {
+        const tab = store.activeTab;
+        if (tab !== null) {
+            store.dispatch({
+                type: "KONATA_VIEW_TRANSITION_FINISH",
+                tabID: tab.id,
+                transitionID,
+            });
+        }
+    }, [store]);
 
-        viewAnimationRef.current = animation;
-        animation.frameID = requestAnimationFrame(animate);
-    }, [cancelViewAnimation, store]);
+    const updateRenderedZoom = useCallback((zoomLevel: number) => {
+        if (zoomOutputRef.current !== null) {
+            zoomOutputRef.current.textContent = formatKonataZoomPercent(zoomLevel);
+        }
+    }, []);
 
     const hideSearchResult = useCallback(() => {
         const tab = store.activeTab;
@@ -715,55 +690,42 @@ export function App() {
         if (tab === null) {
             return;
         }
-        const [fromX, fromY] = tab.renderSpec.position;
-        const baselineSpec = tab.kind === "comparison" ? tab.baselineRenderSpec : null;
+        const from = getRenderedSpecs();
+        if (from === null) {
+            return;
+        }
+        const [fromX, fromY] = from.renderSpec.position;
+        const baselineSpec = from.baselineRenderSpec;
         const [baselineFromX, baselineFromY] = baselineSpec?.position ?? [0, 0];
-        const baselineSelected = tab.kind === "comparison" && tab.mode === "baseline";
-        // positionは現在の主表示の絶対座標として受け取る。OverlayではBを基準にし、
-        // Aには同じ論理座標差を加えることで、手動で作ったずれを維持する。
-        const [toX, toY] = baselineSelected ? [fromX, fromY] : position;
-        const [baselineToX, baselineToY] = baselinePosition ?? (baselineSelected
-            ? position
-            : [
-                baselineFromX + toX - fromX,
-                baselineFromY + toY - fromY,
-            ]);
         const applyCandidate = tab.kind !== "comparison" || tab.mode !== "baseline";
         const applyBaseline = tab.kind === "comparison" && tab.mode !== "candidate";
-        startViewAnimation(SCROLL_ANIMATION_DURATION, (progress) => {
-            const candidatePosition: readonly [number, number] = [
-                fromX + (toX - fromX) * progress,
-                fromY + (toY - fromY) * progress,
+        // positionは現在の主表示の絶対座標として受け取る。OverlayではBを基準にし、
+        // Aには同じ論理座標差を加えることで、手動で作ったずれを維持する。
+        const [toX, toY] = applyCandidate ? position : [fromX, fromY];
+        const [baselineToX, baselineToY] = !applyBaseline
+            ? [baselineFromX, baselineFromY]
+            : baselinePosition ?? [
+                baselineFromX + toX - fromX,
+                baselineFromY + toY - fromY,
             ];
-            const nextBaselinePosition: readonly [number, number] = [
-                baselineFromX + (baselineToX - baselineFromX) * progress,
-                baselineFromY + (baselineToY - baselineFromY) * progress,
-            ];
-            store.dispatch({
-                type: "KONATA_SET_VIEW",
-                tabID: tab.id,
-                view: applyCandidate ? {
-                    position: candidatePosition,
-                    zoomLevel: tab.renderSpec.zoomLevel,
-                } : undefined,
-                baselineView: applyBaseline && baselineSpec !== null ? {
-                    position: nextBaselinePosition,
-                    zoomLevel: baselineSpec.zoomLevel,
-                } : undefined,
-            });
+        startViewAnimation(from, {
+            renderSpec: {
+                ...from.renderSpec,
+                position: [toX, toY],
+            },
+            baselineRenderSpec: baselineSpec === undefined ? undefined : {
+                ...baselineSpec,
+                position: [baselineToX, baselineToY],
+            },
+        }, {
+            type: "linear",
+            duration: SCROLL_ANIMATION_DURATION,
         });
-    }, [startViewAnimation, store]);
+    }, [getRenderedSpecs, startViewAnimation, store]);
 
     useEffect(() => store.subscribeChange((change) => {
         if (change.type === "VIEW_SCROLL_REQUEST" && store.activeTab?.id === change.tabID) {
             scrollTo(change.position, change.baselinePosition);
-            if (change.accumulate && change.candidatePosition !== undefined) {
-                pendingScrollRef.current = {
-                    tabID: change.tabID,
-                    position: change.candidatePosition,
-                    baselinePosition: change.baselinePosition,
-                };
-            }
         }
     }), [scrollTo, store]);
 
@@ -775,14 +737,11 @@ export function App() {
         if (tab === null) {
             return;
         }
-        const pending = pendingScrollRef.current;
         store.dispatch({
             type: "KONATA_MOVE_VIEW_REQUEST",
             tabID: tab.id,
             difference,
             adjustHorizontal,
-            basePosition: pending?.tabID === tab.id ? pending.position : undefined,
-            baselineBasePosition: pending?.tabID === tab.id ? pending.baselinePosition : undefined,
         });
     }, [store]);
 
@@ -925,34 +884,31 @@ export function App() {
         if (tab === null || factor === 1) {
             return;
         }
-        const fromLevel = tab.renderSpec.zoomLevel;
-        const pending = pendingZoomRef.current;
+        const from = getRenderedSpecs();
+        if (from === null) {
+            return;
+        }
         // wheelなどが次のframeより速く届いても、各1段分を失わず目標倍率へ積み上げる。
-        const baseLevel = pending?.tabID === tab.id ? pending.level : fromLevel;
+        const baseLevel = tab.viewTransition?.target.renderSpec.zoomLevel ??
+            from.renderSpec.zoomLevel;
         // 旧drawZoomFactorと同じく、値を大きくすると1操作あたりの倍率変化を細かくする。
         const zoomStep = 1 / settings.drawZoomFactor;
         const toLevel = clampKonataZoomLevel(baseLevel + (factor > 1 ? -zoomStep : zoomStep));
-        const tileTarget: PipelineTileTarget = {
-            tabID: tab.id,
-            renderSpec: new KonataRenderMetrics(tab.trace, tab.renderSpec).withZoomLevel(
+        const target: ViewRenderSpecs = {
+            renderSpec: new KonataRenderMetrics(tab.trace, from.renderSpec).withZoomLevel(
                 toLevel, centerX, centerY),
-            baselineRenderSpec: tab.kind === "comparison"
-                ? new KonataRenderMetrics(tab.baselineTrace, tab.baselineRenderSpec).withZoomLevel(
+            baselineRenderSpec: tab.kind === "comparison" && from.baselineRenderSpec !== undefined
+                ? new KonataRenderMetrics(tab.baselineTrace, from.baselineRenderSpec).withZoomLevel(
                     toLevel, centerX, centerY)
                 : undefined,
         };
-        startViewAnimation(ZOOM_ANIMATION_DURATION, (progress) => {
-            store.dispatch({
-                type: "KONATA_SET_ZOOM",
-                tabID: tab.id,
-                zoomLevel: fromLevel + (toLevel - fromLevel) * progress,
-                centerX,
-                centerY,
-                target: "both",
-            });
-        }, tileTarget);
-        pendingZoomRef.current = { tabID: tab.id, level: toLevel };
-    }, [settings.drawZoomFactor, startViewAnimation, store]);
+        startViewAnimation(from, target, {
+            type: "zoomAt",
+            duration: ZOOM_ANIMATION_DURATION,
+            centerX,
+            centerY,
+        });
+    }, [getRenderedSpecs, settings.drawZoomFactor, startViewAnimation, store]);
 
     const zoomAtCenter = useCallback((factor: number) => {
         const viewport = traceSheetRef.current?.getViewportSize();
@@ -962,25 +918,29 @@ export function App() {
     }, [zoomAt]);
 
     const moveVertical = useCallback((delta: number, adjust: boolean) => {
-        const zoomScale = getKonataZoomScale(store.activeTab?.renderSpec.zoomLevel ?? 0);
+        const zoomScale = getKonataZoomScale(
+            getRenderedSpecs()?.renderSpec.zoomLevel ?? 0,
+        );
         const differenceY = delta * 3 / zoomScale;
         moveView([0, differenceY], adjust);
-    }, [moveView, store]);
+    }, [getRenderedSpecs, moveView]);
 
     const moveHorizontal = useCallback((delta: number) => {
-        const zoomScale = getKonataZoomScale(store.activeTab?.renderSpec.zoomLevel ?? 0);
+        const zoomScale = getKonataZoomScale(
+            getRenderedSpecs()?.renderSpec.zoomLevel ?? 0,
+        );
         const differenceX = delta * 6 / zoomScale;
         moveView([differenceX, 0], false);
-    }, [moveView, store]);
+    }, [getRenderedSpecs, moveView]);
 
     const setBookmark = useCallback((index: number) => {
-        const spec = store.activeTab?.renderSpec ?? DEFAULT_KONATA_RENDER_SPEC;
+        const spec = getRenderedSpecs()?.renderSpec ?? DEFAULT_KONATA_RENDER_SPEC;
         const [x, y] = spec.position;
         // 旧Configの保存値と同じく、論理座標は整数へ切り下げる。
         const bookmark = { x: Math.floor(x), y: Math.floor(y), zoom: spec.zoomLevel };
         setBookmarks((current) => current.map((value, position) =>
             position === index ? bookmark : value));
-    }, [store]);
+    }, [getRenderedSpecs]);
 
     const goToBookmark = useCallback((index: number) => {
         const bookmark = bookmarks[index];
@@ -991,20 +951,22 @@ export function App() {
         if (tab === null) {
             return;
         }
-        const [fromX, fromY] = tab.renderSpec.position;
-        const fromZoom = tab.renderSpec.zoomLevel;
-        const baselineSpec = tab.kind === "comparison" ? tab.baselineRenderSpec : null;
+        const from = getRenderedSpecs();
+        if (from === null) {
+            return;
+        }
+        const [fromX, fromY] = from.renderSpec.position;
+        const baselineSpec = from.baselineRenderSpec;
         const [baselineFromX, baselineFromY] = baselineSpec?.position ?? [0, 0];
         const differenceX = bookmark.x - fromX;
         const differenceY = bookmark.y - fromY;
-        const tileTarget: PipelineTileTarget = {
-            tabID: tab.id,
+        const target: ViewRenderSpecs = {
             renderSpec: {
-                ...tab.renderSpec,
+                ...from.renderSpec,
                 zoomLevel: bookmark.zoom,
                 position: [bookmark.x, bookmark.y],
             },
-            baselineRenderSpec: baselineSpec === null ? undefined : {
+            baselineRenderSpec: baselineSpec === undefined ? undefined : {
                 ...baselineSpec,
                 zoomLevel: bookmark.zoom,
                 position: [
@@ -1013,76 +975,43 @@ export function App() {
                 ],
             },
         };
-        startViewAnimation(BOOKMARK_ANIMATION_DURATION, (progress) => {
-            // 旧版同様にscrollとzoomを並行させ、bookmark座標をずらす補正は行わない。
-            const zoomProgress = Math.min(
-                1,
-                progress * BOOKMARK_ANIMATION_DURATION / BOOKMARK_ZOOM_ANIMATION_DURATION,
-            );
-            const zoomLevel = fromZoom + (bookmark.zoom - fromZoom) * zoomProgress;
-            store.dispatch({
-                type: "KONATA_SET_VIEW",
-                tabID: tab.id,
-                view: {
-                    zoomLevel,
-                    position: [
-                        fromX + (bookmark.x - fromX) * progress,
-                        fromY + (bookmark.y - fromY) * progress,
-                    ],
-                },
-                baselineView: baselineSpec === null ? undefined : {
-                    zoomLevel,
-                    position: [
-                        baselineFromX + differenceX * progress,
-                        baselineFromY + differenceY * progress,
-                    ],
-                },
-            });
-        }, tileTarget);
-    }, [bookmarks, startViewAnimation, store]);
+        // 旧版同様にscrollとzoomを並行させ、bookmark座標をずらす補正は行わない。
+        startViewAnimation(from, target, {
+            type: "linear",
+            duration: BOOKMARK_ANIMATION_DURATION,
+            zoomDuration: BOOKMARK_ZOOM_ANIMATION_DURATION,
+        });
+    }, [bookmarks, getRenderedSpecs, startViewAnimation, store]);
 
     const resetView = useCallback(() => {
         const tab = store.activeTab;
         if (tab === null) {
             return;
         }
-        const [fromX, fromY] = tab.renderSpec.position;
-        const fromZoom = tab.renderSpec.zoomLevel;
-        const baselineSpec = tab.kind === "comparison" ? tab.baselineRenderSpec : null;
+        const from = getRenderedSpecs();
+        if (from === null) {
+            return;
+        }
+        const [fromX, fromY] = from.renderSpec.position;
+        const baselineSpec = from.baselineRenderSpec;
         const [baselineFromX, baselineFromY] = baselineSpec?.position ?? [0, 0];
-        const tileTarget: PipelineTileTarget = {
-            tabID: tab.id,
+        const target: ViewRenderSpecs = {
             renderSpec: {
-                ...tab.renderSpec,
+                ...from.renderSpec,
                 zoomLevel: 0,
                 position: [0, 0],
             },
-            baselineRenderSpec: baselineSpec === null ? undefined : {
+            baselineRenderSpec: baselineSpec === undefined ? undefined : {
                 ...baselineSpec,
                 zoomLevel: 0,
                 position: [baselineFromX - fromX, baselineFromY - fromY],
             },
         };
-        startViewAnimation(BOOKMARK_ANIMATION_DURATION, (progress) => {
-            const zoomLevel = fromZoom * (1 - progress);
-            store.dispatch({
-                type: "KONATA_SET_VIEW",
-                tabID: tab.id,
-                view: {
-                    zoomLevel,
-                    position: [fromX * (1 - progress), fromY * (1 - progress)],
-                },
-                baselineView: baselineSpec === null ? undefined : {
-                    zoomLevel,
-                    // 旧sync scrollと同様、Candidateが原点へ戻る量だけ現在位置から動かす。
-                    position: [
-                        baselineFromX - fromX * progress,
-                        baselineFromY - fromY * progress,
-                    ],
-                },
-            });
-        }, tileTarget);
-    }, [startViewAnimation, store]);
+        startViewAnimation(from, target, {
+            type: "linear",
+            duration: BOOKMARK_ANIMATION_DURATION,
+        });
+    }, [getRenderedSpecs, startViewAnimation, store]);
 
     const toggleHideFlushedOps = (enabled: boolean) => {
         if (activeTab !== null) {
@@ -1765,7 +1694,7 @@ export function App() {
                     >
                         <BsZoomOut aria-hidden="true" />
                     </button>
-                    <output>{formatKonataZoomPercent(renderSpec.zoomLevel)}</output>
+                    <output ref={zoomOutputRef}>{formatKonataZoomPercent(renderSpec.zoomLevel)}</output>
                     <button
                         className="icon-button"
                         type="button"
@@ -1853,10 +1782,7 @@ export function App() {
                 renderVersion={renderVersion}
                 webGLEnabled={settings.webGLEnabled}
                 tiledRenderingEnabled={settings.tiledRenderingEnabled}
-                tileTarget={activePipelineTileTarget === null ? null : {
-                    renderSpec: activePipelineTileTarget.renderSpec,
-                    baselineRenderSpec: activePipelineTileTarget.baselineRenderSpec,
-                }}
+                viewTransition={activeTab?.viewTransition ?? null}
                 findResult={findResult}
                 comparison={comparisonTab === null ? null : {
                     baselineTrace: comparisonTab.baselineTrace,
@@ -1871,6 +1797,8 @@ export function App() {
                 onMoveView={moveView}
                 onScrollView={scrollTo}
                 onZoomView={zoomAt}
+                onRenderedZoomChange={updateRenderedZoom}
+                onViewTransitionFinish={finishViewAnimation}
                 onCloseFindResult={hideSearchResult}
                 onOpenTrace={openFilePicker}
             />

@@ -22,8 +22,8 @@ export interface TiledPipelineRenderOptions {
     readonly colorScheme?: string;
     readonly referenceOnly?: boolean;
     readonly webGLEnabled: boolean;
-    // 終点が既知のzoom animationでは、中間倍率を作らず最終倍率のtileだけを先行生成する。
-    readonly targetSpec?: Readonly<KonataRenderSpec>;
+    // 現在の表示と異なる既知のSpecがあれば、その倍率のtileを先読みする。
+    readonly prefetchSpec?: Readonly<KonataRenderSpec>;
     // 比較用offscreen layerが更新された時に、表示Canvasの再合成を依頼する。
     readonly onUpdate?: () => void;
 }
@@ -91,7 +91,7 @@ export class TiledPipelineRenderer {
     // 小scrollで未描画領域を露出させないため、可視範囲の全方向へ1 tileだけ先読みする。
     private static readonly PREFETCH_MARGIN_TILES = 1;
     private static readonly MAX_CACHE_BYTES = 128 * 1024 * 1024;
-    private static readonly ZOOM_SETTLE_DELAY_MS = 80;
+    private static readonly SCALE_SETTLE_DELAY_MS = 80;
     // 軽いtileは同じframeで進め、重いtileではUI時間を残す。GLの非同期実行を積み過ぎないよう枚数も制限する。
     private static readonly VISIBLE_RENDER_BUDGET_MS = 8;
     private static readonly VISIBLE_MAX_TILES_PER_FRAME = 8;
@@ -107,8 +107,8 @@ export class TiledPipelineRenderer {
     private namespaceKey_ = "";
     private current_: RenderRequest | null = null;
     private build_: RenderRequest | null = null;
-    private buildingAhead_ = false;
-    // 最後に可視範囲が完成した倍率を、zoom中の穴を埋めるsource tile群として保持する。
+    private prefetching_ = false;
+    // 最後に可視範囲が完成した倍率を、次の倍率が揃うまでのsource tile群として保持する。
     private fallbackNamespace_: TileNamespace | null = null;
     private previousBase_: PreviousBase | null = null;
     private jobs_: TilePosition[] = [];
@@ -183,29 +183,31 @@ export class TiledPipelineRenderer {
             onUpdate: options.onUpdate,
         };
         this.current_ = current;
-        const targetSpec = options.targetSpec;
-        const targetMetrics = targetSpec === undefined ? null : new KonataRenderMetrics(trace, targetSpec);
-        const target: RenderRequest | null = targetSpec === undefined || targetMetrics === null
+        const prefetchSpec = options.prefetchSpec;
+        const prefetchMetrics = prefetchSpec === undefined
+            ? null
+            : new KonataRenderMetrics(trace, prefetchSpec);
+        const prefetch: RenderRequest | null = prefetchSpec === undefined || prefetchMetrics === null
             ? null
             : {
                 ...current,
-                spec: targetSpec,
-                metrics: targetMetrics,
-                worldX: targetSpec.position[0] * targetMetrics.opWidth,
-                worldY: targetSpec.position[1] * targetMetrics.opHeight,
-                namespaceKey: `${contentKey}|zoom:${targetSpec.zoomLevel}`,
+                spec: prefetchSpec,
+                metrics: prefetchMetrics,
+                worldX: prefetchSpec.position[0] * prefetchMetrics.opWidth,
+                worldY: prefetchSpec.position[1] * prefetchMetrics.opHeight,
+                namespaceKey: `${contentKey}|zoom:${prefetchSpec.zoomLevel}`,
             };
-        const build = target ?? current;
+        const build = prefetch ?? current;
         const buildChanged = this.build_?.namespaceKey !== build.namespaceKey;
         if (buildChanged) {
             this.cancelJobs_();
             this.generation_++;
         }
         this.build_ = build;
-        this.buildingAhead_ = target !== null && target.namespaceKey !== current.namespaceKey;
+        this.prefetching_ = prefetch !== null && prefetch.namespaceKey !== current.namespaceKey;
         this.paint_(false);
         this.rebuildJobs_(build);
-        this.scheduleNext_(!this.buildingAhead_ && buildChanged && namespaceChanged && !contentChanged);
+        this.scheduleNext_(!this.prefetching_ && buildChanged && namespaceChanged && !contentChanged);
     }
 
     clear(): void {
@@ -213,7 +215,7 @@ export class TiledPipelineRenderer {
         this.generation_++;
         this.current_ = null;
         this.build_ = null;
-        this.buildingAhead_ = false;
+        this.prefetching_ = false;
         this.trace_ = null;
         this.contentKey_ = "";
         this.namespaceKey_ = "";
@@ -288,7 +290,7 @@ export class TiledPipelineRenderer {
             );
         }
         const build = this.build_;
-        if (this.buildingAhead_ && build !== null && build.namespaceKey !== request.namespaceKey &&
+        if (this.prefetching_ && build !== null && build.namespaceKey !== request.namespaceKey &&
             build.namespaceKey !== fallback?.key) {
             reusedCoverage = Math.max(
                 reusedCoverage,
@@ -576,17 +578,17 @@ export class TiledPipelineRenderer {
         context.restore();
     }
 
-    private scheduleNext_(waitForZoom: boolean): void {
+    private scheduleNext_(deferForScaleChanges: boolean): void {
         if (this.jobs_.length === 0 || this.current_ === null ||
             this.frameID_ !== null || this.settleTimerID_ !== null) {
             return;
         }
-        if (waitForZoom) {
-            // zoom animationの各中間倍率でtileを作ると直後に捨てるため、入力が止まるまで少し待つ。
+        if (deferForScaleChanges) {
+            // 目標Specのない連続zoomでは、倍率が安定するまで中間tileの生成を遅らせる。
             this.settleTimerID_ = window.setTimeout(() => {
                 this.settleTimerID_ = null;
                 this.requestFrame_();
-            }, TiledPipelineRenderer.ZOOM_SETTLE_DELAY_MS);
+            }, TiledPipelineRenderer.SCALE_SETTLE_DELAY_MS);
             return;
         }
         this.requestFrame_();
@@ -613,8 +615,8 @@ export class TiledPipelineRenderer {
         const budget = visibleBatch
             ? TiledPipelineRenderer.VISIBLE_RENDER_BUDGET_MS
             : TiledPipelineRenderer.PREFETCH_RENDER_BUDGET_MS;
-        // animation中は入力frameを長く塞がないよう、終点tileを1 frameに1枚だけ先行生成する。
-        const limit = this.buildingAhead_
+        // 現在と異なる先読み倍率は、入力frameを塞がないよう1枚ずつ生成する。
+        const limit = this.prefetching_
             ? 1
             : visibleBatch
             ? TiledPipelineRenderer.VISIBLE_MAX_TILES_PER_FRAME

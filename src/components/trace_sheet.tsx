@@ -18,7 +18,14 @@ import {
     type KonataRenderSpec,
 } from "../core/konata_renderer";
 import { TiledPipelineRenderer } from "../core/tiled_pipeline_renderer";
-import type { ComparisonMode, FindResult, LoadState } from "../store";
+import type {
+    ComparisonMode,
+    FindResult,
+    LoadState,
+    ViewRenderSpecs,
+    ViewTransition,
+    ViewTransitionMotion,
+} from "../store";
 
 declare const __KONATA_VERSION__: string;
 declare const __KONATA_COMMIT__: string;
@@ -46,6 +53,7 @@ const COMPARISON_REFERENCE_OPACITY = 0.2;
 export interface TraceSheetHandle {
     clearToolTip(): void;
     resetPipelineCanvas(): void;
+    getRenderedSpecs(): Readonly<ViewRenderSpecs>;
     getViewportSize(): {
         readonly pipelineWidth: number;
         readonly pipelineHeight: number;
@@ -61,10 +69,7 @@ interface TraceSheetProps {
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
-    readonly tileTarget: {
-        readonly renderSpec: Readonly<KonataRenderSpec>;
-        readonly baselineRenderSpec?: Readonly<KonataRenderSpec>;
-    } | null;
+    readonly viewTransition: Readonly<ViewTransition> | null;
     readonly findResult: FindResult | null;
     readonly comparison: {
         readonly baselineTrace: ParsedTrace | null;
@@ -85,6 +90,8 @@ interface TraceSheetProps {
     readonly onMoveView: (difference: readonly [number, number], adjustHorizontal: boolean) => void;
     readonly onScrollView: (position: readonly [number, number]) => void;
     readonly onZoomView: (factor: number, centerX: number, centerY: number) => void;
+    readonly onRenderedZoomChange: (zoomLevel: number) => void;
+    readonly onViewTransitionFinish: (transitionID: number) => void;
     readonly onCloseFindResult: () => void;
     readonly onOpenTrace: () => void;
 }
@@ -111,6 +118,37 @@ function highlightMatches(line: string, pattern: string): HighlightedText[] {
     return parts;
 }
 
+function interpolateRenderSpec(
+    trace: ParsedTrace | null,
+    from: Readonly<KonataRenderSpec>,
+    target: Readonly<KonataRenderSpec>,
+    motion: Readonly<ViewTransitionMotion>,
+    progress: number,
+): Readonly<KonataRenderSpec> {
+    if (progress >= 1) {
+        return target;
+    }
+    const zoomProgress = motion.type === "linear" && motion.zoomDuration !== undefined
+        ? Math.min(1, progress * motion.duration / motion.zoomDuration)
+        : progress;
+    const zoomLevel = from.zoomLevel + (target.zoomLevel - from.zoomLevel) * zoomProgress;
+    if (motion.type === "zoomAt") {
+        return new KonataRenderMetrics(trace, from).withZoomLevel(
+            zoomLevel,
+            motion.centerX,
+            motion.centerY,
+        );
+    }
+    return {
+        ...from,
+        zoomLevel,
+        position: [
+            from.position[0] + (target.position[0] - from.position[0]) * progress,
+            from.position[1] + (target.position[1] - from.position[1]) * progress,
+        ],
+    };
+}
+
 // 旧app_sheetに相当し、label/pipeline Canvasとその直接操作を同じ単位で所有する。
 export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function TraceSheet({
     trace,
@@ -120,7 +158,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderVersion,
     webGLEnabled,
     tiledRenderingEnabled,
-    tileTarget,
+    viewTransition,
     findResult,
     comparison,
     splitterPosition,
@@ -130,6 +168,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     onMoveView,
     onScrollView,
     onZoomView,
+    onRenderedZoomChange,
+    onViewTransitionFinish,
     onCloseFindResult,
     onOpenTrace,
 }, ref) {
@@ -138,6 +178,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const findResultRef = useRef<HTMLDivElement>(null);
     const rendererRef = useRef<KonataRenderer | null>(null);
     const baselineRendererRef = useRef<KonataRenderer | null>(null);
     // 通常側と比較baseline側は描画入力もtile namespaceも異なるため、Rendererとcacheを共有しない。
@@ -161,6 +202,19 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const baselineRenderer = comparison === null ? null : baselineRendererRef.current;
     const baselineTrace = comparison?.baselineTrace ?? null;
     const baselineRenderSpec = comparison?.baselineRenderSpec ?? null;
+    const renderedSpecsRef = useRef<ViewRenderSpecs>({
+        renderSpec,
+        baselineRenderSpec: baselineRenderSpec ?? undefined,
+    });
+    const transitionClockRef = useRef<{ readonly id: number; readonly startedAt: number } | null>(null);
+    const viewTransitionRef = useRef<Readonly<ViewTransition> | null>(viewTransition);
+    viewTransitionRef.current = viewTransition;
+    if (viewTransition === null) {
+        renderedSpecsRef.current = {
+            renderSpec,
+            baselineRenderSpec: baselineRenderSpec ?? undefined,
+        };
+    }
     const metrics = new KonataRenderMetrics(trace, renderSpec);
     const baselineMetrics = baselineRenderSpec === null
         ? null
@@ -179,6 +233,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const displayMetrics = comparisonMode === "baseline" && baselineMetrics !== null
         ? baselineMetrics
         : metrics;
+    const displayMetricsRef = useRef(displayMetrics);
+    if (viewTransition === null) {
+        displayMetricsRef.current = displayMetrics;
+    }
 
     const resetPipelineCanvases = useCallback(() => {
         tiledRenderer.clear();
@@ -198,9 +256,29 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
     }, [baselineRenderer, baselineTiledRenderer, renderer, tiledRenderer]);
 
-    const redraw = useCallback(() => {
+    const drawSpecs = useCallback((
+        specs: Readonly<ViewRenderSpecs>,
+        prefetch: Readonly<ViewRenderSpecs> | null,
+    ) => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
+        const candidateSpec = specs.renderSpec;
+        const currentBaselineSpec = specs.baselineRenderSpec;
+        renderedSpecsRef.current = specs;
+        const candidateMetrics = new KonataRenderMetrics(trace, candidateSpec);
+        onRenderedZoomChange(candidateSpec.zoomLevel);
+        const currentBaselineMetrics = currentBaselineSpec === undefined
+            ? null
+            : new KonataRenderMetrics(baselineTrace, currentBaselineSpec);
+        displayMetricsRef.current = comparisonMode === "baseline" && currentBaselineMetrics !== null
+            ? currentBaselineMetrics
+            : candidateMetrics;
+        if (findResult !== null && findResultRef.current !== null) {
+            findResultRef.current.style.top = `${
+                Math.floor(candidateMetrics.getPixelPositionYFromID(findResult.anchorID)) +
+                candidateMetrics.opHeight
+            }px`;
+        }
         const tileOptions = {
             // Parser追記中と互換設定での無効時は、raster tileを介さず直接描画する。
             cacheEnabled: tiledRenderingEnabled && loadState === "ready",
@@ -208,24 +286,22 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         } as const;
         const candidateTileOptions = {
             ...tileOptions,
-            targetSpec: tileTarget?.renderSpec,
+            prefetchSpec: prefetch?.renderSpec,
         } as const;
         const baselineTileOptions = {
             ...tileOptions,
-            targetSpec: tileTarget?.baselineRenderSpec,
+            prefetchSpec: prefetch?.baselineRenderSpec,
         } as const;
         if (labelCanvas !== null && pipelineCanvas !== null) {
-            if (baselineRenderer === null || comparisonMode === null || baselineRenderSpec === null) {
-                renderer.drawLabelSpec(trace, renderSpec, labelCanvas);
-                tiledRenderer.drawPipelineSpec(trace, renderSpec, pipelineCanvas, candidateTileOptions);
+            if (baselineRenderer === null || comparisonMode === null || currentBaselineSpec === undefined) {
+                renderer.drawLabelSpec(trace, candidateSpec, labelCanvas);
+                tiledRenderer.drawPipelineSpec(trace, candidateSpec, pipelineCanvas, candidateTileOptions);
                 delete pipelineCanvas.dataset.comparisonMode;
                 return;
             }
 
             const displayTrace = comparisonMode === "baseline" ? baselineTrace : trace;
-            const displaySpec = comparisonMode === "baseline" && baselineRenderSpec !== null
-                ? baselineRenderSpec
-                : renderSpec;
+            const displaySpec = comparisonMode === "baseline" ? currentBaselineSpec : candidateSpec;
             displayRenderer.drawLabelSpec(displayTrace, displaySpec, labelCanvas);
             pipelineCanvas.dataset.comparisonMode = comparisonMode;
             // A/Bをそれぞれ不透明な完成画像にしてから、表示Canvasへ全体を一度だけ合成する。
@@ -248,7 +324,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
             baselineTiledRenderer.drawPipelineSpec(
                 baselineTrace,
-                baselineRenderSpec,
+                currentBaselineSpec,
                 baselineLayer,
                 {
                     ...baselineTileOptions,
@@ -263,7 +339,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             );
             tiledRenderer.drawPipelineSpec(
                 trace,
-                renderSpec,
+                candidateSpec,
                 candidateLayer,
                 {
                     ...candidateTileOptions,
@@ -279,26 +355,30 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             compose();
         }
     }, [
-        baselineRenderSpec,
         baselineRenderer,
         baselineTrace,
         comparisonMode,
         comparisonOpacity,
         displayRenderer,
+        findResult,
         loadState,
-        renderSpec,
+        onRenderedZoomChange,
         renderer,
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
-        tileTarget,
         trace,
         webGLEnabled,
     ]);
 
+    const redraw = useCallback(() => {
+        drawSpecs(renderedSpecsRef.current, viewTransitionRef.current?.target ?? null);
+    }, [drawSpecs]);
+
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
         resetPipelineCanvas: resetPipelineCanvases,
+        getRenderedSpecs: () => renderedSpecsRef.current,
         getViewportSize: () => ({
             pipelineWidth: pipelineCanvasRef.current?.clientWidth ?? 800,
             pipelineHeight: pipelineCanvasRef.current?.clientHeight ?? 400,
@@ -319,6 +399,73 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         observer.observe(viewer);
         return () => observer.disconnect();
     }, [redraw]);
+
+    useLayoutEffect(() => {
+        if (viewTransition === null) {
+            transitionClockRef.current = null;
+            return;
+        }
+        const clock = transitionClockRef.current?.id === viewTransition.id
+            ? transitionClockRef.current
+            : { id: viewTransition.id, startedAt: performance.now() };
+        transitionClockRef.current = clock;
+        let frameID = 0;
+        let active = true;
+        const drawProgress = (progress: number) => {
+            const baselineFrom = baselineRenderSpec ?? undefined;
+            const baselineTarget = viewTransition.target.baselineRenderSpec;
+            drawSpecs({
+                renderSpec: interpolateRenderSpec(
+                    trace,
+                    renderSpec,
+                    viewTransition.target.renderSpec,
+                    viewTransition.motion,
+                    progress,
+                ),
+                baselineRenderSpec: baselineFrom === undefined || baselineTarget === undefined
+                    ? undefined
+                    : interpolateRenderSpec(
+                        baselineTrace,
+                        baselineFrom,
+                        baselineTarget,
+                        viewTransition.motion,
+                        progress,
+                    ),
+            }, viewTransition.target);
+        };
+        const animate = (now: number) => {
+            if (!active) {
+                return;
+            }
+            const progress = Math.max(
+                0,
+                Math.min(1, (now - clock.startedAt) / viewTransition.motion.duration),
+            );
+            drawProgress(progress);
+            if (progress >= 1) {
+                transitionClockRef.current = null;
+                onViewTransitionFinish(viewTransition.id);
+            }
+            else {
+                frameID = requestAnimationFrame(animate);
+            }
+        };
+
+        // 設定変更でeffectが組み直されても同じ時計から再開し、中間SpecはStoreへ書き戻さない。
+        animate(performance.now());
+        return () => {
+            active = false;
+            cancelAnimationFrame(frameID);
+        };
+    }, [
+        baselineRenderSpec,
+        baselineTrace,
+        drawSpecs,
+        onViewTransitionFinish,
+        renderSpec,
+        trace,
+        viewTransition,
+    ]);
 
     useLayoutEffect(() => {
         redraw();
@@ -362,15 +509,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
         if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
             // trackpadの横移動は、旧キーボード横移動と同じ6cycle単位へ対応させる。
-            const differenceX = (event.deltaX > 0 ? 1 : -1) * 6 / metrics.zoomScale;
+            const differenceX = (event.deltaX > 0 ? 1 : -1) *
+                6 / displayMetricsRef.current.zoomScale;
             onMoveView([differenceX, 0], false);
             return;
         }
 
         // 旧wheel操作と同じ3命令単位で移動し、左端を命令のfetch位置へ追従させる。
-        const differenceY = (event.deltaY > 0 ? 1 : -1) * 3 / metrics.zoomScale;
+        const differenceY = (event.deltaY > 0 ? 1 : -1) *
+            3 / displayMetricsRef.current.zoomScale;
         onMoveView([0, differenceY], true);
-    }, [metrics.zoomScale, onMoveView, onZoomView, trace]);
+    }, [onMoveView, onZoomView, trace]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
@@ -483,12 +632,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const rect = event.currentTarget.getBoundingClientRect();
-        const op = displayMetrics.getOpFromPixelPositionY(event.clientY - rect.top);
+        const currentMetrics = displayMetricsRef.current;
+        const op = currentMetrics.getOpFromPixelPositionY(event.clientY - rect.top);
         if (op !== undefined) {
             // A/B単独表示では、ラベルを選んだ側だけをその命令のfetch cycleへ動かす。
             onScrollView([
                 op.fetchedCycle,
-                displayMetrics.spec.position[1],
+                currentMetrics.spec.position[1],
             ]);
         }
     };
@@ -508,9 +658,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         const x = event.clientX - canvasRect.left;
         const y = event.clientY - canvasRect.top;
+        const currentMetrics = displayMetricsRef.current;
         const text = pane === "label"
-            ? displayMetrics.getLabelToolTipText(y)
-            : displayMetrics.getPipelineToolTipText(x, y);
+            ? currentMetrics.getLabelToolTipText(y)
+            : currentMetrics.getPipelineToolTipText(x, y);
         setToolTip(text === null ? null : {
             left: event.clientX - viewerRect.left,
             top: event.clientY - viewerRect.top + 20,
@@ -614,6 +765,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             )}
             {findResult !== null && (
                 <div
+                    ref={findResultRef}
                     className="find-result"
                     data-op-id={findResult.opID}
                     style={{ top: findResultTop }}

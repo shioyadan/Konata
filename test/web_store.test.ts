@@ -116,6 +116,86 @@ test("Store reloads a trace in place and restores its view", () => {
     assert.equal(second.opStore.opCount, 0);
 });
 
+test("Store owns view transition endpoints without storing intermediate frames", () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+    store.dispatch({ type: "FILE_OPEN", fileName: "animation.log" });
+    const tab = store.activeTab;
+    assert.ok(tab !== null && tab.kind === "trace");
+
+    const from = { ...tab.renderSpec, position: [10, 20] as const, zoomLevel: -1 };
+    const target = { ...tab.renderSpec, position: [30, 40] as const, zoomLevel: -2 };
+    store.dispatch({
+        type: "KONATA_VIEW_TRANSITION_START",
+        tabID: tab.id,
+        from: { renderSpec: from },
+        target: { renderSpec: target },
+        motion: { type: "linear", duration: 100 },
+    });
+
+    // Storeには描画済みの始点と終点だけを置き、中間位置はCanvas側だけで導出する。
+    assert.equal(tab.renderSpec, from);
+    assert.deepEqual(tab.viewTransition?.target.renderSpec, target);
+    const transitionID = tab.viewTransition?.id;
+    assert.notEqual(transitionID, undefined);
+
+    // 連続scrollは中間画像ではなく既知の終点へ積み上げる。
+    store.dispatch({
+        type: "KONATA_MOVE_VIEW_REQUEST",
+        tabID: tab.id,
+        difference: [3, 4],
+        adjustHorizontal: false,
+    });
+    const scroll = changes.findLast((change) => change.type === "VIEW_SCROLL_REQUEST");
+    assert.ok(scroll?.type === "VIEW_SCROLL_REQUEST");
+    assert.deepEqual(scroll.position, [33, 44]);
+
+    // 描画設定の変更は始点と終点の双方へ適用し、遷移を中断しない。
+    store.dispatch({
+        type: "KONATA_CHANGE_COLOR_SCHEME",
+        tabID: tab.id,
+        scheme: "RoyalBlue",
+    });
+    assert.equal(tab.renderSpec.colorScheme, "RoyalBlue");
+    assert.equal(tab.viewTransition?.target.renderSpec.colorScheme, "RoyalBlue");
+
+    store.dispatch({
+        type: "KONATA_VIEW_TRANSITION_FINISH",
+        tabID: tab.id,
+        transitionID: (transitionID ?? 0) + 1,
+    });
+    assert.notEqual(tab.viewTransition, null);
+    store.dispatch({
+        type: "KONATA_VIEW_TRANSITION_FINISH",
+        tabID: tab.id,
+        transitionID: transitionID ?? -1,
+    });
+    assert.equal(tab.viewTransition, null);
+    assert.deepEqual(tab.renderSpec.position, [30, 40]);
+    assert.equal(tab.renderSpec.zoomLevel, -2);
+    assert.equal(tab.renderSpec.colorScheme, "RoyalBlue");
+
+    // 直接操作はその位置を確定値にして、進行中の遷移を取り消す。
+    store.dispatch({
+        type: "KONATA_VIEW_TRANSITION_START",
+        tabID: tab.id,
+        from: { renderSpec: tab.renderSpec },
+        target: { renderSpec: { ...tab.renderSpec, position: [50, 60] } },
+        motion: { type: "linear", duration: 100 },
+    });
+    store.dispatch({
+        type: "KONATA_SET_VIEW",
+        tabID: tab.id,
+        view: { position: [35, 45], zoomLevel: -1.5 },
+    });
+    assert.equal(tab.viewTransition, null);
+    assert.deepEqual(tab.renderSpec.position, [35, 45]);
+    assert.equal(tab.renderSpec.zoomLevel, -1.5);
+
+    store.dispatch({ type: "STORE_CLOSE" });
+});
+
 test("Store handles a file-open request through parsing result actions", async () => {
     const store = new Store();
     const changes: Change[] = [];

@@ -39,6 +39,33 @@ export interface KonataView {
     readonly position: readonly [number, number];
     readonly zoomLevel: number;
 }
+
+// Storeは遷移前の確定済み描画位置と、進行中の遷移の終点だけを持つ。
+// frame時刻と補間中のSpecはCanvasを所有するTraceSheet側で導出する。
+export interface ViewRenderSpecs {
+    readonly renderSpec: Readonly<KonataRenderSpec>;
+    readonly baselineRenderSpec?: Readonly<KonataRenderSpec>;
+}
+
+export type ViewTransitionMotion =
+    | {
+        readonly type: "linear";
+        readonly duration: number;
+        readonly zoomDuration?: number;
+    }
+    | {
+        readonly type: "zoomAt";
+        readonly duration: number;
+        readonly centerX: number;
+        readonly centerY: number;
+    };
+
+export interface ViewTransition {
+    readonly id: number;
+    readonly target: Readonly<ViewRenderSpecs>;
+    readonly motion: Readonly<ViewTransitionMotion>;
+}
+
 export type MinimumLaneHeightKey =
     | "textLabelMinimumLaneHeight"
     | "stageDetailMinimumLaneHeight"
@@ -229,6 +256,18 @@ export type Action =
     }
     | { readonly type: "KONATA_CHANGE_ZOOM_FACTOR"; readonly value: number }
     | {
+        readonly type: "KONATA_VIEW_TRANSITION_START";
+        readonly tabID: number;
+        readonly from: Readonly<ViewRenderSpecs>;
+        readonly target: Readonly<ViewRenderSpecs>;
+        readonly motion: Readonly<ViewTransitionMotion>;
+    }
+    | {
+        readonly type: "KONATA_VIEW_TRANSITION_FINISH";
+        readonly tabID: number;
+        readonly transitionID: number;
+    }
+    | {
         readonly type: "KONATA_SET_VIEW";
         readonly tabID: number;
         readonly view?: KonataView;
@@ -263,8 +302,6 @@ export type Action =
         readonly tabID: number;
         readonly difference: readonly [number, number];
         readonly adjustHorizontal: boolean;
-        readonly basePosition?: readonly [number, number];
-        readonly baselineBasePosition?: readonly [number, number];
     }
     | {
         readonly type: "KONATA_ADJUST_VIEW_REQUEST";
@@ -285,8 +322,6 @@ export type Change =
         readonly tabID: number;
         readonly position: readonly [number, number];
         readonly baselinePosition?: readonly [number, number];
-        readonly candidatePosition?: readonly [number, number];
-        readonly accumulate?: boolean;
     }
     // nullは全TabのRendererへ同じ変更を適用したことを表す。
     | { readonly type: "PANE_CONTENT_UPDATE"; readonly tabID: number | null }
@@ -332,6 +367,7 @@ export class Tab {
     readonly kind = "trace";
     private loadAbortController_ = new AbortController();
     private renderSpec_: Readonly<KonataRenderSpec>;
+    viewTransition: Readonly<ViewTransition> | null = null;
     trace: ParsedTrace | null = null;
     loadState: LoadState = "loading";
     progress = 0;
@@ -372,6 +408,7 @@ export class Tab {
     beginReload(): void {
         const previousTrace = this.trace;
         this.trace = null;
+        this.viewTransition = null;
         this.loadAbortController_.abort();
         this.loadAbortController_ = new AbortController();
         this.findContext.requestID++;
@@ -410,6 +447,7 @@ export class ComparisonTab {
     baselineTrace: ParsedTrace | null;
     private renderSpec_: Readonly<KonataRenderSpec>;
     private baselineRenderSpec_: Readonly<KonataRenderSpec>;
+    viewTransition: Readonly<ViewTransition> | null = null;
     mode: ComparisonMode = "overlay";
     opacity = 0.5;
 
@@ -449,6 +487,7 @@ export class ComparisonTab {
     }
 
     alignCandidateToBaseline(): number | null {
+        this.viewTransition = null;
         const baseline = new KonataRenderMetrics(this.baselineTrace, this.baselineRenderSpec);
         const candidate = new KonataRenderMetrics(this.trace, this.renderSpec);
         const adjustedBaselinePosition = baseline.getAdjustedViewPosition();
@@ -531,6 +570,7 @@ export class Store {
     private fileMessage_ = "";
     private loadingRecentFiles_ = false;
     private nextOpenedTabID_ = 0;
+    private nextViewTransitionID_ = 0;
     private defaultColorScheme_: string;
     private defaultSplitterPosition_: number;
     private settings_: GlobalViewSettings;
@@ -1004,6 +1044,7 @@ export class Store {
                 }]);
             }
             else {
+                tab.viewTransition = null;
                 tab.setRenderSpec({ ...tab.renderSpec, position });
                 this.publish_(this.snapshot_.activeTabID, [{
                     type: "PANE_CONTENT_UPDATE",
@@ -1064,7 +1105,8 @@ export class Store {
                     });
                 }
                 else {
-                    // 非表示Tabではanimationを持たず、再表示時に最終位置だけを復元する。
+                    // 非表示Tabでは遷移を持たず、再表示時に最終位置だけを復元する。
+                    tab.viewTransition = null;
                     tab.setRenderSpec({ ...tab.renderSpec, position: action.scrollPosition });
                 }
             }
@@ -1124,7 +1166,10 @@ export class Store {
             }
             // 旧Configと同様に、選択値は対象Tabだけへ適用し、新しいTabの既定値にもする。
             this.defaultColorScheme_ = action.scheme;
-            this.updateTabRenderSpecs_(tab, (spec) => ({ ...spec, colorScheme: action.scheme }));
+            this.updateTabRenderSpecs_(tab, (_trace, spec) => ({
+                ...spec,
+                colorScheme: action.scheme,
+            }));
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "VIEW_SETTINGS_UPDATE" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
@@ -1161,10 +1206,7 @@ export class Store {
                     ? next
                     : { ...next, position: [op.fetchedCycle, action.enabled ? rid : op.id] };
             };
-            tab.setRenderSpec(apply(tab.trace, tab.renderSpec));
-            if (tab.kind === "comparison") {
-                tab.setBaselineRenderSpec(apply(tab.baselineTrace, tab.baselineRenderSpec));
-            }
+            this.updateTabRenderSpecs_(tab, apply);
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
@@ -1187,6 +1229,53 @@ export class Store {
                 false,
                 true,
             );
+            return;
+        }
+        case "KONATA_VIEW_TRANSITION_START": {
+            const tab = this.tabs_.get(action.tabID);
+            if (tab === undefined || !Number.isFinite(action.motion.duration) ||
+                action.motion.duration <= 0) {
+                return;
+            }
+            const fromBaseline = tab.kind === "comparison"
+                ? action.from.baselineRenderSpec ?? tab.baselineRenderSpec
+                : undefined;
+            const targetBaseline = tab.kind === "comparison"
+                ? action.target.baselineRenderSpec ?? fromBaseline
+                : undefined;
+            // 中断した遷移の表示位置も新しい始点としてStoreへ確定する。
+            tab.setRenderSpec(action.from.renderSpec);
+            if (tab.kind === "comparison" && fromBaseline !== undefined) {
+                tab.setBaselineRenderSpec(fromBaseline);
+            }
+            tab.viewTransition = {
+                id: this.nextViewTransitionID_++,
+                target: {
+                    renderSpec: action.target.renderSpec,
+                    baselineRenderSpec: targetBaseline,
+                },
+                motion: action.motion,
+            };
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
+            return;
+        }
+        case "KONATA_VIEW_TRANSITION_FINISH": {
+            const tab = this.tabs_.get(action.tabID);
+            const transition = tab?.viewTransition;
+            if (tab === undefined || transition === null ||
+                transition === undefined || transition.id !== action.transitionID) {
+                return;
+            }
+            tab.setRenderSpec(transition.target.renderSpec);
+            if (tab.kind === "comparison" && transition.target.baselineRenderSpec !== undefined) {
+                tab.setBaselineRenderSpec(transition.target.baselineRenderSpec);
+            }
+            tab.viewTransition = null;
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+            ]);
             return;
         }
         case "KONATA_SET_VIEW": {
@@ -1259,18 +1348,24 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
+            // 連続入力は現在の中間画像ではなく、既知の終点へ差分を積み上げる。
+            const targetSpecs = tab.viewTransition?.target;
+            const candidateSpec = targetSpecs?.renderSpec ?? tab.renderSpec;
             const candidatePosition = this.getMoveTarget_(
                 tab.trace,
-                tab.renderSpec,
-                action.basePosition ?? tab.renderSpec.position,
+                candidateSpec,
+                candidateSpec.position,
                 action.difference,
                 action.adjustHorizontal,
             );
+            const baselineSpec = tab.kind === "comparison"
+                ? targetSpecs?.baselineRenderSpec ?? tab.baselineRenderSpec
+                : undefined;
             const baselinePosition = tab.kind === "comparison"
                 ? this.getMoveTarget_(
                     tab.baselineTrace,
-                    tab.baselineRenderSpec,
-                    action.baselineBasePosition ?? tab.baselineRenderSpec.position,
+                    baselineSpec ?? tab.baselineRenderSpec,
+                    baselineSpec?.position ?? tab.baselineRenderSpec.position,
                     action.difference,
                     action.adjustHorizontal,
                 )
@@ -1282,9 +1377,7 @@ export class Store {
                 type: "VIEW_SCROLL_REQUEST",
                 tabID: tab.id,
                 position: selectedPosition,
-                candidatePosition,
                 baselinePosition,
-                accumulate: true,
             }]);
             return;
         }
@@ -1698,7 +1791,7 @@ export class Store {
     ): void {
         this.settings_ = settings;
         for (const tab of this.tabs_.values()) {
-            this.updateTabRenderSpecs_(tab, (spec) => this.applyGlobalViewSettings_(spec));
+            this.updateTabRenderSpecs_(tab, (_trace, spec) => this.applyGlobalViewSettings_(spec));
         }
         const changes: Change[] = [{ type: "PANE_CONTENT_UPDATE", tabID: null }];
         if (persist) {
@@ -1737,15 +1830,32 @@ export class Store {
 
     private updateTabRenderSpecs_(
         tab: StoreTab,
-        update: (spec: Readonly<KonataRenderSpec>) => Readonly<KonataRenderSpec>,
+        update: (
+            trace: ParsedTrace | null,
+            spec: Readonly<KonataRenderSpec>,
+        ) => Readonly<KonataRenderSpec>,
     ): void {
-        tab.setRenderSpec(update(tab.renderSpec));
+        const transition = tab.viewTransition;
+        tab.setRenderSpec(update(tab.trace, tab.renderSpec));
         if (tab.kind === "comparison") {
-            tab.setBaselineRenderSpec(update(tab.baselineRenderSpec));
+            tab.setBaselineRenderSpec(update(tab.baselineTrace, tab.baselineRenderSpec));
+        }
+        if (transition !== null) {
+            tab.viewTransition = {
+                ...transition,
+                target: {
+                    renderSpec: update(tab.trace, transition.target.renderSpec),
+                    baselineRenderSpec: tab.kind === "comparison" &&
+                        transition.target.baselineRenderSpec !== undefined
+                        ? update(tab.baselineTrace, transition.target.baselineRenderSpec)
+                        : undefined,
+                },
+            };
         }
     }
 
     private setView_(tab: StoreTab, baseline: boolean, view: KonataView): void {
+        tab.viewTransition = null;
         const spec = baseline && tab.kind === "comparison"
             ? tab.baselineRenderSpec
             : tab.renderSpec;
@@ -1770,6 +1880,7 @@ export class Store {
             spec: Readonly<KonataRenderSpec>,
         ) => Readonly<KonataRenderSpec>,
     ): void {
+        tab.viewTransition = null;
         const updateCandidate = tab.kind !== "comparison" || target === "both" || tab.mode !== "baseline";
         const updateBaseline = tab.kind === "comparison" &&
             (target === "both" || tab.mode !== "candidate");
