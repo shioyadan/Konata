@@ -294,7 +294,7 @@ export class TiledPipelineRenderer {
             build.namespaceKey !== fallback?.key) {
             reusedCoverage = Math.max(
                 reusedCoverage,
-                this.drawNamespaceTiles_(context, request, this.getNamespace_(build)),
+                this.drawNamespaceTiles_(context, request, this.getNamespace_(build), build),
             );
         }
         let tileCount = 0;
@@ -398,6 +398,7 @@ export class TiledPipelineRenderer {
         context: CanvasRenderingContext2D,
         request: RenderRequest,
         namespace: TileNamespace,
+        sourceViewport?: RenderRequest,
     ): number {
         if (namespace.contentKey !== request.contentKey || namespace.opWidth <= 0 || namespace.opHeight <= 0) {
             return 0;
@@ -405,28 +406,40 @@ export class TiledPipelineRenderer {
         const size = TiledPipelineRenderer.TILE_SIZE;
         const scaleX = request.metrics.opWidth / namespace.opWidth;
         const scaleY = request.metrics.opHeight / namespace.opHeight;
-        const sourceWorldX = request.spec.position[0] * namespace.opWidth;
-        const sourceWorldY = request.spec.position[1] * namespace.opHeight;
-        const left = Math.floor(sourceWorldX / size);
-        const top = Math.floor(sourceWorldY / size);
-        const right = Math.floor((sourceWorldX + request.width / scaleX - Number.EPSILON) / size);
-        const bottom = Math.floor((sourceWorldY + request.height / scaleY - Number.EPSILON) / size);
         let coverage = 0;
         context.imageSmoothingEnabled = scaleX !== 1 || scaleY !== 1;
-        for (let y = top; y <= bottom; y++) {
-            for (let x = left; x <= right; x++) {
-                const tile = this.getTile_(this.tileKey_(namespace.key, x, y));
-                if (tile === undefined) {
-                    continue;
+        const drawTile = (x: number, y: number) => {
+            const tile = this.getTile_(this.tileKey_(namespace.key, x, y));
+            if (tile === undefined) {
+                return;
+            }
+            // source倍率のworld tileを論理座標へ戻し、現在倍率の画素位置へ再投影する。
+            const drawX = x * size * scaleX - request.worldX;
+            const drawY = y * size * scaleY - request.worldY;
+            const drawWidth = size * scaleX;
+            const drawHeight = size * scaleY;
+            context.drawImage(tile.canvas, drawX, drawY, drawWidth, drawHeight);
+            coverage += Math.max(0, Math.min(request.width, drawX + drawWidth) - Math.max(0, drawX)) *
+                Math.max(0, Math.min(request.height, drawY + drawHeight) - Math.max(0, drawY));
+        };
+        if (sourceViewport !== undefined) {
+            // 終点倍率の先読みは、終点viewport用に生成するtileだけを途中画像へ再投影する。
+            // 現在viewportを終点の細かいtile座標へ展開すると、極端な倍率差で探索数が膨張する。
+            for (const position of this.getTilePositions_(sourceViewport, false)) {
+                drawTile(position.x, position.y);
+            }
+        }
+        else {
+            const sourceWorldX = request.spec.position[0] * namespace.opWidth;
+            const sourceWorldY = request.spec.position[1] * namespace.opHeight;
+            const left = Math.floor(sourceWorldX / size);
+            const top = Math.floor(sourceWorldY / size);
+            const right = Math.floor((sourceWorldX + request.width / scaleX - Number.EPSILON) / size);
+            const bottom = Math.floor((sourceWorldY + request.height / scaleY - Number.EPSILON) / size);
+            for (let y = top; y <= bottom; y++) {
+                for (let x = left; x <= right; x++) {
+                    drawTile(x, y);
                 }
-                // source倍率のworld tileを論理座標へ戻し、現在倍率の画素位置へ再投影する。
-                const drawX = x * size * scaleX - request.worldX;
-                const drawY = y * size * scaleY - request.worldY;
-                const drawWidth = size * scaleX;
-                const drawHeight = size * scaleY;
-                context.drawImage(tile.canvas, drawX, drawY, drawWidth, drawHeight);
-                coverage += Math.max(0, Math.min(request.width, drawX + drawWidth) - Math.max(0, drawX)) *
-                    Math.max(0, Math.min(request.height, drawY + drawHeight) - Math.max(0, drawY));
             }
         }
         context.imageSmoothingEnabled = false;

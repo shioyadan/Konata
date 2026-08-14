@@ -2963,6 +2963,46 @@ async function run() {
         throw new Error(`Pipeline tiles were not reused while scrolling: ${JSON.stringify(tileReuseState)}`);
     }
 
+    // 終点100%の可視tileだけを再投影し、極端な縮小画面全体を100%のtile座標で走査しない。
+    const extremeResetState = await window.webContents.executeJavaScript(`(async () => {
+        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        const output = document.querySelector('.zoom-controls output');
+        if (!(zoomSteps instanceof HTMLInputElement) ||
+            !(zoomOut instanceof HTMLButtonElement) ||
+            !(reset instanceof HTMLButtonElement) || !(output instanceof HTMLOutputElement)) {
+            throw new Error("The extreme zoom reset controls were not found.");
+        }
+        const originalZoomSteps = zoomSteps.value;
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        try {
+            inputSetter?.call(zoomSteps, "2");
+            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            for (let index = 0; index < 23; index++) {
+                zoomOut.click();
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const zoomBeforeReset = output.textContent;
+            const begin = performance.now();
+            reset.click();
+            const resetClickDuration = performance.now() - begin;
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            return {zoomBeforeReset, zoomAfterReset: output.textContent, resetClickDuration};
+        }
+        finally {
+            inputSetter?.call(zoomSteps, originalZoomSteps);
+            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+    })()`);
+    if (extremeResetState.zoomBeforeReset !== "0.0345%" ||
+        extremeResetState.zoomAfterReset !== "100%" ||
+        extremeResetState.resetClickDuration >= 1000) {
+        throw new Error(`Extreme zoom reset stalled: ${JSON.stringify(extremeResetState)}`);
+    }
+
     // 互換設定でタイリングを切ると、tile jobを止めて表示Canvasへ直接描画する。
     const tiledRenderingToggleState = await window.webContents.executeJavaScript(`(async () => {
         ${METHOD_OBSERVER_HELPER}
