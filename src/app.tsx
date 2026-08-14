@@ -451,10 +451,6 @@ export function App() {
         }
     }, [store]);
 
-    const cancelViewTransition = useCallback(() => {
-        traceSheetRef.current?.cancelViewTransition();
-    }, []);
-
     const hideSearchResult = useCallback(() => {
         const tab = store.activeTab;
         if (tab !== null) {
@@ -465,7 +461,6 @@ export function App() {
 
     const activateTab = useCallback((id: number) => {
         const previousTabID = store.activeTab?.id ?? null;
-        cancelViewTransition();
         store.dispatch({ type: "TAB_ACTIVATE", tabID: id });
         if (store.activeTab?.id === previousTabID) {
             return;
@@ -473,12 +468,11 @@ export function App() {
         // dialogは閉じ、検索contextは切替先Tabが所有する値をそのまま表示する。
         resetStats();
         resetCommandUI();
-    }, [cancelViewTransition, resetCommandUI, resetStats, store]);
+    }, [resetCommandUI, resetStats, store]);
 
     const closeTab = useCallback((id: number) => {
         const wasActive = store.activeTab?.id === id;
         if (wasActive) {
-            cancelViewTransition();
             // 比較描画では同じCanvasへ2つのtraceを続けて描くため、どちらのStoreも
             // 解放する前にCanvas側の遅延描画資源を明示的に破棄する。
             traceSheetRef.current?.resetPipelineCanvas();
@@ -488,7 +482,7 @@ export function App() {
             resetStats();
             resetCommandUI();
         }
-    }, [cancelViewTransition, resetCommandUI, resetStats, store]);
+    }, [resetCommandUI, resetStats, store]);
 
     useEffect(() => store.subscribeChange((change) => {
         if (change.type === "VIEW_SETTINGS_UPDATE") {
@@ -505,18 +499,16 @@ export function App() {
             setCommandMessage(change.message);
         }
         if (change.type === "PROGRESS_BAR_START" && change.operation === "load") {
-            cancelViewTransition();
             resetStats();
             resetCommandUI();
         }
-    }), [cancelViewTransition, resetCommandUI, resetStats, store]);
+    }), [resetCommandUI, resetStats, store]);
 
     useEffect(() => () => {
         statsRequestRef.current++;
-        cancelViewTransition();
         // StrictModeの初回cleanup時点ではtabがなく、実際のunmountではStoreが全tabを閉じる。
         store.dispatch({ type: "STORE_CLOSE" });
-    }, [cancelViewTransition, store]);
+    }, [store]);
 
     useEffect(() => {
         const fileNames = getRemoteTraceFileNames(window.location.hash);
@@ -603,7 +595,6 @@ export function App() {
         if (baseline?.kind !== "trace" || selectedComparisonCandidateID === null) {
             return;
         }
-        cancelViewTransition();
         store.dispatch({
             type: "COMPARISON_OPEN",
             baselineTabID: baseline.id,
@@ -612,7 +603,7 @@ export function App() {
         comparisonControlsRef.current?.removeAttribute("open");
         resetStats();
         resetCommandUI();
-    }, [cancelViewTransition, resetCommandUI, resetStats, selectedComparisonCandidateID, store]);
+    }, [resetCommandUI, resetStats, selectedComparisonCandidateID, store]);
 
     const alignComparisonToBaseline = useCallback(() => {
         const tab = store.activeTab;
@@ -620,10 +611,9 @@ export function App() {
             return;
         }
         // 手動位置合わせ後は、次の入力から再び単純な同期scrollだけを行う。
-        cancelViewTransition();
         traceSheetRef.current?.clearToolTip();
         store.dispatch({ type: "COMPARISON_ALIGN_TO_BASELINE", tabID: tab.id });
-    }, [cancelViewTransition, store]);
+    }, [store]);
 
     const openCommandPalette = useCallback((initialCommand: string) => {
         if (isStatsDialogOpen || isCustomColorDialogOpen) {
@@ -1192,7 +1182,7 @@ export function App() {
                                         : label}
                                 key={mode}
                                 onClick={() => {
-                                    cancelViewTransition();
+                                    traceSheetRef.current?.finishViewTransition();
                                     store.dispatch({
                                         type: "COMPARISON_SET_MODE",
                                         tabID: comparisonTab.id,

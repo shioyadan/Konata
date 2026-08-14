@@ -171,20 +171,23 @@ export class KonataViewController {
     }
 
     transitionTo(
-        targetSpec: Readonly<KonataRenderSpec>,
-        baselineTargetSpec: Readonly<KonataRenderSpec> | undefined,
+        target: KonataView,
+        baselineTarget: KonataView | undefined,
         motion: Readonly<KonataViewMotion>,
     ): void {
         if (this.disposed_) {
             return;
         }
         if (!Number.isFinite(motion.duration) || motion.duration <= 0) {
-            this.setImmediately(targetSpec, baselineTargetSpec);
+            this.setImmediately(target, baselineTarget);
             return;
         }
         this.stopAnimation_();
-        this.targetSpec_ = targetSpec;
-        this.baselineTargetSpec_ = baselineTargetSpec;
+        const baselineSpec = this.baselineTargetSpec_ ?? this.currentBaselineSpec_;
+        this.targetSpec_ = { ...this.targetSpec_, ...target };
+        this.baselineTargetSpec_ = baselineSpec === undefined || baselineTarget === undefined
+            ? undefined
+            : { ...baselineSpec, ...baselineTarget };
         this.animation_ = {
             from: getKonataView(this.currentSpec_),
             baselineFrom: this.currentBaselineSpec_ === undefined
@@ -194,40 +197,30 @@ export class KonataViewController {
             startedAt: this.scheduler_.now(),
         };
         // Storeなど外側の状態は開始時点で最終値へ進め、完了通知を不要にする。
-        this.onTargetChange_(
-            getKonataView(targetSpec),
-            baselineTargetSpec === undefined ? undefined : getKonataView(baselineTargetSpec),
-        );
+        this.onTargetChange_(target, baselineTarget);
         this.drawAt_(this.animation_.startedAt);
     }
 
     setImmediately(
-        targetSpec: Readonly<KonataRenderSpec>,
-        baselineTargetSpec?: Readonly<KonataRenderSpec>,
+        target: KonataView,
+        baselineTarget?: KonataView,
     ): void {
         if (this.disposed_) {
             return;
         }
         this.stopAnimation_();
-        this.targetSpec_ = targetSpec;
-        this.baselineTargetSpec_ = baselineTargetSpec;
-        this.currentSpec_ = targetSpec;
-        this.currentBaselineSpec_ = baselineTargetSpec;
-        this.onTargetChange_(
-            getKonataView(targetSpec),
-            baselineTargetSpec === undefined ? undefined : getKonataView(baselineTargetSpec),
-        );
+        const baselineSpec = this.baselineTargetSpec_ ?? this.currentBaselineSpec_;
+        this.targetSpec_ = { ...this.targetSpec_, ...target };
+        this.baselineTargetSpec_ = baselineSpec === undefined || baselineTarget === undefined
+            ? undefined
+            : { ...baselineSpec, ...baselineTarget };
+        this.currentSpec_ = this.targetSpec_;
+        this.currentBaselineSpec_ = this.baselineTargetSpec_;
+        this.onTargetChange_(target, baselineTarget);
         this.redraw();
     }
 
-    // pointer操作は途中画像をそのまま掴むため、目標へ飛ばさず現在frameで中断する。
-    interrupt(): void {
-        this.stopAnimation_();
-        this.targetSpec_ = this.currentSpec_;
-        this.baselineTargetSpec_ = this.currentBaselineSpec_;
-    }
-
-    // Tab切替など表示寿命の境界では、外側が既に持つ目標へ描画も追いつかせる。
+    // 比較mode切替などでは、外側が既に持つ目標へ描画も追いつかせる。
     finish(): void {
         if (this.disposed_) {
             return;

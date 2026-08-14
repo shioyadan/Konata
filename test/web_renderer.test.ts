@@ -644,13 +644,12 @@ test("View controller publishes targets immediately and keeps intermediate frame
         (target) => targets.push(target),
         scheduler,
     );
-    const targetSpec = {
-        ...DEFAULT_KONATA_RENDER_SPEC,
+    const target = {
         position: [20, 10] as const,
         zoomLevel: -1,
     };
 
-    controller.transitionTo(targetSpec, undefined, { type: "linear", duration: 100 });
+    controller.transitionTo(target, undefined, { type: "linear", duration: 100 });
 
     assert.deepEqual(targets, [{ position: [20, 10], zoomLevel: -1 }]);
     assert.deepEqual(frames.at(-1)?.spec.position, [0, 0]);
@@ -669,6 +668,23 @@ test("View controller publishes targets immediately and keeps intermediate frame
     const finalFrame = pendingFrame;
     pendingFrame = null;
     finalFrame?.(now);
-    assert.deepEqual(controller.currentSpec, targetSpec);
+    assert.deepEqual(controller.currentSpec, { ...DEFAULT_KONATA_RENDER_SPEC, ...target });
     assert.equal(pendingFrame, null);
+
+    controller.transitionTo(
+        { position: [40, 20], zoomLevel: -2 },
+        undefined,
+        { type: "linear", duration: 100 },
+    );
+    now = 150;
+    const interruptedFrame = pendingFrame;
+    pendingFrame = null;
+    interruptedFrame?.(now);
+    assert.deepEqual(controller.currentSpec.position, [30, 15]);
+
+    // 直接操作は現在frameを起点にし、別の中断操作を挟まず進行中の補間を止める。
+    controller.setImmediately({ position: [31, 16], zoomLevel: -1.5 });
+    assert.deepEqual(controller.currentSpec.position, [31, 16]);
+    assert.equal(pendingFrame, null);
+    assert.equal(targets.length, 3);
 });

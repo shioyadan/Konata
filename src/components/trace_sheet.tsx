@@ -62,7 +62,7 @@ const BOOKMARK_ZOOM_ANIMATION_DURATION = 160;
 export interface TraceSheetHandle {
     clearToolTip(): void;
     resetPipelineCanvas(): void;
-    cancelViewTransition(): void;
+    finishViewTransition(): void;
     scrollTo(
         position: readonly [number, number],
         baselinePosition?: readonly [number, number],
@@ -169,7 +169,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const baselineTiledRenderer = baselineTiledRendererRef.current;
     const baselineRenderer = comparison === null ? null : baselineRendererRef.current;
     const baselineTrace = comparison?.baselineTrace ?? null;
-    const baselineRenderSpec = comparison?.baselineRenderSpec ?? null;
+    const baselineRenderSpec = comparison?.baselineRenderSpec;
     const drawFrameRef = useRef<(frame: Readonly<KonataViewFrame>) => void>(() => undefined);
     const setViewRef = useRef(onSetView);
     setViewRef.current = onSetView;
@@ -180,7 +180,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 trace,
                 targetSpec: renderSpec,
                 baselineTrace,
-                baselineTargetSpec: baselineRenderSpec ?? undefined,
+                baselineTargetSpec: baselineRenderSpec,
             },
             (frame) => drawFrameRef.current(frame),
             (view, baselineView) => setViewRef.current(view, baselineView),
@@ -188,7 +188,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     }
     const viewController = viewControllerRef.current;
     const metrics = new KonataRenderMetrics(trace, viewController.currentSpec);
-    const baselineMetrics = baselineRenderSpec === null
+    const baselineMetrics = baselineRenderSpec === undefined
         ? null
         : new KonataRenderMetrics(baselineTrace, baselineRenderSpec);
     const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
@@ -214,18 +214,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         motion: Readonly<KonataViewMotion>,
     ) => {
         setToolTip(null);
-        const baselineSpec = viewController.baselineTargetSpec ??
-            viewController.currentBaselineSpec;
-        viewController.transitionTo(
-            { ...viewController.targetSpec, ...target },
-            baselineSpec === undefined || baselineTarget === undefined
-                ? undefined
-                : { ...baselineSpec, ...baselineTarget },
-            motion,
-        );
+        viewController.transitionTo(target, baselineTarget, motion);
     }, [viewController]);
 
-    const cancelViewTransition = useCallback(() => {
+    const finishViewTransition = useCallback(() => {
         viewController.finish();
     }, [viewController]);
 
@@ -479,7 +471,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
         resetPipelineCanvas: resetPipelineCanvases,
-        cancelViewTransition,
+        finishViewTransition,
         scrollTo,
         moveView,
         zoomAt,
@@ -490,7 +482,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             pipelineHeight: pipelineCanvasRef.current?.clientHeight ?? 400,
             labelHeight: labelCanvasRef.current?.clientHeight ?? 400,
         }),
-    }), [cancelViewTransition, goToView, moveView, resetPipelineCanvases, resetView, scrollTo, zoomAt]);
+    }), [finishViewTransition, goToView, moveView, resetPipelineCanvases, resetView, scrollTo, zoomAt]);
 
     useLayoutEffect(() => () => {
         viewController.dispose();
@@ -502,9 +494,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             trace,
             targetSpec: renderSpec,
             baselineTrace,
-            baselineTargetSpec: baselineRenderSpec ?? undefined,
+            baselineTargetSpec: baselineRenderSpec,
         });
-    }, [baselineRenderSpec, baselineTrace, renderSpec, trace, viewController]);
+    }, [baselineRenderSpec, baselineTrace, renderSpec, renderVersion, trace, viewController]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
@@ -517,10 +509,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         observer.observe(viewer);
         return () => observer.disconnect();
     }, [redraw]);
-
-    useLayoutEffect(() => {
-        redraw();
-    }, [redraw, renderVersion]);
 
     useLayoutEffect(() => {
         const handleMouseMove = (event: MouseEvent) => {
@@ -605,29 +593,24 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (positions.size === 1) {
             // 紙を掴む感覚に合わせ、pointer移動と逆向きへviewを進める。
             setToolTip(null);
-            viewController.interrupt();
             const currentSpec = viewController.currentSpec;
             const currentBaselineSpec = viewController.currentBaselineSpec;
             const applyCandidate = comparisonMode !== "baseline";
             const applyBaseline = currentBaselineSpec !== undefined && comparisonMode !== "candidate";
+            const pan = (
+                currentTrace: ParsedTrace | null,
+                currentSpec: Readonly<KonataRenderSpec>,
+            ) => getKonataView(new KonataRenderMetrics(currentTrace, currentSpec).withPixelPan(
+                previous.x - event.clientX,
+                previous.y - event.clientY,
+            ));
             viewController.setImmediately(
-                applyCandidate
-                    ? new KonataRenderMetrics(trace, currentSpec).withPixelPan(
-                        previous.x - event.clientX,
-                        previous.y - event.clientY,
-                    )
-                    : currentSpec,
+                applyCandidate ? pan(trace, currentSpec) : getKonataView(currentSpec),
                 currentBaselineSpec === undefined
                     ? undefined
                     : applyBaseline
-                        ? new KonataRenderMetrics(
-                            baselineTrace,
-                            currentBaselineSpec,
-                        ).withPixelPan(
-                            previous.x - event.clientX,
-                            previous.y - event.clientY,
-                        )
-                        : currentBaselineSpec,
+                        ? pan(baselineTrace, currentBaselineSpec)
+                        : getKonataView(currentBaselineSpec),
             );
             positions.set(event.pointerId, { x: event.clientX, y: event.clientY });
             return;
@@ -660,7 +643,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const factor = currentDistance / previousDistance;
         // 2点の中心移動もpanとして反映し、指の間にあった位置をzoom後も維持する。
         setToolTip(null);
-        viewController.interrupt();
         const panDeltaX = previousCenter.x - currentCenter.x;
         const panDeltaY = previousCenter.y - currentCenter.y;
         const zoomDifference = -Math.log2(factor);
@@ -674,11 +656,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 panDeltaX,
                 panDeltaY,
             );
-            return new KonataRenderMetrics(currentTrace, panned).withZoomLevel(
+            return getKonataView(new KonataRenderMetrics(currentTrace, panned).withZoomLevel(
                 panned.zoomLevel + zoomDifference,
                 centerX,
                 centerY,
-            );
+            ));
         };
         viewController.setImmediately(
             applyPinch(trace, viewController.currentSpec),
