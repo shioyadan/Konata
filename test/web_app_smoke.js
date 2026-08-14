@@ -2974,7 +2974,7 @@ async function run() {
         throw new Error(`Pipeline tiles were not reused while scrolling: ${JSON.stringify(tileReuseState)}`);
     }
 
-    // 終点100%の可視tileだけを再投影し、極端な縮小画面全体を100%のtile座標で走査しない。
+    // key repeatやResetで倍率差が広がっても、旧倍率の空tile座標を画面全体について探索しない。
     const extremeResetState = await window.webContents.executeJavaScript(`(async () => {
         ${METHOD_OBSERVER_HELPER}
         const prototype = CanvasRenderingContext2D.prototype;
@@ -2992,6 +2992,15 @@ async function run() {
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         const tileBackingSize = Math.round(256 * devicePixelRatio);
         let overlappedTileBlits = 0;
+        let observing = true;
+        let previousFrame = performance.now();
+        let maximumFrameGap = 0;
+        const observeFrame = (time) => {
+            maximumFrameGap = Math.max(maximumFrameGap, time - previousFrame);
+            previousFrame = time;
+            if (observing) requestAnimationFrame(observeFrame);
+        };
+        requestAnimationFrame(observeFrame);
         observeMethod(prototype, "drawImage", function(args) {
             const source = args[0];
             if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
@@ -3001,6 +3010,32 @@ async function run() {
             }
         });
         try {
+            // OSのkey repeatに近い間隔で、animation途中のfallback tileを連続して再投影する。
+            inputSetter?.call(zoomSteps, "1");
+            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            maximumFrameGap = 0;
+            previousFrame = performance.now();
+            const repeatBegin = performance.now();
+            for (let index = 0; index < 10; index++) {
+                document.dispatchEvent(new KeyboardEvent("keydown", {
+                    key: "ArrowDown",
+                    ctrlKey: true,
+                    repeat: index > 0,
+                    bubbles: true,
+                    cancelable: true,
+                }));
+                await new Promise((resolve) => setTimeout(resolve, 33));
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const repeatedZoom = output.textContent;
+            const repeatedZoomDuration = performance.now() - repeatBegin;
+            const repeatedZoomMaximumFrameGap = maximumFrameGap;
+
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            overlappedTileBlits = 0;
             inputSetter?.call(zoomSteps, "2");
             zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
             for (let index = 0; index < 23; index++) {
@@ -3018,9 +3053,13 @@ async function run() {
                 zoomAfterReset: output.textContent,
                 resetClickDuration,
                 overlappedBeforeReset,
+                repeatedZoom,
+                repeatedZoomDuration,
+                repeatedZoomMaximumFrameGap,
             };
         }
         finally {
+            observing = false;
             restoreObservedMethods();
             inputSetter?.call(zoomSteps, originalZoomSteps);
             zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
@@ -3031,6 +3070,9 @@ async function run() {
     if (extremeResetState.zoomBeforeReset !== "0.0345%" ||
         extremeResetState.zoomAfterReset !== "100%" ||
         extremeResetState.overlappedBeforeReset < 1 ||
+        extremeResetState.repeatedZoom !== "0.0977%" ||
+        extremeResetState.repeatedZoomDuration >= 2000 ||
+        extremeResetState.repeatedZoomMaximumFrameGap >= 1000 ||
         extremeResetState.resetClickDuration >= 1000) {
         throw new Error(`Extreme zoom reset stalled: ${JSON.stringify(extremeResetState)}`);
     }

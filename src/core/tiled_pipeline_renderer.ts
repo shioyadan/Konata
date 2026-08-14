@@ -32,6 +32,9 @@ export interface TiledPipelineRenderOptions {
 interface Tile {
     readonly canvas: HTMLCanvasElement;
     readonly bytes: number;
+    readonly namespaceKey: string;
+    readonly x: number;
+    readonly y: number;
 }
 
 interface TilePosition {
@@ -413,18 +416,17 @@ export class TiledPipelineRenderer {
         if (namespace.contentKey !== request.contentKey || namespace.opWidth <= 0 || namespace.opHeight <= 0) {
             return 0;
         }
-        const size = TiledPipelineRenderer.TILE_SIZE;
         const scaleX = request.metrics.opWidth / namespace.opWidth;
         const scaleY = request.metrics.opHeight / namespace.opHeight;
         let coverage = 0;
         context.imageSmoothingEnabled = scaleX !== 1 || scaleY !== 1;
-        const drawTile = (x: number, y: number) => {
-            const tile = this.getTile_(this.tileKey_(namespace.key, x, y));
+        const drawTile = (key: string) => {
+            const tile = this.getTile_(key);
             if (tile === undefined) {
                 return;
             }
             // source倍率のworld tileを論理座標へ戻し、現在倍率の画素位置へ再投影する。
-            const bounds = this.getTileScreenBounds_(request, x, y, scaleX, scaleY);
+            const bounds = this.getTileScreenBounds_(request, tile.x, tile.y, scaleX, scaleY);
             this.drawTileCanvas_(context, request, tile.canvas, bounds, scaleX, scaleY);
             coverage += Math.max(0, Math.min(request.width, bounds.right) - Math.max(0, bounds.left)) *
                 Math.max(0, Math.min(request.height, bounds.bottom) - Math.max(0, bounds.top));
@@ -433,20 +435,26 @@ export class TiledPipelineRenderer {
             // 終点倍率の先読みは、終点viewport用に生成するtileだけを途中画像へ再投影する。
             // 現在viewportを終点の細かいtile座標へ展開すると、極端な倍率差で探索数が膨張する。
             for (const position of this.getTilePositions_(sourceViewport, false)) {
-                drawTile(position.x, position.y);
+                drawTile(this.tileKey_(namespace.key, position.x, position.y));
             }
         }
         else {
-            const sourceWorldX = request.spec.position[0] * namespace.opWidth;
-            const sourceWorldY = request.spec.position[1] * namespace.opHeight;
-            const left = Math.floor(sourceWorldX / size);
-            const top = Math.floor(sourceWorldY / size);
-            const right = Math.floor((sourceWorldX + request.width / scaleX - Number.EPSILON) / size);
-            const bottom = Math.floor((sourceWorldY + request.height / scaleY - Number.EPSILON) / size);
-            for (let y = top; y <= bottom; y++) {
-                for (let x = left; x <= right; x++) {
-                    drawTile(x, y);
+            // 縮小中に旧倍率の全座標を列挙すると、各tileが画面上で小さくなるほど空振りが
+            // 二次元に増える。最大512枚のcache側から交差するものだけを先に集める。
+            // getTile_はLRU順を変更するため、Mapの走査を終えてから描画する。
+            const visibleTileKeys: string[] = [];
+            for (const [key, tile] of this.tiles_) {
+                if (tile.namespaceKey !== namespace.key) {
+                    continue;
                 }
+                const bounds = this.getTileScreenBounds_(request, tile.x, tile.y, scaleX, scaleY);
+                if (bounds.right > 0 && bounds.left < request.width &&
+                    bounds.bottom > 0 && bounds.top < request.height) {
+                    visibleTileKeys.push(key);
+                }
+            }
+            for (const key of visibleTileKeys) {
+                drawTile(key);
             }
         }
         context.imageSmoothingEnabled = false;
@@ -753,6 +761,9 @@ export class TiledPipelineRenderer {
         this.putTile_(key, {
             canvas,
             bytes: canvas.width * canvas.height * 4,
+            namespaceKey: request.namespaceKey,
+            x: job.x,
+            y: job.y,
         });
         return true;
     }

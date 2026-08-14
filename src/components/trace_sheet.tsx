@@ -282,6 +282,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const baselineFrom = viewController.currentBaselineSpec;
         const baseLevel = viewController.targetSpec.zoomLevel;
         const zoomLevel = clampKonataZoomLevel(baseLevel + (factor > 1 ? -zoomStep : zoomStep));
+        // 上限でのkey repeatは同じ終点へのanimationを再起動せず、進行中の最後の遷移を完了させる。
+        if (zoomLevel === baseLevel) {
+            return;
+        }
         startViewTransition(
             getKonataView(new KonataRenderMetrics(trace, from).withZoomLevel(
                 zoomLevel, centerX, centerY)),
