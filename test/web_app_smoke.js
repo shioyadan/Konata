@@ -15,6 +15,30 @@ else {
     app.commandLine.appendSwitch("disable-gpu");
 }
 
+// browser内の描画回数を計測する各検査で、prototypeの差し替えと復元を共有する。
+const METHOD_OBSERVER_HELPER = `
+    const observedMethodRestorers = [];
+    const observeMethod = (target, name, observer) => {
+        const original = target[name];
+        if (typeof original !== "function") {
+            throw new Error("The observed method was not found: " + name);
+        }
+        target[name] = function(...args) {
+            const result = Reflect.apply(original, this, args);
+            observer.call(this, args, result);
+            return result;
+        };
+        observedMethodRestorers.push(() => {
+            target[name] = original;
+        });
+    };
+    const restoreObservedMethods = () => {
+        for (const restore of observedMethodRestorers.reverse()) {
+            restore();
+        }
+    };
+`;
+
 async function dropContents(window, contents, fileName, mimeType, verifyProgressBar = false) {
     const encodedContents = contents.toString("base64");
 
@@ -1706,6 +1730,7 @@ async function run() {
 
     // touch画面では2 pointer間の距離比を連続倍率へ変換し、browser gestureに渡さずzoomする。
     const pinchZoomState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        ${METHOD_OBSERVER_HELPER}
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane");
         const pipelineCanvas = document.querySelector(".pipeline-pane canvas");
@@ -1726,27 +1751,23 @@ async function run() {
         });
         const rect = pipeline.getBoundingClientRect();
         const prototype = CanvasRenderingContext2D.prototype;
-        const originalDrawImage = prototype.drawImage;
-        const originalFillRect = prototype.fillRect;
         const tileBackingSize = Math.round(256 * devicePixelRatio);
         let generatedTiles = 0;
         let scaledTileBlits = 0;
-        prototype.fillRect = function(...args) {
+        observeMethod(prototype, "fillRect", function() {
             if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
                 this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
                 generatedTiles++;
             }
-            return Reflect.apply(originalFillRect, this, args);
-        };
-        prototype.drawImage = function(...args) {
+        });
+        observeMethod(prototype, "drawImage", function(args) {
             const source = args[0];
             if (this.canvas === pipelineCanvas && this.imageSmoothingEnabled &&
                 source instanceof HTMLCanvasElement && !source.isConnected &&
                 source.width === tileBackingSize && source.height === tileBackingSize) {
                 scaledTileBlits++;
             }
-            return Reflect.apply(originalDrawImage, this, args);
-        };
+        });
         const dispatchPointer = (type, pointerId, x, buttons) => viewer.dispatchEvent(new PointerEvent(type, {
             pointerId,
             pointerType: "touch",
@@ -1772,8 +1793,7 @@ async function run() {
                 generatedTiles,
                 scaledTileBlits
             };
-            prototype.drawImage = originalDrawImage;
-            prototype.fillRect = originalFillRect;
+            restoreObservedMethods();
             delete viewer.setPointerCapture;
             delete viewer.hasPointerCapture;
             delete viewer.releasePointerCapture;
@@ -2505,11 +2525,11 @@ async function run() {
 
     // 比較Tabは元の2つを残し、同じ表示領域をA・overlay・Bで切り替える。
     const comparisonState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
         const nextFrame = () => new Promise((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        const originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
         let comparisonLayerCompositions = [];
-        CanvasRenderingContext2D.prototype.drawImage = function(...args) {
+        observeMethod(CanvasRenderingContext2D.prototype, "drawImage", function(args) {
             // tile内部のCanvas copyではなく、A/B layerから最終表示Canvasへの合成だけを数える。
             if (args[0] instanceof HTMLCanvasElement &&
                 this.canvas instanceof HTMLCanvasElement &&
@@ -2520,8 +2540,7 @@ async function run() {
                     filter: this.filter
                 });
             }
-            return Reflect.apply(originalDrawImage, this, args);
-        };
+        });
         const summary = document.querySelector('[aria-label="Compare traces"]');
         if (!(summary instanceof HTMLElement)) {
             throw new Error("The comparison control was not found.");
@@ -2651,7 +2670,7 @@ async function run() {
         await nextFrame();
         document.querySelector('.trace-tab.is-active .trace-tab-close')?.click();
         await nextFrame();
-        CanvasRenderingContext2D.prototype.drawImage = originalDrawImage;
+        restoreObservedMethods();
         return {
             initial,
             finalOverlayState,
@@ -2859,9 +2878,8 @@ async function run() {
     }
 
     const tileReuseState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
         const prototype = CanvasRenderingContext2D.prototype;
-        const originalDrawImage = prototype.drawImage;
-        const originalFillRect = prototype.fillRect;
         const pipeline = document.querySelector('.pipeline-pane canvas');
         const viewer = document.querySelector('.viewer');
         const reset = document.querySelector('button[aria-label="Reset view"]');
@@ -2886,7 +2904,7 @@ async function run() {
             if (observeFrames) requestAnimationFrame(observeFrame);
         };
         requestAnimationFrame(observeFrame);
-        prototype.drawImage = function(...args) {
+        observeMethod(prototype, "drawImage", function(args) {
             const source = args[0];
             if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
                 !source.isConnected) {
@@ -2898,9 +2916,8 @@ async function run() {
                     previousFrameBlits++;
                 }
             }
-            return Reflect.apply(originalDrawImage, this, args);
-        };
-        prototype.fillRect = function(...args) {
+        });
+        observeMethod(prototype, "fillRect", function() {
             if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
                 this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
                 firstNewTileRenderOrder ??= ++operationOrder;
@@ -2908,8 +2925,7 @@ async function run() {
                 canvases.add(this.canvas);
                 renderedTilesByFrame.set(frameIndex, canvases);
             }
-            return Reflect.apply(originalFillRect, this, args);
-        };
+        });
         try {
             // 横へ1 tile index進み、先読みringを使いつつ次の外周生成も発生させる。
             for (let index = 0; index < 2; index++) {
@@ -2935,8 +2951,7 @@ async function run() {
             };
         }
         finally {
-            prototype.drawImage = originalDrawImage;
-            prototype.fillRect = originalFillRect;
+            restoreObservedMethods();
             reset.click();
             await new Promise((resolve) => setTimeout(resolve, 250));
         }
@@ -2952,9 +2967,8 @@ async function run() {
 
     // 互換設定でタイリングを切ると、tile jobを止めて表示Canvasへ直接描画する。
     const tiledRenderingToggleState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
         const prototype = CanvasRenderingContext2D.prototype;
-        const originalDrawImage = prototype.drawImage;
-        const originalFillRect = prototype.fillRect;
         const pipeline = document.querySelector('.pipeline-pane canvas');
         const viewer = document.querySelector('.viewer');
         const reset = document.querySelector('button[aria-label="Reset view"]');
@@ -2978,7 +2992,7 @@ async function run() {
         let tileRenders = 0;
         let tileBlits = 0;
         let directFills = 0;
-        prototype.fillRect = function(...args) {
+        observeMethod(prototype, "fillRect", function() {
             if (this.canvas === pipeline) {
                 directFills++;
             }
@@ -2986,16 +3000,14 @@ async function run() {
                 this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
                 tileRenders++;
             }
-            return Reflect.apply(originalFillRect, this, args);
-        };
-        prototype.drawImage = function(...args) {
+        });
+        observeMethod(prototype, "drawImage", function(args) {
             const source = args[0];
             if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
                 !source.isConnected && source.width === tileBackingSize && source.height === tileBackingSize) {
                 tileBlits++;
             }
-            return Reflect.apply(originalDrawImage, this, args);
-        };
+        });
         try {
             tiledRendering.click();
             await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -3027,8 +3039,7 @@ async function run() {
             };
         }
         finally {
-            prototype.drawImage = originalDrawImage;
-            prototype.fillRect = originalFillRect;
+            restoreObservedMethods();
             if (tiledRendering.checked !== originalTiledRendering) {
                 tiledRendering.click();
             }
@@ -3056,10 +3067,8 @@ async function run() {
 
     // stage名と経過cycle数は最初の描画だけoffscreenへ描き、次の描画ではBLTだけになる。
     const textAtlasState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
         const prototype = CanvasRenderingContext2D.prototype;
-        const originalFillText = prototype.fillText;
-        const originalFillRect = prototype.fillRect;
-        const originalDrawImage = prototype.drawImage;
         const pipeline = document.querySelector('.pipeline-pane canvas');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
@@ -3096,23 +3105,21 @@ async function run() {
         const generatedTileCanvases = new Set();
         const tileBackingSize = Math.round(256 * devicePixelRatio);
         const blitScales = [];
-        prototype.fillText = function(...args) {
+        observeMethod(prototype, "fillText", function() {
             if (this.canvas === pipeline) {
                 pipelineFillTexts++;
             }
             else if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected) {
                 atlasFillTexts++;
             }
-            return Reflect.apply(originalFillText, this, args);
-        };
-        prototype.fillRect = function(...args) {
+        });
+        observeMethod(prototype, "fillRect", function() {
             if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
                 this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
                 generatedTileCanvases.add(this.canvas);
             }
-            return Reflect.apply(originalFillRect, this, args);
-        };
-        prototype.drawImage = function(...args) {
+        });
+        observeMethod(prototype, "drawImage", function(args) {
             if (this.canvas === pipeline && args[0] instanceof HTMLCanvasElement &&
                 !args[0].isConnected) {
                 pipelineBlits++;
@@ -3130,8 +3137,7 @@ async function run() {
                     blitScales.push(args[3] * devicePixelRatio / args[0].width);
                 }
             }
-            return Reflect.apply(originalDrawImage, this, args);
-        };
+        });
         const nextFrame = () => new Promise((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(resolve)));
         try {
@@ -3173,9 +3179,7 @@ async function run() {
             return {first, scaled, recolored};
         }
         finally {
-            prototype.fillText = originalFillText;
-            prototype.fillRect = originalFillRect;
-            prototype.drawImage = originalDrawImage;
+            restoreObservedMethods();
             theme.value = originalTheme;
             theme.dispatchEvent(new Event("change", {bubbles: true}));
             colorScheme.value = originalColorScheme;
@@ -3239,6 +3243,7 @@ async function run() {
 
     // 70.7%でstage gradient、枠、atlas文字、依存矢印をWebGL2へ一括描画する。
     const webGLState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
         const glPrototype = globalThis.WebGL2RenderingContext?.prototype;
         const canvasPrototype = HTMLCanvasElement.prototype;
         const theme = document.querySelector('select[aria-label="UI color theme"]');
@@ -3258,12 +3263,7 @@ async function run() {
             !(reset instanceof HTMLButtonElement) || !(pipeline instanceof HTMLCanvasElement)) {
             throw new Error("The WebGL2 simplified rendering controls were not found.");
         }
-        const originalDraw = glPrototype.drawArraysInstanced;
-        const originalBufferData = glPrototype.bufferData;
-        const originalTexImage2D = glPrototype.texImage2D;
-        const originalGetContext = canvasPrototype.getContext;
         const contextPrototype = CanvasRenderingContext2D.prototype;
-        const originalBezierCurveTo = contextPrototype.bezierCurveTo;
         const originalTheme = theme.value;
         const originalColorScheme = colorScheme.value;
         const originalDependencyType = dependencyType.value;
@@ -3283,18 +3283,17 @@ async function run() {
         let arrowInstances = 0;
         let canvasBezierCurveCalls = 0;
         let acceleratedContext = null;
-        canvasPrototype.getContext = function(type, ...args) {
+        observeMethod(canvasPrototype, "getContext", function(args, context) {
+            const type = args[0];
             if (type === "webgl2") {
                 webGLRequests++;
             }
-            const context = Reflect.apply(originalGetContext, this, [type, ...args]);
             if (type === "webgl2" && context !== null) {
                 webGLContexts++;
                 acceleratedContext = context;
             }
-            return context;
-        };
-        glPrototype.drawArraysInstanced = function(...args) {
+        });
+        observeMethod(glPrototype, "drawArraysInstanced", function(args) {
             acceleratedContext = this;
             drawCalls++;
             instances += args[3];
@@ -3303,13 +3302,11 @@ async function run() {
                 arrowDrawCalls++;
                 arrowInstances += args[3];
             }
-            return Reflect.apply(originalDraw, this, args);
-        };
-        contextPrototype.bezierCurveTo = function(...args) {
+        });
+        observeMethod(contextPrototype, "bezierCurveTo", function() {
             canvasBezierCurveCalls++;
-            return Reflect.apply(originalBezierCurveTo, this, args);
-        };
-        glPrototype.bufferData = function(...args) {
+        });
+        observeMethod(glPrototype, "bufferData", function(args) {
             const data = args[1];
             if (data instanceof Uint8Array && data.byteLength % 8 === 0) {
                 for (let offset = 0; offset < data.byteLength; offset += 8) {
@@ -3335,15 +3332,13 @@ async function run() {
                 interleavedText ||= firstText >= 0 &&
                     data.subarray(firstText + 1).some((value) => value >= 0);
             }
-            return Reflect.apply(originalBufferData, this, args);
-        };
-        glPrototype.texImage2D = function(...args) {
+        });
+        observeMethod(glPrototype, "texImage2D", function(args) {
             const source = args.at(-1);
             if (source instanceof HTMLCanvasElement && source.width === 1024 && source.height === 512) {
                 atlasUploads++;
             }
-            return Reflect.apply(originalTexImage2D, this, args);
-        };
+        });
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         inputSetter?.call(zoomSteps, "2");
         zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
@@ -3473,11 +3468,7 @@ async function run() {
         const fallbackDrawCalls = drawCalls - drawCallsBeforeFallback;
         const fallbackBezierCurveCalls = canvasBezierCurveCalls - bezierCurveCallsBeforeFallback;
         loseContext.restoreContext();
-        glPrototype.drawArraysInstanced = originalDraw;
-        glPrototype.bufferData = originalBufferData;
-        glPrototype.texImage2D = originalTexImage2D;
-        canvasPrototype.getContext = originalGetContext;
-        contextPrototype.bezierCurveTo = originalBezierCurveTo;
+        restoreObservedMethods();
         theme.value = originalTheme;
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         colorScheme.value = originalColorScheme;
@@ -3783,9 +3774,8 @@ async function run() {
 
     // toolbar zoom中は旧倍率tileを拡縮しながら、既知の最終倍率tileを先行生成する。
     const zoomAnimationState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
         const prototype = CanvasRenderingContext2D.prototype;
-        const originalDrawImage = prototype.drawImage;
-        const originalFillRect = prototype.fillRect;
         const pipeline = document.querySelector('.pipeline-pane canvas');
         const output = document.querySelector(".zoom-controls output");
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
@@ -3800,22 +3790,20 @@ async function run() {
         const tileBackingSize = Math.round(256 * devicePixelRatio);
         let generatedTargetTiles = 0;
         let scaledTileBlits = 0;
-        prototype.fillRect = function(...args) {
+        observeMethod(prototype, "fillRect", function() {
             if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
                 this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
                 generatedTargetTiles++;
             }
-            return Reflect.apply(originalFillRect, this, args);
-        };
-        prototype.drawImage = function(...args) {
+        });
+        observeMethod(prototype, "drawImage", function(args) {
             const source = args[0];
             if (this.canvas === pipeline && this.imageSmoothingEnabled &&
                 source instanceof HTMLCanvasElement && !source.isConnected &&
                 source.width === tileBackingSize && source.height === tileBackingSize) {
                 scaledTileBlits++;
             }
-            return Reflect.apply(originalDrawImage, this, args);
-        };
+        });
         const before = output?.textContent ?? null;
         try {
             document.querySelector('button[aria-label="Zoom in"]')?.click();
@@ -3831,8 +3819,7 @@ async function run() {
             };
         }
         finally {
-            prototype.drawImage = originalDrawImage;
-            prototype.fillRect = originalFillRect;
+            restoreObservedMethods();
         }
     })()`);
     if (zoomAnimationState.before !== "100%" || zoomAnimationState.immediatelyAfter !== "100%" ||
