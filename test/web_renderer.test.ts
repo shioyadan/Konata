@@ -10,6 +10,7 @@ import {
     DEFAULT_KONATA_RENDER_SPEC,
     formatOpLabel,
     formatKonataZoomPercent,
+    getFirstDrawingRow,
     KONATA_OP_WIDTH,
     KonataRenderMetrics,
     KonataRenderer,
@@ -333,6 +334,15 @@ test("Web render metrics preserve legacy zoom levels and lane heights", () => {
     });
     assert.equal(formatKonataZoomPercent(overview.zoomLevel), "0.0691%");
     assert.equal(overview.drawingStep, 30);
+
+    // 0.0781%では約26命令おきになるが、tile上端が端数でもtrace全体の位相へ揃える。
+    const seamOverview = new KonataRenderMetrics(trace, {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        zoomLevel: Math.log2(1280),
+    });
+    assert.equal(formatKonataZoomPercent(seamOverview.zoomLevel), "0.0781%");
+    assert.equal(seamOverview.drawingStep, 26);
+    assert.equal(getFirstDrawingRow(256 / seamOverview.opHeight, seamOverview.drawingStep), 13650);
 
     // lane分割時は既定でlane数に応じて命令行を高くし、高さ固定時だけ24pxへ戻す。
     const split = new KonataRenderMetrics(trace, {

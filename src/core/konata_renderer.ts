@@ -120,6 +120,11 @@ export function formatKonataZoomPercent(zoomLevel: number): string {
     return `${value}%`;
 }
 
+// 縮小時の代表命令をviewportやtileによらないtrace全体の位相へ揃える。
+export function getFirstDrawingRow(top: number, step: number): number {
+    return Math.floor(top / step) * step;
+}
+
 // TraceとKonataRenderSpecから、描画寸法・座標変換・hit testを純粋に計算する。
 // CanvasやDOMを参照せず、同じ入力から常に同じ結果を返す派生値だけを持つ。
 
@@ -717,7 +722,8 @@ export class KonataRenderer {
             if (drawBase) {
                 let skipRendering = false;
                 const step = this.metrics_.drawingStep;
-                for (let y = Math.floor(top); y < top + logicalHeight; y += step) {
+                const firstY = getFirstDrawingRow(top, step);
+                for (let y = firstY; y < top + logicalHeight; y += step) {
                     const pixelY = y - top + offsetY;
                     if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
                         const fillTop = pixelY * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST;

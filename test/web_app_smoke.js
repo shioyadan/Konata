@@ -2890,6 +2890,7 @@ async function run() {
         await new Promise((resolve) => setTimeout(resolve, 1200));
         const tileBackingSize = Math.round(256 * devicePixelRatio);
         let tileBlits = 0;
+        let alignedTileBlits = 0;
         let previousFrameBlits = 0;
         let operationOrder = 0;
         let firstTileBlitOrder = null;
@@ -2908,6 +2909,13 @@ async function run() {
                 !source.isConnected) {
                 if (source.width === tileBackingSize && source.height === tileBackingSize) {
                     tileBlits++;
+                    const edges = [args[1], args[2], args[1] + args[3], args[2] + args[4]];
+                    if (edges.every((value) => {
+                        const devicePixel = value * devicePixelRatio;
+                        return Math.abs(devicePixel - Math.round(devicePixel)) < 0.000001;
+                    })) {
+                        alignedTileBlits++;
+                    }
                     firstTileBlitOrder ??= ++operationOrder;
                 }
                 if (source.width === pipeline.width && source.height === pipeline.height) {
@@ -2939,6 +2947,7 @@ async function run() {
             observeFrames = false;
             return {
                 tileBlits,
+                alignedTileBlits,
                 previousFrameBlits,
                 firstTileBlitOrder,
                 firstNewTileRenderOrder,
@@ -2954,7 +2963,9 @@ async function run() {
             await new Promise((resolve) => setTimeout(resolve, 250));
         }
     })()`);
-    if (tileReuseState.tileBlits < 1 || tileReuseState.previousFrameBlits < 1 ||
+    if (tileReuseState.tileBlits < 1 ||
+        tileReuseState.alignedTileBlits !== tileReuseState.tileBlits ||
+        tileReuseState.previousFrameBlits < 1 ||
         tileReuseState.firstTileBlitOrder === null ||
         tileReuseState.firstNewTileRenderOrder === null ||
         tileReuseState.firstTileBlitOrder >= tileReuseState.firstNewTileRenderOrder ||
@@ -2965,17 +2976,30 @@ async function run() {
 
     // 終点100%の可視tileだけを再投影し、極端な縮小画面全体を100%のtile座標で走査しない。
     const extremeResetState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const prototype = CanvasRenderingContext2D.prototype;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         const output = document.querySelector('.zoom-controls output');
-        if (!(zoomSteps instanceof HTMLInputElement) ||
+        if (!(pipeline instanceof HTMLCanvasElement) || !(zoomSteps instanceof HTMLInputElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement) || !(output instanceof HTMLOutputElement)) {
             throw new Error("The extreme zoom reset controls were not found.");
         }
         const originalZoomSteps = zoomSteps.value;
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let overlappedTileBlits = 0;
+        observeMethod(prototype, "drawImage", function(args) {
+            const source = args[0];
+            if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
+                !source.isConnected && source.width === tileBackingSize &&
+                source.height === tileBackingSize && args[3] > 256 && args[4] > 256) {
+                overlappedTileBlits++;
+            }
+        });
         try {
             inputSetter?.call(zoomSteps, "2");
             zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
@@ -2984,13 +3008,20 @@ async function run() {
             }
             await new Promise((resolve) => setTimeout(resolve, 300));
             const zoomBeforeReset = output.textContent;
+            const overlappedBeforeReset = overlappedTileBlits;
             const begin = performance.now();
             reset.click();
             const resetClickDuration = performance.now() - begin;
             await new Promise((resolve) => setTimeout(resolve, 300));
-            return {zoomBeforeReset, zoomAfterReset: output.textContent, resetClickDuration};
+            return {
+                zoomBeforeReset,
+                zoomAfterReset: output.textContent,
+                resetClickDuration,
+                overlappedBeforeReset,
+            };
         }
         finally {
+            restoreObservedMethods();
             inputSetter?.call(zoomSteps, originalZoomSteps);
             zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
             reset.click();
@@ -2999,6 +3030,7 @@ async function run() {
     })()`);
     if (extremeResetState.zoomBeforeReset !== "0.0345%" ||
         extremeResetState.zoomAfterReset !== "100%" ||
+        extremeResetState.overlappedBeforeReset < 1 ||
         extremeResetState.resetClickDuration >= 1000) {
         throw new Error(`Extreme zoom reset stalled: ${JSON.stringify(extremeResetState)}`);
     }

@@ -8,6 +8,7 @@ import lightStyle from "../../theme/light/style.json";
 import type { ParsedTrace } from "./model";
 import {
     DEP_ARROW_TYPE,
+    getFirstDrawingRow,
     KonataRenderMetrics,
     type KonataRenderSpec,
     KonataRenderer,
@@ -38,6 +39,13 @@ interface TilePosition {
     readonly y: number;
     readonly visible: boolean;
     readonly priority: number;
+}
+
+interface TileScreenBounds {
+    readonly left: number;
+    readonly top: number;
+    readonly right: number;
+    readonly bottom: number;
 }
 
 interface TileNamespace {
@@ -305,12 +313,11 @@ export class TiledPipelineRenderer {
             );
             if (tile !== undefined) {
                 // cache済みtileでは、同じOp範囲を空判定のためだけに再走査しない。
-                context.drawImage(
+                this.drawTileCanvas_(
+                    context,
+                    request,
                     tile.canvas,
-                    tilePosition.x * TiledPipelineRenderer.TILE_SIZE - request.worldX,
-                    tilePosition.y * TiledPipelineRenderer.TILE_SIZE - request.worldY,
-                    TiledPipelineRenderer.TILE_SIZE,
-                    TiledPipelineRenderer.TILE_SIZE,
+                    this.getTileScreenBounds_(request, tilePosition.x, tilePosition.y),
                 );
                 tileCount++;
                 continue;
@@ -359,6 +366,9 @@ export class TiledPipelineRenderer {
                 "dependencies",
             );
         }
+        // 範囲外色を空tileごとにclipすると、subpixel上の境界が背景と混ざって格子に見える。
+        // viewport全体へ最後に一度だけ描き、tileと矢印のどちらも同じ境界で覆う。
+        this.drawInvalidBackground_(context, request);
         if (notify) {
             request.onUpdate?.();
         }
@@ -414,13 +424,10 @@ export class TiledPipelineRenderer {
                 return;
             }
             // source倍率のworld tileを論理座標へ戻し、現在倍率の画素位置へ再投影する。
-            const drawX = x * size * scaleX - request.worldX;
-            const drawY = y * size * scaleY - request.worldY;
-            const drawWidth = size * scaleX;
-            const drawHeight = size * scaleY;
-            context.drawImage(tile.canvas, drawX, drawY, drawWidth, drawHeight);
-            coverage += Math.max(0, Math.min(request.width, drawX + drawWidth) - Math.max(0, drawX)) *
-                Math.max(0, Math.min(request.height, drawY + drawHeight) - Math.max(0, drawY));
+            const bounds = this.getTileScreenBounds_(request, x, y, scaleX, scaleY);
+            this.drawTileCanvas_(context, request, tile.canvas, bounds, scaleX, scaleY);
+            coverage += Math.max(0, Math.min(request.width, bounds.right) - Math.max(0, bounds.left)) *
+                Math.max(0, Math.min(request.height, bounds.bottom) - Math.max(0, bounds.top));
         };
         if (sourceViewport !== undefined) {
             // 終点倍率の先読みは、終点viewport用に生成するtileだけを途中画像へ再投影する。
@@ -520,7 +527,9 @@ export class TiledPipelineRenderer {
         const right = (position.x + 1) * size / request.metrics.opWidth;
         // Renderer本体と同じ命令だけを調べる。ここだけ全命令を走査すると、最縮小域では
         // 1 tileが数万命令を覆い、実描画より空判定の方が大幅に重くなる。
-        for (let y = top; y <= bottom; y += request.metrics.drawingStep) {
+        const step = request.metrics.drawingStep;
+        const firstY = getFirstDrawingRow(top, step);
+        for (let y = firstY; y <= bottom; y += step) {
             const op = request.metrics.getVisibleOp(y, request.metrics.opResolution);
             if (op !== undefined && op.retiredCycle !== op.fetchedCycle &&
                 op.retiredCycle >= left && op.fetchedCycle <= right) {
@@ -536,22 +545,27 @@ export class TiledPipelineRenderer {
         position: TilePosition,
     ): void {
         const size = TiledPipelineRenderer.TILE_SIZE;
-        const left = position.x * size - request.worldX;
-        const top = position.y * size - request.worldY;
+        const bounds = this.getTileScreenBounds_(request, position.x, position.y);
+        // 半透明stripeを重ねて濃くしないよう、空tileは共通辺をdevice pixelへ揃えて隙間だけを消す。
+        const ratio = request.pixelRatio;
+        const left = Math.round(bounds.left * ratio) / ratio;
+        const top = Math.round(bounds.top * ratio) / ratio;
+        const right = Math.round(bounds.right * ratio) / ratio;
+        const bottom = Math.round(bounds.bottom * ratio) / ratio;
         context.save();
         context.beginPath();
-        context.rect(left, top, size, size);
+        context.rect(left, top, right - left, bottom - top);
         context.clip();
         if (request.referenceOnly) {
             // 比較の参照layerは背景を持たないため、移動前の暫定画素だけを消す。
-            context.clearRect(left, top, size, size);
+            context.clearRect(left, top, right - left, bottom - top);
             context.restore();
             return;
         }
 
         const style = request.spec.theme === "light" ? lightStyle : darkStyle;
         context.fillStyle = style.pipelinePane.backgroundColor;
-        context.fillRect(left, top, size, size);
+        context.fillRect(left, top, right - left, bottom - top);
         if (request.metrics.canDrawFrame) {
             // 命令がなくても旧Rendererは偶数行のstripeを描くため、背景の見た目だけは直接再現する。
             const logicalTop = Math.max(0, Math.floor(position.y * size / request.metrics.opHeight));
@@ -569,7 +583,56 @@ export class TiledPipelineRenderer {
             }
         }
 
-        // trace範囲外は通常背景ではなくinvalid色なので、旧Rendererと同じ境界で最後に覆う。
+        context.restore();
+    }
+
+    private getTileScreenBounds_(
+        request: RenderRequest,
+        x: number,
+        y: number,
+        scaleX = 1,
+        scaleY = 1,
+    ): TileScreenBounds {
+        const size = TiledPipelineRenderer.TILE_SIZE;
+        // left+丸めたwidthではなく、隣接tileが共有する両辺を同じworld変換から直接求める。
+        return {
+            left: x * size * scaleX - request.worldX,
+            top: y * size * scaleY - request.worldY,
+            right: (x + 1) * size * scaleX - request.worldX,
+            bottom: (y + 1) * size * scaleY - request.worldY,
+        };
+    }
+
+    private drawTileCanvas_(
+        context: CanvasRenderingContext2D,
+        request: RenderRequest,
+        canvas: HTMLCanvasElement,
+        bounds: TileScreenBounds,
+        scaleX = 1,
+        scaleY = 1,
+    ): void {
+        // 文字を描く安定倍率は共有辺の整列だけにして再scaleしない。補間するzoom画像と
+        // 文字のない縮小域では不透明tileを半device pixelずつ重ね、背景の隙間を残さない。
+        const scaled = scaleX !== 1 || scaleY !== 1;
+        const overlap = !request.referenceOnly && (scaled || !request.metrics.canDrawText)
+            ? 0.5 / request.pixelRatio
+            : 0;
+        const ratio = request.pixelRatio;
+        const left = Math.round(bounds.left * ratio) / ratio - overlap;
+        const top = Math.round(bounds.top * ratio) / ratio - overlap;
+        const right = Math.round(bounds.right * ratio) / ratio + overlap;
+        const bottom = Math.round(bounds.bottom * ratio) / ratio + overlap;
+        context.drawImage(canvas, left, top, right - left, bottom - top);
+    }
+
+    private drawInvalidBackground_(
+        context: CanvasRenderingContext2D,
+        request: RenderRequest,
+    ): void {
+        if (request.referenceOnly) {
+            return;
+        }
+        const style = request.spec.theme === "light" ? lightStyle : darkStyle;
         context.fillStyle = style.pipelinePane.invalidBackgroundColor;
         if (request.spec.position[1] < 0) {
             const bottom = Math.min(
@@ -588,7 +651,6 @@ export class TiledPipelineRenderer {
             );
             context.fillRect(0, begin, request.width, request.height);
         }
-        context.restore();
     }
 
     private scheduleNext_(deferForScaleChanges: boolean): void {
