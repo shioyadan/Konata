@@ -19,6 +19,12 @@ function reader(file: File): FileLineReader {
     return new FileLineReader(file);
 }
 
+interface Gem5ParserDrainState {
+    readonly parsingExLogs_: Map<number, unknown>;
+    readonly parsingExLogLastGID_: number;
+    readonly lastGID_: number;
+}
+
 test("Web gem5 parser preserves ticks and pipeline stages", async () => {
     // 旧Parserと共通のfixtureを使い、seqNumからのID/RID割り当てとtick変換を比較する。
     const trace = await new Gem5O3PipeViewParser().parse(
@@ -370,6 +376,62 @@ test("Web gem5 parser normalizes replayed stage ticks without losing the raw tic
         false,
     );
     assert.match(op.labelDetail, /Out-of-order complete Tick: 5000 \(normalized to 9000\)/);
+});
+
+test("Web gem5 parser discards late extra logs for globally drained sequence numbers", async () => {
+    const firstSeqNum = 100000;
+    const lines: string[] = [];
+    for (let index = 0; index < 20000; index++) {
+        const seqNum = firstSeqNum + index;
+        const fetchTick = index * 2000 + 1000;
+        lines.push(
+            `O3PipeView:fetch:${fetchTick}:0x${seqNum.toString(16)}:0:${seqNum}: op ${seqNum}`,
+            `O3PipeView:retire:${fetchTick + 1000}`,
+        );
+    }
+    // FileLineReaderの5回目の定期yield直前を遅延ログにし、EOFを待たず内部状態を検査する。
+    while (lines.length < 40959) {
+        lines.push("ordinary log line");
+    }
+    lines.push(`${lines.length * 1000}: system.cpu.rename: late log [sn:${firstSeqNum}]`);
+
+    const contents = `${lines.join("\n")}\n`;
+    const file = new File([contents], "late-extra-log.log", { type: "text/plain" });
+    let streamCanceled = false;
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream<Uint8Array>({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode(contents));
+        },
+        cancel() {
+            streamCanceled = true;
+        },
+    }) });
+
+    const parser = new Gem5O3PipeViewParser();
+    // このテストは公開結果では観測できない、長い読込み中の一時Map解放を固定する。
+    const drainState = parser as unknown as Gem5ParserDrainState;
+    let notifyLateLog: (() => void) | null = null;
+    const lateLogParsed = new Promise<void>((resolve) => {
+        notifyLateLog = resolve;
+    });
+    const controller = new AbortController();
+    const parsing = parser.parse(
+        reader(file),
+        () => {
+            if (drainState.parsingExLogLastGID_ === firstSeqNum) {
+                notifyLateLog?.();
+            }
+        },
+        undefined,
+        controller.signal,
+    );
+
+    await lateLogParsed;
+    assert.ok(drainState.lastGID_ >= firstSeqNum);
+    assert.equal(drainState.parsingExLogs_.has(firstSeqNum), false);
+    controller.abort();
+    await assert.rejects(parsing, /File loading was canceled/);
+    assert.equal(streamCanceled, true);
 });
 
 test("Web gem5 parser cancels its input stream through an AbortSignal", async () => {

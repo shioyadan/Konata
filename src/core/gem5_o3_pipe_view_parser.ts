@@ -160,8 +160,9 @@ export class Gem5O3PipeViewParser {
             this.parsingExLogLastGID_ = seqNum;
         }
 
-        // 現行版は既にdrainしたID以下の追加ログを破棄する。
-        if (this.parsingExLogLastGID_ === -1 || seqNum <= this.opStore_.lastID) {
+        // seqNumはgem5のglobal IDなので、file-localなOpStore IDではなく、既に
+        // drainした最後のglobal IDと比較して確定済み命令の追加ログを破棄する。
+        if (this.parsingExLogLastGID_ === -1 || seqNum <= this.lastGID_) {
             return;
         }
 
