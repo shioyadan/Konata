@@ -299,27 +299,27 @@ export class TiledPipelineRenderer {
         let tileCount = 0;
         let hasMissingInstructionTile = false;
         for (const tilePosition of this.getTilePositions_(request, false)) {
+            const tile = this.getTile_(
+                this.tileKey_(request.namespaceKey, tilePosition.x, tilePosition.y),
+            );
+            if (tile !== undefined) {
+                // cache済みtileでは、同じOp範囲を空判定のためだけに再走査しない。
+                context.drawImage(
+                    tile.canvas,
+                    tilePosition.x * TiledPipelineRenderer.TILE_SIZE - request.worldX,
+                    tilePosition.y * TiledPipelineRenderer.TILE_SIZE - request.worldY,
+                    TiledPipelineRenderer.TILE_SIZE,
+                    TiledPipelineRenderer.TILE_SIZE,
+                );
+                tileCount++;
+                continue;
+            }
             if (!this.tileContainsInstruction_(request, tilePosition)) {
                 // 空領域は安価な背景だけを毎回描き、raster cache容量を消費しない。
                 this.drawEmptyTile_(context, request, tilePosition);
                 continue;
             }
-            const tile = this.getTile_(
-                this.tileKey_(request.namespaceKey, tilePosition.x, tilePosition.y),
-            );
-            if (tile === undefined) {
-                hasMissingInstructionTile = true;
-                continue;
-            }
-            // cache miss時も完成したtileから表示し、長い描画で進捗が止まって見えないようにする。
-            context.drawImage(
-                tile.canvas,
-                tilePosition.x * TiledPipelineRenderer.TILE_SIZE - request.worldX,
-                tilePosition.y * TiledPipelineRenderer.TILE_SIZE - request.worldY,
-                TiledPipelineRenderer.TILE_SIZE,
-                TiledPipelineRenderer.TILE_SIZE,
-            );
-            tileCount++;
+            hasMissingInstructionTile = true;
         }
         if (tileCount > 0 && !hasMissingInstructionTile) {
             this.fallbackNamespace_ = this.getNamespace_(request);
@@ -460,10 +460,10 @@ export class TiledPipelineRenderer {
     private rebuildJobs_(request: RenderRequest): void {
         // 可視tileを先に完成させた後、同じqueueで外周1 tileを低優先度に先読みする。
         this.jobs_ = this.getTilePositions_(request, true)
-            .filter((position) => this.tileContainsInstruction_(request, position))
             .filter((position) => !this.tiles_.has(
                 this.tileKey_(request.namespaceKey, position.x, position.y),
             ))
+            .filter((position) => this.tileContainsInstruction_(request, position))
             .sort((left, right) => left.priority - right.priority);
     }
 
