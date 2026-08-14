@@ -15,7 +15,6 @@ import {
     COMPARISON_COLOR_SCHEME,
     KonataRenderMetrics,
     KonataRenderer,
-    type KonataRenderBackendOptions,
     type KonataRenderSpec,
 } from "../core/konata_renderer";
 import { TiledPipelineRenderer } from "../core/tiled_pipeline_renderer";
@@ -202,13 +201,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const redraw = useCallback(() => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
-        const backend: Readonly<KonataRenderBackendOptions> = {
-            webGLEnabled,
-        };
         const tileOptions = {
             // Parser追記中と互換設定での無効時は、raster tileを介さず直接描画する。
             cacheEnabled: tiledRenderingEnabled && loadState === "ready",
-            backend,
+            webGLEnabled,
         } as const;
         const candidateTileOptions = {
             ...tileOptions,

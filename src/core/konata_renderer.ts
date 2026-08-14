@@ -73,18 +73,9 @@ export interface KonataRenderSpec {
     readonly stageBorderMinimumLaneHeight: number;
 }
 
-// 描画結果の意味を変えないbackend選択は、再現可能なView指定とは分離する。
-export interface KonataRenderBackendOptions {
-    readonly webGLEnabled: boolean;
-}
-
 // pipeline全体、cache可能な本体、タイルを横断する依存矢印を同じ描画実装から選べるようにする。
 // passは描画内容を別実装へ複製するためではなく、元のpainter順を保ったままcache境界だけを作る。
 export type KonataPipelinePass = "all" | "base" | "dependencies";
-
-const DEFAULT_RENDER_BACKEND_OPTIONS: Readonly<KonataRenderBackendOptions> = {
-    webGLEnabled: true,
-};
 
 const ZOOM_RATIO = 1;
 const MAX_ZOOM_LEVEL = 24;
@@ -484,12 +475,12 @@ export class KonataRenderer {
     private draw_(
         labelCanvas: HTMLCanvasElement,
         pipelineCanvas: HTMLCanvasElement,
-        backend: Readonly<KonataRenderBackendOptions>,
+        webGLEnabled: boolean,
     ): void {
         const labelSize = this.prepareCanvas_(labelCanvas);
         const pipelineSize = this.prepareCanvas_(pipelineCanvas);
         this.drawLabel_(labelCanvas, labelSize);
-        this.drawPipeline_(pipelineCanvas, pipelineSize, backend, "all");
+        this.drawPipeline_(pipelineCanvas, pipelineSize, webGLEnabled, "all");
     }
 
     drawSpec(
@@ -497,10 +488,10 @@ export class KonataRenderer {
         spec: Readonly<KonataRenderSpec>,
         labelCanvas: HTMLCanvasElement,
         pipelineCanvas: HTMLCanvasElement,
-        backend: Readonly<KonataRenderBackendOptions> = DEFAULT_RENDER_BACKEND_OPTIONS,
+        webGLEnabled = true,
     ): void {
         this.setInput_(trace, spec);
-        this.draw_(labelCanvas, pipelineCanvas, backend);
+        this.draw_(labelCanvas, pipelineCanvas, webGLEnabled);
     }
 
     private drawLabelCanvas_(labelCanvas: HTMLCanvasElement): void {
@@ -523,7 +514,7 @@ export class KonataRenderer {
         height?: number,
         colorScheme?: string,
         referenceOnly = false,
-        backend: Readonly<KonataRenderBackendOptions> = DEFAULT_RENDER_BACKEND_OPTIONS,
+        webGLEnabled = true,
         pass: KonataPipelinePass = "all",
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas, width, height);
@@ -533,7 +524,7 @@ export class KonataRenderer {
         this.renderingReference_ = referenceOnly;
         try {
             // 比較色と参照表示は一時的な描画条件に留め、通常のView設定を変更しない。
-            this.drawPipeline_(pipelineCanvas, pipelineSize, backend, pass);
+            this.drawPipeline_(pipelineCanvas, pipelineSize, webGLEnabled, pass);
         }
         finally {
             this.renderingColorScheme_ = previousColorScheme;
@@ -549,7 +540,7 @@ export class KonataRenderer {
         height?: number,
         colorScheme?: string,
         referenceOnly = false,
-        backend: Readonly<KonataRenderBackendOptions> = DEFAULT_RENDER_BACKEND_OPTIONS,
+        webGLEnabled = true,
         pass: KonataPipelinePass = "all",
     ): void {
         this.setInput_(trace, spec);
@@ -559,7 +550,7 @@ export class KonataRenderer {
             height,
             colorScheme,
             referenceOnly,
-            backend,
+            webGLEnabled,
             pass,
         );
     }
@@ -680,7 +671,7 @@ export class KonataRenderer {
     private drawPipeline_(
         canvas: HTMLCanvasElement,
         size: CanvasSize,
-        backend: Readonly<KonataRenderBackendOptions>,
+        webGLEnabled: boolean,
         pass: KonataPipelinePass,
     ): void {
         const context = canvas.getContext("2d");
@@ -735,14 +726,14 @@ export class KonataRenderer {
 
         // cache済み文字は矩形と同じ順序でtexture quadへ積み、laneやflushの重なりも維持する。
         // WebGL無効時は文字atlasだけをCanvasへ転送し、矩形は従来どおり直接描画する。
-        const canBatch = !drawBase || !this.canDrawText_ || backend.webGLEnabled;
+        const canBatch = !drawBase || !this.canDrawText_ || webGLEnabled;
         const backendContext = canBatch
             ? this.canvasBackend_.begin(
                 canvas,
                 context,
                 size.width,
                 size.height,
-                backend.webGLEnabled,
+                webGLEnabled,
             )
             : null;
         const solidRects = backendContext ?? context;

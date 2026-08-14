@@ -9,7 +9,6 @@ import type { ParsedTrace } from "./model";
 import {
     DEP_ARROW_TYPE,
     KonataRenderMetrics,
-    type KonataRenderBackendOptions,
     type KonataRenderSpec,
     KonataRenderer,
 } from "./konata_renderer";
@@ -22,7 +21,7 @@ export interface TiledPipelineRenderOptions {
     readonly height?: number;
     readonly colorScheme?: string;
     readonly referenceOnly?: boolean;
-    readonly backend: Readonly<KonataRenderBackendOptions>;
+    readonly webGLEnabled: boolean;
     // 終点が既知のzoom animationでは、中間倍率を作らず最終倍率のtileだけを先行生成する。
     readonly targetSpec?: Readonly<KonataRenderSpec>;
     // 比較用offscreen layerが更新された時に、表示Canvasの再合成を依頼する。
@@ -64,7 +63,7 @@ interface RenderRequest {
     readonly namespaceKey: string;
     readonly colorScheme?: string;
     readonly referenceOnly: boolean;
-    readonly backend: Readonly<KonataRenderBackendOptions>;
+    readonly webGLEnabled: boolean;
     readonly onUpdate?: () => void;
 }
 
@@ -137,7 +136,7 @@ export class TiledPipelineRenderer {
                 options.height,
                 options.colorScheme,
                 options.referenceOnly ?? false,
-                options.backend,
+                options.webGLEnabled,
             );
             return;
         }
@@ -180,7 +179,7 @@ export class TiledPipelineRenderer {
             namespaceKey,
             colorScheme: options.colorScheme,
             referenceOnly: options.referenceOnly ?? false,
-            backend: options.backend,
+            webGLEnabled: options.webGLEnabled,
             onUpdate: options.onUpdate,
         };
         this.current_ = current;
@@ -241,7 +240,7 @@ export class TiledPipelineRenderer {
             stageBorderMinimumLaneHeight: spec.stageBorderMinimumLaneHeight,
             renderingColorScheme: options.colorScheme ?? null,
             referenceOnly: options.referenceOnly ?? false,
-            webGLEnabled: options.backend.webGLEnabled,
+            webGLEnabled: options.webGLEnabled,
             pixelRatio,
         });
     }
@@ -337,7 +336,7 @@ export class TiledPipelineRenderer {
                 request.height,
                 request.colorScheme,
                 request.referenceOnly,
-                request.backend,
+                request.webGLEnabled,
                 "base",
             );
         }
@@ -354,7 +353,7 @@ export class TiledPipelineRenderer {
                 request.height,
                 request.colorScheme,
                 false,
-                request.backend,
+                request.webGLEnabled,
                 "dependencies",
             );
         }
@@ -666,7 +665,7 @@ export class TiledPipelineRenderer {
             TiledPipelineRenderer.TILE_SIZE,
             request.colorScheme,
             request.referenceOnly,
-            request.backend,
+            request.webGLEnabled,
             "base",
         );
         if (generation !== this.generation_ || this.build_?.namespaceKey !== request.namespaceKey) {
