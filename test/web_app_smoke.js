@@ -2475,7 +2475,10 @@ async function run() {
         const originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
         let comparisonLayerCompositions = [];
         CanvasRenderingContext2D.prototype.drawImage = function(...args) {
-            if (args[0] instanceof HTMLCanvasElement) {
+            // tile内部のCanvas copyではなく、A/B layerから最終表示Canvasへの合成だけを数える。
+            if (args[0] instanceof HTMLCanvasElement &&
+                this.canvas instanceof HTMLCanvasElement &&
+                this.canvas.classList.contains("comparison-result-canvas")) {
                 comparisonLayerCompositions.push({
                     opacity: this.globalAlpha,
                     operation: this.globalCompositeOperation,
@@ -2823,6 +2826,7 @@ async function run() {
     const tileReuseState = await window.webContents.executeJavaScript(`(async () => {
         const prototype = CanvasRenderingContext2D.prototype;
         const originalDrawImage = prototype.drawImage;
+        const originalFillRect = prototype.fillRect;
         const pipeline = document.querySelector('.pipeline-pane canvas');
         const viewer = document.querySelector('.viewer');
         const reset = document.querySelector('button[aria-label="Reset view"]');
@@ -2831,16 +2835,21 @@ async function run() {
             throw new Error("The tiled pipeline controls were not found.");
         }
         reset.click();
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        // 可視範囲に続いて外周1 tileが完成するまで待ち、そこから1 tile分だけscrollする。
+        await new Promise((resolve) => setTimeout(resolve, 1200));
         const tileBackingSize = Math.round(256 * devicePixelRatio);
         let tileBlits = 0;
         let previousFrameBlits = 0;
+        let operationOrder = 0;
+        let firstTileBlitOrder = null;
+        let firstNewTileRenderOrder = null;
         prototype.drawImage = function(...args) {
             const source = args[0];
             if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
                 !source.isConnected) {
                 if (source.width === tileBackingSize && source.height === tileBackingSize) {
                     tileBlits++;
+                    firstTileBlitOrder ??= ++operationOrder;
                 }
                 if (source.width === pipeline.width && source.height === pipeline.height) {
                     previousFrameBlits++;
@@ -2848,23 +2857,37 @@ async function run() {
             }
             return Reflect.apply(originalDrawImage, this, args);
         };
+        prototype.fillRect = function(...args) {
+            if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                firstNewTileRenderOrder ??= ++operationOrder;
+            }
+            return Reflect.apply(originalFillRect, this, args);
+        };
         try {
-            viewer.dispatchEvent(new WheelEvent("wheel", {
-                deltaY: 100,
-                bubbles: true,
-                cancelable: true,
-            }));
+            // 100%では4 wheelで288 px移動し、先読みringを使いつつ次の外周生成も発生する。
+            for (let index = 0; index < 4; index++) {
+                viewer.dispatchEvent(new WheelEvent("wheel", {
+                    deltaY: 100,
+                    bubbles: true,
+                    cancelable: true,
+                }));
+            }
             await new Promise((resolve) => setTimeout(resolve, 300));
             await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-            return {tileBlits, previousFrameBlits};
+            return {tileBlits, previousFrameBlits, firstTileBlitOrder, firstNewTileRenderOrder};
         }
         finally {
             prototype.drawImage = originalDrawImage;
+            prototype.fillRect = originalFillRect;
             reset.click();
             await new Promise((resolve) => setTimeout(resolve, 250));
         }
     })()`);
-    if (tileReuseState.tileBlits < 1 || tileReuseState.previousFrameBlits < 1) {
+    if (tileReuseState.tileBlits < 1 || tileReuseState.previousFrameBlits < 1 ||
+        tileReuseState.firstTileBlitOrder === null ||
+        tileReuseState.firstNewTileRenderOrder === null ||
+        tileReuseState.firstTileBlitOrder >= tileReuseState.firstNewTileRenderOrder) {
         throw new Error(`Pipeline tiles were not reused while scrolling: ${JSON.stringify(tileReuseState)}`);
     }
 
@@ -3197,7 +3220,8 @@ async function run() {
         for (let index = 0; index < 1; index++) {
             zoomOut.click();
         }
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        // 画素比較はtarget倍率の可視tileが一括公開された完成画像に対して行う。
+        await new Promise((resolve) => setTimeout(resolve, 700));
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const countOpaquePixels = (pixels) => {
             let count = 0;
@@ -3276,7 +3300,7 @@ async function run() {
         for (let index = 0; index < 1; index++) {
             zoomOut.click();
         }
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => setTimeout(resolve, 700));
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const fallbackPixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
         const fallbackOpaquePixels = countOpaquePixels(fallbackPixels);

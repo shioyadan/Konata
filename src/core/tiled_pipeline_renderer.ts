@@ -80,6 +80,8 @@ interface PreviousBase {
 export class TiledPipelineRenderer {
     // vis_hpcgの3%表示では1命令内のstageが非常に多いため、1 jobを短く保つ256 pxを使う。
     private static readonly TILE_SIZE = 256;
+    // 小scrollで未描画領域を露出させないため、可視範囲の全方向へ1 tileだけ先読みする。
+    private static readonly PREFETCH_MARGIN_TILES = 1;
     private static readonly MAX_CACHE_BYTES = 128 * 1024 * 1024;
     private static readonly ZOOM_SETTLE_DELAY_MS = 80;
 
@@ -239,10 +241,13 @@ export class TiledPipelineRenderer {
         context.imageSmoothingEnabled = false;
         let tileCount = 0;
         for (const tilePosition of this.getTilePositions_(request, false)) {
-            const tile = this.getTile_(this.tileKey_(request.namespaceKey, tilePosition.x, tilePosition.y));
+            const tile = this.getTile_(
+                this.tileKey_(request.namespaceKey, tilePosition.x, tilePosition.y),
+            );
             if (tile === undefined) {
                 continue;
             }
+            // cache miss時も完成したtileから表示し、長い描画で進捗が止まって見えないようにする。
             context.drawImage(
                 tile.canvas,
                 tilePosition.x * TiledPipelineRenderer.TILE_SIZE - request.worldX,
@@ -342,8 +347,8 @@ export class TiledPipelineRenderer {
             this.jobs_ = [];
             return;
         }
-        // まず可視tileだけを完成させる。周辺先読みは実測で必要になった時だけ追加する。
-        this.jobs_ = this.getTilePositions_(request, false)
+        // 可視tileを先に完成させた後、同じqueueで外周1 tileを低優先度に先読みする。
+        this.jobs_ = this.getTilePositions_(request, true)
             .filter((position) => !this.tiles_.has(
                 this.tileKey_(request.namespaceKey, position.x, position.y),
             ))
@@ -356,7 +361,7 @@ export class TiledPipelineRenderer {
         const visibleTop = Math.floor(request.worldY / size);
         const visibleRight = Math.floor((request.worldX + request.width - Number.EPSILON) / size);
         const visibleBottom = Math.floor((request.worldY + request.height - Number.EPSILON) / size);
-        const margin = includeMargin ? 1 : 0;
+        const margin = includeMargin ? TiledPipelineRenderer.PREFETCH_MARGIN_TILES : 0;
         const centerX = (request.worldX + request.width / 2) / size;
         const centerY = (request.worldY + request.height / 2) / size;
         const positions: TilePosition[] = [];
@@ -440,6 +445,7 @@ export class TiledPipelineRenderer {
             canvas,
             bytes: canvas.width * canvas.height * 4,
         });
+        // 可視tileは完成ごとに公開し、先読みtileは次の操作時に自然に使われる。
         if (job.visible) {
             this.paint_(true);
         }
