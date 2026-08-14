@@ -79,6 +79,10 @@ export interface KonataRenderBackendOptions {
     readonly textCacheEnabled: boolean;
 }
 
+// pipeline全体、cache可能な本体、タイルを横断する依存矢印を同じ描画実装から選べるようにする。
+// passは描画内容を別実装へ複製するためではなく、元のpainter順を保ったままcache境界だけを作る。
+export type KonataPipelinePass = "all" | "base" | "dependencies";
+
 const DEFAULT_RENDER_BACKEND_OPTIONS: Readonly<KonataRenderBackendOptions> = {
     webGLEnabled: true,
     textCacheEnabled: true,
@@ -483,7 +487,7 @@ export class KonataRenderer {
         const labelSize = this.prepareCanvas_(labelCanvas);
         const pipelineSize = this.prepareCanvas_(pipelineCanvas);
         this.drawLabel_(labelCanvas, labelSize);
-        this.drawPipeline_(pipelineCanvas, pipelineSize, backend);
+        this.drawPipeline_(pipelineCanvas, pipelineSize, backend, "all");
     }
 
     drawSpec(
@@ -518,6 +522,7 @@ export class KonataRenderer {
         colorScheme?: string,
         referenceOnly = false,
         backend: Readonly<KonataRenderBackendOptions> = DEFAULT_RENDER_BACKEND_OPTIONS,
+        pass: KonataPipelinePass = "all",
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas, width, height);
         const previousColorScheme = this.renderingColorScheme_;
@@ -526,7 +531,7 @@ export class KonataRenderer {
         this.renderingReference_ = referenceOnly;
         try {
             // 比較色と参照表示は一時的な描画条件に留め、通常のView設定を変更しない。
-            this.drawPipeline_(pipelineCanvas, pipelineSize, backend);
+            this.drawPipeline_(pipelineCanvas, pipelineSize, backend, pass);
         }
         finally {
             this.renderingColorScheme_ = previousColorScheme;
@@ -543,6 +548,7 @@ export class KonataRenderer {
         colorScheme?: string,
         referenceOnly = false,
         backend: Readonly<KonataRenderBackendOptions> = DEFAULT_RENDER_BACKEND_OPTIONS,
+        pass: KonataPipelinePass = "all",
     ): void {
         this.setInput_(trace, spec);
         this.drawPipelineCanvas_(
@@ -552,6 +558,7 @@ export class KonataRenderer {
             colorScheme,
             referenceOnly,
             backend,
+            pass,
         );
     }
 
@@ -674,24 +681,29 @@ export class KonataRenderer {
         canvas: HTMLCanvasElement,
         size: CanvasSize,
         backend: Readonly<KonataRenderBackendOptions>,
+        pass: KonataPipelinePass,
     ): void {
         const context = canvas.getContext("2d");
         if (context === null) {
             return;
         }
+        const drawBase = pass !== "dependencies";
+        const drawDependencies = pass !== "base";
         this.canvasRenderer_.setTextCacheEnabled(backend.textCacheEnabled);
-        if (this.renderingReference_) {
-            // 前回の参照形状を残さず、背景は透明なまま主表示へ重ねられるようにする。
-            context.clearRect(0, 0, size.width, size.height);
-        }
-        else {
-            context.fillStyle = this.style_.pipelinePane.backgroundColor;
-            context.fillRect(0, 0, size.width, size.height);
+        if (drawBase) {
+            if (this.renderingReference_) {
+                // 前回の参照形状を残さず、背景は透明なまま主表示へ重ねられるようにする。
+                context.clearRect(0, 0, size.width, size.height);
+            }
+            else {
+                context.fillStyle = this.style_.pipelinePane.backgroundColor;
+                context.fillRect(0, 0, size.width, size.height);
+            }
         }
         if (this.trace_ === null) {
             return;
         }
-        if (!this.renderingReference_ && this.canDrawText_) {
+        if (drawBase && !this.renderingReference_ && this.canDrawText_) {
             this.canvasRenderer_.setTextStyle(
                 context,
                 this.style_.fontStyle,
@@ -711,7 +723,7 @@ export class KonataRenderer {
         let offsetY = 0;
         if (top < 0) {
             const bottom = Math.min(size.height, -top * this.opHeight_ + KonataRenderer.PIXEL_ADJUST);
-            if (!this.renderingReference_) {
+            if (drawBase && !this.renderingReference_) {
                 context.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
                 context.fillRect(0, 0, size.width, bottom);
             }
@@ -724,7 +736,7 @@ export class KonataRenderer {
 
         // cache済み文字は矩形と同じ順序でtexture quadへ積み、laneやflushの重なりも維持する。
         // 互換設定でWebGLか文字cacheを切った時は、文字を従来どおりCanvasへ直接描画する。
-        const canBatch = !this.canDrawText_ ||
+        const canBatch = !drawBase || !this.canDrawText_ ||
             (backend.webGLEnabled && backend.textCacheEnabled);
         const simplifiedRects = canBatch
             ? this.canvasRenderer_.begin(
@@ -737,36 +749,39 @@ export class KonataRenderer {
             : null;
         const solidRects = simplifiedRects ?? context;
         try {
-            let skipRendering = false;
-            const step = this.opHeight_ < 0.25 ? Math.max(1, this.drawingInterval_) : 1;
-            for (let y = Math.floor(top); y < top + logicalHeight; y += step) {
-                const pixelY = y - top + offsetY;
-                if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
-                    const fillTop = pixelY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
-                    solidRects.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
-                    solidRects.fillRect(0, fillTop, size.width, this.opHeight_);
-                }
-                if (skipRendering) {
-                    continue;
-                }
+            if (drawBase) {
+                let skipRendering = false;
+                const step = this.opHeight_ < 0.25 ? Math.max(1, this.drawingInterval_) : 1;
+                for (let y = Math.floor(top); y < top + logicalHeight; y += step) {
+                    const pixelY = y - top + offsetY;
+                    if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
+                        const fillTop = pixelY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
+                        solidRects.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
+                        solidRects.fillRect(0, fillTop, size.width, this.opHeight_);
+                    }
+                    if (skipRendering) {
+                        continue;
+                    }
 
-                const op = this.metrics_.getVisibleOp(y, this.metrics_.opResolution);
-                if (op === undefined) {
-                    // gem5ではIDが不連続でも、後続に有効な命令が存在し得る。
-                    continue;
-                }
-                if (!this.drawOp_(
-                    op,
-                    y - top + offsetY,
-                    left,
-                    left + logicalWidth,
-                    context,
-                    simplifiedRects,
-                )) {
-                    skipRendering = true;
+                    const op = this.metrics_.getVisibleOp(y, this.metrics_.opResolution);
+                    if (op === undefined) {
+                        // gem5ではIDが不連続でも、後続に有効な命令が存在し得る。
+                        continue;
+                    }
+                    if (!this.drawOp_(
+                        op,
+                        y - top + offsetY,
+                        left,
+                        left + logicalWidth,
+                        context,
+                        simplifiedRects,
+                    )) {
+                        skipRendering = true;
+                    }
                 }
             }
-            if (!this.renderingReference_ && this.dependencyArrowType_ !== DEP_ARROW_TYPE.NOT_SHOW) {
+            if (drawDependencies && !this.renderingReference_ &&
+                this.dependencyArrowType_ !== DEP_ARROW_TYPE.NOT_SHOW) {
                 this.drawDependency_(offsetY, top, left, logicalHeight, solidRects);
             }
         }
@@ -776,9 +791,11 @@ export class KonataRenderer {
             }
         }
 
-        // 最終命令より下へはみ出した領域もinvalid色で描く。
+        // 最終命令より下へはみ出した領域もinvalid色で描く。dependency-onlyでは矢印が
+        // invalid領域へ出ないという従来のpainter順を保つため、矢印の後にもう一度覆う。
         const bottomOuterHeight = top - offsetY + logicalHeight - 1 - this.metrics_.getVisibleBottom();
-        if (!this.renderingReference_ && bottomOuterHeight > 0) {
+        if (!this.renderingReference_ && bottomOuterHeight > 0 &&
+            (drawBase || pass === "dependencies")) {
             const begin = Math.max(
                 0,
                 size.height - bottomOuterHeight * this.opHeight_ + KonataRenderer.PIXEL_ADJUST,
