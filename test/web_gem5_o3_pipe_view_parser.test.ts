@@ -198,9 +198,8 @@ test("Web gem5 parser restores dependencies from rename logs", async () => {
     const mainLaneID = trace.stageLevelMap.getLaneID("0");
     assert.notEqual(mainLaneID, undefined);
 
-    // 同じphysical registerへのrenameをproducer/consumerの両方向へ結び付ける。
+    // 同じphysical registerへのrenameをconsumerからproducerへ結び付ける。
     assert.deepEqual(consumer.prods.map((dependency) => dependency.opID), [0]);
-    assert.deepEqual(producer.cons.map((dependency) => dependency.opID), [1]);
     // 追加ログ原文は、その時点で開いていたstageのtooltipにも残す。
     assert.match(producer.lanes[mainLaneID]?.stages[0].labels ?? "", /Renaming arch reg 1/);
     assert.match(consumer.lanes[mainLaneID]?.stages[0].labels ?? "", /Looking up IntRegClass/);

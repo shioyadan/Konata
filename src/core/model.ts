@@ -49,9 +49,9 @@ export class Op {
     lastParsedStageID = -1;
     // gem5 Parserが命令ごとの最終tickを追跡するための値も、共通モデルに維持する。
     lastParsedCycle = -1;
-    // producer/consumer双方から依存関係を引けるよう、両向きの索引を持つ。
+    // 描画はconsumerからproducerへ依存線を引くため、producer IDだけをconsumer側に持つ。
+    // 逆向きの索引は、確定・圧縮済みのproducerをWコマンドのたびに更新する必要が生じるため持たない。
     readonly prods: Dependency[] = [];
-    readonly cons: Dependency[] = [];
     // 依存線を実行stageの始点と終点へ描くために使用する。
     prodCycle = -1;
     consCycle = -1;

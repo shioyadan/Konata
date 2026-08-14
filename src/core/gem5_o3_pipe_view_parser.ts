@@ -363,9 +363,6 @@ export class Gem5O3PipeViewParser {
             if (producer !== undefined && producer.prodCycle < op.consCycle) {
                 const type = 0;
                 op.prods.push(new Dependency(producer.id, type, op.prodCycle));
-                producer.cons.push(new Dependency(op.id, type, op.consCycle));
-                // 圧縮storeから復元されたOpでもconsumer索引を失わないよう書き戻す。
-                this.opStore_.setOp(producer.id, producer);
             }
         }
         for (const destination of exLog.dsts) {

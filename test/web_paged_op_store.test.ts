@@ -26,7 +26,6 @@ function createComplexOp(): Op {
     op.prodCycle = 8;
     op.consCycle = 6;
     op.prods.push(new Dependency(7, 1, 8));
-    op.cons.push(new Dependency(9, 2, 10));
 
     const mainLane = new Lane();
     mainLane.level = 2;
@@ -137,9 +136,8 @@ test("PagedOpStore restores the complete mutable Op model", () => {
     assert.deepEqual(restored.prods.map((dependency) => ({ ...dependency })), [
         { opID: 7, type: 1, cycle: 8 },
     ]);
-    assert.deepEqual(restored.cons.map((dependency) => ({ ...dependency })), [
-        { opID: 9, type: 2, cycle: 10 },
-    ]);
+    // producer側の逆索引を保存せず、consumer側のprodsだけで依存関係を表す。
+    assert.equal("cons" in restored, false);
     // 直前stageはobject参照ではなくlane/stageの配列indexだけで往復する。
     assert.equal(getLastParsedStage(restored), restored.lanes[1]?.stages[0]);
     assert.equal(store.getOpFromRID(2), restored);
@@ -262,9 +260,9 @@ test("OnikiriParser preserves post-retire updates through serialized pages", asy
     assert.equal(trace.getOpFromRID(1), undefined);
 });
 
-test("OnikiriParser writes dependencies back to an evicted producer page", async () => {
+test("OnikiriParser does not reload an evicted producer page for dependencies", async () => {
     // id=1のretireでid=0をserializeした後、id=2からid=0へのWを記録する。
-    // getOp()が復元したproducerは複製なので、Parserの明示的なsetOp()が必要になる。
+    // Wはconsumer側のprodsへIDを記録するだけなので、producer pageを展開しない。
     const contents = [
         "Kanata\t0004",
         "I\t0\t10\t0",
@@ -283,10 +281,13 @@ test("OnikiriParser writes dependencies back to an evicted producer page", async
     });
     const trace = await new OnikiriParser(store).parse(new FileLineReader(file));
 
-    assert.deepEqual(trace.getOp(0)?.cons.map((dependency) => ({ ...dependency })), [
-        { opID: 2, type: 7, cycle: 0 },
-    ]);
+    assert.equal(store.levelMetrics[0].decodeCount, 0);
     assert.deepEqual(trace.getOp(2)?.prods.map((dependency) => ({ ...dependency })), [
         { opID: 0, type: 7, cycle: 0 },
     ]);
+    assert.equal(store.levelMetrics[0].decodeCount, 0);
+    assert.equal(store.levelMetrics[0].serializeCount, 2);
+    // 明示的にproducerを取得した時だけ、退避済みpageを初めて展開する。
+    assert.equal(trace.getOp(0)?.id, 0);
+    assert.equal(store.levelMetrics[0].decodeCount, 1);
 });

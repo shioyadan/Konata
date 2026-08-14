@@ -144,10 +144,7 @@ test("Web Onikiri parser preserves core commands for a plain-text trace", async 
             { name: "Rt", labels: "", startCycle: 3, endCycle: 4 },
         ],
     );
-    // Wはconsumerのproducer索引とproducerのconsumer索引を同じcycle/typeで作る。
-    assert.deepEqual(producer.cons.map((dependency) => ({ ...dependency })), [
-        { opID: 1, type: 7, cycle: 3 },
-    ]);
+    // Wは描画に必要なproducer索引だけをconsumerへ同じcycle/typeで作る。
     assert.deepEqual(consumer.prods.map((dependency) => ({ ...dependency })), [
         { opID: 0, type: 7, cycle: 3 },
     ]);
@@ -246,7 +243,8 @@ test("Web Onikiri parser streams concurrent Zstandard traces", async () => {
 });
 
 test("Web Onikiri parser warns and continues after invalid command lines", async () => {
-    // 実traceにある改行されたlabel後半、数値不正、ID再定義を無視しても、後続の正常命令は保持する。
+    // 実traceにある改行されたlabel後半、数値不正、ID再定義を無視し、未来のproducerも
+    // 警告だけで保持して、後続の正常命令までパースを継続する。
     const contents = [
         "Kanata\t0004",
         "I\t0\t10\t0",
@@ -256,6 +254,7 @@ test("Web Onikiri parser warns and continues after invalid command lines", async
         "R\t0\t0\t0",
         "I\t0\t11\t0",
         "I\t1\t12\t0",
+        "W\t1\t99\t0",
         "C\t1",
         "R\t1\t1\t0",
     ].join("\n");
@@ -273,10 +272,12 @@ test("Web Onikiri parser warns and continues after invalid command lines", async
     assert.equal(trace.getOp(0)?.gid, 10);
     assert.equal(trace.getOp(0)?.labelDetail, "vector detail");
     assert.equal(trace.getOp(1)?.gid, 12);
-    assert.equal(trace.warningCount, 3);
+    assert.deepEqual(trace.getOp(1)?.prods.map((dependency) => dependency.opID), [99]);
+    assert.equal(trace.warningCount, 4);
     assert.ok(warnings.some((warning) => warning.includes("Unknown command:  = VFMV")));
     assert.ok(warnings.some((warning) => warning.includes("C contains an invalid number")));
     assert.ok(warnings.some((warning) => warning.includes("0 is redefined")));
+    assert.ok(warnings.some((warning) => warning.includes("future producer 99")));
 });
 
 test("Web Onikiri parser does not publish a trace before accepting its header", async () => {

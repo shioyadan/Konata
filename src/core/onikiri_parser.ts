@@ -315,22 +315,18 @@ export class OnikiriParser {
     private parseDependencyCommand_(id: number, op: Op | undefined, args: string[]): void {
         // 任意の依存関係。典型的にはwake-upを表す。
         // 形式: W <consumer ID> <producer ID> <type>
-        // type 0がwake-upで、1以降は拡張用としてproducer/consumer双方へ記録する。
+        // type 0がwake-upで、1以降は拡張用としてconsumer側のproducer索引へ記録する。
         this.requireArguments_(args, 4, "W");
         const consumer = this.requireOp_(id, op, "W");
         const producerID = this.parseInteger_(args[2], "W");
-        const activeProducer = this.activeOps_.get(producerID);
-        const producer = activeProducer ?? this.opStore_.getOp(producerID);
-        if (producer === undefined) {
-            this.fail_(`The W command refers to undefined producer ${producerID}.`);
+        if (producerID > consumer.id) {
+            // 通常の依存方向と逆でもtrace全体を止めず、入力上のproducer IDをそのまま保持する。
+            this.warning_(`The W command refers to future producer ${producerID}.`);
         }
         const type = this.parseInteger_(args[3], "W");
-        consumer.prods.push(new Dependency(producer.id, type, this.currentCycle_));
-        producer.cons.push(new Dependency(consumer.id, type, this.currentCycle_));
-        if (activeProducer === undefined) {
-            // producerが圧縮storeから復元された複製でもconsumer索引を失わないよう書き戻す。
-            this.opStore_.setOp(producer.id, producer);
-        }
+        // Rendererはconsumerからproducerを取得する。逆索引を作らなければ、遠いproducerの
+        // 存在確認や更新のために圧縮pageを展開・再保存せずに済む。
+        consumer.prods.push(new Dependency(producerID, type, this.currentCycle_));
     }
 
     private finish_(): void {
