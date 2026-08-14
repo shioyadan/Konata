@@ -31,7 +31,10 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
     assert.equal(trace.opCount, 1);
     assert.deepEqual([...trace.laneNames], ["0"]);
     // UIはこの列挙からCustom色の追加候補を作るため、変換後のstage順を明示する。
-    assert.deepEqual(trace.stageLevelMap.getStageNames("0"), ["F", "Dc", "Rn", "Ds", "Is", "Cm"]);
+    assert.deepEqual(
+        trace.stageLevelMap.getStageNames("0"),
+        ["F", "Dc", "Rn", "Ds", "Is", "Cm", "Rt"],
+    );
 
     const op = trace.getOp(0);
     assert.ok(op);
@@ -65,7 +68,7 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
         },
     );
     assert.equal(op.labelName, "0x00001000:  add r1, r2");
-    // 新stageの開始tickで直前stageを閉じ、retireはCmを閉じるだけでRtを追加しない。
+    // retireはCmを閉じ、同じtickから1 cycle幅のRt stageを追加する。
     assert.deepEqual(
         op.lanes[mainLaneID]?.stages.map((stage) => [stage.name, stage.startCycle, stage.endCycle]),
         [
@@ -75,6 +78,7 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
             ["Ds", 3, 4],
             ["Is", 4, 5],
             ["Cm", 5, 6],
+            ["Rt", 6, 7],
         ],
     );
 });
@@ -216,7 +220,7 @@ test("Web gem5 parser does not treat missing intermediate stage ticks as a flush
     assert.equal(trace.lastRID, 0);
     assert.deepEqual(
         op.lanes[trace.stageLevelMap.getLaneID("0") ?? -1]?.stages.map((stage) => stage.name),
-        ["F", "Dc", "Rn", "Ds"],
+        ["F", "Dc", "Rn", "Ds", "Rt"],
     );
 });
 
@@ -286,10 +290,9 @@ test("Web gem5 parser preserves memory completion at and after retire as raw det
     assert.equal(trace.getOp(1)?.retiredCycle, 7);
     assert.equal(trace.lastCycle, 7);
     const mainLaneID = trace.stageLevelMap.getLaneID("0") ?? -1;
-    assert.match(
-        trace.getOp(1)?.lanes[mainLaneID]?.stages.at(-1)?.labels ?? "",
-        /Completed mem instruction/,
-    );
+    assert.ok(trace.getOp(1)?.lanes[mainLaneID]?.stages.some(
+        (stage) => /Completed mem instruction/.test(stage.labels),
+    ));
 });
 
 test("Web gem5 parser keeps a pre-retire memory completion as the existing Mc stage", async () => {
@@ -313,6 +316,7 @@ test("Web gem5 parser keeps a pre-retire memory completion as the existing Mc st
             ["Dc", 2, 4],
             ["Cm", 4, 5],
             ["Mc", 5, 6],
+            ["Rt", 6, 7],
         ],
     );
     assert.match(op.labelDetail, /Memory Complete: .*Completed mem instruction/);

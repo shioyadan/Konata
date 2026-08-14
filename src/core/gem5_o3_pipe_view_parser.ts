@@ -338,8 +338,13 @@ export class Gem5O3PipeViewParser {
             for (const stage of lane.stages) {
                 stage.startCycle = stage.startCycle / this.ticksPerClock_ - this.cycleBegin_;
                 stage.endCycle = stage.endCycle / this.ticksPerClock_ - this.cycleBegin_;
-                // Rendererの既存規則を変えず、flushの0-cycle stageだけ従来どおり広げる。
-                if (op.flush && stage.startCycle === stage.endCycle) {
+                // retire eventは通常stageとして右端へ1 cycle表示する。生のretire時刻は
+                // op.retiredCycleに保持し、命令のretire順や依存線の位置は変えない。
+                if (stage.name === STAGE_LABELS.retire && stage.startCycle === stage.endCycle) {
+                    stage.endCycle++;
+                }
+                // Rendererの既存規則を変えず、flushの0-cycle stageも従来どおり広げる。
+                else if (op.flush && stage.startCycle === stage.endCycle) {
                     stage.endCycle++;
                 }
             }
@@ -482,8 +487,24 @@ export class Gem5O3PipeViewParser {
             for (const stage of lane.stages) {
                 if (stage.endCycle === 0) {
                     stage.endCycle = tick;
+                    if (stage.startCycle !== tick) {
+                        lane.level++;
+                    }
                 }
             }
+        }
+
+        // retire eventはcycle変換時に1 cycleへ広げる通常のRt stageとして保持する。
+        if (!op.flush) {
+            const laneName = "0";
+            const laneID = this.stageLevelMap_.getOrCreateLaneID(laneName);
+            const lane = getOrCreateLane(op, laneID);
+            const stage = new Stage();
+            stage.name = STAGE_LABELS.retire;
+            stage.startCycle = tick;
+            stage.endCycle = tick;
+            lane.stages.push(stage);
+            this.stageLevelMap_.update(laneName, stage.name, lane);
         }
     }
 
