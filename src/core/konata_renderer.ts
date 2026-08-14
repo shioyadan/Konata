@@ -415,10 +415,6 @@ export const COMPARISON_COLOR_SCHEME = {
 
 type RendererStyle = typeof darkStyle;
 
-const DEFAULT_CUSTOM_COLOR_SCHEMES: Readonly<Record<string, CustomColorScheme>> = {
-    Custom: DEFAULT_CUSTOM_COLOR_SCHEME,
-};
-
 // 旧Rendererのlabel paneと同じ表示形式を、Canvasとテストから共有する。
 export function formatOpLabel(id: number, op: Op): string {
     return `${id}: s${op.gid} (t${op.tid}: r${op.rid}): ${op.labelName}`;
@@ -432,23 +428,10 @@ export class KonataRenderer {
     // Canvasの矩形をpixel境界へ合わせ、ぼけを抑える補正値。
     private static readonly PIXEL_ADJUST = 0.5;
 
-    private trace_: ParsedTrace | null = null;
     private metrics_: KonataRenderMetrics;
     private style_: RendererStyle = darkStyle;
-    private theme_: RendererTheme = "dark";
-    private colorScheme_ = "Auto";
     private renderingColorScheme_: string | null = null;
     private renderingReference_ = false;
-    private customColorSchemes_: Readonly<Record<string, CustomColorScheme>> = DEFAULT_CUSTOM_COLOR_SCHEMES;
-    private dependencyArrowType_: DependencyArrowType = DEP_ARROW_TYPE.INSIDE_LINE;
-    private splitLanes_ = false;
-    private hideFlushedOps_ = false;
-
-    private zoomScale_ = 1;
-    private laneHeight_ = 24;
-    private opWidth_ = 32;
-    private opHeight_ = 24;
-    private laneHeightMargin_ = 2;
     private labelFont_ = "";
     private labelFontSize_ = 12;
     private stageFontSize_ = 12;
@@ -456,20 +439,13 @@ export class KonataRenderer {
 
     constructor() {
         this.metrics_ = new KonataRenderMetrics(null, DEFAULT_KONATA_RENDER_SPEC);
-        this.updateDerivedValues_();
+        this.updateFontValues_();
     }
 
     private setInput_(trace: ParsedTrace | null, spec: Readonly<KonataRenderSpec>): void {
-        this.trace_ = trace;
         this.metrics_ = new KonataRenderMetrics(trace, spec);
-        this.theme_ = spec.theme;
         this.style_ = spec.theme === "light" ? lightStyle : darkStyle;
-        this.colorScheme_ = spec.colorScheme;
-        this.customColorSchemes_ = { Custom: spec.customColorScheme };
-        this.dependencyArrowType_ = spec.dependencyArrowType;
-        this.splitLanes_ = spec.splitLanes;
-        this.hideFlushedOps_ = spec.hideFlushedOps;
-        this.updateDerivedValues_();
+        this.updateFontValues_();
     }
 
     private draw_(
@@ -585,17 +561,11 @@ export class KonataRenderer {
         this.canvasBackend_.dispose();
     }
 
-    private updateDerivedValues_(): void {
-        this.zoomScale_ = this.metrics_.zoomScale;
-        this.laneHeight_ = this.metrics_.laneHeight;
-        this.opWidth_ = this.metrics_.opWidth;
-        this.opHeight_ = this.metrics_.opHeight;
-        this.laneHeightMargin_ = this.metrics_.laneHeightMargin;
-
+    private updateFontValues_(): void {
         const fontSize = Number(this.style_.fontSize);
-        this.labelFont_ = `${this.style_.fontStyle} ${fontSize * Math.min(1, this.zoomScale_)}px ${this.style_.fontFamily}`;
-        this.labelFontSize_ = fontSize * Math.min(1, this.zoomScale_);
-        this.stageFontSize_ = fontSize * this.zoomScale_;
+        this.labelFont_ = `${this.style_.fontStyle} ${fontSize * Math.min(1, this.metrics_.zoomScale)}px ${this.style_.fontFamily}`;
+        this.labelFontSize_ = fontSize * Math.min(1, this.metrics_.zoomScale);
+        this.stageFontSize_ = fontSize * this.metrics_.zoomScale;
     }
 
     private get canDrawDependency_(): boolean {
@@ -641,16 +611,16 @@ export class KonataRenderer {
         }
         context.fillStyle = this.style_.labelPane.backgroundColor;
         context.fillRect(0, 0, size.width, size.height);
-        if (this.trace_ === null || !this.canDrawText_) {
+        if (this.metrics_.trace === null || !this.canDrawText_) {
             return;
         }
 
         context.font = this.labelFont_;
         context.fillStyle = this.style_.labelPane.fontColor;
-        const logicalHeight = size.height / this.opHeight_;
+        const logicalHeight = size.height / this.metrics_.opHeight;
         const marginLeft = Number(this.style_.labelPane.marginLeft);
         const marginTop =
-            (this.laneHeight_ - this.laneHeightMargin_ * 2 - this.labelFontSize_) / 2 +
+            (this.metrics_.laneHeight - this.metrics_.laneHeightMargin * 2 - this.labelFontSize_) / 2 +
             this.labelFontSize_;
 
         for (
@@ -663,7 +633,7 @@ export class KonataRenderer {
                 continue;
             }
             const x = marginLeft;
-            const y = (logicalY - this.metrics_.spec.position[1]) * this.opHeight_ + marginTop;
+            const y = (logicalY - this.metrics_.spec.position[1]) * this.metrics_.opHeight + marginTop;
             context.fillText(formatOpLabel(logicalY, op), x, y);
         }
     }
@@ -690,7 +660,7 @@ export class KonataRenderer {
                 context.fillRect(0, 0, size.width, size.height);
             }
         }
-        if (this.trace_ === null) {
+        if (this.metrics_.trace === null) {
             return;
         }
         if (drawBase && !this.renderingReference_ && this.canDrawText_) {
@@ -700,19 +670,22 @@ export class KonataRenderer {
                 Number(this.style_.fontSize),
                 this.style_.fontFamily,
                 this.style_.pipelinePane.fontColor,
-                this.zoomScale_,
+                this.metrics_.zoomScale,
             );
         }
 
         let top = this.metrics_.spec.position[1];
         const left = this.metrics_.spec.position[0];
-        const logicalHeight = size.height / this.opHeight_;
-        const logicalWidth = size.width / this.opWidth_;
+        const logicalHeight = size.height / this.metrics_.opHeight;
+        const logicalWidth = size.width / this.metrics_.opWidth;
 
         // 上側へはみ出した領域を旧Rendererと同じinvalid色で描く。
         let offsetY = 0;
         if (top < 0) {
-            const bottom = Math.min(size.height, -top * this.opHeight_ + KonataRenderer.PIXEL_ADJUST);
+            const bottom = Math.min(
+                size.height,
+                -top * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST,
+            );
             if (drawBase && !this.renderingReference_) {
                 context.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
                 context.fillRect(0, 0, size.width, bottom);
@@ -744,9 +717,9 @@ export class KonataRenderer {
                 for (let y = Math.floor(top); y < top + logicalHeight; y += step) {
                     const pixelY = y - top + offsetY;
                     if (!this.renderingReference_ && this.canDrawFrame_ && y % 2 === 0) {
-                        const fillTop = pixelY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
+                        const fillTop = pixelY * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST;
                         solidRects.fillStyle = this.style_.pipelinePane.backgroundColorStripeOverlay;
-                        solidRects.fillRect(0, fillTop, size.width, this.opHeight_);
+                        solidRects.fillRect(0, fillTop, size.width, this.metrics_.opHeight);
                     }
                     if (skipRendering) {
                         continue;
@@ -770,7 +743,7 @@ export class KonataRenderer {
                 }
             }
             if (drawDependencies && !this.renderingReference_ &&
-                this.dependencyArrowType_ !== DEP_ARROW_TYPE.NOT_SHOW) {
+                this.metrics_.spec.dependencyArrowType !== DEP_ARROW_TYPE.NOT_SHOW) {
                 this.drawDependency_(offsetY, top, left, logicalHeight, solidRects);
             }
         }
@@ -787,7 +760,7 @@ export class KonataRenderer {
             (drawBase || pass === "dependencies")) {
             const begin = Math.max(
                 0,
-                size.height - bottomOuterHeight * this.opHeight_ + KonataRenderer.PIXEL_ADJUST,
+                size.height - bottomOuterHeight * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST,
             );
             context.fillStyle = this.style_.pipelinePane.invalidBackgroundColor;
             context.fillRect(0, begin, size.width, size.height);
@@ -802,7 +775,7 @@ export class KonataRenderer {
         context: CanvasRenderingContext2D,
         backendContext: CanvasDrawContext | null,
     ): boolean {
-        const top = logicalY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
+        const top = logicalY * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST;
         if (op.retiredCycle < startCycle) {
             return true;
         }
@@ -817,8 +790,8 @@ export class KonataRenderer {
         let rightCycle = endCycle >= op.retiredCycle ? op.retiredCycle : endCycle + 1;
         leftCycle -= startCycle;
         rightCycle -= startCycle;
-        const left = leftCycle * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
-        let right = rightCycle * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
+        const left = leftCycle * this.metrics_.opWidth + KonataRenderer.PIXEL_ADJUST;
+        let right = rightCycle * this.metrics_.opWidth + KonataRenderer.PIXEL_ADJUST;
 
         const detailed = this.metrics_.canDrawDetailedly;
         if (detailed && this.canDrawFrame_) {
@@ -829,13 +802,14 @@ export class KonataRenderer {
         // 詳細時と縮小時でstage区間と色計算を共有し、出力する矩形の表現だけを替える。
         let drewStage = false;
         if (detailed) {
-            const laneNum = Math.max(1, this.trace_?.stageLevelMap.laneNum ?? 1);
+            const laneNum = Math.max(1, this.metrics_.trace?.stageLevelMap.laneNum ?? 1);
             for (let laneID = 0; laneID < op.lanes.length; laneID++) {
                 if (op.lanes[laneID] === null) {
                     continue;
                 }
-                const laneTop = this.splitLanes_
-                    ? logicalY + (this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0) / laneNum
+                const laneTop = this.metrics_.spec.splitLanes
+                    ? logicalY +
+                        (this.metrics_.trace?.stageLevelMap.getLanePosition(laneID) ?? 0) / laneNum
                     : logicalY;
                 drewStage = this.drawLane_(
                     op, laneTop, startCycle, endCycle, context, laneID,
@@ -854,8 +828,11 @@ export class KonataRenderer {
         solidRects.fillStyle = this.isKnownCalculatedColorScheme_()
             ? this.getComparisonOverviewColor_(colorScheme)
             : colorScheme;
-        const laneTop = top + this.laneHeightMargin_;
-        const laneHeight = Math.max(0.5, this.laneHeight_ - this.laneHeightMargin_ * 2);
+        const laneTop = top + this.metrics_.laneHeightMargin;
+        const laneHeight = Math.max(
+            0.5,
+            this.metrics_.laneHeight - this.metrics_.laneHeightMargin * 2,
+        );
         right = Math.max(right, left + 1);
         solidRects.fillRect(left, laneTop, right - left, laneHeight);
         if (!this.renderingReference_ && op.flush) {
@@ -878,7 +855,7 @@ export class KonataRenderer {
         if (lane === null || lane === undefined) {
             return false;
         }
-        const top = logicalY * this.opHeight_ + KonataRenderer.PIXEL_ADJUST;
+        const top = logicalY * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST;
         let drewStage = false;
 
         for (const stage of lane.stages) {
@@ -895,14 +872,19 @@ export class KonataRenderer {
 
             const logicalLeft = Math.max(startCycle - 1, stage.startCycle) - startCycle;
             const logicalRight = Math.min(endCycle + 1, stageEndCycle) - startCycle;
-            const left = logicalLeft * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
-            let right = logicalRight * this.opWidth_ + KonataRenderer.PIXEL_ADJUST;
-            const rectTop = top + this.laneHeightMargin_;
-            let rectHeight = this.laneHeight_ - this.laneHeightMargin_ * 2;
+            const left = logicalLeft * this.metrics_.opWidth + KonataRenderer.PIXEL_ADJUST;
+            let right = logicalRight * this.metrics_.opWidth + KonataRenderer.PIXEL_ADJUST;
+            const rectTop = top + this.metrics_.laneHeightMargin;
+            let rectHeight = this.metrics_.laneHeight - this.metrics_.laneHeightMargin * 2;
 
             if (solidRects === null) {
                 // 旧Rendererはstageの開始色と終了色を上下方向のgradientとして描く。
-                const gradient = context.createLinearGradient(0, top, 0, top + this.laneHeight_);
+                const gradient = context.createLinearGradient(
+                    0,
+                    top,
+                    0,
+                    top + this.metrics_.laneHeight,
+                );
                 gradient.addColorStop(0, this.getStageColor_(laneID, stage.name, true, op));
                 gradient.addColorStop(1, this.getStageColor_(laneID, stage.name, false, op));
                 context.fillStyle = gradient;
@@ -919,8 +901,8 @@ export class KonataRenderer {
                     rectHeight,
                     this.getStageColor_(laneID, stage.name, true, op),
                     this.getStageColor_(laneID, stage.name, false, op),
-                    this.laneHeightMargin_ / this.laneHeight_,
-                    1 - this.laneHeightMargin_ / this.laneHeight_,
+                    this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
+                    1 - this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
                 );
             }
             drewStage = true;
@@ -934,9 +916,11 @@ export class KonataRenderer {
             if (!this.renderingReference_ && this.canDrawText_) {
                 const textTop =
                     top +
-                    (this.laneHeight_ - this.laneHeightMargin_ * 2 - this.stageFontSize_) / 2 +
+                    (this.metrics_.laneHeight -
+                        this.metrics_.laneHeightMargin * 2 -
+                        this.stageFontSize_) / 2 +
                     this.stageFontSize_;
-                const textLeft = (stage.startCycle - startCycle) * this.opWidth_;
+                const textLeft = (stage.startCycle - startCycle) * this.metrics_.opWidth;
                 // stage先頭へ名前、後続cycleへ経過cycle数を表示する。
                 for (let offset = 1; offset < stageEndCycle - stage.startCycle; offset++) {
                     if (offset + stage.startCycle > endCycle) {
@@ -945,17 +929,18 @@ export class KonataRenderer {
                     }
                     const margin = Math.max(
                         0,
-                        (this.opWidth_ - String(offset).length * this.stageFontSize_ / 2) / 2,
+                        (this.metrics_.opWidth -
+                            String(offset).length * this.stageFontSize_ / 2) / 2,
                     );
                     this.canvasBackend_.fillText(
                         String(offset),
-                        textLeft + offset * this.opWidth_ + margin,
+                        textLeft + offset * this.metrics_.opWidth + margin,
                         textTop,
                     );
                 }
                 const margin = Math.max(
                     0,
-                    (this.opWidth_ - stage.name.length * this.stageFontSize_ / 2) / 2,
+                    (this.metrics_.opWidth - stage.name.length * this.stageFontSize_ / 2) / 2,
                 );
                 this.canvasBackend_.fillText(stage.name, textLeft + margin, textTop);
             }
@@ -979,11 +964,11 @@ export class KonataRenderer {
         if (!this.canDrawDependency_) {
             return;
         }
-        const arrowBeginOffsetX = this.opWidth_ * 3 / 4 + KonataRenderer.PIXEL_ADJUST;
-        const arrowEndOffsetX = this.opWidth_ * 1 / 4 + KonataRenderer.PIXEL_ADJUST;
-        const arrowMidOffsetY = this.laneHeight_ / 2 + KonataRenderer.PIXEL_ADJUST;
-        const arrowBeginOffsetY = this.laneHeight_ * 2 / 3 + KonataRenderer.PIXEL_ADJUST;
-        const arrowEndOffsetY = this.laneHeight_ / 3 + KonataRenderer.PIXEL_ADJUST;
+        const arrowBeginOffsetX = this.metrics_.opWidth * 3 / 4 + KonataRenderer.PIXEL_ADJUST;
+        const arrowEndOffsetX = this.metrics_.opWidth * 1 / 4 + KonataRenderer.PIXEL_ADJUST;
+        const arrowMidOffsetY = this.metrics_.laneHeight / 2 + KonataRenderer.PIXEL_ADJUST;
+        const arrowBeginOffsetY = this.metrics_.laneHeight * 2 / 3 + KonataRenderer.PIXEL_ADJUST;
+        const arrowEndOffsetY = this.metrics_.laneHeight / 3 + KonataRenderer.PIXEL_ADJUST;
         const arrowWeight = Number(this.style_.pipelinePane.arrowWeight);
         context.lineWidth = arrowWeight;
         context.strokeStyle = this.style_.pipelinePane.arrowColor;
@@ -999,30 +984,32 @@ export class KonataRenderer {
                 if (producer === undefined || producer.prodCycle === -1) {
                     continue;
                 }
-                if (this.hideFlushedOps_ && producer.flush) {
+                if (this.metrics_.spec.hideFlushedOps && producer.flush) {
                     continue;
                 }
-                const producerY = this.hideFlushedOps_ ? producer.rid : producer.id;
+                const producerY = this.metrics_.spec.hideFlushedOps ? producer.rid : producer.id;
 
-                if (this.dependencyArrowType_ === DEP_ARROW_TYPE.INSIDE_LINE) {
+                if (this.metrics_.spec.dependencyArrowType === DEP_ARROW_TYPE.INSIDE_LINE) {
                     const start: [number, number] = [
-                        (producer.prodCycle - logicalLeft) * this.opWidth_ + arrowBeginOffsetX,
-                        (producerY - logicalTop + logicalOffsetY) * this.opHeight_ + arrowMidOffsetY,
+                        (producer.prodCycle - logicalLeft) * this.metrics_.opWidth + arrowBeginOffsetX,
+                        (producerY - logicalTop + logicalOffsetY) * this.metrics_.opHeight +
+                            arrowMidOffsetY,
                     ];
                     const end: [number, number] = [
-                        (consumer.consCycle - logicalLeft) * this.opWidth_ + arrowEndOffsetX,
-                        (y - logicalTop + logicalOffsetY) * this.opHeight_ + arrowMidOffsetY,
+                        (consumer.consCycle - logicalLeft) * this.metrics_.opWidth + arrowEndOffsetX,
+                        (y - logicalTop + logicalOffsetY) * this.metrics_.opHeight + arrowMidOffsetY,
                     ];
                     this.drawArrow_(context, start, end, [end[0] - start[0], end[1] - start[1]], arrowWeight);
                 }
                 else {
                     const start: [number, number] = [
-                        (producer.fetchedCycle - logicalLeft) * this.opWidth_,
-                        (producerY - logicalTop + logicalOffsetY) * this.opHeight_ + arrowBeginOffsetY,
+                        (producer.fetchedCycle - logicalLeft) * this.metrics_.opWidth,
+                        (producerY - logicalTop + logicalOffsetY) * this.metrics_.opHeight +
+                            arrowBeginOffsetY,
                     ];
                     const end: [number, number] = [
-                        (consumer.fetchedCycle - logicalLeft) * this.opWidth_,
-                        (y - logicalTop + logicalOffsetY) * this.opHeight_ + arrowEndOffsetY,
+                        (consumer.fetchedCycle - logicalLeft) * this.metrics_.opWidth,
+                        (y - logicalTop + logicalOffsetY) * this.metrics_.opHeight + arrowEndOffsetY,
                     ];
                     this.drawArrow_(context, start, end, [1, 0], arrowWeight);
                 }
@@ -1039,11 +1026,12 @@ export class KonataRenderer {
     ): void {
         context.beginPath();
         context.moveTo(start[0], start[1]);
-        if (this.dependencyArrowType_ === DEP_ARROW_TYPE.INSIDE_LINE) {
+        if (this.metrics_.spec.dependencyArrowType === DEP_ARROW_TYPE.INSIDE_LINE) {
             context.lineTo(end[0], end[1]);
         }
         else {
-            const offsetX = start[0] - this.opWidth_ * Math.sqrt((end[1] - start[1]) / this.opHeight_);
+            const offsetX = start[0] - this.metrics_.opWidth *
+                Math.sqrt((end[1] - start[1]) / this.metrics_.opHeight);
             context.bezierCurveTo(offsetX, start[1], offsetX, end[1], end[0], end[1]);
         }
         context.stroke();
@@ -1064,7 +1052,7 @@ export class KonataRenderer {
     }
 
     private getStageColor_(laneID: number, stageName: string, isBegin: boolean, op: Op): string {
-        const laneName = this.trace_?.stageLevelMap.getLaneName(laneID) ?? String(laneID);
+        const laneName = this.metrics_.trace?.stageLevelMap.getLaneName(laneID) ?? String(laneID);
         const colorScheme = this.activeColorScheme_;
         if (this.isComparisonColorScheme_(colorScheme)) {
             return this.getComparisonStageColor_(colorScheme, laneName, stageName, isBegin);
@@ -1073,8 +1061,8 @@ export class KonataRenderer {
             if (stageName === "f" || stageName === "stl") {
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
-            const stageLevel = this.trace_?.stageLevelMap.get(laneName, stageName);
-            const lanePosition = this.trace_?.stageLevelMap.getLanePosition(laneID) ?? 0;
+            const stageLevel = this.metrics_.trace?.stageLevelMap.get(laneName, stageName);
+            const lanePosition = this.metrics_.trace?.stageLevelMap.getLanePosition(laneID) ?? 0;
             const level = colorScheme === "Auto"
                 ? stageLevel?.appearance ?? 0
                 : stageLevel?.unique ?? 0;
@@ -1087,7 +1075,7 @@ export class KonataRenderer {
         }
 
         if (colorScheme === "ThreadID") {
-            const stageLevel = this.trace_?.stageLevelMap.get(laneName, stageName);
+            const stageLevel = this.metrics_.trace?.stageLevelMap.get(laneName, stageName);
             const color = this.style_.pipelinePane.stageBackgroundColor;
             const hueRate = Number(isBegin ? color.hRateBegin : color.hRateEnd);
             const saturation = Number(isBegin ? color.sBegin : color.sEnd);
@@ -1099,7 +1087,9 @@ export class KonataRenderer {
             return `hsl(${hue},${saturation}%,${lightness}%)`;
         }
 
-        const customScheme = this.customColorSchemes_[colorScheme];
+        const customScheme = colorScheme === "Custom"
+            ? this.metrics_.spec.customColorScheme
+            : undefined;
         if (customScheme !== undefined) {
             let color = customScheme.defaultColor;
             const lane = customScheme[laneName];
@@ -1115,7 +1105,7 @@ export class KonataRenderer {
     }
 
     private get activeColorScheme_(): string {
-        return this.renderingColorScheme_ ?? this.colorScheme_;
+        return this.renderingColorScheme_ ?? this.metrics_.spec.colorScheme;
     }
 
     private isComparisonColorScheme_(colorScheme: string): boolean {
@@ -1126,13 +1116,13 @@ export class KonataRenderer {
 
     private getComparisonOverviewColor_(colorScheme: string): string {
         if (colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_BASELINE) {
-            return this.theme_ === "dark" ? "rgb(45,105,195)" : "rgb(100,155,225)";
+            return this.metrics_.spec.theme === "dark" ? "rgb(45,105,195)" : "rgb(100,155,225)";
         }
         if (colorScheme === COMPARISON_COLOR_SCHEME.OVERLAY_CANDIDATE) {
-            return this.theme_ === "dark" ? "rgb(225,165,75)" : "rgb(230,175,105)";
+            return this.metrics_.spec.theme === "dark" ? "rgb(225,165,75)" : "rgb(230,175,105)";
         }
         if (colorScheme === COMPARISON_COLOR_SCHEME.REFERENCE) {
-            return this.theme_ === "dark" ? "rgb(210,210,210)" : "rgb(70,70,70)";
+            return this.metrics_.spec.theme === "dark" ? "rgb(210,210,210)" : "rgb(70,70,70)";
         }
         return "#888888";
     }
@@ -1144,7 +1134,7 @@ export class KonataRenderer {
         isBegin: boolean,
     ): string {
         if (colorScheme === COMPARISON_COLOR_SCHEME.REFERENCE) {
-            return this.theme_ === "dark" ? "rgb(210,210,210)" : "rgb(70,70,70)";
+            return this.metrics_.spec.theme === "dark" ? "rgb(210,210,210)" : "rgb(70,70,70)";
         }
 
         // stage名から両traceで同じ特徴量を作り、Aには加算、Bには減算する。
@@ -1159,7 +1149,7 @@ export class KonataRenderer {
         hash ^= hash >>> 13;
         hash = Math.imul(hash, 0xc2b2ae35);
         const unsignedHash = (hash ^ (hash >>> 16)) >>> 0;
-        const lightTheme = this.theme_ === "light";
+        const lightTheme = this.metrics_.spec.theme === "light";
         const neutral = lightTheme
             ? (isBegin ? 175 : 155)
             : (isBegin ? 140 : 130);
@@ -1195,6 +1185,6 @@ export class KonataRenderer {
             colorScheme === "Unique" ||
             colorScheme === "ThreadID" ||
             this.isComparisonColorScheme_(colorScheme) ||
-            this.customColorSchemes_[colorScheme] !== undefined;
+            colorScheme === "Custom";
     }
 }
