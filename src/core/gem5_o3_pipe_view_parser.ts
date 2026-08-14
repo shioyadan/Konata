@@ -18,6 +18,7 @@ class Gem5O3PipeViewExLogInfo {
     readonly logList: string[][] = [];
     readonly srcs: string[] = [];
     readonly dsts: string[] = [];
+    threadID: number | null = null;
 }
 
 const GIVING_UP_LINE = 20000;
@@ -30,10 +31,11 @@ const STAGE_LABELS: Readonly<Record<string, string>> = {
     issue: "Is",
     complete: "Cm",
     retire: "Rt",
-    // 追加ログの解析結果から作られるmemory complete stage。
+    // retire前に観測したmemory completeを従来どおりpipeline stageとして扱う。
     mem_complete: "Mc",
 };
 const SERIAL_NUMBER_PATTERN = /sn:(\d+)/;
+const THREAD_ID_PATTERN = /\[tid:\s*(\d+)\]/;
 
 export class Gem5O3PipeViewParser {
     readonly name = "Gem5O3PipeViewParser";
@@ -158,8 +160,9 @@ export class Gem5O3PipeViewParser {
             this.parsingExLogLastGID_ = seqNum;
         }
 
-        // 現行版は既にdrainしたID以下の追加ログを破棄する。
-        if (this.parsingExLogLastGID_ === -1 || seqNum <= this.opStore_.lastID) {
+        // seqNumはgem5のglobal IDなので、file-localなOpStore IDではなく、既に
+        // drainした最後のglobal IDと比較して確定済み命令の追加ログを破棄する。
+        if (this.parsingExLogLastGID_ === -1 || seqNum <= this.lastGID_) {
             return;
         }
 
@@ -167,6 +170,14 @@ export class Gem5O3PipeViewParser {
         if (exLog === undefined) {
             exLog = new Gem5O3PipeViewExLogInfo();
             this.parsingExLogs_.set(seqNum, exLog);
+        }
+        // sequence numberとthread IDが同じ行に明記された場合だけ対応付ける。
+        // snを持たないstage全体のログを直前命令へ誤帰属させないためである。
+        if (matched !== null) {
+            const matchedThreadID = THREAD_ID_PATTERN.exec(line);
+            if (matchedThreadID !== null && exLog.threadID === null) {
+                exLog.threadID = Number(matchedThreadID[1]);
+            }
         }
         if (/^\s*\d+/.test(args[0])) {
             // tickで始まる継続行だけを同じ命令の追加ログとして保存する。
@@ -283,6 +294,11 @@ export class Gem5O3PipeViewParser {
             }
             op.id = id;
             this.reorderedOps_.delete(id);
+            // 新しいgem5の明示recordを優先し、旧traceは追加debug logから補う。
+            // どちらにも情報がないO3PipeView単独traceは従来互換のthread 0とする。
+            if (op.tid === -1) {
+                op.tid = this.parsingExLogs_.get(op.gid)?.threadID ?? 0;
+            }
             this.opStore_.setOp(id, op);
             this.lastGID_ = op.gid;
             this.currentCycle_ = Math.max(this.currentCycle_, op.retiredCycle);
@@ -323,8 +339,13 @@ export class Gem5O3PipeViewParser {
             for (const stage of lane.stages) {
                 stage.startCycle = stage.startCycle / this.ticksPerClock_ - this.cycleBegin_;
                 stage.endCycle = stage.endCycle / this.ticksPerClock_ - this.cycleBegin_;
-                // flushで同一cycleになったstageにも最低1 cycleの幅を持たせる。
-                if (op.flush && stage.startCycle === stage.endCycle) {
+                // retire eventは通常stageとして右端へ1 cycle表示する。生のretire時刻は
+                // op.retiredCycleに保持し、命令のretire順や依存線の位置は変えない。
+                if (stage.name === STAGE_LABELS.retire && stage.startCycle === stage.endCycle) {
+                    stage.endCycle++;
+                }
+                // Rendererの既存規則を変えず、flushの0-cycle stageも従来どおり広げる。
+                else if (op.flush && stage.startCycle === stage.endCycle) {
                     stage.endCycle++;
                 }
             }
@@ -358,17 +379,17 @@ export class Gem5O3PipeViewParser {
         // O3PipeView:fetch:2132747000:0x004ea8f4:0:4:  add   w6, w6, w7
         const tick = this.parseNumber_(args[2], "fetch tick");
         const address = args[3] ?? "";
+        const microPC = this.parseNumber_(args[4], "fetch micro PC");
         const seqNum = this.parseNumber_(args[5], "fetch sequence number");
         const disassembly = args.slice(6).join(":");
 
         const op = new Op();
         op.id = -1; // seqNum順への並べ直しが終わるまでは未定。
         op.gid = seqNum;
-        op.tid = 0;
         op.fetchedCycle = tick;
         op.line = this.currentLine_;
         op.labelName = `${address}: ${disassembly}`;
-        op.labelDetail = `Fetched Tick: ${tick}`;
+        op.labelDetail = `Fetched Tick: ${tick}\nMicro PC: ${microPC}`;
         this.parsingOps_.set(seqNum, op);
 
         this.currentSeqNum_ = seqNum;
@@ -381,16 +402,15 @@ export class Gem5O3PipeViewParser {
     private parseStartCommand_(op: Op, args: string[]): void {
         // fetch以外は命令番号を持たず、直前のfetchが作ったcontextへstageを追加する。
         const command = args[1] ?? "";
-        let tick = this.parseNumber_(args[2], `${command} tick`);
+        const tick = this.parseNumber_(args[2], `${command} tick`);
         const stageName = STAGE_LABELS[command];
         if (stageName === undefined) {
             return;
         }
 
-        // tick 0はflushを表す。最後の有効tickを記録し、それ以降のstageは作らない。
+        // 中間stageのtick 0はtimestampが記録されなかったことを表す。
+        // flushかどうかはretire recordのtickだけで判定する。
         if (tick === 0) {
-            this.currentInstructionFlushed_ = true;
-            tick = this.currentInstructionTick_;
             return;
         }
         this.currentInstructionTick_ = tick;
@@ -421,8 +441,8 @@ export class Gem5O3PipeViewParser {
 
     private parseEndCommand_(op: Op, args: string[]): void {
         const tick = this.parseNumber_(args[2], `${args[1] ?? "stage"} tick`);
-        if (tick === 0 && this.currentInstructionFlushed_) {
-            // flush後のstageは作られていないため、対応するcloseも無視する。
+        if (tick === 0) {
+            // 対応するstage timestampがない場合は、直前stageを次の有効tickまで開いておく。
             return;
         }
 
@@ -441,16 +461,24 @@ export class Gem5O3PipeViewParser {
     }
 
     private parseRetireCommand_(op: Op, args: string[]): void {
-        let tick = this.parseNumber_(args[2], "retire tick");
-        if (tick === 0) {
+        const retireTick = this.parseNumber_(args[2], "retire tick");
+        let tick = retireTick;
+        if (retireTick === 0) {
             this.currentInstructionFlushed_ = true;
             tick = this.currentInstructionTick_;
+        }
+        op.labelDetail += `\nRetired Tick: ${retireTick}`;
+        for (let index = 3; index + 1 < args.length; index += 2) {
+            if (args[index] !== "store") {
+                continue;
+            }
+            const storeTick = this.parseNumber_(args[index + 1], "store completion tick");
+            op.labelDetail += `\nStore Tick: ${storeTick}`;
         }
         op.retiredCycle = tick;
         op.lastParsedCycle = tick;
         op.flush = this.currentInstructionFlushed_;
         op.retired = !op.flush;
-        this.unescapeLabels_(op);
 
         // 閉じていないstageはretireまたはflush tickで閉じる。
         for (const lane of op.lanes) {
@@ -460,8 +488,24 @@ export class Gem5O3PipeViewParser {
             for (const stage of lane.stages) {
                 if (stage.endCycle === 0) {
                     stage.endCycle = tick;
+                    if (stage.startCycle !== tick) {
+                        lane.level++;
+                    }
                 }
             }
+        }
+
+        // retire eventはcycle変換時に1 cycleへ広げる通常のRt stageとして保持する。
+        if (!op.flush) {
+            const laneName = "0";
+            const laneID = this.stageLevelMap_.getOrCreateLaneID(laneName);
+            const lane = getOrCreateLane(op, laneID);
+            const stage = new Stage();
+            stage.name = STAGE_LABELS.retire;
+            stage.startCycle = tick;
+            stage.endCycle = tick;
+            lane.stages.push(stage);
+            this.stageLevelMap_.update(laneName, stage.name, lane);
         }
     }
 
@@ -476,6 +520,17 @@ export class Gem5O3PipeViewParser {
         if (op === undefined) {
             throw new Error(`Line ${this.currentLine_}: ${String(command)} has no current instruction.`);
         }
+        if (command === "thread") {
+            // args[2]を従来commandと同じtick位置に置くことで、未知commandを
+            // 無視する旧O3PipeView toolでもtickによる読み飛ばしを壊さない。
+            this.parseNumber_(args[2], "thread tick");
+            const threadID = this.parseNumber_(args[3], "thread ID");
+            if (!Number.isInteger(threadID) || threadID < 0) {
+                throw new Error(`Line ${this.currentLine_}: thread ID is not a non-negative integer.`);
+            }
+            op.tid = threadID;
+            return;
+        }
         const tick = this.parseNumber_(args[2], `${String(command)} tick`);
         switch (command) {
         case "decode":
@@ -484,17 +539,41 @@ export class Gem5O3PipeViewParser {
         case "issue":
         case "complete":
             this.parseExLog_(op, tick);
-            this.parseEndCommand_(op, args);
-            this.parseStartCommand_(op, args);
+            if (tick !== 0 && tick < this.currentInstructionTick_) {
+                // issueTickはreplayのたびに上書きされる一方、completeTickは以前の完了を
+                // 保持する場合がある。raw値はdetailへ残し、pipeline stageだけを単調化する。
+                op.labelDetail +=
+                    `\nOut-of-order ${String(command)} Tick: ${tick}` +
+                    ` (normalized to ${this.currentInstructionTick_})`;
+                const normalizedArgs = [...args];
+                normalizedArgs[2] = String(this.currentInstructionTick_);
+                this.parseEndCommand_(op, normalizedArgs);
+                this.parseStartCommand_(op, normalizedArgs);
+            }
+            else {
+                this.parseEndCommand_(op, args);
+                this.parseStartCommand_(op, args);
+            }
             break;
         case "retire":
-            this.parseExLog_(op, tick);
+            // 追加ログの格納順はtick順とは限らない。全件を回収し、各event tickが
+            // retireより前かどうかでMc stage化の可否を個別に決める。
+            this.parseExLog_(
+                op,
+                Number.POSITIVE_INFINITY,
+                tick === 0 ? this.currentInstructionTick_ : tick,
+            );
             this.parseRetireCommand_(op, args);
+            this.unescapeLabels_(op);
             break;
         }
     }
 
-    private parseExLog_(op: Op, parseCycleRange: number): void {
+    private parseExLog_(
+        op: Op,
+        parseCycleRange: number,
+        memoryStageCutoff = parseCycleRange,
+    ): void {
         // 追加ログ処理でstageを増やす場合があるため、O3PipeView commandと同期して消費する。
         const exLog = this.parsingExLogs_.get(op.gid);
         if (exLog === undefined) {
@@ -504,10 +583,13 @@ export class Gem5O3PipeViewParser {
         while (exLog.logList.length > 0) {
             const args = exLog.logList[0];
             const tick = args[0];
+            // 中間stageと同tickのlogは次の境界まで待ち、従来のstage分割を維持する。
+            // retire時だけInfinityで呼ぶため、そこで同tick・retire後を含む全残件を回収できる。
             if (Number(tick) >= parseCycleRange) {
                 break;
             }
 
+            let labelStage = getLastParsedStage(op);
             if (args[1] === " user") {
                 // register values: 3260000: user: ...
                 op.labelDetail += `\n ${args.join(":")}`;
@@ -517,10 +599,16 @@ export class Gem5O3PipeViewParser {
                 op.labelDetail += `\n ${args[3] ?? ""}`;
             }
             else if (/\.memDep/.test(args[1] ?? "") && / Completed mem/.test(args[2] ?? "")) {
-                // memory write backを独立したstageとして挿入する。
-                const stageArgs = ["O3PipeView", "mem_complete", tick];
-                this.parseEndCommand_(op, stageArgs);
-                this.parseStartCommand_(op, stageArgs);
+                // retire以降または現在のpipeline時刻より前へ遡るeventはstageへせず、
+                // raw情報だけを残す。単調なretire前eventは従来のMc stageを維持する。
+                op.labelDetail += `\n Memory Complete: ${args.join(":")}`;
+                const memoryTick = Number(tick);
+                if (memoryTick >= this.currentInstructionTick_ && memoryTick < memoryStageCutoff) {
+                    const stageArgs = ["O3PipeView", "mem_complete", tick];
+                    this.parseEndCommand_(op, stageArgs);
+                    this.parseStartCommand_(op, stageArgs);
+                    labelStage = getLastParsedStage(op);
+                }
             }
             else if (/\.rename/.test(args[1] ?? "")) {
                 // コロン数が変わるため、rename情報が入るtokenを順に探す。
@@ -531,13 +619,19 @@ export class Gem5O3PipeViewParser {
                     }
                     op.labelDetail += `\n ${text}`;
 
-                    const destination = text.match(/\(([a-zA-Z]+)\) to physical reg (\d+) \(\d+\)/);
-                    if (destination !== null && destination[2] !== "invalid") {
-                        exLog.dsts.push(`${destination[1]}${destination[2]}`);
+                    const destination = text.match(/\(([^()]+)\) to physical reg (\d+) \(\d+\)/);
+                    if (destination !== null) {
+                        const registerClass = destination[1].trim();
+                        if (registerClass !== "invalid") {
+                            exLog.dsts.push(`${registerClass}${destination[2]}`);
+                        }
                     }
-                    const source = text.match(/got phys reg (\d+) \(([a-zA-Z]+)\)/);
-                    if (source !== null && source[2] !== "invalid") {
-                        exLog.srcs.push(`${source[2]}${source[1]}`);
+                    const source = text.match(/got phys reg (\d+) \(([^()]+)\)/);
+                    if (source !== null) {
+                        const registerClass = source[2].trim();
+                        if (registerClass !== "invalid") {
+                            exLog.srcs.push(`${registerClass}${source[1]}`);
+                        }
                     }
                 }
             }
@@ -550,12 +644,11 @@ export class Gem5O3PipeViewParser {
             }
 
             // 追加ログ原文は、その時点で開いているstageのtooltipにも残す。
-            const stage = getLastParsedStage(op);
-            if (stage !== null) {
-                if (stage.labels !== "") {
-                    stage.labels += "\n";
+            if (labelStage !== null) {
+                if (labelStage.labels !== "") {
+                    labelStage.labels += "\n";
                 }
-                stage.labels += args.join(":");
+                labelStage.labels += args.join(":");
             }
             exLog.logList.shift();
         }
