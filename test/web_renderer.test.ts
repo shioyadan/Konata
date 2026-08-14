@@ -285,6 +285,7 @@ test("Web render metrics preserve legacy zoom levels and lane heights", () => {
     trace.stageLevelMap.update("1", "Wb", secondLane);
 
     const base = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
+    assert.equal(base.spec.stageDetailMinimumLaneHeight, 0.5);
     const zoomedSpec = base.withZoomLevel(-1, 0, 0);
     const zoomed = new KonataRenderMetrics(trace, zoomedSpec);
     assert.equal(zoomed.zoomLevel, -1);
@@ -502,7 +503,7 @@ test("Web renderer uses one solid rectangle per op at extreme zoom without WebGL
 
     renderer.drawPipelineSpec(
         trace,
-        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 5, theme: "light" },
+        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 6, theme: "light" },
         createCanvas(pipeline.context),
         undefined,
         undefined,

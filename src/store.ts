@@ -72,7 +72,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     splitLanes: false,
     fixOpHeight: false,
     textLabelMinimumLaneHeight: 10,
-    stageDetailMinimumLaneHeight: 1,
+    stageDetailMinimumLaneHeight: 0.5,
     dependencyArrowMinimumLaneHeight: 4,
     stageBorderMinimumLaneHeight: 4,
     drawZoomFactor: 1,

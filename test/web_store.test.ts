@@ -600,6 +600,7 @@ test("Store separates global view settings from tab-specific settings", () => {
     const store = new Store();
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
+    assert.equal(store.getSnapshot().settings.stageDetailMinimumLaneHeight, 0.5);
 
     store.dispatch({ type: "FILE_OPEN", fileName: "first.log" });
     const firstTab = store.activeTab;

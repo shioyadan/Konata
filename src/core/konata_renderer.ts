@@ -100,7 +100,7 @@ export const DEFAULT_KONATA_RENDER_SPEC: Readonly<KonataRenderSpec> = {
     fixOpHeight: false,
     hideFlushedOps: false,
     textLabelMinimumLaneHeight: 10,
-    stageDetailMinimumLaneHeight: 1,
+    stageDetailMinimumLaneHeight: 0.5,
     dependencyArrowMinimumLaneHeight: 4,
     stageBorderMinimumLaneHeight: 4,
 };
