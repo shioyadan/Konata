@@ -500,7 +500,7 @@ test("Web renderer uses one solid rectangle per op at extreme zoom without WebGL
         undefined,
         undefined,
         false,
-        { webGLEnabled: false, textCacheEnabled: true },
+        { webGLEnabled: false },
     );
 
     // stage数に比例させず、命令色を1回描いてからflush色を同じ範囲へ重ねる。

@@ -205,7 +205,6 @@ export class TiledPipelineRenderer {
             renderingColorScheme: options.colorScheme ?? null,
             referenceOnly: options.referenceOnly ?? false,
             webGLEnabled: options.backend.webGLEnabled,
-            textCacheEnabled: options.backend.textCacheEnabled,
             pixelRatio,
         });
     }

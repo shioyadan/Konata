@@ -51,7 +51,6 @@ export const DEFAULT_SPLITTER_POSITION = 450;
 export interface GlobalViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
-    readonly textCacheEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly dependencyArrowType: DependencyArrowType;
@@ -67,7 +66,6 @@ export interface GlobalViewSettings {
 const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     theme: "dark",
     webGLEnabled: true,
-    textCacheEnabled: true,
     tiledRenderingEnabled: true,
     customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
@@ -84,7 +82,6 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
 export interface PersistedViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
-    readonly textCacheEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
     readonly colorScheme: string;
     readonly customColorScheme: Readonly<CustomColorScheme>;
@@ -100,7 +97,6 @@ export interface PersistedViewSettings {
 export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = {
     theme: DEFAULT_GLOBAL_VIEW_SETTINGS.theme,
     webGLEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.webGLEnabled,
-    textCacheEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.textCacheEnabled,
     tiledRenderingEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.tiledRenderingEnabled,
     colorScheme: "Auto",
     customColorScheme: DEFAULT_GLOBAL_VIEW_SETTINGS.customColorScheme,
@@ -216,7 +212,6 @@ export type Action =
     | { readonly type: "KONATA_FIND_HIDE_RESULT"; readonly tabID: number }
     | { readonly type: "KONATA_CHANGE_UI_COLOR_THEME"; readonly theme: RendererTheme }
     | { readonly type: "KONATA_SET_WEBGL_ENABLED"; readonly enabled: boolean }
-    | { readonly type: "KONATA_SET_TEXT_CACHE_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_TILED_RENDERING_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_DEP_ARROW_TYPE"; readonly arrowType: DependencyArrowType }
     | { readonly type: "KONATA_SPLIT_LANES"; readonly enabled: boolean }
@@ -548,7 +543,6 @@ export class Store {
             ...DEFAULT_GLOBAL_VIEW_SETTINGS,
             theme: viewSettings.theme,
             webGLEnabled: viewSettings.webGLEnabled,
-            textCacheEnabled: viewSettings.textCacheEnabled,
             tiledRenderingEnabled: viewSettings.tiledRenderingEnabled,
             customColorScheme: viewSettings.customColorScheme,
             dependencyArrowType: viewSettings.dependencyArrowType,
@@ -596,7 +590,6 @@ export class Store {
         return {
             theme: this.settings_.theme,
             webGLEnabled: this.settings_.webGLEnabled,
-            textCacheEnabled: this.settings_.textCacheEnabled,
             tiledRenderingEnabled: this.settings_.tiledRenderingEnabled,
             colorScheme: this.defaultColorScheme_,
             customColorScheme: this.settings_.customColorScheme,
@@ -1100,10 +1093,6 @@ export class Store {
         }
         case "KONATA_SET_WEBGL_ENABLED": {
             this.setGlobalViewSettings_({ ...this.settings_, webGLEnabled: action.enabled }, false, true);
-            return;
-        }
-        case "KONATA_SET_TEXT_CACHE_ENABLED": {
-            this.setGlobalViewSettings_({ ...this.settings_, textCacheEnabled: action.enabled }, false, true);
             return;
         }
         case "KONATA_SET_TILED_RENDERING_ENABLED": {

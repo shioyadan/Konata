@@ -76,7 +76,6 @@ export interface KonataRenderSpec {
 // 描画結果の意味を変えないbackend選択は、再現可能なView指定とは分離する。
 export interface KonataRenderBackendOptions {
     readonly webGLEnabled: boolean;
-    readonly textCacheEnabled: boolean;
 }
 
 // pipeline全体、cache可能な本体、タイルを横断する依存矢印を同じ描画実装から選べるようにする。
@@ -85,7 +84,6 @@ export type KonataPipelinePass = "all" | "base" | "dependencies";
 
 const DEFAULT_RENDER_BACKEND_OPTIONS: Readonly<KonataRenderBackendOptions> = {
     webGLEnabled: true,
-    textCacheEnabled: true,
 };
 
 const ZOOM_RATIO = 1;
@@ -689,7 +687,6 @@ export class KonataRenderer {
         }
         const drawBase = pass !== "dependencies";
         const drawDependencies = pass !== "base";
-        this.canvasRenderer_.setTextCacheEnabled(backend.textCacheEnabled);
         if (drawBase) {
             if (this.renderingReference_) {
                 // 前回の参照形状を残さず、背景は透明なまま主表示へ重ねられるようにする。
@@ -735,9 +732,8 @@ export class KonataRenderer {
         }
 
         // cache済み文字は矩形と同じ順序でtexture quadへ積み、laneやflushの重なりも維持する。
-        // 互換設定でWebGLか文字cacheを切った時は、文字を従来どおりCanvasへ直接描画する。
-        const canBatch = !drawBase || !this.canDrawText_ ||
-            (backend.webGLEnabled && backend.textCacheEnabled);
+        // WebGL無効時は文字atlasだけをCanvasへ転送し、矩形は従来どおり直接描画する。
+        const canBatch = !drawBase || !this.canDrawText_ || backend.webGLEnabled;
         const simplifiedRects = canBatch
             ? this.canvasRenderer_.begin(
                 canvas,

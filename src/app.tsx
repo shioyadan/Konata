@@ -198,9 +198,6 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
     const webGLEnabled = settings.webGLEnabled === undefined
         ? DEFAULT_PERSISTED_VIEW_SETTINGS.webGLEnabled
         : settings.webGLEnabled;
-    const textCacheEnabled = settings.textCacheEnabled === undefined
-        ? DEFAULT_PERSISTED_VIEW_SETTINGS.textCacheEnabled
-        : settings.textCacheEnabled;
     const tiledRenderingEnabled = settings.tiledRenderingEnabled === undefined
         ? DEFAULT_PERSISTED_VIEW_SETTINGS.tiledRenderingEnabled
         : settings.tiledRenderingEnabled;
@@ -217,14 +214,12 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         !isNonNegativeFiniteNumber(stageBorderMinimumLaneHeight) ||
         !isPositiveFiniteNumber(drawZoomFactor) ||
         typeof webGLEnabled !== "boolean" ||
-        typeof textCacheEnabled !== "boolean" ||
         typeof tiledRenderingEnabled !== "boolean") {
         return null;
     }
     return {
         theme: settings.theme,
         webGLEnabled,
-        textCacheEnabled,
         tiledRenderingEnabled,
         colorScheme: settings.colorScheme,
         // 旧Web版の保存値にはこのfieldがないため、他の設定を捨てず既定配色で補う。
@@ -1689,18 +1684,6 @@ export function App() {
                                 />
                                 WebGL rendering
                             </label>
-                            <label title="Disable if cached text appears blurred or otherwise incorrect.">
-                                <input
-                                    type="checkbox"
-                                    aria-label="Text caching"
-                                    checked={settings.textCacheEnabled}
-                                    onChange={(event) => store.dispatch({
-                                        type: "KONATA_SET_TEXT_CACHE_ENABLED",
-                                        enabled: event.target.checked,
-                                    })}
-                                />
-                                Text caching
-                            </label>
                             <label title="Disable tiled rendering if scrolling or zooming displays stale or incomplete regions.">
                                 <input
                                     type="checkbox"
@@ -1814,7 +1797,6 @@ export function App() {
                 errorMessage={errorMessage}
                 renderVersion={renderVersion}
                 webGLEnabled={settings.webGLEnabled}
-                textCacheEnabled={settings.textCacheEnabled}
                 tiledRenderingEnabled={settings.tiledRenderingEnabled}
                 findResult={findResult}
                 comparison={comparisonTab === null ? null : {

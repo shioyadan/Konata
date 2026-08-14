@@ -61,7 +61,6 @@ interface TraceSheetProps {
     readonly errorMessage: string;
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
-    readonly textCacheEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
     readonly findResult: FindResult | null;
     readonly comparison: {
@@ -117,7 +116,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     errorMessage,
     renderVersion,
     webGLEnabled,
-    textCacheEnabled,
     tiledRenderingEnabled,
     findResult,
     comparison,
@@ -201,7 +199,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const pipelineCanvas = pipelineCanvasRef.current;
         const backend: Readonly<KonataRenderBackendOptions> = {
             webGLEnabled,
-            textCacheEnabled,
         };
         const tileOptions = {
             // Parser追記中と互換設定での無効時は、raster tileを介さず直接描画する。
@@ -332,7 +329,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         renderer,
         tiledRenderer,
         baselineTiledRenderer,
-        textCacheEnabled,
         tiledRenderingEnabled,
         trace,
         webGLEnabled,

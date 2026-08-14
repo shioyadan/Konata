@@ -524,7 +524,6 @@ test("Store restores and publishes persistent view settings", () => {
     const store = new Store({
         theme: "light",
         webGLEnabled: true,
-        textCacheEnabled: true,
         tiledRenderingEnabled: true,
         colorScheme: "RoyalBlue",
         customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -541,7 +540,6 @@ test("Store restores and publishes persistent view settings", () => {
     const restored = store.getSnapshot().settings;
     assert.equal(restored.theme, "light");
     assert.equal(restored.webGLEnabled, true);
-    assert.equal(restored.textCacheEnabled, true);
     assert.equal(restored.tiledRenderingEnabled, true);
     assert.equal(restored.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
     assert.equal(restored.textLabelMinimumLaneHeight, 11);
@@ -559,7 +557,6 @@ test("Store restores and publishes persistent view settings", () => {
 
     store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "dark" });
     store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: false });
-    store.dispatch({ type: "KONATA_SET_TEXT_CACHE_ENABLED", enabled: false });
     store.dispatch({ type: "KONATA_SET_TILED_RENDERING_ENABLED", enabled: false });
     store.dispatch({ type: "KONATA_SET_DEP_ARROW_TYPE", arrowType: DEP_ARROW_TYPE.NOT_SHOW });
     store.dispatch({
@@ -582,7 +579,6 @@ test("Store restores and publishes persistent view settings", () => {
     assert.deepEqual(store.persistedViewSettings, {
         theme: "dark",
         webGLEnabled: false,
-        textCacheEnabled: false,
         tiledRenderingEnabled: false,
         colorScheme: "Custom",
         customColorScheme,
@@ -595,7 +591,7 @@ test("Store restores and publishes persistent view settings", () => {
         drawZoomFactor: 2,
     });
     // Tab固有設定や旧Storeだけの一時設定では、永続化通知を増やさない。
-    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 10);
+    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 9);
 
     store.dispatch({ type: "STORE_CLOSE" });
 });

@@ -326,7 +326,6 @@ export class RectRenderer implements RectContext {
     private textColor_ = "#000000";
     private textPixelRatio_ = 1;
     private textScale_ = 1;
-    private textCacheEnabled_ = true;
 
     get fillStyle(): string | CanvasGradient | CanvasPattern {
         return this.fillStyle_;
@@ -432,27 +431,9 @@ export class RectRenderer implements RectContext {
         context.imageSmoothingEnabled = atlasScale < 1;
     }
 
-    setTextCacheEnabled(enabled: boolean): void {
-        if (this.textCacheEnabled_ === enabled) {
-            return;
-        }
-        this.textCacheEnabled_ = enabled;
-        if (!enabled) {
-            this.textAtlas_.dispose();
-        }
-    }
-
     fillText(text: string, x: number, baselineY: number): void {
         const context = this.textContext_;
         if (context === null) {
-            return;
-        }
-        if (!this.textCacheEnabled_) {
-            // stage矩形の描画で変更されたCanvas stateを、直接文字描画の前に戻す。
-            context.font = this.textDisplayFont_;
-            context.fillStyle = this.textColor_;
-            context.textBaseline = "alphabetic";
-            context.fillText(text, x, baselineY);
             return;
         }
         if (this.targetContext_ === context) {
