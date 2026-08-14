@@ -2910,7 +2910,8 @@ async function run() {
         tileReuseState.firstTileBlitOrder === null ||
         tileReuseState.firstNewTileRenderOrder === null ||
         tileReuseState.firstTileBlitOrder >= tileReuseState.firstNewTileRenderOrder ||
-        tileReuseState.maxNewTilesPerFrame !== 2) {
+        tileReuseState.maxNewTilesPerFrame < 1 ||
+        tileReuseState.maxNewTilesPerFrame > 2) {
         throw new Error(`Pipeline tiles were not reused while scrolling: ${JSON.stringify(tileReuseState)}`);
     }
 
@@ -2918,6 +2919,7 @@ async function run() {
     const textAtlasState = await window.webContents.executeJavaScript(`(async () => {
         const prototype = CanvasRenderingContext2D.prototype;
         const originalFillText = prototype.fillText;
+        const originalFillRect = prototype.fillRect;
         const originalDrawImage = prototype.drawImage;
         const pipeline = document.querySelector('.pipeline-pane canvas');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
@@ -2956,6 +2958,8 @@ async function run() {
         let pipelineBlits = 0;
         let smoothedPipelineBlits = 0;
         let unsmoothedPipelineBlits = 0;
+        const generatedTileCanvases = new Set();
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
         const blitScales = [];
         prototype.fillText = function(...args) {
             if (this.canvas === pipeline) {
@@ -2969,6 +2973,13 @@ async function run() {
                 atlasFillTexts++;
             }
             return Reflect.apply(originalFillText, this, args);
+        };
+        prototype.fillRect = function(...args) {
+            if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                generatedTileCanvases.add(this.canvas);
+            }
+            return Reflect.apply(originalFillRect, this, args);
         };
         prototype.drawImage = function(...args) {
             if (this.canvas === pipeline && args[0] instanceof HTMLCanvasElement &&
@@ -2995,6 +3006,7 @@ async function run() {
         try {
             theme.value = "light";
             theme.dispatchEvent(new Event("change", {bubbles: true}));
+            await new Promise((resolve) => setTimeout(resolve, 700));
             await nextFrame();
             const first = {
                 atlasFillTexts,
@@ -3003,6 +3015,10 @@ async function run() {
                 pipelineBlits,
                 smoothedPipelineBlits,
                 unsmoothedPipelineBlits,
+                generatedTileCanvases: generatedTileCanvases.size,
+                fullRingTileCount:
+                    (Math.ceil(pipeline.clientWidth / 256) + 2) *
+                    (Math.ceil(pipeline.clientHeight / 256) + 2),
             };
 
             // 半stepの縮小animationでも100%用atlasを共有し、表示時だけ縮小する。
@@ -3052,6 +3068,7 @@ async function run() {
         }
         finally {
             prototype.fillText = originalFillText;
+            prototype.fillRect = originalFillRect;
             prototype.drawImage = originalDrawImage;
             theme.value = originalTheme;
             theme.dispatchEvent(new Event("change", {bubbles: true}));
@@ -3071,6 +3088,8 @@ async function run() {
         }
     })()`);
     if (textAtlasState.first.atlasFillTexts < 1 ||
+        textAtlasState.first.generatedTileCanvases < 1 ||
+        textAtlasState.first.generatedTileCanvases >= textAtlasState.first.fullRingTileCount ||
         textAtlasState.first.pipelineFillTexts !== 0 ||
         textAtlasState.first.pipelineBlits <= textAtlasState.first.atlasFillTexts ||
         textAtlasState.first.smoothedPipelineBlits !== 0 ||

@@ -245,11 +245,18 @@ export class TiledPipelineRenderer {
         const previousCoverage = this.drawPreviousBase_(context, request);
         context.imageSmoothingEnabled = false;
         let tileCount = 0;
+        let hasMissingInstructionTile = false;
         for (const tilePosition of this.getTilePositions_(request, false)) {
+            if (!this.tileContainsInstruction_(request, tilePosition)) {
+                // 空領域は安価な背景だけを毎回描き、raster cache容量を消費しない。
+                this.drawEmptyTile_(context, request, tilePosition);
+                continue;
+            }
             const tile = this.getTile_(
                 this.tileKey_(request.namespaceKey, tilePosition.x, tilePosition.y),
             );
             if (tile === undefined) {
+                hasMissingInstructionTile = true;
                 continue;
             }
             // cache miss時も完成したtileから表示し、長い描画で進捗が止まって見えないようにする。
@@ -265,7 +272,8 @@ export class TiledPipelineRenderer {
 
         // 初回や大きなjumpでは再利用画素がほぼない。全tile完成まで空白を見せるより、
         // 従来の全体描画を一度だけ使い、その後の操作からcacheの利益を得る。
-        if (tileCount === 0 && previousCoverage < request.width * request.height * 0.25) {
+        if (tileCount === 0 && hasMissingInstructionTile &&
+            previousCoverage < request.width * request.height * 0.25) {
             this.renderer_.drawPipelineSpec(
                 request.trace,
                 request.spec,
@@ -354,6 +362,7 @@ export class TiledPipelineRenderer {
         }
         // 可視tileを先に完成させた後、同じqueueで外周1 tileを低優先度に先読みする。
         this.jobs_ = this.getTilePositions_(request, true)
+            .filter((position) => this.tileContainsInstruction_(request, position))
             .filter((position) => !this.tiles_.has(
                 this.tileKey_(request.namespaceKey, position.x, position.y),
             ))
@@ -384,6 +393,88 @@ export class TiledPipelineRenderer {
             }
         }
         return positions;
+    }
+
+    private tileContainsInstruction_(request: RenderRequest, position: TilePosition): boolean {
+        const size = TiledPipelineRenderer.TILE_SIZE;
+        const logicalTop = position.y * size / request.metrics.opHeight;
+        const logicalBottom = (position.y + 1) * size / request.metrics.opHeight;
+        const top = Math.max(0, Math.floor(logicalTop));
+        const bottom = Math.min(request.metrics.getVisibleBottom(), Math.ceil(logicalBottom) - 1);
+        if (top > bottom) {
+            return false;
+        }
+        const left = position.x * size / request.metrics.opWidth;
+        const right = (position.x + 1) * size / request.metrics.opWidth;
+        for (let y = top; y <= bottom; y++) {
+            const op = request.metrics.getVisibleOp(y, request.metrics.opResolution);
+            if (op !== undefined && op.retiredCycle !== op.fetchedCycle &&
+                op.retiredCycle >= left && op.fetchedCycle <= right) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private drawEmptyTile_(
+        context: CanvasRenderingContext2D,
+        request: RenderRequest,
+        position: TilePosition,
+    ): void {
+        const size = TiledPipelineRenderer.TILE_SIZE;
+        const left = position.x * size - request.worldX;
+        const top = position.y * size - request.worldY;
+        context.save();
+        context.beginPath();
+        context.rect(left, top, size, size);
+        context.clip();
+        if (request.referenceOnly) {
+            // 比較の参照layerは背景を持たないため、移動前の暫定画素だけを消す。
+            context.clearRect(left, top, size, size);
+            context.restore();
+            return;
+        }
+
+        const style = request.spec.theme === "light" ? lightStyle : darkStyle;
+        context.fillStyle = style.pipelinePane.backgroundColor;
+        context.fillRect(left, top, size, size);
+        if (request.metrics.canDrawFrame) {
+            // 命令がなくても旧Rendererは偶数行のstripeを描くため、背景の見た目だけは直接再現する。
+            const logicalTop = Math.max(0, Math.floor(position.y * size / request.metrics.opHeight));
+            const logicalBottom = Math.ceil((position.y + 1) * size / request.metrics.opHeight);
+            context.fillStyle = style.pipelinePane.backgroundColorStripeOverlay;
+            for (let y = logicalTop; y < logicalBottom; y++) {
+                if (y % 2 === 0) {
+                    context.fillRect(
+                        0,
+                        (y - request.spec.position[1]) * request.metrics.opHeight + 0.5,
+                        request.width,
+                        request.metrics.opHeight,
+                    );
+                }
+            }
+        }
+
+        // trace範囲外は通常背景ではなくinvalid色なので、旧Rendererと同じ境界で最後に覆う。
+        context.fillStyle = style.pipelinePane.invalidBackgroundColor;
+        if (request.spec.position[1] < 0) {
+            const bottom = Math.min(
+                request.height,
+                -request.spec.position[1] * request.metrics.opHeight + 0.5,
+            );
+            context.fillRect(0, 0, request.width, bottom);
+        }
+        const logicalHeight = request.height / request.metrics.opHeight;
+        const bottomOuterHeight = request.spec.position[1] + logicalHeight - 1 -
+            request.metrics.getVisibleBottom();
+        if (bottomOuterHeight > 0) {
+            const begin = Math.max(
+                0,
+                request.height - bottomOuterHeight * request.metrics.opHeight + 0.5,
+            );
+            context.fillRect(0, begin, request.width, request.height);
+        }
+        context.restore();
     }
 
     private scheduleNext_(waitForZoom: boolean): void {
