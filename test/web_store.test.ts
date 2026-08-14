@@ -129,14 +129,17 @@ test("Store owns view transition endpoints without storing intermediate frames",
     store.dispatch({
         type: "KONATA_VIEW_TRANSITION_START",
         tabID: tab.id,
-        from: { renderSpec: from },
-        target: { renderSpec: target },
+        from,
+        target,
         motion: { type: "linear", duration: 100 },
     });
 
     // Storeには描画済みの始点と終点だけを置き、中間位置はCanvas側だけで導出する。
-    assert.equal(tab.renderSpec, from);
-    assert.deepEqual(tab.viewTransition?.target.renderSpec, target);
+    assert.deepEqual(tab.renderSpec, from);
+    assert.deepEqual(tab.viewTransition?.target, {
+        position: target.position,
+        zoomLevel: target.zoomLevel,
+    });
     const transitionID = tab.viewTransition?.id;
     assert.notEqual(transitionID, undefined);
 
@@ -151,14 +154,14 @@ test("Store owns view transition endpoints without storing intermediate frames",
     assert.ok(scroll?.type === "VIEW_SCROLL_REQUEST");
     assert.deepEqual(scroll.position, [33, 44]);
 
-    // 描画設定の変更は始点と終点の双方へ適用し、遷移を中断しない。
+    // 描画設定は確定Specだけを更新し、位置・zoomだけの終点には複製しない。
     store.dispatch({
         type: "KONATA_CHANGE_COLOR_SCHEME",
         tabID: tab.id,
         scheme: "RoyalBlue",
     });
     assert.equal(tab.renderSpec.colorScheme, "RoyalBlue");
-    assert.equal(tab.viewTransition?.target.renderSpec.colorScheme, "RoyalBlue");
+    assert.deepEqual(tab.viewTransition?.target.position, [30, 40]);
 
     store.dispatch({
         type: "KONATA_VIEW_TRANSITION_FINISH",
@@ -180,8 +183,8 @@ test("Store owns view transition endpoints without storing intermediate frames",
     store.dispatch({
         type: "KONATA_VIEW_TRANSITION_START",
         tabID: tab.id,
-        from: { renderSpec: tab.renderSpec },
-        target: { renderSpec: { ...tab.renderSpec, position: [50, 60] } },
+        from: tab.renderSpec,
+        target: { ...tab.renderSpec, position: [50, 60] },
         motion: { type: "linear", duration: 100 },
     });
     store.dispatch({

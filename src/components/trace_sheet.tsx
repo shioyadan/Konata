@@ -13,17 +13,20 @@ import { BsX } from "react-icons/bs";
 import type { ParsedTrace } from "../core/model";
 import {
     COMPARISON_COLOR_SCHEME,
+    clampKonataZoomLevel,
+    getKonataView,
     KonataRenderMetrics,
     KonataRenderer,
     type KonataRenderSpec,
+    type KonataView,
 } from "../core/konata_renderer";
 import { TiledPipelineRenderer } from "../core/tiled_pipeline_renderer";
 import type {
     ComparisonMode,
     FindResult,
     LoadState,
-    ViewRenderSpecs,
     ViewTransition,
+    ViewTransitionAction,
     ViewTransitionMotion,
 } from "../store";
 
@@ -49,11 +52,23 @@ interface CanvasToolTip {
 
 // A/B単独表示では、位置合わせ用の反対側だけを控えめに重ねる。
 const COMPARISON_REFERENCE_OPACITY = 0.2;
+const ZOOM_ANIMATION_DURATION = 80;
+const SCROLL_ANIMATION_DURATION = 100;
+const VIEW_ANIMATION_DURATION = 200;
+const BOOKMARK_ZOOM_ANIMATION_DURATION = 160;
 
 export interface TraceSheetHandle {
     clearToolTip(): void;
     resetPipelineCanvas(): void;
-    getRenderedSpecs(): Readonly<ViewRenderSpecs>;
+    cancelViewTransition(): void;
+    scrollTo(
+        position: readonly [number, number],
+        baselinePosition?: readonly [number, number],
+    ): void;
+    zoomAt(factor: number, centerX: number, centerY: number): void;
+    goToView(view: KonataView): void;
+    resetView(): void;
+    getRenderedSpec(): Readonly<KonataRenderSpec>;
     getViewportSize(): {
         readonly pipelineWidth: number;
         readonly pipelineHeight: number;
@@ -63,12 +78,14 @@ export interface TraceSheetHandle {
 
 interface TraceSheetProps {
     readonly trace: ParsedTrace | null;
+    readonly tabID: number | null;
     readonly renderSpec: Readonly<KonataRenderSpec>;
     readonly loadState: LoadState;
     readonly errorMessage: string;
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    readonly zoomStep: number;
     readonly viewTransition: Readonly<ViewTransition> | null;
     readonly findResult: FindResult | null;
     readonly comparison: {
@@ -88,10 +105,8 @@ interface TraceSheetProps {
         centerY: number,
     ) => void;
     readonly onMoveView: (difference: readonly [number, number], adjustHorizontal: boolean) => void;
-    readonly onScrollView: (position: readonly [number, number]) => void;
-    readonly onZoomView: (factor: number, centerX: number, centerY: number) => void;
     readonly onRenderedZoomChange: (zoomLevel: number) => void;
-    readonly onViewTransitionFinish: (transitionID: number) => void;
+    readonly onViewAction: (action: ViewTransitionAction) => void;
     readonly onCloseFindResult: () => void;
     readonly onOpenTrace: () => void;
 }
@@ -121,12 +136,12 @@ function highlightMatches(line: string, pattern: string): HighlightedText[] {
 function interpolateRenderSpec(
     trace: ParsedTrace | null,
     from: Readonly<KonataRenderSpec>,
-    target: Readonly<KonataRenderSpec>,
+    target: KonataView,
     motion: Readonly<ViewTransitionMotion>,
     progress: number,
 ): Readonly<KonataRenderSpec> {
     if (progress >= 1) {
-        return target;
+        return { ...from, ...target };
     }
     const zoomProgress = motion.type === "linear" && motion.zoomDuration !== undefined
         ? Math.min(1, progress * motion.duration / motion.zoomDuration)
@@ -152,12 +167,14 @@ function interpolateRenderSpec(
 // 旧app_sheetに相当し、label/pipeline Canvasとその直接操作を同じ単位で所有する。
 export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function TraceSheet({
     trace,
+    tabID,
     renderSpec,
     loadState,
     errorMessage,
     renderVersion,
     webGLEnabled,
     tiledRenderingEnabled,
+    zoomStep,
     viewTransition,
     findResult,
     comparison,
@@ -166,10 +183,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     onPanView,
     onPinchView,
     onMoveView,
-    onScrollView,
-    onZoomView,
     onRenderedZoomChange,
-    onViewTransitionFinish,
+    onViewAction,
     onCloseFindResult,
     onOpenTrace,
 }, ref) {
@@ -202,17 +217,25 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const baselineRenderer = comparison === null ? null : baselineRendererRef.current;
     const baselineTrace = comparison?.baselineTrace ?? null;
     const baselineRenderSpec = comparison?.baselineRenderSpec ?? null;
-    const renderedSpecsRef = useRef<ViewRenderSpecs>({
-        renderSpec,
-        baselineRenderSpec: baselineRenderSpec ?? undefined,
-    });
+    // Storeには端点だけを置き、実際に描いた中間Specと連続入力の次の目標はCanvas側で保持する。
+    const renderedSpecRef = useRef(renderSpec);
+    const renderedBaselineSpecRef = useRef<Readonly<KonataRenderSpec> | undefined>(
+        baselineRenderSpec ?? undefined,
+    );
     const transitionClockRef = useRef<{ readonly id: number; readonly startedAt: number } | null>(null);
-    const viewTransitionRef = useRef<Readonly<ViewTransition> | null>(viewTransition);
-    viewTransitionRef.current = viewTransition;
+    const requestedTransitionRef = useRef<{
+        readonly target: KonataView;
+        readonly baselineTarget?: KonataView;
+    } | null>(null);
     if (viewTransition === null) {
-        renderedSpecsRef.current = {
-            renderSpec,
-            baselineRenderSpec: baselineRenderSpec ?? undefined,
+        renderedSpecRef.current = renderSpec;
+        renderedBaselineSpecRef.current = baselineRenderSpec ?? undefined;
+        requestedTransitionRef.current = null;
+    }
+    else {
+        requestedTransitionRef.current = {
+            target: viewTransition.target,
+            baselineTarget: viewTransition.baselineTarget,
         };
     }
     const metrics = new KonataRenderMetrics(trace, renderSpec);
@@ -238,6 +261,126 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         displayMetricsRef.current = displayMetrics;
     }
 
+    const startViewTransition = useCallback((
+        target: KonataView,
+        baselineTarget: KonataView | undefined,
+        motion: Readonly<ViewTransitionMotion>,
+    ) => {
+        if (tabID === null) {
+            return;
+        }
+        const from = getKonataView(renderedSpecRef.current);
+        const baselineFromSpec = renderedBaselineSpecRef.current;
+        const baselineFrom = baselineFromSpec === undefined
+            ? undefined
+            : getKonataView(baselineFromSpec);
+        requestedTransitionRef.current = { target, baselineTarget };
+        setToolTip(null);
+        onViewAction({
+            type: "KONATA_VIEW_TRANSITION_START",
+            tabID,
+            from,
+            target,
+            baselineFrom,
+            baselineTarget,
+            motion,
+        });
+    }, [onViewAction, tabID]);
+
+    const cancelViewTransition = useCallback(() => {
+        if (requestedTransitionRef.current === null) {
+            return;
+        }
+        requestedTransitionRef.current = null;
+        if (tabID !== null) {
+            onViewAction({
+                type: "KONATA_SET_VIEW",
+                tabID,
+                view: getKonataView(renderedSpecRef.current),
+                baselineView: renderedBaselineSpecRef.current === undefined
+                    ? undefined
+                    : getKonataView(renderedBaselineSpecRef.current),
+            });
+        }
+    }, [onViewAction, tabID]);
+
+    const scrollTo = useCallback((
+        position: readonly [number, number],
+        baselinePosition?: readonly [number, number],
+    ) => {
+        const from = renderedSpecRef.current;
+        const baselineFrom = renderedBaselineSpecRef.current;
+        const applyCandidate = comparisonMode !== "baseline";
+        const applyBaseline = baselineFrom !== undefined && comparisonMode !== "candidate";
+        const targetPosition = applyCandidate ? position : from.position;
+        const baselineTargetPosition = !applyBaseline
+            ? baselineFrom?.position
+            : baselinePosition ?? [
+                baselineFrom.position[0] + targetPosition[0] - from.position[0],
+                baselineFrom.position[1] + targetPosition[1] - from.position[1],
+            ];
+        startViewTransition(
+            { position: targetPosition, zoomLevel: from.zoomLevel },
+            baselineFrom === undefined || baselineTargetPosition === undefined
+                ? undefined
+                : { position: baselineTargetPosition, zoomLevel: baselineFrom.zoomLevel },
+            { type: "linear", duration: SCROLL_ANIMATION_DURATION },
+        );
+    }, [comparisonMode, startViewTransition]);
+
+    const zoomAt = useCallback((factor: number, centerX: number, centerY: number) => {
+        if (factor === 1) {
+            return;
+        }
+        const from = renderedSpecRef.current;
+        const baselineFrom = renderedBaselineSpecRef.current;
+        const baseLevel = requestedTransitionRef.current?.target.zoomLevel ?? from.zoomLevel;
+        const zoomLevel = clampKonataZoomLevel(baseLevel + (factor > 1 ? -zoomStep : zoomStep));
+        startViewTransition(
+            getKonataView(new KonataRenderMetrics(trace, from).withZoomLevel(
+                zoomLevel, centerX, centerY)),
+            baselineFrom === undefined
+                ? undefined
+                : getKonataView(new KonataRenderMetrics(
+                    baselineTrace,
+                    baselineFrom,
+                ).withZoomLevel(zoomLevel, centerX, centerY)),
+            { type: "zoomAt", duration: ZOOM_ANIMATION_DURATION, centerX, centerY },
+        );
+    }, [baselineTrace, startViewTransition, trace, zoomStep]);
+
+    const transitionToView = useCallback((
+        target: KonataView,
+        motion: Readonly<ViewTransitionMotion>,
+    ) => {
+        const from = renderedSpecRef.current;
+        const baselineFrom = renderedBaselineSpecRef.current;
+        const differenceX = target.position[0] - from.position[0];
+        const differenceY = target.position[1] - from.position[1];
+        startViewTransition(
+            target,
+            baselineFrom === undefined ? undefined : {
+                position: [
+                    baselineFrom.position[0] + differenceX,
+                    baselineFrom.position[1] + differenceY,
+                ],
+                zoomLevel: target.zoomLevel,
+            },
+            motion,
+        );
+    }, [startViewTransition]);
+
+    const goToView = useCallback((target: KonataView) => transitionToView(target, {
+        type: "linear",
+        duration: VIEW_ANIMATION_DURATION,
+        zoomDuration: BOOKMARK_ZOOM_ANIMATION_DURATION,
+    }), [transitionToView]);
+
+    const resetView = useCallback(() => transitionToView(
+        { position: [0, 0], zoomLevel: 0 },
+        { type: "linear", duration: VIEW_ANIMATION_DURATION },
+    ), [transitionToView]);
+
     const resetPipelineCanvases = useCallback(() => {
         tiledRenderer.clear();
         baselineTiledRenderer.clear();
@@ -257,14 +400,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     }, [baselineRenderer, baselineTiledRenderer, renderer, tiledRenderer]);
 
     const drawSpecs = useCallback((
-        specs: Readonly<ViewRenderSpecs>,
-        prefetch: Readonly<ViewRenderSpecs> | null,
+        candidateSpec: Readonly<KonataRenderSpec>,
+        currentBaselineSpec?: Readonly<KonataRenderSpec>,
+        candidatePrefetchSpec?: Readonly<KonataRenderSpec>,
+        baselinePrefetchSpec?: Readonly<KonataRenderSpec>,
     ) => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
-        const candidateSpec = specs.renderSpec;
-        const currentBaselineSpec = specs.baselineRenderSpec;
-        renderedSpecsRef.current = specs;
+        renderedSpecRef.current = candidateSpec;
+        renderedBaselineSpecRef.current = currentBaselineSpec;
         const candidateMetrics = new KonataRenderMetrics(trace, candidateSpec);
         onRenderedZoomChange(candidateSpec.zoomLevel);
         const currentBaselineMetrics = currentBaselineSpec === undefined
@@ -286,11 +430,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         } as const;
         const candidateTileOptions = {
             ...tileOptions,
-            prefetchSpec: prefetch?.renderSpec,
+            prefetchSpec: candidatePrefetchSpec,
         } as const;
         const baselineTileOptions = {
             ...tileOptions,
-            prefetchSpec: prefetch?.baselineRenderSpec,
+            prefetchSpec: baselinePrefetchSpec,
         } as const;
         if (labelCanvas !== null && pipelineCanvas !== null) {
             if (baselineRenderer === null || comparisonMode === null || currentBaselineSpec === undefined) {
@@ -372,19 +516,33 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     ]);
 
     const redraw = useCallback(() => {
-        drawSpecs(renderedSpecsRef.current, viewTransitionRef.current?.target ?? null);
-    }, [drawSpecs]);
+        const candidateSpec = renderedSpecRef.current;
+        const currentBaselineSpec = renderedBaselineSpecRef.current;
+        drawSpecs(
+            candidateSpec,
+            currentBaselineSpec,
+            viewTransition === null ? undefined : { ...candidateSpec, ...viewTransition.target },
+            viewTransition?.baselineTarget === undefined || currentBaselineSpec === undefined
+                ? undefined
+                : { ...currentBaselineSpec, ...viewTransition.baselineTarget },
+        );
+    }, [drawSpecs, viewTransition]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
         resetPipelineCanvas: resetPipelineCanvases,
-        getRenderedSpecs: () => renderedSpecsRef.current,
+        cancelViewTransition,
+        scrollTo,
+        zoomAt,
+        goToView,
+        resetView,
+        getRenderedSpec: () => renderedSpecRef.current,
         getViewportSize: () => ({
             pipelineWidth: pipelineCanvasRef.current?.clientWidth ?? 800,
             pipelineHeight: pipelineCanvasRef.current?.clientHeight ?? 400,
             labelHeight: labelCanvasRef.current?.clientHeight ?? 400,
         }),
-    }), [resetPipelineCanvases]);
+    }), [cancelViewTransition, goToView, resetPipelineCanvases, resetView, scrollTo, zoomAt]);
 
     useLayoutEffect(() => resetPipelineCanvases, [resetPipelineCanvases]);
 
@@ -413,25 +571,31 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         let active = true;
         const drawProgress = (progress: number) => {
             const baselineFrom = baselineRenderSpec ?? undefined;
-            const baselineTarget = viewTransition.target.baselineRenderSpec;
-            drawSpecs({
-                renderSpec: interpolateRenderSpec(
-                    trace,
-                    renderSpec,
-                    viewTransition.target.renderSpec,
+            const baselineTarget = viewTransition.baselineTarget;
+            const candidateSpec = interpolateRenderSpec(
+                trace,
+                renderSpec,
+                viewTransition.target,
+                viewTransition.motion,
+                progress,
+            );
+            const currentBaselineSpec = baselineFrom === undefined || baselineTarget === undefined
+                ? undefined
+                : interpolateRenderSpec(
+                    baselineTrace,
+                    baselineFrom,
+                    baselineTarget,
                     viewTransition.motion,
                     progress,
-                ),
-                baselineRenderSpec: baselineFrom === undefined || baselineTarget === undefined
+                );
+            drawSpecs(
+                candidateSpec,
+                currentBaselineSpec,
+                { ...candidateSpec, ...viewTransition.target },
+                currentBaselineSpec === undefined || baselineTarget === undefined
                     ? undefined
-                    : interpolateRenderSpec(
-                        baselineTrace,
-                        baselineFrom,
-                        baselineTarget,
-                        viewTransition.motion,
-                        progress,
-                    ),
-            }, viewTransition.target);
+                    : { ...currentBaselineSpec, ...baselineTarget },
+            );
         };
         const animate = (now: number) => {
             if (!active) {
@@ -444,7 +608,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             drawProgress(progress);
             if (progress >= 1) {
                 transitionClockRef.current = null;
-                onViewTransitionFinish(viewTransition.id);
+                if (tabID !== null) {
+                    onViewAction({
+                        type: "KONATA_VIEW_TRANSITION_FINISH",
+                        tabID,
+                        transitionID: viewTransition.id,
+                    });
+                }
             }
             else {
                 frameID = requestAnimationFrame(animate);
@@ -461,8 +631,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         baselineRenderSpec,
         baselineTrace,
         drawSpecs,
-        onViewTransitionFinish,
+        onViewAction,
         renderSpec,
+        tabID,
         trace,
         viewTransition,
     ]);
@@ -503,7 +674,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             const rect = pipelineCanvasRef.current?.getBoundingClientRect();
             const x = rect === undefined ? 0 : Math.max(0, event.clientX - rect.left);
             const y = rect === undefined ? 0 : Math.max(0, event.clientY - rect.top);
-            onZoomView(event.deltaY < 0 ? 1.2 : 1 / 1.2, x, y);
+            zoomAt(event.deltaY < 0 ? 1.2 : 1 / 1.2, x, y);
             return;
         }
 
@@ -519,7 +690,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const differenceY = (event.deltaY > 0 ? 1 : -1) *
             3 / displayMetricsRef.current.zoomScale;
         onMoveView([0, differenceY], true);
-    }, [onMoveView, onZoomView, trace]);
+    }, [onMoveView, trace, zoomAt]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
@@ -553,6 +724,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         if (positions.size === 1) {
             // 紙を掴む感覚に合わせ、pointer移動と逆向きへviewを進める。
+            cancelViewTransition();
             onPanView(previous.x - event.clientX, previous.y - event.clientY);
             positions.set(event.pointerId, { x: event.clientX, y: event.clientY });
             return;
@@ -584,6 +756,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         const factor = currentDistance / previousDistance;
         // 2点の中心移動もpanとして反映し、指の間にあった位置をzoom後も維持する。
+        cancelViewTransition();
         onPinchView(
             previousCenter.x - currentCenter.x,
             previousCenter.y - currentCenter.y,
@@ -620,7 +793,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             event.clientY < rect.top || event.clientY >= rect.bottom) {
             return;
         }
-        onZoomView(
+        zoomAt(
             event.shiftKey ? 1 / 2 : 2,
             event.clientX - rect.left,
             event.clientY - rect.top,
@@ -636,7 +809,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const op = currentMetrics.getOpFromPixelPositionY(event.clientY - rect.top);
         if (op !== undefined) {
             // A/B単独表示では、ラベルを選んだ側だけをその命令のfetch cycleへ動かす。
-            onScrollView([
+            scrollTo([
                 op.fetchedCycle,
                 currentMetrics.spec.position[1],
             ]);

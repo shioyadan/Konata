@@ -73,6 +73,13 @@ export interface KonataRenderSpec {
     readonly stageBorderMinimumLaneHeight: number;
 }
 
+// 表示操作で変化する部分だけを、完全な描画指定と同じfield定義から取り出す。
+export type KonataView = Readonly<Pick<KonataRenderSpec, "position" | "zoomLevel">>;
+
+export function getKonataView(spec: KonataView): KonataView {
+    return { position: spec.position, zoomLevel: spec.zoomLevel };
+}
+
 // pipeline全体、cache可能な本体、タイルを横断する依存矢印を同じ描画実装から選べるようにする。
 // passは描画内容を別実装へ複製するためではなく、元のpainter順を保ったままcache境界だけを作る。
 export type KonataPipelinePass = "all" | "base" | "dependencies";
