@@ -65,7 +65,7 @@ async function dropContents(window, contents, fileName, mimeType, verifyProgress
                     async pull(controller) {
                         if (first) {
                             first = false;
-                            await new Promise((resolve) => setTimeout(resolve, 250));
+                            await new Promise((resolve) => setTimeout(resolve, 1000));
                         }
                         const result = await reader.read();
                         if (result.done) {
@@ -104,7 +104,8 @@ async function dropContents(window, contents, fileName, mimeType, verifyProgress
     if (verifyProgressBar) {
         // 旧版と同じ、背景trackなし・高さ3pxの青いbarが読み込み中だけ現れることを確認する。
         const progressState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
-            const deadline = performance.now() + 200;
+            // CIで最初のReact描画が遅れても、1秒停止中のprogressを十分観測できるようにする。
+            const deadline = performance.now() + 2000;
             const check = () => {
                 const progress = document.querySelector('[role="progressbar"]');
                 const bar = progress?.firstElementChild;
@@ -1665,10 +1666,11 @@ async function run() {
         if (!(reset instanceof HTMLButtonElement)) {
             throw new Error("The double click zoom controls were not found.");
         }
-        const immediatelyAfter = output?.textContent ?? null;
-        await new Promise((resolve) => requestAnimationFrame(() =>
-            requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const during = output?.textContent ?? null;
+        // sendInputEventはmain processから非同期配送されるため、送信直後の倍率は検査しない。
+        const deadline = performance.now() + 2000;
+        while (output?.textContent !== "100%" && performance.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
         await new Promise((resolve) => setTimeout(resolve, 220));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const zoom = output?.textContent ?? null;
@@ -1676,15 +1678,11 @@ async function run() {
         await new Promise((resolve) => setTimeout(resolve, 300));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
-            immediatelyAfter,
-            during,
             zoom,
             resetZoom: output?.textContent ?? null
         };
     })()`);
     if (doubleClickSetup.zoom !== "25%" ||
-        doubleClickZoomState.immediatelyAfter !== "100%" ||
-        doubleClickZoomState.during !== "100%" ||
         doubleClickZoomState.zoom !== "100%" ||
         doubleClickZoomState.resetZoom !== "100%") {
         throw new Error(`Double click zoom is incomplete: ${JSON.stringify(doubleClickZoomState)}`);

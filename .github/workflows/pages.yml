@@ -58,9 +58,11 @@ jobs:
       - name: Verify and build stable app
         working-directory: stable
         run: |
+          # stableの実画面は昇格前にmasterで検証済みなので、ここでは再生成可能性だけを確認する。
           make typecheck
           make test
-          make production-smoke
+          make production
+          node test/single_html_smoke.js
 
       # masterのHTML、latest ZIP、demo traceをrootへ置き、release版だけをstable/へ分ける。
       - name: Assemble GitHub Pages site
