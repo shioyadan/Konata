@@ -40,7 +40,11 @@ import {
     DEFAULT_KONATA_RENDER_SPEC,
     DEP_ARROW_TYPE,
     formatKonataZoomPercent,
+    getMinimumLaneHeightForVisibilityLevel,
     getKonataZoomScale,
+    getVisibilityLevelForMinimumLaneHeight,
+    MAX_DETAIL_VISIBILITY_LEVEL,
+    MIN_DETAIL_VISIBILITY_LEVEL,
     type CustomColorComponent,
     type CustomColorDefinition,
     type CustomColorScheme,
@@ -51,10 +55,12 @@ import {
 import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
+    getZoomSpeedFromFactor,
     type MinimumLaneHeightKey,
     type Operation,
     type PersistedViewSettings,
     Store,
+    type ZoomSpeed,
 } from "./store";
 import { getRemoteTraceFileNames } from "./trace_file_access";
 
@@ -72,29 +78,35 @@ interface OperationProgress {
     readonly active: boolean;
 }
 
-// 各詳細を描画するlaneの最小高さと、UIの説明を1か所で対応付ける。
-const MINIMUM_LANE_HEIGHTS: ReadonlyArray<readonly [MinimumLaneHeightKey, string, string]> = [
+// UIは共通levelを表示し、StoreへはRendererが直接比較できるlane高さを渡す。
+const DETAIL_VISIBILITY_SETTINGS: ReadonlyArray<
+    readonly [MinimumLaneHeightKey, string, string]
+> = [
     [
         "textLabelMinimumLaneHeight",
         "Text labels",
-        "Show text labels when the lane is taller than this value.",
+        "Keep text labels visible through this zoom-out level.",
     ],
     [
         "stageDetailMinimumLaneHeight",
         "Stage details",
-        "Draw individual lanes and stages when the lane is taller than this value.",
-    ],
-    [
-        "dependencyArrowMinimumLaneHeight",
-        "Dependency arrows",
-        "Show dependency arrows when the lane is taller than this value.",
+        "Keep individual lane and stage details visible through this zoom-out level.",
     ],
     [
         "stageBorderMinimumLaneHeight",
         "Stage borders",
-        "Show stage borders when the lane is taller than this value.",
+        "Keep stage borders visible through this zoom-out level.",
+    ],
+    [
+        "dependencyArrowMinimumLaneHeight",
+        "Dependency arrows",
+        "Keep dependency arrows visible through this zoom-out level.",
     ],
 ];
+
+function formatDetailVisibilityLevel(minimumLaneHeight: number): number {
+    return Number(getVisibilityLevelForMinimumLaneHeight(minimumLaneHeight).toFixed(2));
+}
 
 const INITIAL_BOOKMARKS: readonly ViewBookmark[] = Array.from(
     { length: 10 },
@@ -1424,49 +1436,66 @@ export function App() {
                                 <option value={DEP_ARROW_TYPE.NOT_SHOW}>Not show</option>
                             </select>
                         </label>
-                        <label title="Number of steps used to double or halve the zoom.">
-                            Zoom steps per 2×
-                            <input
-                                type="number"
-                                min="0.1"
-                                step="0.1"
-                                aria-label="Zoom steps per 2x"
-                                value={settings.drawZoomFactor}
-                                onChange={(event) => {
-                                    const value = Number(event.target.value);
-                                    if (Number.isFinite(value) && value > 0) {
-                                        store.dispatch({ type: "KONATA_CHANGE_ZOOM_FACTOR", value });
-                                    }
-                                }}
-                            />
-                        </label>
-                        <details className="drawing-thresholds">
-                            <summary title="Larger values hide details sooner as you zoom out; smaller values keep them visible longer.">
-                                Minimum lane height (px)
+                        <details className="advanced-settings">
+                            <summary title="Zoom behavior and detail visibility settings.">
+                                Advanced
                             </summary>
-                            {MINIMUM_LANE_HEIGHTS.map(([key, label, description]) => (
-                                <label key={key} title={description}>
-                                    {label}
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.5"
-                                        aria-label={`${label} minimum lane height`}
-                                        value={settings[key]}
-                                        disabled={trace === null}
-                                        onChange={(event) => {
-                                            const value = Number(event.target.value);
-                                            if (Number.isFinite(value) && value >= 0) {
-                                                store.dispatch({
-                                                    type: "KONATA_CHANGE_MINIMUM_LANE_HEIGHT",
-                                                    setting: key,
-                                                    value,
-                                                });
-                                            }
-                                        }}
-                                    />
-                                </label>
-                            ))}
+                            <label title="Choose how much buttons, keys, and wheel steps change the zoom.">
+                                Zoom speed
+                                <select
+                                    aria-label="Zoom speed"
+                                    value={getZoomSpeedFromFactor(settings.drawZoomFactor)}
+                                    onChange={(event) => store.dispatch({
+                                        type: "KONATA_CHANGE_ZOOM_SPEED",
+                                        speed: event.target.value as ZoomSpeed,
+                                    })}
+                                >
+                                    <option value="slow">Slow</option>
+                                    <option value="normal">Normal</option>
+                                    <option value="fast">Fast</option>
+                                </select>
+                            </label>
+                            <fieldset className="detail-visibility-settings">
+                                <legend>Detail visibility levels</legend>
+                                <div className="detail-visibility-options">
+                                    <p>
+                                        Higher levels keep details visible farther while zooming out.
+                                    </p>
+                                    {DETAIL_VISIBILITY_SETTINGS.map(([key, label, description]) => (
+                                        <label key={key} title={description}>
+                                            {label}
+                                            <input
+                                                type="number"
+                                                min={MIN_DETAIL_VISIBILITY_LEVEL}
+                                                max={MAX_DETAIL_VISIBILITY_LEVEL}
+                                                step="1"
+                                                aria-label={`${label} visibility level`}
+                                                value={formatDetailVisibilityLevel(settings[key])}
+                                                onChange={(event) => {
+                                                    const level = Number(event.target.value);
+                                                    if (Number.isFinite(level) &&
+                                                        level >= MIN_DETAIL_VISIBILITY_LEVEL &&
+                                                        level <= MAX_DETAIL_VISIBILITY_LEVEL) {
+                                                        store.dispatch({
+                                                            type: "KONATA_CHANGE_MINIMUM_LANE_HEIGHT",
+                                                            setting: key,
+                                                            value: getMinimumLaneHeightForVisibilityLevel(level),
+                                                        });
+                                                    }
+                                                }}
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            </fieldset>
+                            <button
+                                className="restore-view-defaults"
+                                type="button"
+                                title="Reset View settings without changing the current position, zoom, bookmarks, or custom colors."
+                                onClick={() => store.dispatch({ type: "KONATA_RESTORE_VIEW_DEFAULTS" })}
+                            >
+                                Reset View settings
+                            </button>
                         </details>
                         <details className="compatibility-settings">
                             <summary title="Rendering options for compatibility and troubleshooting.">

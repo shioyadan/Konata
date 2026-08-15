@@ -11,6 +11,7 @@ import {
     formatOpLabel,
     formatKonataZoomPercent,
     getFirstDrawingRow,
+    getVisibilityLevelForMinimumLaneHeight,
     KONATA_OP_WIDTH,
     KonataRenderMetrics,
     KonataRenderer,
@@ -329,7 +330,12 @@ test("Web render metrics preserve legacy zoom levels and lane heights", () => {
     trace.stageLevelMap.update("1", "Wb", secondLane);
 
     const base = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
-    assert.equal(base.spec.stageDetailMinimumLaneHeight, 0.5);
+    assert.deepEqual([
+        base.spec.textLabelMinimumLaneHeight,
+        base.spec.stageDetailMinimumLaneHeight,
+        base.spec.dependencyArrowMinimumLaneHeight,
+        base.spec.stageBorderMinimumLaneHeight,
+    ].map(getVisibilityLevelForMinimumLaneHeight), [3, 11, 5, 5]);
     const zoomedSpec = base.withZoomLevel(-1, 0, 0);
     const zoomed = new KonataRenderMetrics(trace, zoomedSpec);
     assert.equal(zoomed.zoomLevel, -1);
@@ -637,11 +643,16 @@ test("Web renderer keeps stage borders in the accelerated Canvas fallback", () =
 
     renderer.drawPipelineSpec(
         trace,
-        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 1, theme: "light" },
+        {
+            ...DEFAULT_KONATA_RENDER_SPEC,
+            zoomLevel: 1,
+            theme: "light",
+            textLabelMinimumLaneHeight: 100,
+        },
         createCanvas(pipeline.context),
     );
 
-    // 50%では文字を省略する一方、塗りと同じ矩形へlight themeの1px枠を残す。
+    // 文字を省略した50%描画でも、塗りと同じ矩形へlight themeの1px枠を残す。
     const stageRectIndex = pipeline.fillStyles.indexOf("[object Object]");
     assert.ok(stageRectIndex >= 0);
     assert.deepEqual(pipeline.strokeRects, [pipeline.fillRects[stageRectIndex]]);

@@ -86,6 +86,31 @@ export type KonataPipelinePass = "all" | "base" | "dependencies";
 
 const ZOOM_RATIO = 1;
 const MAX_ZOOM_LEVEL = 24;
+export const KONATA_OP_WIDTH = 32;
+export const KONATA_OP_HEIGHT = 24;
+export const KONATA_LANE_HEIGHT_MARGIN = 2;
+export const MIN_DETAIL_VISIBILITY_LEVEL = -2;
+export const MAX_DETAIL_VISIBILITY_LEVEL = MAX_ZOOM_LEVEL * 2;
+
+// UIでは全描画要素を共通のzoom-out levelで扱い、Rendererには従来どおりlane高さを渡す。
+// Normalのzoom操作と揃えて2 levelごとにlane高さを半分とし、既定値を整数で表せるようにする。
+export function getMinimumLaneHeightForVisibilityLevel(level: number): number {
+    const normalized = Math.max(
+        MIN_DETAIL_VISIBILITY_LEVEL,
+        Math.min(MAX_DETAIL_VISIBILITY_LEVEL, level),
+    );
+    return KONATA_OP_HEIGHT * 2 ** (-normalized / 2);
+}
+
+export function getVisibilityLevelForMinimumLaneHeight(minimumLaneHeight: number): number {
+    if (!Number.isFinite(minimumLaneHeight) || minimumLaneHeight <= 0) {
+        return MAX_DETAIL_VISIBILITY_LEVEL;
+    }
+    return Math.max(MIN_DETAIL_VISIBILITY_LEVEL, Math.min(
+        MAX_DETAIL_VISIBILITY_LEVEL,
+        2 * Math.log2(KONATA_OP_HEIGHT / minimumLaneHeight),
+    ));
+}
 
 export const DEFAULT_KONATA_RENDER_SPEC: Readonly<KonataRenderSpec> = {
     position: [0, 0],
@@ -97,10 +122,10 @@ export const DEFAULT_KONATA_RENDER_SPEC: Readonly<KonataRenderSpec> = {
     splitLanes: false,
     fixOpHeight: false,
     hideFlushedOps: false,
-    textLabelMinimumLaneHeight: 10,
-    stageDetailMinimumLaneHeight: 0.5,
-    dependencyArrowMinimumLaneHeight: 4,
-    stageBorderMinimumLaneHeight: 4,
+    textLabelMinimumLaneHeight: getMinimumLaneHeightForVisibilityLevel(3),
+    stageDetailMinimumLaneHeight: getMinimumLaneHeightForVisibilityLevel(11),
+    dependencyArrowMinimumLaneHeight: getMinimumLaneHeightForVisibilityLevel(5),
+    stageBorderMinimumLaneHeight: getMinimumLaneHeightForVisibilityLevel(5),
 };
 
 export function clampKonataZoomLevel(zoomLevel: number): number {
@@ -146,10 +171,6 @@ function mapCycleBetweenOps(cycle: number, from: Op, to: Op): number {
 // TraceとKonataRenderSpecから、描画寸法・座標変換・hit testを純粋に計算する。
 // CanvasやDOMを参照せず、同じ入力から常に同じ結果を返す派生値だけを持つ。
 
-
-export const KONATA_OP_WIDTH = 32;
-export const KONATA_OP_HEIGHT = 24;
-export const KONATA_LANE_HEIGHT_MARGIN = 2;
 
 export class KonataRenderMetrics {
     readonly zoomLevel: number;

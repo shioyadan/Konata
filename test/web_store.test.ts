@@ -6,6 +6,7 @@ import { ArrayOpStore } from "../src/core/op_store";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEP_ARROW_TYPE,
+    getVisibilityLevelForMinimumLaneHeight,
 } from "../src/core/konata_renderer";
 import { type Change, Store } from "../src/store";
 import { getRemoteTraceFileNames } from "../src/trace_file_access";
@@ -606,7 +607,7 @@ test("Store restores and publishes persistent view settings", () => {
         stageDetailMinimumLaneHeight: 2,
         dependencyArrowMinimumLaneHeight: 5,
         stageBorderMinimumLaneHeight: 6,
-        drawZoomFactor: 1.5,
+        drawZoomFactor: 1,
     });
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
@@ -616,7 +617,7 @@ test("Store restores and publishes persistent view settings", () => {
     assert.equal(restored.tiledRenderingEnabled, true);
     assert.equal(restored.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
     assert.equal(restored.textLabelMinimumLaneHeight, 11);
-    assert.equal(restored.drawZoomFactor, 1.5);
+    assert.equal(restored.drawZoomFactor, 1);
     // lane分割と固定高さは旧Configの保存対象ではなく、再起動時には初期値へ戻る。
     assert.equal(restored.splitLanes, false);
     assert.equal(restored.fixOpHeight, false);
@@ -644,7 +645,7 @@ test("Store restores and publishes persistent view settings", () => {
         defaultColor: { ...DEFAULT_CUSTOM_COLOR_SCHEME.defaultColor, h: 210 },
     };
     store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });
-    store.dispatch({ type: "KONATA_CHANGE_ZOOM_FACTOR", value: 2 });
+    store.dispatch({ type: "KONATA_CHANGE_ZOOM_SPEED", speed: "normal" });
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({ type: "KONATA_FIX_OP_HEIGHT", enabled: true });
     store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
@@ -673,7 +674,12 @@ test("Store separates global view settings from tab-specific settings", () => {
     const store = new Store();
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
-    assert.equal(store.getSnapshot().settings.stageDetailMinimumLaneHeight, 0.5);
+    assert.equal(
+        getVisibilityLevelForMinimumLaneHeight(
+            store.getSnapshot().settings.stageDetailMinimumLaneHeight,
+        ),
+        11,
+    );
     assert.equal(store.getSnapshot().settings.drawZoomFactor, 2);
 
     store.dispatch({ type: "FILE_OPEN", fileName: "first.log" });
@@ -741,6 +747,64 @@ test("Store separates global view settings from tab-specific settings", () => {
     assert.equal(secondTab.renderSpec.hideFlushedOps, false);
 
     store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("Store restores View defaults without moving the trace or discarding custom colors", () => {
+    const defaultStore = new Store();
+    const defaults = defaultStore.getSnapshot().settings;
+    defaultStore.dispatch({ type: "STORE_CLOSE" });
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+    store.dispatch({ type: "FILE_OPEN", fileName: "reset.log" });
+    const tab = store.activeTab;
+    assert.ok(tab !== null);
+
+    const customColorScheme = {
+        ...DEFAULT_CUSTOM_COLOR_SCHEME,
+        defaultColor: { ...DEFAULT_CUSTOM_COLOR_SCHEME.defaultColor, h: 210 },
+    };
+    store.dispatch({
+        type: "KONATA_SET_VIEW",
+        tabID: tab.id,
+        view: { position: [17, 23], zoomLevel: 3 },
+    });
+    store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: tab.id, position: 333 });
+    store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "light" });
+    store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: false });
+    store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
+    store.dispatch({ type: "KONATA_CHANGE_ZOOM_SPEED", speed: "fast" });
+    store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });
+    store.dispatch({ type: "KONATA_CHANGE_COLOR_SCHEME", tabID: tab.id, scheme: "Custom" });
+    store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
+
+    store.dispatch({ type: "KONATA_RESTORE_VIEW_DEFAULTS" });
+
+    assert.deepEqual(store.getSnapshot().settings, {
+        ...defaults,
+        customColorScheme,
+    });
+    assert.deepEqual(tab.renderSpec.position, [17, 23]);
+    assert.equal(tab.renderSpec.zoomLevel, 3);
+    assert.equal(tab.splitterPosition, 333);
+    assert.equal(tab.renderSpec.colorScheme, "Auto");
+    assert.equal(tab.renderSpec.hideFlushedOps, false);
+    assert.deepEqual(tab.renderSpec.customColorScheme, customColorScheme);
+    assert.ok(changes.some((change) => change.type === "WINDOW_CSS_UPDATE"));
+    assert.ok(changes.some((change) => change.type === "VIEW_SETTINGS_UPDATE"));
+
+    store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("Store maps legacy zoom factors to the closest Zoom speed", () => {
+    const defaultStore = new Store();
+    const normal = new Store({
+        ...defaultStore.persistedViewSettings,
+        drawZoomFactor: 1.5,
+    });
+    defaultStore.dispatch({ type: "STORE_CLOSE" });
+    assert.equal(normal.getSnapshot().settings.drawZoomFactor, 2);
+    normal.dispatch({ type: "STORE_CLOSE" });
 });
 
 test("Store keeps splitter positions per tab and carries the latest position to new tabs", () => {

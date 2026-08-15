@@ -41,6 +41,25 @@ export type MinimumLaneHeightKey =
     | "dependencyArrowMinimumLaneHeight"
     | "stageBorderMinimumLaneHeight";
 
+export type ZoomSpeed = "slow" | "normal" | "fast";
+
+export const ZOOM_SPEED_FACTORS: Readonly<Record<ZoomSpeed, number>> = {
+    slow: 4,
+    normal: 2,
+    fast: 1,
+};
+
+// 旧版の任意数値は倍率比が最も近い3段階へ読み替え、selectに空の値を作らない。
+export function getZoomSpeedFromFactor(factor: number): ZoomSpeed {
+    if (!Number.isFinite(factor) || factor <= 0) {
+        return "normal";
+    }
+    if (factor < Math.SQRT2) {
+        return "fast";
+    }
+    return factor < Math.sqrt(8) ? "normal" : "slow";
+}
+
 // 旧Configの初期値を維持し、新しいTabだけは直前に選んだ幅を引き継ぐ。
 export const DEFAULT_SPLITTER_POSITION = 450;
 
@@ -67,10 +86,10 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
     fixOpHeight: false,
-    textLabelMinimumLaneHeight: 10,
-    stageDetailMinimumLaneHeight: 0.5,
-    dependencyArrowMinimumLaneHeight: 4,
-    stageBorderMinimumLaneHeight: 4,
+    textLabelMinimumLaneHeight: DEFAULT_KONATA_RENDER_SPEC.textLabelMinimumLaneHeight,
+    stageDetailMinimumLaneHeight: DEFAULT_KONATA_RENDER_SPEC.stageDetailMinimumLaneHeight,
+    dependencyArrowMinimumLaneHeight: DEFAULT_KONATA_RENDER_SPEC.dependencyArrowMinimumLaneHeight,
+    stageBorderMinimumLaneHeight: DEFAULT_KONATA_RENDER_SPEC.stageBorderMinimumLaneHeight,
     drawZoomFactor: 2,
 };
 
@@ -223,7 +242,8 @@ export type Action =
         readonly setting: MinimumLaneHeightKey;
         readonly value: number;
     }
-    | { readonly type: "KONATA_CHANGE_ZOOM_FACTOR"; readonly value: number }
+    | { readonly type: "KONATA_CHANGE_ZOOM_SPEED"; readonly speed: ZoomSpeed }
+    | { readonly type: "KONATA_RESTORE_VIEW_DEFAULTS" }
     | {
         readonly type: "KONATA_SET_VIEW";
         readonly tabID: number;
@@ -512,7 +532,7 @@ export class Store {
             stageDetailMinimumLaneHeight: viewSettings.stageDetailMinimumLaneHeight,
             dependencyArrowMinimumLaneHeight: viewSettings.dependencyArrowMinimumLaneHeight,
             stageBorderMinimumLaneHeight: viewSettings.stageBorderMinimumLaneHeight,
-            drawZoomFactor: viewSettings.drawZoomFactor,
+            drawZoomFactor: ZOOM_SPEED_FACTORS[getZoomSpeedFromFactor(viewSettings.drawZoomFactor)],
         };
         this.snapshot_ = {
             tabs: [],
@@ -1110,24 +1130,8 @@ export class Store {
             if (tab === undefined) {
                 return;
             }
-            const apply = (
-                trace: ParsedTrace | null,
-                spec: Readonly<KonataRenderSpec>,
-            ): Readonly<KonataRenderSpec> => {
-                // 表示方式を変えても、各traceで現在の先頭命令とそのfetch位置を維持する。
-                const metrics = new KonataRenderMetrics(trace, spec);
-                const current = metrics.getOpFromPixelPositionY(0);
-                const rid = current?.rid ?? 0;
-                const next = {
-                    ...spec,
-                    hideFlushedOps: action.enabled,
-                };
-                const op = new KonataRenderMetrics(trace, next).getOpFromRID(rid);
-                return op === undefined
-                    ? next
-                    : { ...next, position: [op.fetchedCycle, action.enabled ? rid : op.id] };
-            };
-            this.updateTabRenderSpecs_(tab, apply);
+            this.updateTabRenderSpecs_(tab, (trace, spec) =>
+                this.setHideFlushedOps_(trace, spec, action.enabled));
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
             ]);
@@ -1141,15 +1145,36 @@ export class Store {
             );
             return;
         }
-        case "KONATA_CHANGE_ZOOM_FACTOR": {
-            if (!Number.isFinite(action.value) || action.value <= 0) {
-                return;
-            }
+        case "KONATA_CHANGE_ZOOM_SPEED": {
             this.setGlobalViewSettings_(
-                { ...this.settings_, drawZoomFactor: action.value },
+                { ...this.settings_, drawZoomFactor: ZOOM_SPEED_FACTORS[action.speed] },
                 false,
                 true,
             );
+            return;
+        }
+        case "KONATA_RESTORE_VIEW_DEFAULTS": {
+            // Custom色の編集内容とView外のsplitter幅は残し、View panelにある設定だけを戻す。
+            this.defaultColorScheme_ = DEFAULT_PERSISTED_VIEW_SETTINGS.colorScheme;
+            this.settings_ = {
+                ...DEFAULT_GLOBAL_VIEW_SETTINGS,
+                customColorScheme: this.settings_.customColorScheme,
+            };
+            for (const tab of this.tabs_.values()) {
+                this.updateTabRenderSpecs_(tab, (trace, spec) => this.setHideFlushedOps_(
+                    trace,
+                    this.applyGlobalViewSettings_({
+                        ...spec,
+                        colorScheme: DEFAULT_PERSISTED_VIEW_SETTINGS.colorScheme,
+                    }),
+                    false,
+                ));
+            }
+            this.publish_(this.snapshot_.activeTabID, [
+                { type: "WINDOW_CSS_UPDATE" },
+                { type: "VIEW_SETTINGS_UPDATE" },
+                { type: "PANE_CONTENT_UPDATE", tabID: null },
+            ]);
             return;
         }
         case "KONATA_SET_VIEW": {
@@ -1617,6 +1642,25 @@ export class Store {
             dependencyArrowMinimumLaneHeight: settings.dependencyArrowMinimumLaneHeight,
             stageBorderMinimumLaneHeight: settings.stageBorderMinimumLaneHeight,
         };
+    }
+
+    private setHideFlushedOps_(
+        trace: ParsedTrace | null,
+        spec: Readonly<KonataRenderSpec>,
+        enabled: boolean,
+    ): Readonly<KonataRenderSpec> {
+        if (spec.hideFlushedOps === enabled) {
+            return spec;
+        }
+        // 表示方式を変えても、各traceで現在の先頭命令とそのfetch位置を維持する。
+        const metrics = new KonataRenderMetrics(trace, spec);
+        const current = metrics.getOpFromPixelPositionY(0);
+        const rid = current?.rid ?? 0;
+        const next = { ...spec, hideFlushedOps: enabled };
+        const op = new KonataRenderMetrics(trace, next).getOpFromRID(rid);
+        return op === undefined
+            ? next
+            : { ...next, position: [op.fetchedCycle, enabled ? rid : op.id] };
     }
 
     private updateTabRenderSpecs_(

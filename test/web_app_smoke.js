@@ -2154,11 +2154,11 @@ async function run() {
         const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
-        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
         const compatibility = document.querySelector(".compatibility-settings");
-        const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
+        const textVisibility = document.querySelector('input[aria-label="Text labels visibility level"]');
         if (!(viewControls instanceof HTMLDetailsElement) ||
             !(viewPanel instanceof HTMLElement) ||
             !(hideFlushed instanceof HTMLInputElement) ||
@@ -2167,11 +2167,11 @@ async function run() {
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
-            !(zoomSteps instanceof HTMLInputElement) ||
+            !(zoomSpeed instanceof HTMLSelectElement) ||
             !(webGL instanceof HTMLInputElement) ||
             !(tiledRendering instanceof HTMLInputElement) ||
             !(compatibility instanceof HTMLDetailsElement) ||
-            !(textThreshold instanceof HTMLInputElement)) {
+            !(textVisibility instanceof HTMLInputElement)) {
             throw new Error("The renderer view controls were not found.");
         }
         // panel内のclickでは開いたままにし、Canvas側のclickで閉じる。
@@ -2188,8 +2188,8 @@ async function run() {
         color.value = "Custom";
         color.dispatchEvent(new Event("change", {bubbles: true}));
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        inputSetter?.call(textThreshold, "12");
-        textThreshold.dispatchEvent(new Event("input", {bubbles: true}));
+        inputSetter?.call(textVisibility, "4");
+        textVisibility.dispatchEvent(new Event("input", {bubbles: true}));
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             staysOpenAfterInsideClick,
             closesAfterOutsideClick,
@@ -2201,7 +2201,7 @@ async function run() {
             webGL: webGL.checked,
             tiledRendering: tiledRendering.checked,
             compatibilityOpen: compatibility.open,
-            textThreshold: textThreshold.value
+            textVisibility: textVisibility.value
         })));
     })`);
     if (!viewControlState.split ||
@@ -2212,7 +2212,7 @@ async function run() {
         !viewControlState.webGL ||
         !viewControlState.tiledRendering ||
         viewControlState.compatibilityOpen ||
-        viewControlState.textThreshold !== "12" ||
+        viewControlState.textVisibility !== "4" ||
         !viewControlState.staysOpenAfterInsideClick ||
         !viewControlState.closesAfterOutsideClick) {
         throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);
@@ -2289,13 +2289,13 @@ async function run() {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
-        const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
+        const textVisibility = document.querySelector('input[aria-label="Text labels visibility level"]');
         if (!(split instanceof HTMLInputElement) ||
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
             !(hideFlushed instanceof HTMLInputElement) ||
-            !(textThreshold instanceof HTMLInputElement)) {
+            !(textVisibility instanceof HTMLInputElement)) {
             throw new Error("The second tab view controls were not found.");
         }
         split.click();
@@ -2307,15 +2307,15 @@ async function run() {
         color.dispatchEvent(new Event("change", {bubbles: true}));
         hideFlushed.click();
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        inputSetter?.call(textThreshold, "14");
-        textThreshold.dispatchEvent(new Event("input", {bubbles: true}));
+        inputSetter?.call(textVisibility, "6");
+        textVisibility.dispatchEvent(new Event("input", {bubbles: true}));
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             split: split.checked,
             arrows: arrows.value,
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
             color: color.value,
             hideFlushed: hideFlushed.checked,
-            textThreshold: textThreshold.value
+            textVisibility: textVisibility.value
         })));
     })`);
     if (secondTabSettingsState.split ||
@@ -2323,7 +2323,7 @@ async function run() {
         secondTabSettingsState.theme !== "dark" ||
         secondTabSettingsState.color !== "RoyalBlue" ||
         !secondTabSettingsState.hideFlushed ||
-        secondTabSettingsState.textThreshold !== "14") {
+        secondTabSettingsState.textVisibility !== "6") {
         throw new Error(`Second tab settings are incomplete: ${JSON.stringify(secondTabSettingsState)}`);
     }
 
@@ -2561,7 +2561,7 @@ async function run() {
             const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
             const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
             const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
-            const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
+            const textVisibility = document.querySelector('input[aria-label="Text labels visibility level"]');
             const switched = {
                 closeHasIcon: closePlain.querySelector("svg") !== null,
                 fileName: root?.dataset.fileName ?? null,
@@ -2571,7 +2571,7 @@ async function run() {
                 arrows: arrows instanceof HTMLSelectElement ? arrows.value : null,
                 color: color instanceof HTMLSelectElement ? color.value : null,
                 hideFlushed: hideFlushed instanceof HTMLInputElement && hideFlushed.checked,
-                textThreshold: textThreshold instanceof HTMLInputElement ? textThreshold.value : null,
+                textVisibility: textVisibility instanceof HTMLInputElement ? textVisibility.value : null,
                 zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                 searchOpID: document.querySelector('.find-result')?.dataset.opId ?? null,
                 searchText: document.querySelector('.find-result')?.textContent ?? null,
@@ -2617,7 +2617,7 @@ async function run() {
                     remainingArrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
                     remainingColor: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
                     remainingHideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
-                    remainingTextThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
+                    remainingTextVisibility: document.querySelector('input[aria-label="Text labels visibility level"]')?.value ?? null,
                     remainingZoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                     remainingSearchOpID: document.querySelector('.find-result')?.dataset.opId ?? null,
                     remainingLabelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
@@ -2637,7 +2637,7 @@ async function run() {
         tabState.switched.arrows !== "notShow" ||
         tabState.switched.color !== "Custom" ||
         tabState.switched.hideFlushed ||
-        tabState.switched.textThreshold !== "14" ||
+        tabState.switched.textVisibility !== "6" ||
         tabState.switched.zoom !== "141%" ||
         tabState.switched.searchOpID !== "1" ||
         typeof tabState.switched.searchText !== "string" ||
@@ -2661,7 +2661,7 @@ async function run() {
         tabState.remainingArrows !== "notShow" ||
         tabState.remainingColor !== "RoyalBlue" ||
         !tabState.remainingHideFlushed ||
-        tabState.remainingTextThreshold !== "14" ||
+        tabState.remainingTextVisibility !== "6" ||
         tabState.remainingZoom !== "100%" ||
         tabState.remainingSearchOpID !== null ||
         tabState.remainingLabelWidth !== 280) {
@@ -2785,17 +2785,16 @@ async function run() {
         ${METHOD_OBSERVER_HELPER}
         const prototype = CanvasRenderingContext2D.prototype;
         const pipeline = document.querySelector('.pipeline-pane canvas');
-        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         const output = document.querySelector('.zoom-controls output');
-        if (!(pipeline instanceof HTMLCanvasElement) || !(zoomSteps instanceof HTMLInputElement) ||
+        if (!(pipeline instanceof HTMLCanvasElement) || !(zoomSpeed instanceof HTMLSelectElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement) || !(output instanceof HTMLOutputElement)) {
             throw new Error("The extreme zoom reset controls were not found.");
         }
-        const originalZoomSteps = zoomSteps.value;
-        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        const originalZoomSpeed = zoomSpeed.value;
         const tileBackingSize = Math.round(256 * devicePixelRatio);
         let overlappedTileBlits = 0;
         let observing = true;
@@ -2817,8 +2816,8 @@ async function run() {
         });
         try {
             // animation途中のfallback tileを連続して再投影する。
-            inputSetter?.call(zoomSteps, "1");
-            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            zoomSpeed.value = "fast";
+            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
             reset.click();
             await new Promise((resolve) => setTimeout(resolve, 250));
             maximumFrameGap = 0;
@@ -2836,8 +2835,8 @@ async function run() {
             reset.click();
             await new Promise((resolve) => setTimeout(resolve, 250));
             overlappedTileBlits = 0;
-            inputSetter?.call(zoomSteps, "2");
-            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            zoomSpeed.value = "normal";
+            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
             for (let index = 0; index < 23; index++) {
                 zoomOut.click();
             }
@@ -2861,8 +2860,8 @@ async function run() {
         finally {
             observing = false;
             restoreObservedMethods();
-            inputSetter?.call(zoomSteps, originalZoomSteps);
-            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            zoomSpeed.value = originalZoomSpeed;
+            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
             reset.click();
             await new Promise((resolve) => setTimeout(resolve, 250));
         }
@@ -2984,14 +2983,14 @@ async function run() {
         const pipeline = document.querySelector('.pipeline-pane canvas');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
-        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         if (!(pipeline instanceof HTMLCanvasElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(colorScheme instanceof HTMLSelectElement) ||
-            !(zoomSteps instanceof HTMLInputElement) ||
+            !(zoomSpeed instanceof HTMLSelectElement) ||
             !(webGL instanceof HTMLInputElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement)) {
@@ -2999,11 +2998,10 @@ async function run() {
         }
         const originalTheme = theme.value;
         const originalColorScheme = colorScheme.value;
-        const originalZoomSteps = zoomSteps.value;
+        const originalZoomSpeed = zoomSpeed.value;
         const originalWebGL = webGL.checked;
-        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        inputSetter?.call(zoomSteps, "2");
-        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        zoomSpeed.value = "normal";
+        zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         // Canvas fallbackでも文字atlasのBLTを維持する。
         if (webGL.checked) {
             webGL.click();
@@ -3099,8 +3097,8 @@ async function run() {
             if (webGL.checked !== originalWebGL) {
                 webGL.click();
             }
-            inputSetter?.call(zoomSteps, originalZoomSteps);
-            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            zoomSpeed.value = originalZoomSpeed;
+            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
             reset.click();
             await new Promise((resolve) => setTimeout(resolve, 250));
             await nextFrame();
@@ -3162,7 +3160,7 @@ async function run() {
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const dependencyType = document.querySelector('select[aria-label="Dependency arrow type"]');
         const webGLToggle = document.querySelector('input[aria-label="WebGL rendering"]');
-        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         const pipeline = document.querySelector('.pipeline-pane canvas');
@@ -3170,7 +3168,7 @@ async function run() {
             !(colorScheme instanceof HTMLSelectElement) ||
             !(dependencyType instanceof HTMLSelectElement) ||
             !(webGLToggle instanceof HTMLInputElement) ||
-            !(zoomSteps instanceof HTMLInputElement) ||
+            !(zoomSpeed instanceof HTMLSelectElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement) || !(pipeline instanceof HTMLCanvasElement)) {
             throw new Error("The WebGL2 simplified rendering controls were not found.");
@@ -3180,7 +3178,7 @@ async function run() {
         const originalColorScheme = colorScheme.value;
         const originalDependencyType = dependencyType.value;
         const originalWebGLEnabled = webGLToggle.checked;
-        const originalZoomSteps = zoomSteps.value;
+        const originalZoomSpeed = zoomSpeed.value;
         let drawCalls = 0;
         let instances = 0;
         let maximumInstances = 0;
@@ -3251,9 +3249,8 @@ async function run() {
                 atlasUploads++;
             }
         });
-        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        inputSetter?.call(zoomSteps, "2");
-        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        zoomSpeed.value = "normal";
+        zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         theme.value = "light";
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         colorScheme.value = "Auto";
@@ -3390,8 +3387,8 @@ async function run() {
         if (webGLToggle.checked !== originalWebGLEnabled) {
             webGLToggle.click();
         }
-        inputSetter?.call(zoomSteps, originalZoomSteps);
-        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        zoomSpeed.value = originalZoomSpeed;
+        zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
         return {drawCalls, instances, maximumInstances, gradientInstances, strokeInstances,
@@ -3735,12 +3732,12 @@ async function run() {
     const viewSettingsSetupState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
-        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
-            !(zoomSteps instanceof HTMLInputElement) ||
+            !(zoomSpeed instanceof HTMLSelectElement) ||
             !(webGL instanceof HTMLInputElement) ||
             !(tiledRendering instanceof HTMLInputElement)) {
             throw new Error("The view settings controls were not found.");
@@ -3748,9 +3745,8 @@ async function run() {
         theme.value = "light";
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         split.click();
-        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        inputSetter?.call(zoomSteps, "2");
-        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        zoomSpeed.value = "normal";
+        zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         webGL.click();
         tiledRendering.click();
         requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -3758,7 +3754,7 @@ async function run() {
             resolve({
                 theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
                 split: split.checked,
-                zoomSteps: zoomSteps.value,
+                zoomSpeed: zoomSpeed.value,
                 webGL: webGL.checked,
                 tiledRendering: tiledRendering.checked,
                 stored,
@@ -3769,7 +3765,7 @@ async function run() {
     })`);
     if (viewSettingsSetupState.theme !== "light" ||
         !viewSettingsSetupState.split ||
-        viewSettingsSetupState.zoomSteps !== "2" ||
+        viewSettingsSetupState.zoomSpeed !== "normal" ||
         viewSettingsSetupState.webGL ||
         viewSettingsSetupState.tiledRendering ||
         viewSettingsSetupState.stored?.theme !== "light" ||
@@ -3797,7 +3793,8 @@ async function run() {
             split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
-            zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
+            textVisibility: document.querySelector('input[aria-label="Text labels visibility level"]')?.value ?? null,
+            zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
         };
     })()`);
@@ -3805,7 +3802,8 @@ async function run() {
         persistedViewSettingsState.split ||
         persistedViewSettingsState.webGL ||
         persistedViewSettingsState.tiledRendering ||
-        persistedViewSettingsState.zoomSteps !== "2" ||
+        persistedViewSettingsState.textVisibility !== "6" ||
+        persistedViewSettingsState.zoomSpeed !== "normal" ||
         persistedViewSettingsState.zoom !== "141%") {
         throw new Error(`View settings persistence is incomplete: ${JSON.stringify(persistedViewSettingsState)}`);
     }
@@ -3843,10 +3841,10 @@ async function run() {
         const migrated = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
         const result = {
             theme,
-            textMinimumLaneHeight: document.querySelector(
-                'input[aria-label="Text labels minimum lane height"]',
+            textVisibility: document.querySelector(
+                'input[aria-label="Text labels visibility level"]',
             )?.value ?? null,
-            zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
+            zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
@@ -3858,12 +3856,12 @@ async function run() {
         return result;
     })()`);
     if (recoveredCustomColorState.theme !== "light" ||
-        recoveredCustomColorState.textMinimumLaneHeight !== "14" ||
-        recoveredCustomColorState.zoomSteps !== "2" ||
+        recoveredCustomColorState.textVisibility !== "6" ||
+        recoveredCustomColorState.zoomSpeed !== "normal" ||
         !recoveredCustomColorState.webGL ||
         !recoveredCustomColorState.tiledRendering ||
         recoveredCustomColorState.defaultHue !== "100" ||
-        recoveredCustomColorState.migratedLaneHeight !== 14 ||
+        recoveredCustomColorState.migratedLaneHeight !== 3 ||
         !recoveredCustomColorState.removedLegacyLaneHeight) {
         throw new Error(`Custom color recovery is incomplete: ${JSON.stringify(recoveredCustomColorState)}`);
     }
