@@ -119,8 +119,8 @@ const MAX_COMMAND_HISTORY = 20;
 const MAX_LOG_ENTRIES = 500;
 const KEYBOARD_ZOOM_COOLDOWN_MS = 40;
 const PIPELINE_COLOR_SCHEMES = new Set([
-    "Auto",
     "Unique",
+    "Depth",
     "ThreadID",
     "Orange",
     "RoyalBlue",
@@ -199,9 +199,11 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
     const tiledRenderingEnabled = settings.tiledRenderingEnabled === undefined
         ? DEFAULT_PERSISTED_VIEW_SETTINGS.tiledRenderingEnabled
         : settings.tiledRenderingEnabled;
+    // Autoは現在のDepthと同じ動作だったため、保存済み設定だけを読み替える。
+    const colorScheme = settings.colorScheme === "Auto" ? "Depth" : settings.colorScheme;
     if ((settings.theme !== "dark" && settings.theme !== "light") ||
-        typeof settings.colorScheme !== "string" ||
-        !PIPELINE_COLOR_SCHEMES.has(settings.colorScheme) ||
+        typeof colorScheme !== "string" ||
+        !PIPELINE_COLOR_SCHEMES.has(colorScheme) ||
         !isNonNegativeFiniteNumber(settings.splitterPosition) ||
         (settings.dependencyArrowType !== DEP_ARROW_TYPE.INSIDE_LINE &&
             settings.dependencyArrowType !== DEP_ARROW_TYPE.LEFT_SIDE_CURVE &&
@@ -219,7 +221,7 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         theme: settings.theme,
         webGLEnabled,
         tiledRenderingEnabled,
-        colorScheme: settings.colorScheme,
+        colorScheme,
         // 旧Web版の保存値にはこのfieldがないため、他の設定を捨てず既定配色で補う。
         customColorScheme: isCustomColorScheme(settings.customColorScheme)
             ? settings.customColorScheme
@@ -1398,8 +1400,8 @@ export function App() {
                                     }}
                                 >
                                     {comparisonTab !== null && <option>Comparison</option>}
-                                    <option>Auto</option>
                                     <option>Unique</option>
+                                    <option>Depth</option>
                                     <option>ThreadID</option>
                                     <option>Orange</option>
                                     <option>RoyalBlue</option>

@@ -116,7 +116,7 @@ export const DEFAULT_KONATA_RENDER_SPEC: Readonly<KonataRenderSpec> = {
     position: [0, 0],
     zoomLevel: 0,
     theme: "dark",
-    colorScheme: "Auto",
+    colorScheme: "Unique",
     customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
@@ -1067,13 +1067,13 @@ export class KonataRenderer {
         if (this.isComparisonColorScheme_(colorScheme)) {
             return this.getComparisonStageColor_(colorScheme, laneName, stageName, isBegin);
         }
-        if (colorScheme === "Auto" || colorScheme === "Unique") {
+        if (colorScheme === "Depth" || colorScheme === "Unique") {
             if (stageName === "f" || stageName === "stl") {
                 return this.style_.pipelinePane.stallBackgroundColor;
             }
             const stageLevel = this.metrics_.trace?.stageLevelMap.get(laneName, stageName);
             const lanePosition = this.metrics_.trace?.stageLevelMap.getLanePosition(laneID) ?? 0;
-            const level = colorScheme === "Auto"
+            const level = colorScheme === "Depth"
                 ? stageLevel?.appearance ?? 0
                 : stageLevel?.unique ?? 0;
             const color = this.style_.pipelinePane.stageBackgroundColor;
@@ -1191,8 +1191,8 @@ export class KonataRenderer {
 
     private isKnownCalculatedColorScheme_(): boolean {
         const colorScheme = this.activeColorScheme_;
-        return colorScheme === "Auto" ||
-            colorScheme === "Unique" ||
+        return colorScheme === "Unique" ||
+            colorScheme === "Depth" ||
             colorScheme === "ThreadID" ||
             this.isComparisonColorScheme_(colorScheme) ||
             colorScheme === "Custom";

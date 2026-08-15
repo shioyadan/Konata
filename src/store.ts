@@ -113,7 +113,7 @@ export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = 
     theme: DEFAULT_GLOBAL_VIEW_SETTINGS.theme,
     webGLEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.webGLEnabled,
     tiledRenderingEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.tiledRenderingEnabled,
-    colorScheme: "Auto",
+    colorScheme: "Unique",
     customColorScheme: DEFAULT_GLOBAL_VIEW_SETTINGS.customColorScheme,
     splitterPosition: DEFAULT_SPLITTER_POSITION,
     dependencyArrowType: DEFAULT_GLOBAL_VIEW_SETTINGS.dependencyArrowType,

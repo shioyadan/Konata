@@ -787,7 +787,7 @@ test("Store restores View defaults without moving the trace or discarding custom
     assert.deepEqual(tab.renderSpec.position, [17, 23]);
     assert.equal(tab.renderSpec.zoomLevel, 3);
     assert.equal(tab.splitterPosition, 333);
-    assert.equal(tab.renderSpec.colorScheme, "Auto");
+    assert.equal(tab.renderSpec.colorScheme, "Unique");
     assert.equal(tab.renderSpec.hideFlushedOps, false);
     assert.deepEqual(tab.renderSpec.customColorScheme, customColorScheme);
     assert.ok(changes.some((change) => change.type === "WINDOW_CSS_UPDATE"));

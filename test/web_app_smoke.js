@@ -3253,7 +3253,7 @@ async function run() {
         zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         theme.value = "light";
         theme.dispatchEvent(new Event("change", {bubbles: true}));
-        colorScheme.value = "Auto";
+        colorScheme.value = "Depth";
         colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
         dependencyType.value = "leftSideCurve";
         dependencyType.dispatchEvent(new Event("change", {bubbles: true}));
@@ -3816,6 +3816,7 @@ async function run() {
         delete stored.drawZoomFactor;
         delete stored.webGLEnabled;
         delete stored.tiledRenderingEnabled;
+        stored.colorScheme = "Auto";
         stored.customColorScheme.defaultColor.h = 999;
         localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
     })()`);
@@ -3829,6 +3830,7 @@ async function run() {
             throw new Error("The pipeline color selector was not restored.");
         }
         const theme = document.querySelector(".trace-app")?.dataset.theme ?? null;
+        const restoredColor = color.value;
         color.value = "Custom";
         color.dispatchEvent(new Event("change", {bubbles: true}));
         await nextFrame();
@@ -3841,6 +3843,7 @@ async function run() {
         const migrated = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
         const result = {
             theme,
+            restoredColor,
             textVisibility: document.querySelector(
                 'input[aria-label="Text labels visibility level"]',
             )?.value ?? null,
@@ -3856,6 +3859,7 @@ async function run() {
         return result;
     })()`);
     if (recoveredCustomColorState.theme !== "light" ||
+        recoveredCustomColorState.restoredColor !== "Depth" ||
         recoveredCustomColorState.textVisibility !== "6" ||
         recoveredCustomColorState.zoomSpeed !== "normal" ||
         !recoveredCustomColorState.webGL ||
@@ -3874,12 +3878,20 @@ async function run() {
     const recoveredViewSettingsState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
+            arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
+            color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
+            textVisibility: document.querySelector('input[aria-label="Text labels visibility level"]')?.value ?? null,
+            zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
         })));
     })`);
     if (recoveredViewSettingsState.theme !== "dark" ||
+        recoveredViewSettingsState.arrows !== "insideLine" ||
+        recoveredViewSettingsState.color !== "Unique" ||
+        recoveredViewSettingsState.textVisibility !== "3" ||
+        recoveredViewSettingsState.zoomSpeed !== "normal" ||
         !recoveredViewSettingsState.webGL ||
         !recoveredViewSettingsState.tiledRendering ||
         recoveredViewSettingsState.labelWidth !== 450) {
