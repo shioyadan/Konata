@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
+import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
 import {
@@ -659,6 +659,33 @@ test("Web renderer keeps stage borders in the accelerated Canvas fallback", () =
     assert.deepEqual(pipeline.strokeStyles, ["#444444"]);
     assert.deepEqual(pipeline.lineWidths, [1]);
     assert.deepEqual(pipeline.fillTexts, []);
+});
+
+test("Web renderer uses the contrasting light-theme dependency color", () => {
+    const { trace, op: producer } = createTrace();
+    producer.prodCycle = 4;
+    const consumer = new Op();
+    consumer.id = 1;
+    consumer.rid = 1;
+    consumer.retired = true;
+    consumer.fetchedCycle = 3;
+    consumer.retiredCycle = 9;
+    consumer.consCycle = 6;
+    consumer.prods.push(new Dependency(producer.id, 0, 0));
+    const store = trace.opStore as ArrayOpStore;
+    store.setOp(consumer.id, consumer);
+    store.setRetiredOp(consumer.rid, consumer);
+    const pipeline = createRecordedContext();
+
+    new KonataRenderer().drawPipelineSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, theme: "light" },
+        createCanvas(pipeline.context),
+    );
+
+    assert.deepEqual(pipeline.pathStrokeStyles, ["#005fde"]);
+    assert.deepEqual(pipeline.pathFillStyles, ["#005fde"]);
+    assert.deepEqual(pipeline.pathLineWidths, [1]);
 });
 
 test("Canvas backend joins only consecutive touching fills with the same appearance", () => {

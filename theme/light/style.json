@@ -28,7 +28,7 @@
         },
         "stallBackgroundColor": "#aaaaaa",
         "invalidBackgroundColor": "rgb(128,128,128)",
-        "arrowColor": "rgb(170,30,30)",
+        "arrowColor": "#005fde",
         "arrowWeight": "1.0",
 
         "flushedRegionColor": "rgba(0,0,0,0.4)"
