@@ -125,6 +125,24 @@ export function getFirstDrawingRow(top: number, step: number): number {
     return Math.floor(top / step) * step;
 }
 
+// 画面上の同じ基準点を、移動前後の命令で同じ実行位置へ写す。fetch前／retire後は
+// 最寄りの端からの距離を保ち、命令内では全latencyに対する進行率を保つため、逆向きの
+// 縦移動で同じ横位置へ戻れる。0-cycle命令には可逆性を失わない仮想1-cycle幅を与える。
+function mapCycleBetweenOps(cycle: number, from: Op, to: Op): number {
+    const fromLength = Math.max(1, from.retiredCycle - from.fetchedCycle);
+    const toLength = Math.max(1, to.retiredCycle - to.fetchedCycle);
+    const fromEnd = from.fetchedCycle + fromLength;
+    const toEnd = to.fetchedCycle + toLength;
+
+    if (cycle <= from.fetchedCycle) {
+        return to.fetchedCycle + cycle - from.fetchedCycle;
+    }
+    if (cycle >= fromEnd) {
+        return toEnd + cycle - fromEnd;
+    }
+    return to.fetchedCycle + (cycle - from.fetchedCycle) * toLength / fromLength;
+}
+
 // TraceとKonataRenderSpecから、描画寸法・座標変換・hit testを純粋に計算する。
 // CanvasやDOMを参照せず、同じ入力から常に同じ結果を返す派生値だけを持つ。
 
@@ -275,27 +293,6 @@ export class KonataRenderMetrics {
         return [op.fetchedCycle, this.spec.hideFlushedOps ? op.rid : op.id];
     }
 
-    adjustScrollDifferenceXAt(
-        position: readonly [number, number],
-        differenceY: number,
-    ): number {
-        const [positionX, positionY] = position;
-        const y = Math.floor(positionY);
-        if (y < 0 || y > this.getVisibleBottom()) {
-            return 0;
-        }
-
-        const oldOp = this.getVisibleOp(y, this.opResolution);
-        const newOp = this.getVisibleOp(Math.floor(y + differenceY), this.opResolution);
-        if (newOp === undefined) {
-            return 0;
-        }
-        if (oldOp === undefined || newOp.id === oldOp.id) {
-            return newOp.fetchedCycle - positionX;
-        }
-        return newOp.fetchedCycle - oldOp.fetchedCycle;
-    }
-
     withPosition(position: readonly [number, number]): Readonly<KonataRenderSpec> {
         // 旧Rendererは範囲外もinvalid領域として描くため、ここではclampしない。
         return { ...this.spec, position };
@@ -304,16 +301,18 @@ export class KonataRenderMetrics {
     withLogicalDifference(
         difference: readonly [number, number],
         adjustHorizontal: boolean,
+        horizontalAnchorPixel = 0,
     ): Readonly<KonataRenderSpec> {
         const oldTop = this.spec.position[1];
         const positionY = oldTop + difference[1];
-        const op = this.getVisibleOp(Math.floor(positionY), this.opResolution);
         let positionX = this.spec.position[0];
-        if (adjustHorizontal && op !== undefined) {
+        if (adjustHorizontal) {
             const oldOp = this.getVisibleOp(Math.floor(oldTop), this.opResolution);
-            positionX = oldOp === undefined
-                ? op.fetchedCycle
-                : positionX + op.fetchedCycle - oldOp.fetchedCycle;
+            const newOp = this.getVisibleOp(Math.floor(positionY), this.opResolution);
+            if (oldOp !== undefined && newOp !== undefined && oldOp.id !== newOp.id) {
+                const anchorCycle = positionX + horizontalAnchorPixel / this.opWidth;
+                positionX += mapCycleBetweenOps(anchorCycle, oldOp, newOp) - anchorCycle;
+            }
         }
         else {
             positionX += difference[0];

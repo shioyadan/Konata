@@ -278,12 +278,16 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     ) => {
         const candidateTarget = viewController.targetSpec;
         const baselineTarget = viewController.baselineTargetSpec;
+        // 縦移動では画面中央に見えている実行位置を基準にする。Canvas寸法は描画Specへ
+        // 保存せず、この操作中の座標変換にだけ使用する。
+        const horizontalAnchorPixel = (pipelineCanvasRef.current?.clientWidth ?? 0) / 2;
         const applyCandidate = comparisonMode !== "baseline";
         const applyBaseline = baselineTarget !== undefined && comparisonMode !== "candidate";
         const nextCandidate = applyCandidate
             ? new KonataRenderMetrics(trace, candidateTarget).withLogicalDifference(
                 difference,
                 adjustHorizontal,
+                horizontalAnchorPixel,
             )
             : candidateTarget;
         const nextBaseline = baselineTarget === undefined
@@ -292,6 +296,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 ? new KonataRenderMetrics(baselineTrace, baselineTarget).withLogicalDifference(
                     difference,
                     adjustHorizontal,
+                    horizontalAnchorPixel,
                 )
                 : baselineTarget;
         startViewTransition(

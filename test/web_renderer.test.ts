@@ -182,6 +182,21 @@ function createTrace(): { trace: ParsedTrace; op: Op; stage: Stage } {
     };
 }
 
+function createLatencyTrace(ranges: readonly (readonly [number, number])[]): ParsedTrace {
+    const store = new ArrayOpStore();
+    ranges.forEach(([fetchedCycle, retiredCycle], id) => {
+        const op = new Op();
+        op.id = id;
+        op.rid = id;
+        op.retired = true;
+        op.fetchedCycle = fetchedCycle;
+        op.retiredCycle = retiredCycle;
+        store.setOp(id, op);
+        store.setRetiredOp(id, op);
+    });
+    return new ParsedTrace("latency.log", store, new StageLevelMap(), 1000);
+}
+
 test("Web renderer keeps the legacy instruction label format", () => {
     const { op } = createTrace();
     // 左paneはfile-local ID、global ID、thread、retire ID、命令ラベルの順で表示する。
@@ -379,6 +394,62 @@ test("Web render metrics find an instruction anchor for position adjustment", ()
         new KonataRenderMetrics(trace, metrics.withPosition([100, 10])).getAdjustedViewPosition(),
         [2, 0],
     );
+});
+
+test("Web render metrics reversibly follow the visible phase during vertical scrolling", () => {
+    const trace = createLatencyTrace([
+        [100, 1000],
+        [200, 220],
+        [300, 300],
+    ]);
+    const horizontalAnchorPixel = 160;
+    const anchorOffset = horizontalAnchorPixel / KONATA_OP_WIDTH;
+    const cases = [
+        { cycle: 50, mappedCycle: 150 },
+        { cycle: 100, mappedCycle: 200 },
+        { cycle: 550, mappedCycle: 210 },
+        { cycle: 1000, mappedCycle: 220 },
+        { cycle: 1050, mappedCycle: 270 },
+    ];
+
+    for (const { cycle, mappedCycle } of cases) {
+        const initial = {
+            ...DEFAULT_KONATA_RENDER_SPEC,
+            position: [cycle - anchorOffset, 0] as const,
+        };
+        const moved = new KonataRenderMetrics(trace, initial).withLogicalDifference(
+            [0, 1],
+            true,
+            horizontalAnchorPixel,
+        );
+        assert.ok(Math.abs(moved.position[0] + anchorOffset - mappedCycle) < 1e-9);
+
+        const restored = new KonataRenderMetrics(trace, moved).withLogicalDifference(
+            [0, -1],
+            true,
+            horizontalAnchorPixel,
+        );
+        assert.ok(Math.abs(restored.position[0] - initial.position[0]) < 1e-9);
+        assert.equal(restored.position[1], initial.position[1]);
+    }
+
+    // 0-cycle命令にも仮想幅を使い、長latency命令との往復で位置を失わない。
+    const initial = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [550 - anchorOffset, 0] as const,
+    };
+    const zeroCycle = new KonataRenderMetrics(trace, initial).withLogicalDifference(
+        [0, 2],
+        true,
+        horizontalAnchorPixel,
+    );
+    assert.ok(Math.abs(zeroCycle.position[0] + anchorOffset - 300.5) < 1e-9);
+    const restored = new KonataRenderMetrics(trace, zeroCycle).withLogicalDifference(
+        [0, -2],
+        true,
+        horizontalAnchorPixel,
+    );
+    assert.ok(Math.abs(restored.position[0] - initial.position[0]) < 1e-9);
 });
 
 test("Web render metrics preserve legacy tooltip contents", () => {
