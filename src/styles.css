@@ -2148,6 +2148,83 @@ button:disabled {
         padding: 0.15rem 0.3rem;
     }
 
+    /* 各button基準では右側のpanelが画面外へ出るため、狭幅時だけtoolbar全体を配置基準にする。 */
+    .open-controls,
+    .view-controls,
+    .bookmark-controls,
+    .comparison-controls,
+    .application-menu {
+        position: static;
+    }
+
+    .open-controls-panel,
+    .view-controls-panel,
+    .bookmark-controls-panel,
+    .comparison-controls-panel,
+    .application-menu-panel {
+        top: calc(100% + 0.35rem);
+        right: 0.3rem;
+        left: 0.3rem;
+        width: auto;
+        min-width: 0;
+        max-width: none;
+        max-height: calc(100dvh - 5rem);
+        overflow: auto;
+    }
+
+    .bookmark-row output {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .view-controls-panel label,
+    .detail-visibility-settings p {
+        white-space: normal;
+    }
+
+    .view-controls-panel select,
+    .comparison-controls-panel select,
+    .view-controls-panel input[type="number"] {
+        min-width: 0;
+        max-width: 50%;
+    }
+
+    .dialog-backdrop {
+        padding: 0.5rem;
+    }
+
+    .stats-dialog,
+    .custom-color-dialog,
+    .application-dialog {
+        min-width: 0;
+        max-height: calc(100dvh - 1rem);
+        padding: 0.75rem;
+    }
+
+    .custom-color-add {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .custom-color-add select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .custom-color-add button {
+        justify-self: end;
+    }
+
+    .shortcut-list div {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.2rem;
+    }
+
+    .shortcut-list dd {
+        text-align: left;
+    }
+
     .toolbar-action,
     .open-controls > summary.toolbar-action,
     .view-controls > summary.toolbar-action,

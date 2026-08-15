@@ -2226,6 +2226,86 @@ async function run() {
         !narrowToolbarState.statusBelowToolbar) {
         throw new Error(`Narrow toolbar is incomplete: ${JSON.stringify(narrowToolbarState)}`);
     }
+
+    // 各buttonから開くpanelも320px幅ではtoolbar全体を基準にし、横へ隠れた操作を残さない。
+    window.setContentSize(320, 568);
+    const narrowPanelState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const measurePanel = async (detailsSelector, panelSelector) => {
+            const details = document.querySelector(detailsSelector);
+            const summary = details?.querySelector(":scope > summary");
+            if (!(details instanceof HTMLDetailsElement) ||
+                !(summary instanceof HTMLElement)) {
+                throw new Error("A narrow screen panel was not found: " + panelSelector);
+            }
+            summary.click();
+            await nextFrame();
+            const panel = details.querySelector(panelSelector);
+            if (!(panel instanceof HTMLElement)) {
+                throw new Error("A narrow screen panel did not open: " + panelSelector);
+            }
+            const rect = panel.getBoundingClientRect();
+            const controls = [...panel.querySelectorAll("button, select, input")]
+                .filter((element) => element.getClientRects().length > 0);
+            panel.scrollTop = panel.scrollHeight;
+            await nextFrame();
+            const lastControl = controls.at(-1)?.getBoundingClientRect();
+            const result = {
+                selector: panelSelector,
+                insideViewport: rect.left >= 0 && rect.right <= innerWidth + 1 &&
+                    rect.top >= 0 && rect.bottom <= innerHeight + 1,
+                noHorizontalOverflow: panel.scrollWidth <= panel.clientWidth + 1,
+                lastControlReachable: lastControl === undefined ||
+                    (lastControl.top >= 0 && lastControl.bottom <= innerHeight + 1)
+            };
+            details.removeAttribute("open");
+            await nextFrame();
+            return result;
+        };
+        const panels = [];
+        for (const [detailsSelector, panelSelector] of [
+            [".open-controls", ".open-controls-panel"],
+            [".bookmark-controls", ".bookmark-controls-panel"],
+            [".view-controls", ".view-controls-panel"],
+            [".application-menu", ".application-menu-panel"]
+        ]) {
+            panels.push(await measurePanel(detailsSelector, panelSelector));
+        }
+
+        const menu = document.querySelector(".application-menu");
+        const menuSummary = menu?.querySelector(":scope > summary");
+        if (!(menu instanceof HTMLDetailsElement) || !(menuSummary instanceof HTMLElement)) {
+            throw new Error("The application menu was not found for the narrow dialog test.");
+        }
+        menuSummary.click();
+        await nextFrame();
+        const shortcuts = [...menu.querySelectorAll(".application-menu-panel button")]
+            .find((button) => button.textContent?.includes("Keyboard shortcuts"));
+        shortcuts?.click();
+        await nextFrame();
+        const dialog = document.querySelector(".application-dialog");
+        const close = dialog?.querySelector('button[aria-label^="Close"]');
+        const dialogRect = dialog?.getBoundingClientRect();
+        const closeRect = close?.getBoundingClientRect();
+        const dialogFits = dialog instanceof HTMLElement && dialogRect !== undefined &&
+            dialogRect.left >= 0 && dialogRect.right <= innerWidth + 1 &&
+            dialogRect.top >= 0 && dialogRect.bottom <= innerHeight + 1 &&
+            dialog.scrollWidth <= dialog.clientWidth + 1;
+        const closeReachable = closeRect !== undefined &&
+            closeRect.left >= 0 && closeRect.right <= innerWidth + 1 &&
+            closeRect.top >= 0 && closeRect.bottom <= innerHeight + 1;
+        if (close instanceof HTMLElement) {
+            close.click();
+            await nextFrame();
+        }
+        return {panels, dialogFits, closeReachable};
+    })()`);
+    if (narrowPanelState.panels.some((panel) =>
+        !panel.insideViewport || !panel.noHorizontalOverflow || !panel.lastControlReachable) ||
+        !narrowPanelState.dialogFits || !narrowPanelState.closeReachable) {
+        throw new Error(`Narrow panels are incomplete: ${JSON.stringify(narrowPanelState)}`);
+    }
+    window.setContentSize(390, 700);
     const touchSplitterState = await moveSplitter(window, 120, "touch");
     if (touchSplitterState.labelWidth !== 120 ||
         touchSplitterState.pipelineWidth !== touchSplitterState.viewerWidth - 130 ||
