@@ -1198,6 +1198,8 @@ export class Store {
         reverse: boolean,
         viewport?: FindViewport,
     ): Promise<void> {
+        // 読込み中の検索は、開始時に公開済みだった範囲だけを対象にする。
+        const partial = tab.loadState === "loading";
         const isCanceled = () =>
             this.tabs_.get(tab.id) !== tab ||
             tab.findContext.requestID !== requestID ||
@@ -1271,7 +1273,9 @@ export class Store {
                     tabID: tab.id,
                     requestID,
                     result: null,
-                    message: `"${target}" was not found.`,
+                    message: partial
+                        ? `"${target}" was not found in the loaded portion.`
+                        : `"${target}" was not found.`,
                 });
                 return;
             }

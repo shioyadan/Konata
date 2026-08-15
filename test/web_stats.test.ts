@@ -125,6 +125,25 @@ test("calculateStats yields at the legacy progress interval", async () => {
     assert.deepEqual(updates, [[50_001 / 50_002, 50_001 / 50_000]]);
 });
 
+test("calculateStats fixes its range when started during loading", async () => {
+    const store = new ArrayOpStore();
+    const value = op(" add x1, x2 ", true);
+    for (let id = 0; id <= 50_002; id++) {
+        store.setOp(id, value);
+    }
+    store.setRetiredOp(0, value);
+    const trace = new ParsedTrace("partial.log", store, new StageLevelMap(), 50_003);
+    const initialLastID = trace.lastID;
+
+    const values = await calculateStats(trace, () => {
+        // yield中にParserが命令を追加しても、このStats実行の対象範囲は開始時点から広げない。
+        store.setOp(initialLastID + 1, value);
+    });
+
+    assert.equal(trace.lastID, initialLastID + 1);
+    assert.equal(values?.numFetchedOps, initialLastID);
+});
+
 test("calculateStats stops when its trace is replaced", async () => {
     const store = new ArrayOpStore();
     const value = op(" add x1, x2 ", true);

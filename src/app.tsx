@@ -347,6 +347,7 @@ export function App() {
     const [statsProgress, setStatsProgress] = useState<number | null>(null);
     const [statsValues, setStatsValues] = useState<Readonly<StatsValues> | null>(null);
     const [statsError, setStatsError] = useState("");
+    const [statsPartial, setStatsPartial] = useState(false);
     const [isStatsDialogOpen, setIsStatsDialogOpen] = useState(false);
     const [isCustomColorDialogOpen, setIsCustomColorDialogOpen] = useState(false);
     const [comparisonCandidateID, setComparisonCandidateID] = useState<number | null>(null);
@@ -440,6 +441,7 @@ export function App() {
         setStatsProgress(null);
         setStatsValues(null);
         setStatsError("");
+        setStatsPartial(false);
         setIsStatsDialogOpen(false);
     }, []);
 
@@ -771,13 +773,16 @@ export function App() {
     };
 
     const showStats = () => {
-        if (trace === null || loadState === "loading" || statsProgress !== null) {
+        if (trace === null || statsProgress !== null) {
             return;
         }
+        // 読込み中は開始時点のID・cycle境界までを集計し、完了後の値と区別して表示する。
+        const partial = loadState === "loading";
         const requestID = ++statsRequestRef.current;
         setStatsProgress(0);
         setStatsValues(null);
         setStatsError("");
+        setStatsPartial(partial);
         setIsStatsDialogOpen(false);
 
         void calculateStats(
@@ -809,6 +814,7 @@ export function App() {
         setIsStatsDialogOpen(false);
         setStatsValues(null);
         setStatsError("");
+        setStatsPartial(false);
     };
 
     const openLogPane = () => {
@@ -982,12 +988,13 @@ export function App() {
         statusType = "error";
     }
 
-    const operation = loadState === "loading"
-        ? { type: "load", value: progress, label: `Loading ${fileName}` }
-        : statsProgress !== null
-            ? { type: "stats", value: statsProgress, label: "Calculating statistics" }
-            : searchProgress !== null
-                ? { type: "search", value: searchProgress, label: "Searching trace" }
+    // 読込みとの同時実行時は、ESCで中断できる前景操作の進捗を優先して示す。
+    const operation = statsProgress !== null
+        ? { type: "stats", value: statsProgress, label: "Calculating statistics" }
+        : searchProgress !== null
+            ? { type: "search", value: searchProgress, label: "Searching trace" }
+            : loadState === "loading"
+                ? { type: "load", value: progress, label: `Loading ${fileName}` }
                 : null;
     const canReload = activeTab?.kind === "trace" &&
         activeTab.loadState !== "loading" && reloadableTabIDs.has(activeTab.id);
@@ -1096,7 +1103,7 @@ export function App() {
                     type="button"
                     aria-label="Search trace"
                     title="Search trace"
-                    disabled={trace === null || loadState === "loading"}
+                    disabled={trace === null}
                     onClick={() => commandPaletteInitial === null
                         ? openCommandPalette("f ")
                         : resetCommandUI()}
@@ -1254,7 +1261,7 @@ export function App() {
                 <button
                     className="button-with-icon toolbar-action"
                     type="button"
-                    disabled={trace === null || loadState === "loading" || statsProgress !== null || searchProgress !== null}
+                    disabled={trace === null || statsProgress !== null || searchProgress !== null}
                     onClick={showStats}
                 >
                     <BsBarChart aria-hidden="true" />
@@ -1583,7 +1590,12 @@ export function App() {
                 />
             )}
             {isStatsDialogOpen && (
-                <StatsDialog values={statsValues} error={statsError} onClose={closeStatsDialog} />
+                <StatsDialog
+                    values={statsValues}
+                    error={statsError}
+                    partial={statsPartial}
+                    onClose={closeStatsDialog}
+                />
             )}
             {isCustomColorDialogOpen && trace !== null && (
                 <CustomColorDialog

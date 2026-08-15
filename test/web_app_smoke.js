@@ -385,11 +385,19 @@ async function verifyIncrementalRendering(window) {
         let dotSampleTime = 0;
         let dotsAnimated = false;
         let completionPending = false;
+        let partialToolState = null;
         const check = () => {
             const root = document.querySelector(".trace-app");
             const state = root?.dataset.loadState;
             const opCount = Number(root?.dataset.opCount ?? -1);
             if (state === "loading" && opCount === 1) {
+                const searchButton = document.querySelector('button[aria-label="Search trace"]');
+                const statsButton = [...document.querySelectorAll(".app-toolbar button")]
+                    .find((candidate) => candidate.textContent?.trim() === "Stats");
+                partialToolState ??= {
+                    searchEnabled: searchButton instanceof HTMLButtonElement && !searchButton.disabled,
+                    statsEnabled: statsButton instanceof HTMLButtonElement && !statsButton.disabled
+                };
                 const canvas = document.querySelector(".pipeline-pane canvas");
                 const toolbar = document.querySelector(".app-toolbar");
                 const progress = document.querySelector(".operation-progress");
@@ -472,6 +480,7 @@ async function verifyIncrementalRendering(window) {
                         resolve({
                             partialPixels,
                             finalOpCount: opCount,
+                            partialToolState,
                             progressLayers,
                             loadingStatus,
                             dotsAnimated,
@@ -1439,6 +1448,8 @@ async function run() {
     const incrementalState = await verifyIncrementalRendering(window);
     if (incrementalState.partialPixels < 100 ||
         incrementalState.finalOpCount !== 2 ||
+        !incrementalState.partialToolState?.searchEnabled ||
+        !incrementalState.partialToolState?.statsEnabled ||
         !incrementalState.loadingStatus?.text?.startsWith("Loading incremental.log…") ||
         incrementalState.loadingStatus?.dots !== 6 ||
         incrementalState.loadingStatus?.dotBlur === "none" ||

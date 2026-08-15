@@ -6,11 +6,12 @@ import type { StatsValues } from "../core/stats";
 interface StatsDialogProps {
     readonly values: Readonly<StatsValues> | null;
     readonly error: string;
+    readonly partial: boolean;
     readonly onClose: () => void;
 }
 
 // 旧app_stats_dialogと同じName/Value表と正規表現filterをまとめて所有する。
-export function StatsDialog({ values, error, onClose }: StatsDialogProps) {
+export function StatsDialog({ values, error, partial, onClose }: StatsDialogProps) {
     const [filterPattern, setFilterPattern] = useState("");
     let filterError = "";
     let rows: Array<[string, number]> = [];
@@ -35,7 +36,7 @@ export function StatsDialog({ values, error, onClose }: StatsDialogProps) {
         >
             <section className="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="stats-dialog-title">
                 <header>
-                    <h2 id="stats-dialog-title">Stats</h2>
+                    <h2 id="stats-dialog-title">{partial ? "Stats (partial)" : "Stats"}</h2>
                     <button type="button" aria-label="Close statistics" title="Close" onClick={onClose}>
                         <BsX aria-hidden="true" />
                     </button>

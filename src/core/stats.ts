@@ -228,8 +228,11 @@ export async function calculateStats(
     onProgress?: StatsProgressCallback,
     isCanceled: () => boolean = () => false,
 ): Promise<Readonly<StatsValues> | null> {
+    // 読込み中に呼ばれても、後から増える命令を追わず開始時点の境界までを一度だけ集計する。
     const lastID = trace.lastID;
-    const candidates = createStats(lastID, trace.lastRID, trace.lastCycle);
+    const lastRID = trace.lastRID;
+    const lastCycle = trace.lastCycle;
+    const candidates = createStats(lastID, lastRID, lastCycle);
     const giveUpID = 1_000;
     const sleepInterval = 50_000;
 

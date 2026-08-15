@@ -570,6 +570,29 @@ test("Store searches and jumps without exposing Ops in its UI result", () => {
     store.dispatch({ type: "STORE_CLOSE" });
 });
 
+test("Store searches the currently loaded portion of a trace", () => {
+    const store = new Store();
+    store.dispatch({ type: "FILE_OPEN", fileName: "partial.log" });
+    const tab = store.activeTab;
+    assert.ok(tab !== null);
+    const parsed = createTrace("partial.log");
+    // FILE_LOAD_TRACEの段階ではTabをloadingのまま保ち、公開済み命令だけを検索できるようにする。
+    store.dispatch({ type: "FILE_LOAD_TRACE", tabID: tab.id, trace: parsed.trace });
+
+    store.dispatch({
+        type: "KONATA_FIND_REQUEST",
+        tabID: tab.id,
+        targetPattern: "missing",
+        basePosition: 0,
+        reverse: false,
+    });
+
+    assert.equal(tab.findContext.progress, null);
+    assert.equal(tab.findContext.result, null);
+    assert.equal(tab.findContext.message, '"missing" was not found in the loaded portion.');
+    store.dispatch({ type: "STORE_CLOSE" });
+});
+
 test("Store restores and publishes persistent view settings", () => {
     const store = new Store({
         theme: "light",
