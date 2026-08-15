@@ -160,13 +160,13 @@ test("PagedOpStore stores independently decodable Zstandard pages", async () => 
         levelSpans: [1],
     });
     const original = createComplexOp();
-    // 日本語とsurrogate pairを含め、文字数と同じ初期bufferでは不足する経路を通す。
+    // 日本語とsurrogate pairを含むpageも、UTF-8圧縮後に元の文字列へ戻せることを確認する。
     original.labelName = "命令🙂";
     original.labelDetail = "詳細🙂\n行";
     store.setOp(original.id, original);
     const other = new Op();
     other.id = 1;
-    // 先に圧縮したpageより大きな後続pageでbufferを拡張・上書きしても、以前のframeは独立している。
+    // 圧縮を判別できる反復文字列を別pageへ置き、前後のframeを独立に復元する。
     other.labelDetail = "larger ASCII page ".repeat(100);
     store.setOp(other.id, other);
     const third = new Op();

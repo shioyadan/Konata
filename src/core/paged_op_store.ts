@@ -95,44 +95,17 @@ function createZstdPageCodec(
 ): PageCodec {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
-    let encodeBuffer = new Uint8Array(0);
     let closed = false;
 
-    const encodeInput = (ops: readonly (Op | undefined)[]) => {
+    const encode = async (ops: readonly (Op | undefined)[]): Promise<StoredPage> => {
         if (closed) {
             throw new Error("The operation page codec is closed.");
         }
         const serialized = JSON.stringify(ops);
-        // TextEncoder.encode()はpageごとに一時Uint8Arrayを作る。Chromiumではこの確保と
-        // UTF-8変換が大きなtraceの読込み時間を占めるため、最大page用のbufferを再利用する。
-        // JSONは通常ASCIIが中心なので、まず1 UTF-16 code unitあたり1 byteだけを確保する。
-        if (encodeBuffer.byteLength < serialized.length) {
-            encodeBuffer = new Uint8Array(serialized.length);
-        }
-
-        let encoded = encoder.encodeInto(serialized, encodeBuffer);
-        if (encoded.read !== serialized.length) {
-            // Unicodeを含む場合は、変換済み部分の実byte数と、未読部分のUTF-8上限から拡張する。
-            // surrogate pairも2 code unitsで最大4 bytesなので、3 bytes/code unitで不足しない。
-            const requiredCapacity = encoded.written + (serialized.length - encoded.read) * 3;
-            encodeBuffer = new Uint8Array(requiredCapacity);
-            encoded = encoder.encodeInto(serialized, encodeBuffer);
-        }
-        if (encoded.read !== serialized.length) {
-            throw new Error("The operation page could not be encoded as UTF-8.");
-        }
-
-        return {
-            input: encodeBuffer.subarray(0, encoded.written),
-            serializedCharacters: serialized.length,
-        };
-    };
-
-    const encode = async (ops: readonly (Op | undefined)[]): Promise<StoredPage> => {
-        const encoded = encodeInput(ops);
-        // 圧縮器の内部実装を区別せず、常に非同期結果として扱う。
-        const payload = await compressor.compress(encoded.input.slice());
-        return { payload, serializedCharacters: encoded.serializedCharacters };
+        // encode()が返す実寸の所有bufferはそのままWorkerへ移せる。非同期圧縮では再利用
+        // scratchも結局copyが必要になるため、Unicode拡張とsliceを持たない単純な経路にする。
+        const payload = await compressor.compress(encoder.encode(serialized));
+        return { payload, serializedCharacters: serialized.length };
     };
 
     return {
@@ -148,8 +121,6 @@ function createZstdPageCodec(
         close: () => {
             closed = true;
             compressor.close();
-            // close後もStoreが参照される場合に、最大page用の作業bufferだけを残さない。
-            encodeBuffer = new Uint8Array(0);
         },
     };
 }
