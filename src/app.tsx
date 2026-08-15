@@ -168,7 +168,7 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         "stageBorderMinimumLaneHeight",
         "drawFrameThreshold",
     );
-    // 既存Web版の保存値にはzoom factorがないため、他の設定を保ったまま旧既定値を補う。
+    // 既存Web版の保存値にはzoom factorがないため、他の設定を保ったまま現在の既定値を補う。
     const drawZoomFactor = settings.drawZoomFactor === undefined
         ? DEFAULT_PERSISTED_VIEW_SETTINGS.drawZoomFactor
         : settings.drawZoomFactor;

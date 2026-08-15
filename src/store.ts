@@ -71,7 +71,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     stageDetailMinimumLaneHeight: 0.5,
     dependencyArrowMinimumLaneHeight: 4,
     stageBorderMinimumLaneHeight: 4,
-    drawZoomFactor: 1,
+    drawZoomFactor: 2,
 };
 
 // 再起動後も復元する全体表示設定だけをlocalStorage境界へ公開する。

@@ -1620,10 +1620,10 @@ async function run() {
         wheelZoomState.trackpadImmediatelyAfter !== "100%" ||
         wheelZoomState.trackpadZoom !== "119%" ||
         wheelZoomState.wheelImmediatelyAfter !== "100%" ||
-        wheelZoomState.wheelTarget !== "25%" ||
-        wheelZoomState.cooledWheelTarget !== "12.5%" ||
-        wheelZoomState.wheelZoom !== "12.5%" ||
-        wheelZoomState.resetImmediatelyAfter !== "12.5%" ||
+        wheelZoomState.wheelTarget !== "50%" ||
+        wheelZoomState.cooledWheelTarget !== "35.4%" ||
+        wheelZoomState.wheelZoom !== "35.4%" ||
+        wheelZoomState.resetImmediatelyAfter !== "35.4%" ||
         wheelZoomState.resetZoom !== "100%") {
         throw new Error(`Wheel zoom handling is incomplete: ${JSON.stringify(wheelZoomState)}`);
     }
@@ -1637,7 +1637,7 @@ async function run() {
             throw new Error("The double click zoom controls were not found.");
         }
         const rect = pipeline.getBoundingClientRect();
-        // 拡大上限の200%から離し、4連打の2ペアを25%から100%まで観測する。
+        // 拡大上限の200%から離し、4連打の2ペアを50%から100%まで観測する。
         zoomOut.click();
         zoomOut.click();
         await new Promise((resolve) => setTimeout(resolve, 220));
@@ -1682,7 +1682,7 @@ async function run() {
             resetZoom: output?.textContent ?? null
         };
     })()`);
-    if (doubleClickSetup.zoom !== "25%" ||
+    if (doubleClickSetup.zoom !== "50%" ||
         doubleClickZoomState.zoom !== "100%" ||
         doubleClickZoomState.resetZoom !== "100%") {
         throw new Error(`Double click zoom is incomplete: ${JSON.stringify(doubleClickZoomState)}`);
@@ -1732,8 +1732,8 @@ async function run() {
     if (!keyboardZoomState.firstCanceled || !keyboardZoomState.repeatedCanceled ||
         !keyboardZoomState.cooledCanceled || !keyboardZoomState.reversedCanceled ||
         !keyboardZoomState.restoredCanceled ||
-        keyboardZoomState.duringCooldown !== "50%" ||
-        keyboardZoomState.afterCooldown !== "25%" || keyboardZoomState.reversed !== "50%" ||
+        keyboardZoomState.duringCooldown !== "70.7%" ||
+        keyboardZoomState.afterCooldown !== "50%" || keyboardZoomState.reversed !== "70.7%" ||
         keyboardZoomState.restored !== "100%") {
         throw new Error(`Keyboard zoom is incomplete: ${JSON.stringify(keyboardZoomState)}`);
     }
@@ -2220,8 +2220,8 @@ async function run() {
         };
     })()`);
     if (typeof bookmarkZoomState.slot !== "string" ||
-        !bookmarkZoomState.slot.endsWith("zoom:-1") ||
-        bookmarkZoomState.zoom !== "200%") {
+        !bookmarkZoomState.slot.endsWith("zoom:-0.5") ||
+        bookmarkZoomState.zoom !== "141%") {
         throw new Error(`Bookmark zoom is incomplete: ${JSON.stringify(bookmarkZoomState)}`);
     }
 
@@ -2254,7 +2254,7 @@ async function run() {
     })`);
     if (persistedBookmarkState.slot2 !== "2: x:6, y:0, zoom:0" ||
         typeof persistedBookmarkState.slot3 !== "string" ||
-        !persistedBookmarkState.slot3.endsWith("zoom:-1")) {
+        !persistedBookmarkState.slot3.endsWith("zoom:-0.5")) {
         throw new Error(`Bookmark persistence is incomplete: ${JSON.stringify(persistedBookmarkState)}`);
     }
 
@@ -2900,7 +2900,7 @@ async function run() {
         tabState.switched.color !== "Custom" ||
         tabState.switched.hideFlushed ||
         tabState.switched.textThreshold !== "14" ||
-        tabState.switched.zoom !== "200%" ||
+        tabState.switched.zoom !== "141%" ||
         tabState.switched.searchOpID !== "1" ||
         typeof tabState.switched.searchText !== "string" ||
         !tabState.switched.searchText.includes("consumer") ||
@@ -3997,13 +3997,13 @@ async function run() {
         }
     })()`);
     if (zoomAnimationState.before !== "100%" || zoomAnimationState.immediatelyAfter !== "100%" ||
-        zoomAnimationState.middle !== "200%" ||
+        zoomAnimationState.middle !== "141%" ||
         zoomAnimationState.generatedTargetTiles < 1 || zoomAnimationState.scaledTileBlits < 1) {
         throw new Error(`Zoom animation tiling is incomplete: ${JSON.stringify(zoomAnimationState)}`);
     }
     await waitForViewAnimation(window);
     const zoomedState = await readRenderedState(window);
-    if (zoomedState.zoom !== "200%" || zoomedState.nonBackgroundPixels < 100) {
+    if (zoomedState.zoom !== "141%" || zoomedState.nonBackgroundPixels < 100) {
         throw new Error(`Zoom rendering is incomplete: ${JSON.stringify(zoomedState)}`);
     }
 
@@ -4182,7 +4182,7 @@ async function run() {
     })()`);
     if (recoveredCustomColorState.theme !== "light" ||
         recoveredCustomColorState.textMinimumLaneHeight !== "14" ||
-        recoveredCustomColorState.zoomSteps !== "1" ||
+        recoveredCustomColorState.zoomSteps !== "2" ||
         !recoveredCustomColorState.webGL ||
         !recoveredCustomColorState.tiledRendering ||
         recoveredCustomColorState.defaultHue !== "100" ||
@@ -4214,7 +4214,7 @@ async function run() {
         recoveredViewSettingsState.arrows !== "insideLine" ||
         recoveredViewSettingsState.color !== "Auto" ||
         recoveredViewSettingsState.textThreshold !== "10" ||
-        recoveredViewSettingsState.zoomSteps !== "1" ||
+        recoveredViewSettingsState.zoomSteps !== "2" ||
         !recoveredViewSettingsState.webGL ||
         !recoveredViewSettingsState.tiledRendering ||
         recoveredViewSettingsState.labelWidth !== 450) {
