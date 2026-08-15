@@ -452,6 +452,11 @@ export function formatOpLabel(id: number, op: Op): string {
     return `${id}: s${op.gid} (t${op.tid}: r${op.rid}): ${op.labelName}`;
 }
 
+// 狭いpaneでは構造化済みのIDと命令名だけを選び、文字列の途中を推測して切らない。
+export function formatCompactOpLabel(id: number, op: Op): string {
+    return `${id}: ${op.labelName}`;
+}
+
 function isCustomColorDefinition(value: unknown): value is CustomColorDefinition {
     return typeof value === "object" && value !== null && "h" in value && "s" in value && "l" in value;
 }
@@ -459,6 +464,7 @@ function isCustomColorDefinition(value: unknown): value is CustomColorDefinition
 export class KonataRenderer {
     // Canvasの矩形をpixel境界へ合わせ、ぼけを抑える補正値。
     private static readonly PIXEL_ADJUST = 0.5;
+    private static readonly COMPACT_LABEL_MAX_WIDTH = 240;
 
     private metrics_: KonataRenderMetrics;
     private style_: RendererStyle = darkStyle;
@@ -654,6 +660,9 @@ export class KonataRenderer {
         const marginTop =
             (this.metrics_.laneHeight - this.metrics_.laneHeightMargin * 2 - this.labelFontSize_) / 2 +
             this.labelFontSize_;
+        const formatLabel = size.width <= KonataRenderer.COMPACT_LABEL_MAX_WIDTH
+            ? formatCompactOpLabel
+            : formatOpLabel;
 
         for (
             let logicalY = Math.floor(this.metrics_.spec.position[1]);
@@ -666,7 +675,7 @@ export class KonataRenderer {
             }
             const x = marginLeft;
             const y = (logicalY - this.metrics_.spec.position[1]) * this.metrics_.opHeight + marginTop;
-            context.fillText(formatOpLabel(logicalY, op), x, y);
+            context.fillText(formatLabel(logicalY, op), x, y);
         }
     }
 

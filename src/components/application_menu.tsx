@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
     BsFileText,
     BsGithub,
@@ -23,6 +23,7 @@ interface ApplicationMenuProps {
     readonly unreadLogCount: number;
     readonly hasUnreadWarning: boolean;
     readonly onOpenLog: () => void;
+    readonly mobileActions: ReactNode;
 }
 
 function getShortcuts(platform: string): ReadonlyArray<readonly [string, string]> {
@@ -156,7 +157,12 @@ function InformationDialog({
     );
 }
 
-export function ApplicationMenu({ unreadLogCount, hasUnreadWarning, onOpenLog }: ApplicationMenuProps) {
+export function ApplicationMenu({
+    unreadLogCount,
+    hasUnreadWarning,
+    onOpenLog,
+    mobileActions,
+}: ApplicationMenuProps) {
     const menuRef = useRef<HTMLDetailsElement>(null);
     const [dialog, setDialog] = useState<ApplicationDialog>(null);
 
@@ -215,6 +221,16 @@ export function ApplicationMenu({ unreadLogCount, hasUnreadWarning, onOpenLog }:
                     )}
                 </summary>
                 <div className="application-menu-panel">
+                    <div
+                        className="mobile-menu-actions"
+                        onClick={(event) => {
+                            if (event.target instanceof Element && event.target.closest("button") !== null) {
+                                menuRef.current?.removeAttribute("open");
+                            }
+                        }}
+                    >
+                        {mobileActions}
+                    </div>
                     <button type="button" aria-label="Application log" onClick={openLog}>
                         <BsJournalText aria-hidden="true" /> Application log
                         {unreadLogCount > 0 && (

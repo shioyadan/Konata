@@ -8,6 +8,7 @@ import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEFAULT_KONATA_RENDER_SPEC,
+    formatCompactOpLabel,
     formatOpLabel,
     formatKonataZoomPercent,
     getFirstDrawingRow,
@@ -202,6 +203,18 @@ test("Web renderer keeps the legacy instruction label format", () => {
     const { op } = createTrace();
     // 左paneはfile-local ID、global ID、thread、retire ID、命令ラベルの順で表示する。
     assert.equal(formatOpLabel(op.id, op), "0: s100 (t1: r0): add x1, x2, x3");
+    assert.equal(formatCompactOpLabel(op.id, op), "0: add x1, x2, x3");
+});
+
+test("Web renderer uses compact instruction labels in a narrow pane", () => {
+    const { trace } = createTrace();
+    const label = createRecordedContext();
+    new KonataRenderer().drawLabelSpec(
+        trace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(label.context, 160),
+    );
+    assert.deepEqual(label.fillTexts.map(([text]) => text), ["0: add x1, x2, x3"]);
 });
 
 test("Web renderer draws stage names and elapsed cycles like the legacy renderer", () => {

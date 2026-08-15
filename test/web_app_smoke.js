@@ -2180,6 +2180,52 @@ async function run() {
         narrowPaneState.position !== "320") {
         throw new Error(`Narrow trace panes are incomplete: ${JSON.stringify(narrowPaneState)}`);
     }
+    const narrowToolbarState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const toolbar = document.querySelector(".app-toolbar");
+        const menu = document.querySelector(".application-menu");
+        const menuSummary = menu?.querySelector(":scope > summary");
+        if (!(toolbar instanceof HTMLElement) ||
+            !(menu instanceof HTMLDetailsElement) ||
+            !(menuSummary instanceof HTMLElement)) {
+            throw new Error("The narrow toolbar was not found.");
+        }
+        const visibleActions = [...toolbar.querySelectorAll(".toolbar-action")]
+            .filter((element) => element.getClientRects().length > 0);
+        menuSummary.click();
+        await nextFrame();
+        const menuActions = [...menu.querySelectorAll(".mobile-menu-actions button")]
+            .filter((element) => element.getClientRects().length > 0);
+        const status = toolbar.querySelector(".status")?.getBoundingClientRect();
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const result = {
+            toolbarHeight: Math.round(toolbarRect.height),
+            actionRows: new Set(visibleActions.map((element) =>
+                Math.round(element.getBoundingClientRect().top))).size,
+            actions: visibleActions.map((element) => element.getAttribute("aria-label")),
+            menuActions: menuActions.map((element) => element.textContent?.trim() ?? ""),
+            compareDisabled: menu.querySelector('.mobile-menu-actions button')?.disabled ?? null,
+            zoomHidden: document.querySelector(".zoom-controls")?.getClientRects().length === 0,
+            statusBelowToolbar: status === undefined || status.top >= toolbarRect.bottom
+        };
+        menu.removeAttribute("open");
+        await nextFrame();
+        return result;
+    })()`);
+    if (narrowToolbarState.toolbarHeight > 44 ||
+        narrowToolbarState.actionRows !== 1 ||
+        JSON.stringify(narrowToolbarState.actions.slice(0, 4)) !== JSON.stringify([
+            "Open files", "Search trace", "Bookmarks", "View settings"
+        ]) ||
+        !narrowToolbarState.actions[4]?.startsWith("Application menu") ||
+        JSON.stringify(narrowToolbarState.menuActions) !== JSON.stringify([
+            "Compare", "Stats", "Adjust position", "Reset view"
+        ]) ||
+        !narrowToolbarState.compareDisabled ||
+        !narrowToolbarState.zoomHidden ||
+        !narrowToolbarState.statusBelowToolbar) {
+        throw new Error(`Narrow toolbar is incomplete: ${JSON.stringify(narrowToolbarState)}`);
+    }
     const touchSplitterState = await moveSplitter(window, 120, "touch");
     if (touchSplitterState.labelWidth !== 120 ||
         touchSplitterState.pipelineWidth !== touchSplitterState.viewerWidth - 130 ||

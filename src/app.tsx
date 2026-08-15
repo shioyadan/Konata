@@ -1094,7 +1094,7 @@ export function App() {
                 onActivate={activateTab}
                 onClose={closeTab}
             />
-            <header className="app-toolbar">
+            <header className={`app-toolbar${comparisonTab === null ? "" : " is-comparing"}`}>
                 <input
                     ref={fileInputRef}
                     className="file-input"
@@ -1147,7 +1147,7 @@ export function App() {
                     </div>
                 </details>
                 <button
-                    className="button-with-icon toolbar-action"
+                    className="button-with-icon toolbar-action mobile-hide-when-comparing"
                     type="button"
                     aria-label="Search trace"
                     title="Search trace"
@@ -1205,7 +1205,7 @@ export function App() {
                     </div>
                 </details>
                 {comparisonTab === null ? (
-                    <details ref={comparisonControlsRef} className="comparison-controls">
+                    <details ref={comparisonControlsRef} className="comparison-controls mobile-toolbar-secondary">
                         <summary
                             className="toolbar-action"
                             aria-label="Compare traces"
@@ -1307,7 +1307,7 @@ export function App() {
                     </div>
                 )}
                 <button
-                    className="button-with-icon toolbar-action"
+                    className="button-with-icon toolbar-action mobile-toolbar-secondary"
                     type="button"
                     disabled={trace === null || statsProgress !== null}
                     onClick={showStats}
@@ -1530,7 +1530,7 @@ export function App() {
                         </details>
                     </div>
                 </details>
-                <div className="zoom-controls" aria-label="Zoom controls">
+                <div className="zoom-controls mobile-toolbar-secondary" aria-label="Zoom controls">
                     <button
                         className="icon-button"
                         type="button"
@@ -1604,6 +1604,47 @@ export function App() {
                     unreadLogCount={unreadLogCount}
                     hasUnreadWarning={hasUnreadWarning}
                     onOpenLog={openLogPane}
+                    mobileActions={(
+                        <>
+                            {comparisonTab === null && (
+                                <div className="mobile-menu-compare">
+                                    <label>
+                                        Compare with
+                                        <select
+                                            aria-label="Mobile comparison candidate"
+                                            value={selectedComparisonCandidateID ?? ""}
+                                            disabled={selectedComparisonCandidateID === null}
+                                            onChange={(event) => setComparisonCandidateID(Number(event.target.value))}
+                                        >
+                                            {comparisonCandidates.map((tab) => (
+                                                <option key={tab.id} value={tab.id}>{tab.fileName}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        disabled={activeTab?.kind !== "trace" || selectedComparisonCandidateID === null}
+                                        onClick={openComparison}
+                                    >
+                                        <BsIntersect aria-hidden="true" /> Compare
+                                    </button>
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                disabled={trace === null || statsProgress !== null}
+                                onClick={showStats}
+                            >
+                                <BsBarChart aria-hidden="true" /> Stats
+                            </button>
+                            <button type="button" disabled={trace === null} onClick={adjustPosition}>
+                                <BsCrosshair aria-hidden="true" /> Adjust position
+                            </button>
+                            <button type="button" disabled={trace === null} onClick={resetView}>
+                                <BsArrowCounterclockwise aria-hidden="true" /> Reset view
+                            </button>
+                        </>
+                    )}
                 />
                 {operations.length > 0 && (
                     <div className="operation-progress-stack">

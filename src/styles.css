@@ -498,6 +498,11 @@ button:disabled {
     font-size: 0.7rem;
 }
 
+/* desktopでは従来のtoolbarを使い、同じ操作を二重に見せない。 */
+.mobile-menu-actions {
+    display: none;
+}
+
 .open-controls-panel,
 .view-controls-panel,
 .bookmark-controls-panel,
@@ -2137,13 +2142,124 @@ button:disabled {
 
 @media (max-width: 720px) {
     .app-toolbar {
-        flex-wrap: wrap;
+        min-height: 2.5rem;
+        flex-wrap: nowrap;
+        gap: 0.15rem;
+        padding: 0.15rem 0.3rem;
     }
 
+    .toolbar-action,
+    .open-controls > summary.toolbar-action,
+    .view-controls > summary.toolbar-action,
+    .bookmark-controls > summary.toolbar-action,
+    .application-menu > summary.toolbar-action {
+        width: 2.25rem;
+        min-width: 2.25rem;
+        height: 2.25rem;
+        padding: 0;
+    }
+
+    .toolbar-action > span:not(.application-menu-warning-badge),
+    .mobile-toolbar-secondary {
+        display: none;
+    }
+
+    /* 比較中は切替UIを優先し、通常操作はMenuから再び利用できる範囲に絞る。 */
+    .app-toolbar.is-comparing > .open-controls,
+    .app-toolbar.is-comparing > .bookmark-controls,
+    .app-toolbar.is-comparing > .mobile-hide-when-comparing {
+        display: none;
+    }
+
+    .comparison-mode-controls {
+        height: 2.25rem;
+        gap: 0;
+        padding: 0.1rem;
+    }
+
+    .comparison-mode-controls button {
+        padding-right: 0.3rem;
+        padding-left: 0.3rem;
+    }
+
+    .comparison-mode-controls label {
+        gap: 0;
+        padding: 0 0.15rem;
+        font-size: 0;
+    }
+
+    .comparison-mode-controls input[type="range"] {
+        width: 4rem;
+    }
+
+    /* 長い状態文でtoolbarを再び折り返さず、Canvasの上へ一時的に重ねる。 */
     .status {
-        width: 100%;
-        margin-left: 0;
-        order: 2;
+        position: absolute;
+        z-index: 9;
+        top: calc(100% + 0.25rem);
+        right: 0.4rem;
+        left: 0.4rem;
+        width: auto;
+        max-width: none;
+        margin: 0;
+        padding: 0.4rem 0.55rem;
+        border: 1px solid #454d5a;
+        border-radius: var(--ui-control-radius);
+        background: #282e38;
+        box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 30%);
+    }
+
+    .theme-light .status {
+        border-color: #68738f;
+        background: #525c7d;
+    }
+
+    .status-spacer {
+        display: none;
+    }
+
+    .mobile-menu-actions {
+        display: grid;
+        gap: 0.15rem;
+        margin-bottom: 0.35rem;
+        padding-bottom: 0.35rem;
+        border-bottom: 1px solid #3f4754;
+    }
+
+    .mobile-menu-compare {
+        display: grid;
+        gap: 0.25rem;
+        padding: 0.35rem 0.6rem;
+    }
+
+    .mobile-menu-compare label {
+        display: grid;
+        gap: 0.25rem;
+        color: #b8c0cc;
+        font-size: 0.7rem;
+    }
+
+    .mobile-menu-compare select {
+        min-width: 0;
+        padding: 0.3rem;
+        border: 1px solid #4a5260;
+        border-radius: var(--ui-control-radius);
+        background: #20252d;
+        color: #f2f3f5;
+    }
+
+    .theme-light .mobile-menu-actions {
+        border-color: #c5cad2;
+    }
+
+    .theme-light .mobile-menu-compare label {
+        color: #4f5968;
+    }
+
+    .theme-light .mobile-menu-compare select {
+        border-color: #aeb5bf;
+        background: #fff;
+        color: #222;
     }
 
     /* pipelineを主表示として残し、desktopで保存した固定px幅は書き換えない。 */
