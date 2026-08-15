@@ -1740,8 +1740,9 @@ async function run() {
         throw new Error(`Keyboard zoom is incomplete: ${JSON.stringify(keyboardZoomState)}`);
     }
 
-    // 通常wheelを素早く3回送ると、途中で跳ばずに目標へ18cycle分を積み上げる。
-    // その後のAdjust positionは上端命令のfetch cycleへ、同じscroll補間で復帰する。
+    // 通常wheelを素早く3回送ると、目標へ18cycle分を積み上げる。
+    // 補間の中間値は時刻を制御したunit testで固定し、実画面では最終位置だけを確認する。
+    // CIのrequestAnimationFrameが100 ms以上遅れると、中間frameを観測できないためである。
     const wheelScrollState = await window.webContents.executeJavaScript(`(async () => {
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane canvas");
@@ -1773,16 +1774,10 @@ async function run() {
             clientY: rect.top + 8
         }));
         const dispatched = events.map((event) => viewer.dispatchEvent(event));
-        await new Promise((resolve) => requestAnimationFrame(() =>
-            requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const duringCycle = await readCycle();
         await new Promise((resolve) => setTimeout(resolve, 220));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const finalCycle = await readCycle();
         adjust.click();
-        await new Promise((resolve) => requestAnimationFrame(() =>
-            requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const adjustedDuringCycle = await readCycle();
         await new Promise((resolve) => setTimeout(resolve, 220));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const adjustedFinalCycle = await readCycle();
@@ -1791,18 +1786,12 @@ async function run() {
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
             canceled: dispatched.every((value, index) => !value && events[index].defaultPrevented),
-            duringCycle,
             finalCycle,
-            adjustedDuringCycle,
             adjustedFinalCycle
         };
     })()`);
     if (!wheelScrollState.canceled ||
-        wheelScrollState.duringCycle <= 0 ||
-        wheelScrollState.duringCycle >= 18 ||
         wheelScrollState.finalCycle !== 18 ||
-        wheelScrollState.adjustedDuringCycle <= 0 ||
-        wheelScrollState.adjustedDuringCycle >= 18 ||
         wheelScrollState.adjustedFinalCycle !== 0) {
         throw new Error(`Wheel scroll animation is incomplete: ${JSON.stringify(wheelScrollState)}`);
     }
