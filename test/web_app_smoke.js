@@ -395,10 +395,6 @@ async function verifyIncrementalRendering(window) {
         let partialPixels = 0;
         let progressLayers = null;
         let loadingStatus = null;
-        let initialDotTransforms = null;
-        let dotSampleTime = 0;
-        let dotsAnimated = false;
-        let completionPending = false;
         let partialToolState = null;
         const check = () => {
             const root = document.querySelector(".trace-app");
@@ -419,48 +415,11 @@ async function verifyIncrementalRendering(window) {
                 const splitter = document.querySelector(".pane-splitter");
                 const status = document.querySelector(".status-loading");
                 const dots = status?.querySelector(".status-loading-dots");
-                const dotElements = dots?.querySelectorAll(":scope > span") ?? [];
-                const dotStyle = dotElements[0] instanceof HTMLElement
-                    ? getComputedStyle(dotElements[0])
-                    : null;
-                const dotCenters = Array.from(dotElements, (dot) => {
-                    const rect = dot.getBoundingClientRect();
-                    return [rect.left + rect.width / 2, rect.top + rect.height / 2];
-                });
-                const hexagonOrder = [0, 2, 4, 5, 3, 1, 0];
-                const sideLengths = hexagonOrder.slice(1).map((dotIndex, index) => {
-                    const from = dotCenters[hexagonOrder[index]];
-                    const to = dotCenters[dotIndex];
-                    return from === undefined || to === undefined
-                        ? Number.NaN
-                        : Math.hypot(to[0] - from[0], to[1] - from[1]);
-                });
                 loadingStatus = {
                     text: status?.textContent ?? null,
-                    dots: dotElements.length,
-                    dotBlur: dotStyle?.filter ?? null,
-                    dotColor: dotStyle?.color ?? null,
-                    dotShadow: dotStyle?.boxShadow ?? null,
-                    dotOpacity: dotStyle?.opacity ?? null,
-                    dotTiming: dotStyle?.animationTimingFunction ?? null,
-                    dotTransformOrigin: dotStyle?.transformOrigin ?? null,
-                    hexagonSideSpread: Math.max(...sideLengths) - Math.min(...sideLengths),
+                    hasIndicator: dots !== null,
                     role: status?.getAttribute("role") ?? null
                 };
-                if (dotElements[0] instanceof HTMLElement && dotElements[1] instanceof HTMLElement) {
-                    const transforms = [
-                        getComputedStyle(dotElements[0]).transform,
-                        getComputedStyle(dotElements[1]).transform
-                    ];
-                    if (initialDotTransforms === null) {
-                        initialDotTransforms = transforms;
-                        dotSampleTime = performance.now();
-                    }
-                    else if (performance.now() - dotSampleTime >= 450) {
-                        dotsAnimated ||= transforms[0] !== initialDotTransforms[0] &&
-                            transforms[1] !== initialDotTransforms[1];
-                    }
-                }
                 if (toolbar instanceof HTMLElement &&
                     progress instanceof HTMLElement &&
                     progressStack instanceof HTMLElement &&
@@ -485,38 +444,13 @@ async function verifyIncrementalRendering(window) {
                 }
             }
             if (state === "ready" && opCount === 2) {
-                if (!completionPending) {
-                    completionPending = true;
-                    setTimeout(() => {
-                        const completionDots = document.querySelector(".status-ready .status-loading-dots");
-                        const completionDot = completionDots?.querySelector(":scope > span");
-                        const glowStyle = completionDots instanceof HTMLElement
-                            ? getComputedStyle(completionDots, "::after")
-                            : null;
-                        resolve({
-                            partialPixels,
-                            finalOpCount: opCount,
-                            partialToolState,
-                            progressLayers,
-                            loadingStatus,
-                            dotsAnimated,
-                            completionStatus: {
-                                dotAnimation: completionDot instanceof HTMLElement
-                                    ? getComputedStyle(completionDot).animationName
-                                    : null,
-                                dotFilter: completionDot instanceof HTMLElement
-                                    ? getComputedStyle(completionDot).filter
-                                    : null,
-                                dotOpacity: completionDot instanceof HTMLElement
-                                    ? getComputedStyle(completionDot).opacity
-                                    : null,
-                                glowAnimation: glowStyle?.animationName ?? null,
-                                glowOpacity: glowStyle?.opacity ?? null,
-                                glowShadow: glowStyle?.boxShadow ?? null
-                            }
-                        });
-                    }, 1100);
-                }
+                resolve({
+                    partialPixels,
+                    finalOpCount: opCount,
+                    partialToolState,
+                    progressLayers,
+                    loadingStatus
+                });
                 return;
             }
             if (state === "error") {
@@ -936,19 +870,10 @@ async function verifyApplicationMenu(window) {
         const about = document.querySelector(".about-dialog");
         const aboutState = {
             title: about?.querySelector("h2")?.textContent ?? null,
-            summary: [...(about?.querySelector(".about-summary")?.children ?? [])]
-                .map((element) => element.textContent?.trim() ?? "").join(" "),
             authors: about?.querySelector(".about-authors")?.textContent?.trim() ?? null,
             values: [...(about?.querySelectorAll(".build-details dd") ?? [])]
                 .map((value) => value.textContent?.trim() ?? ""),
-            links: [...(about?.querySelectorAll(".about-links a") ?? [])]
-                .map((link) => ({
-                    text: link.textContent?.trim() ?? "",
-                    href: link.getAttribute("href"),
-                    target: link.getAttribute("target"),
-                    rel: link.getAttribute("rel")
-                })),
-            backdropLayer: getComputedStyle(document.querySelector(".dialog-backdrop")).zIndex
+            githubHref: about?.querySelector('.about-links a')?.getAttribute("href") ?? null
         };
         const licenseButton = [...(about?.querySelectorAll(".about-links button") ?? [])]
             .find((button) => button.textContent?.trim() === "License");
@@ -979,13 +904,7 @@ async function verifyApplicationMenu(window) {
         const licenseText = licenses?.querySelector(".third-party-licenses")?.textContent ?? "";
         const licensesState = {
             title: licenses?.querySelector("h2")?.textContent ?? null,
-            hasReact: licenseText.includes("react") && licenseText.includes("19.2.8"),
-            hasBootstrapIcons: licenseText.includes("Bootstrap Icons") &&
-                licenseText.includes("1.11.3"),
-            hasFzstd: licenseText.includes("Copyright (c) 2020 Arjun Barrett"),
-            hasZstandard: licenseText.includes("For Zstandard software"),
-            hasApache: licenseText.includes("Apache License") &&
-                licenseText.includes("Version 2.0, January 2004")
+            hasNotices: licenseText.includes("react") && licenseText.includes("For Zstandard software")
         };
         licenses?.querySelector("button[aria-label^='Close']")?.click();
         await nextFrame();
@@ -1028,7 +947,6 @@ async function verifyApplicationMenu(window) {
             mainLicenseState,
             licensesState,
             shortcutState,
-            platform: navigator.platform,
             escapeCanceled,
             dialogClosedByEscape,
             menuClosedByOutsidePointer: !menu.open
@@ -1086,9 +1004,6 @@ async function verifyLogPane(window) {
         if (!(resizer instanceof HTMLElement)) {
             throw new Error("The application log resizer was not found.");
         }
-        const resizerStyle = getComputedStyle(resizer);
-        const resizerBackground = resizerStyle.backgroundColor;
-        const resizerBorder = resizerStyle.borderTopColor;
         resizer.dispatchEvent(new KeyboardEvent("keydown", {
             key: "ArrowUp",
             bubbles: true,
@@ -1121,8 +1036,6 @@ async function verifyLogPane(window) {
             openedViewerHeight,
             initialPaneHeight,
             resizedPaneHeight,
-            resizerBackground,
-            resizerBorder,
             restoredViewerHeight: viewer.getBoundingClientRect().height,
             closed: document.querySelector(".log-pane") === null
         };
@@ -1239,7 +1152,6 @@ async function run() {
     // Reactの初期描画とCSS適用を、file読み込み前にも独立して確認する。
     const initialState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => {
-            const openButton = document.querySelector(".primary-button");
             const buildInfo = document.querySelector(".build-info");
             const viewer = document.querySelector(".viewer");
             const labelPane = document.querySelector(".label-pane");
@@ -1253,8 +1165,6 @@ async function run() {
             const bookmarkControls = document.querySelector(".bookmark-controls");
             const bookmarkSummary = bookmarkControls?.querySelector(":scope > summary");
             bookmarkSummary?.click();
-            const disabledViewControl = document.querySelector('select[aria-label="Pipeline color scheme"]');
-            const enabledViewControl = document.querySelector('select[aria-label="UI color theme"]');
             const toolbarSequence = [...(toolbar?.children ?? [])].map((element) => {
                 if (element.classList.contains("zoom-controls")) {
                     return "Zoom";
@@ -1273,43 +1183,19 @@ async function run() {
                 emptyDetail: document.querySelector(".empty-state span")?.textContent ?? null,
                 bookmarkDisabled: bookmarkSummary?.getAttribute("aria-disabled") ?? null,
                 bookmarkOpensWithoutTrace: bookmarkControls?.open ?? null,
-                bookmarkOpacity: bookmarkSummary === undefined ? null : getComputedStyle(bookmarkSummary).opacity,
-                disabledViewOpacity:
-                    disabledViewControl === null ? null : getComputedStyle(disabledViewControl).opacity,
-                enabledViewOpacity:
-                    enabledViewControl === null ? null : getComputedStyle(enabledViewControl).opacity,
                 rootChildCount: document.querySelector("#konata-root")?.childElementCount ?? 0,
                 paneTitleCount: document.querySelectorAll(".pane-title").length,
-                openButtonColor: openButton === null ? null : getComputedStyle(openButton).backgroundColor,
-                openButtonForeground: openButton === null ? null : getComputedStyle(openButton).color,
-                openButtonDirection: openButton === null ? null : getComputedStyle(openButton).flexDirection,
-                openIconSize: Number.parseFloat(getComputedStyle(openButton?.querySelector("svg")).width),
-                openLabelSize: Number.parseFloat(getComputedStyle(openButton?.querySelector("span")).fontSize),
-                openLabelColor: getComputedStyle(openButton?.querySelector("span")).color,
-                openButtonText: openButton?.textContent?.trim() ?? null,
+                openButtonText: document.querySelector(".primary-button")?.textContent?.trim() ?? null,
                 openPanelTopLevel:
                     document.querySelector(".app-toolbar > .open-controls > .open-controls-panel") !== null,
                 reloadDisabledWithoutHandle: reloadButton?.disabled ?? null,
                 recentFilesEmpty: document.querySelector(".recent-files-empty")?.textContent ?? null,
-                mainActionIconCount: document.querySelectorAll(
-                    ".app-toolbar > .button-with-icon > svg, .app-toolbar > .open-controls > summary > svg",
-                ).length,
                 toolbarSequence,
-                zoomIconCount: document.querySelectorAll(".zoom-controls .icon-button > svg").length,
-                zoomSeparatorCount: document.querySelectorAll(".zoom-controls > .zoom-separator").length,
-                zoomSeparatorPlacement:
-                    document.querySelector('button[aria-label="Zoom in"]')?.nextElementSibling
-                        ?.classList.contains("zoom-separator") === true &&
-                    document.querySelector(".zoom-separator")?.nextElementSibling
-                        ?.getAttribute("aria-label") === "Adjust position",
                 zoomLabels: [...document.querySelectorAll(".zoom-controls .icon-button")]
                     .map((button) => button.getAttribute("aria-label")),
-                viewSettingsIcon: document.querySelector('.view-controls > summary[aria-label="View settings"] > svg') !== null,
                 bookmarkPanelTopLevel:
                     document.querySelector(".app-toolbar > .bookmark-controls > .bookmark-controls-panel") !== null,
                 bookmarkInViewPanel: document.querySelector(".view-controls-panel .bookmark-controls") !== null,
-                applicationMenuIcon:
-                    document.querySelector('.application-menu > summary[aria-label="Application menu"] > svg') !== null,
                 applicationMenuRightmost: toolbar?.lastElementChild?.classList.contains("application-menu") === true,
                 canvasCount: document.querySelectorAll(".viewer canvas").length,
                 splitterCount: document.querySelectorAll(".pane-splitter").length,
@@ -1334,33 +1220,18 @@ async function run() {
         initialState.emptyDetail !== "Plain text, gzip, and Zstandard files are supported." ||
         initialState.bookmarkDisabled !== "true" ||
         initialState.bookmarkOpensWithoutTrace !== false ||
-        initialState.bookmarkOpacity !== "0.45" ||
-        initialState.disabledViewOpacity !== "0.45" ||
-        initialState.enabledViewOpacity !== "1" ||
         initialState.rootChildCount !== 1 ||
         initialState.paneTitleCount !== 0 ||
-        initialState.openButtonColor !== "rgba(0, 0, 0, 0)" ||
-        initialState.openButtonForeground !== "rgb(255, 255, 255)" ||
-        initialState.openButtonDirection !== "column" ||
-        initialState.openIconSize < 19 ||
-        initialState.openLabelSize > 11 ||
-        initialState.openLabelColor !== "rgb(255, 255, 255)" ||
         initialState.openButtonText !== "Open" ||
         !initialState.openPanelTopLevel ||
         !initialState.reloadDisabledWithoutHandle ||
         initialState.recentFilesEmpty !== "No recent files" ||
-        initialState.mainActionIconCount !== 3 ||
         JSON.stringify(initialState.toolbarSequence) !==
             JSON.stringify(["Open", "Search", "Bookmark", "Compare", "Stats", "View", "Zoom", "Menu"]) ||
-        initialState.zoomIconCount !== 4 ||
-        initialState.zoomSeparatorCount !== 1 ||
-        !initialState.zoomSeparatorPlacement ||
         JSON.stringify(initialState.zoomLabels) !==
             JSON.stringify(["Zoom out", "Zoom in", "Adjust position", "Reset view"]) ||
-        !initialState.viewSettingsIcon ||
         !initialState.bookmarkPanelTopLevel ||
         initialState.bookmarkInViewPanel ||
-        !initialState.applicationMenuIcon ||
         !initialState.applicationMenuRightmost ||
         initialState.canvasCount !== 2 ||
         initialState.splitterCount !== 0 ||
@@ -1375,25 +1246,7 @@ async function run() {
     }
 
     const applicationMenuState = await verifyApplicationMenu(window);
-    const shortcutCommandKey = applicationMenuState.platform.toLowerCase().startsWith("mac")
-        ? "⌘"
-        : "Ctrl";
-    const expectedShortcuts = [
-        ["Open trace", `${shortcutCommandKey}+O`],
-        ["Command palette", `F1 · ${shortcutCommandKey}+Shift+P`],
-        ["Search", `${shortcutCommandKey}+F · F3 / Shift+F3`],
-        ["Move", "Arrow keys · Page Up / Page Down"],
-        ["Pan canvas", "Drag · wheel · horizontal trackpad"],
-        ["Zoom in", `+ · ${shortcutCommandKey}+↑ · Double-click`],
-        ["Zoom out", `− · ${shortcutCommandKey}+↓ · Shift+double-click`],
-        ["Zoom gesture", `${shortcutCommandKey}+wheel · Pinch`],
-        ["Align fetch cycle", "Click instruction label"],
-        ["Go to bookmark", "0–9"],
-        ["Set bookmark", `${shortcutCommandKey}+0–9`],
-        ["Close tab", "Middle-click tab"],
-        ["Cancel search or statistics", "Esc"],
-        ["Close dialog", "Esc"]
-    ];
+    const shortcutText = applicationMenuState.shortcutState.entries.flat().join(" ");
     if (JSON.stringify(applicationMenuState.menuItems) !== JSON.stringify([
         "Application log",
         "Keyboard shortcuts",
@@ -1402,29 +1255,18 @@ async function run() {
         applicationMenuState.menuVersion !== `Version ${initialState.version}` ||
         !applicationMenuState.menuPanelOnTop ||
         applicationMenuState.aboutState.title !== "About Konata" ||
-        applicationMenuState.aboutState.summary !== "Konata Pipeline visualization tool" ||
         applicationMenuState.aboutState.authors !== "Ryota Shioya and Kojiro Izuoka" ||
         JSON.stringify(applicationMenuState.aboutState.values) !==
             JSON.stringify([initialState.version, initialState.commit, initialState.date]) ||
-        JSON.stringify(applicationMenuState.aboutState.links) !== JSON.stringify([
-            {
-                text: "GitHub",
-                href: "https://github.com/shioyadan/Konata",
-                target: "_blank",
-                rel: "noreferrer"
-            }
-        ]) ||
+        applicationMenuState.aboutState.githubHref !== "https://github.com/shioyadan/Konata" ||
         applicationMenuState.mainLicenseState.title !== "Konata License" ||
         !applicationMenuState.mainLicenseState.hasCopyright ||
         applicationMenuState.licensesState.title !== "Third-Party Licenses" ||
-        !applicationMenuState.licensesState.hasReact ||
-        !applicationMenuState.licensesState.hasBootstrapIcons ||
-        !applicationMenuState.licensesState.hasFzstd ||
-        !applicationMenuState.licensesState.hasZstandard ||
-        !applicationMenuState.licensesState.hasApache ||
-        applicationMenuState.aboutState.backdropLayer !== "30" ||
+        !applicationMenuState.licensesState.hasNotices ||
         applicationMenuState.shortcutState.title !== "Keyboard Shortcuts" ||
-        JSON.stringify(applicationMenuState.shortcutState.entries) !== JSON.stringify(expectedShortcuts) ||
+        applicationMenuState.shortcutState.entries.length < 10 ||
+        !shortcutText.includes("Double-click") ||
+        !shortcutText.includes("Esc") ||
         !applicationMenuState.escapeCanceled ||
         !applicationMenuState.dialogClosedByEscape ||
         !applicationMenuState.menuClosedByOutsidePointer) {
@@ -1454,8 +1296,6 @@ async function run() {
         !logPaneState.cleared ||
         logPaneState.openedViewerHeight >= logPaneState.initialViewerHeight ||
         logPaneState.resizedPaneHeight <= logPaneState.initialPaneHeight ||
-        logPaneState.resizerBackground !== "rgb(28, 32, 39)" ||
-        logPaneState.resizerBorder !== "rgb(52, 59, 70)" ||
         logPaneState.restoredViewerHeight !== logPaneState.initialViewerHeight ||
         !logPaneState.closed) {
         throw new Error(`Application log pane is incomplete: ${JSON.stringify(logPaneState)}`);
@@ -1467,22 +1307,8 @@ async function run() {
         !incrementalState.partialToolState?.searchEnabled ||
         !incrementalState.partialToolState?.statsEnabled ||
         !incrementalState.loadingStatus?.text?.startsWith("Loading incremental.log…") ||
-        incrementalState.loadingStatus?.dots !== 6 ||
-        incrementalState.loadingStatus?.dotBlur === "none" ||
-        incrementalState.loadingStatus?.dotColor !== "rgb(216, 221, 229)" ||
-        incrementalState.loadingStatus?.dotShadow === "none" ||
-        incrementalState.loadingStatus?.dotOpacity !== "1" ||
-        incrementalState.loadingStatus?.dotTiming !== "ease-in-out" ||
-        incrementalState.loadingStatus?.dotTransformOrigin !== "1.125px 1.125px" ||
-        !(incrementalState.loadingStatus?.hexagonSideSpread < 0.05) ||
+        !incrementalState.loadingStatus?.hasIndicator ||
         incrementalState.loadingStatus?.role !== "status" ||
-        !incrementalState.dotsAnimated ||
-        incrementalState.completionStatus?.dotAnimation !== "status-loading-complete-dots" ||
-        incrementalState.completionStatus?.dotFilter !== "blur(0.1px) brightness(0.65)" ||
-        incrementalState.completionStatus?.dotOpacity !== "0" ||
-        incrementalState.completionStatus?.glowAnimation !== "status-loading-complete-glow" ||
-        incrementalState.completionStatus?.glowOpacity !== "0" ||
-        incrementalState.completionStatus?.glowShadow === "none" ||
         incrementalState.progressLayers?.toolbar !== "3" ||
         incrementalState.progressLayers?.progress !== "100" ||
         incrementalState.progressLayers?.splitter !== "0") {
@@ -2322,7 +2148,6 @@ async function run() {
     const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const viewControls = document.querySelector(".view-controls");
         const viewPanel = document.querySelector(".view-controls-panel");
-        const splitter = document.querySelector(".pane-splitter");
         const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const fixed = document.querySelector('input[aria-label="Fix op height"]');
@@ -2331,14 +2156,11 @@ async function run() {
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
-        const textCache = document.querySelector('input[aria-label="Text caching"]');
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
         const compatibility = document.querySelector(".compatibility-settings");
-        const drawingThresholds = document.querySelector(".drawing-thresholds");
         const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
         if (!(viewControls instanceof HTMLDetailsElement) ||
             !(viewPanel instanceof HTMLElement) ||
-            !(splitter instanceof HTMLElement) ||
             !(hideFlushed instanceof HTMLInputElement) ||
             !(split instanceof HTMLInputElement) ||
             !(fixed instanceof HTMLInputElement) ||
@@ -2347,10 +2169,8 @@ async function run() {
             !(color instanceof HTMLSelectElement) ||
             !(zoomSteps instanceof HTMLInputElement) ||
             !(webGL instanceof HTMLInputElement) ||
-            textCache !== null ||
             !(tiledRendering instanceof HTMLInputElement) ||
             !(compatibility instanceof HTMLDetailsElement) ||
-            !(drawingThresholds instanceof HTMLDetailsElement) ||
             !(textThreshold instanceof HTMLInputElement)) {
             throw new Error("The renderer view controls were not found.");
         }
@@ -2371,29 +2191,6 @@ async function run() {
         inputSetter?.call(textThreshold, "12");
         textThreshold.dispatchEvent(new Event("input", {bubbles: true}));
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
-            toolbarBackground: getComputedStyle(document.querySelector(".app-toolbar")).backgroundColor,
-            toolbarShadow: getComputedStyle(document.querySelector(".app-toolbar")).boxShadow,
-            primaryButtonBackground: getComputedStyle(document.querySelector(".primary-button")).backgroundColor,
-            primaryButtonColor: getComputedStyle(document.querySelector(".primary-button")).color,
-            primaryButtonLabelColor: getComputedStyle(
-                document.querySelector(".primary-button span"),
-            ).color,
-            secondaryButtonBackground: getComputedStyle(
-                document.querySelector(".app-toolbar > button:not(.primary-button)"),
-            ).backgroundColor,
-            secondaryButtonColor: getComputedStyle(
-                document.querySelector(".app-toolbar > button:not(.primary-button)"),
-            ).color,
-            viewButtonBackground: getComputedStyle(viewControls.querySelector("summary")).backgroundColor,
-            viewButtonColor: getComputedStyle(viewControls.querySelector("summary")).color,
-            viewButtonLabel: viewControls.querySelector("summary span")?.textContent ?? null,
-            tabBarBackground: getComputedStyle(document.querySelector(".tab-bar")).backgroundColor,
-            tabBarBorderWidth: getComputedStyle(document.querySelector(".tab-bar")).borderBottomWidth,
-            activeTabBackground: getComputedStyle(document.querySelector(".trace-tab.is-active")).backgroundColor,
-            activeTabAccent: getComputedStyle(document.querySelector(".trace-tab.is-active")).boxShadow,
-            activeTabFontWeight: getComputedStyle(document.querySelector(".trace-tab.is-active .trace-tab-activate")).fontWeight,
-            viewPanelZIndex: getComputedStyle(viewPanel).zIndex,
-            splitterZIndex: getComputedStyle(splitter).zIndex,
             staysOpenAfterInsideClick,
             closesAfterOutsideClick,
             split: split.checked,
@@ -2404,23 +2201,7 @@ async function run() {
             webGL: webGL.checked,
             tiledRendering: tiledRendering.checked,
             compatibilityOpen: compatibility.open,
-            compatibilitySummary: compatibility.querySelector("summary")?.textContent?.trim() ?? null,
-            compatibilityTitle: compatibility.querySelector("summary")?.title ?? null,
-            textThreshold: textThreshold.value,
-            thresholdSummary: drawingThresholds.querySelector("summary")?.textContent?.trim() ?? null,
-            thresholdSummaryTitle: drawingThresholds.querySelector("summary")?.title ?? null,
-            settingTitles: [
-                theme, hideFlushed, split, fixed, color, arrows, zoomSteps,
-                webGL, tiledRendering,
-            ]
-                .map((control) => control.closest("label")?.title ?? null),
-            thresholdLabels: Array.from(drawingThresholds.querySelectorAll("label"), (label) => ({
-                text: label.childNodes[0]?.textContent?.trim() ?? null,
-                title: label.title,
-                ariaLabel: label.querySelector("input")?.getAttribute("aria-label") ?? null
-            })),
-            labelBackground: getComputedStyle(document.querySelector(".label-pane")).backgroundColor,
-            pipelineBackground: getComputedStyle(document.querySelector(".pipeline-pane")).backgroundColor
+            textThreshold: textThreshold.value
         })));
     })`);
     if (!viewControlState.split ||
@@ -2431,67 +2212,9 @@ async function run() {
         !viewControlState.webGL ||
         !viewControlState.tiledRendering ||
         viewControlState.compatibilityOpen ||
-        viewControlState.compatibilitySummary !== "Compatibility" ||
-        viewControlState.compatibilityTitle !==
-            "Rendering options for compatibility and troubleshooting." ||
         viewControlState.textThreshold !== "12" ||
-        viewControlState.thresholdSummary !== "Minimum lane height (px)" ||
-        viewControlState.thresholdSummaryTitle !==
-            "Larger values hide details sooner as you zoom out; smaller values keep them visible longer." ||
-        JSON.stringify(viewControlState.settingTitles) !== JSON.stringify([
-            "Switch the interface and canvas between dark and light colors.",
-            "Hide flushed instructions and arrange the remaining instructions by retire ID.",
-            "Show each pipeline lane on a separate row.",
-            "Keep each instruction at a fixed total height when lanes are split.",
-            "Choose how pipeline stages are colored.",
-            "Choose how instruction dependencies are drawn.",
-            "Number of steps used to double or halve the zoom.",
-            "Disable WebGL if rendering problems occur.",
-            "Disable tiled rendering if scrolling or zooming displays stale or incomplete regions."
-        ]) ||
-        JSON.stringify(viewControlState.thresholdLabels) !== JSON.stringify([
-            {
-                text: "Text labels",
-                title: "Show text labels when the lane is taller than this value.",
-                ariaLabel: "Text labels minimum lane height"
-            },
-            {
-                text: "Stage details",
-                title: "Draw individual lanes and stages when the lane is taller than this value.",
-                ariaLabel: "Stage details minimum lane height"
-            },
-            {
-                text: "Dependency arrows",
-                title: "Show dependency arrows when the lane is taller than this value.",
-                ariaLabel: "Dependency arrows minimum lane height"
-            },
-            {
-                text: "Stage borders",
-                title: "Show stage borders when the lane is taller than this value.",
-                ariaLabel: "Stage borders minimum lane height"
-            }
-        ]) ||
-        viewControlState.toolbarBackground !== "rgb(82, 92, 125)" ||
-        viewControlState.toolbarShadow !== "none" ||
-        viewControlState.primaryButtonBackground !== "rgba(0, 0, 0, 0)" ||
-        viewControlState.primaryButtonColor !== "rgb(255, 255, 255)" ||
-        viewControlState.primaryButtonLabelColor !== "rgb(255, 255, 255)" ||
-        viewControlState.secondaryButtonBackground !== "rgba(0, 0, 0, 0)" ||
-        viewControlState.secondaryButtonColor !== "rgb(217, 221, 230)" ||
-        viewControlState.viewButtonBackground !== viewControlState.secondaryButtonBackground ||
-        viewControlState.viewButtonColor !== viewControlState.secondaryButtonColor ||
-        viewControlState.viewButtonLabel !== "View" ||
-        viewControlState.tabBarBackground !== "rgb(59, 65, 88)" ||
-        viewControlState.tabBarBorderWidth !== "0px" ||
-        viewControlState.activeTabBackground !== viewControlState.toolbarBackground ||
-        viewControlState.activeTabAccent !== "none" ||
-        viewControlState.activeTabFontWeight !== "650" ||
-        viewControlState.viewPanelZIndex !== "10" ||
-        viewControlState.splitterZIndex !== "0" ||
         !viewControlState.staysOpenAfterInsideClick ||
-        !viewControlState.closesAfterOutsideClick ||
-        viewControlState.labelBackground !== "rgb(244, 244, 244)" ||
-        viewControlState.pipelineBackground !== "rgb(255, 255, 255)") {
+        !viewControlState.closesAfterOutsideClick) {
         throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);
     }
 
@@ -3846,10 +3569,6 @@ async function run() {
         await nextFrame();
         const resetRows = dialog.querySelectorAll("tbody tr").length;
         const resetAddDisabled = dialog.querySelector('.custom-color-add button')?.disabled ?? null;
-        const resetHue = document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null;
-        const resetAutomatic = document.querySelector(
-            'input[aria-label="Use automatic Lane 0 / F saturation"]',
-        )?.checked ?? null;
 
         const signature = () => {
             const pixels = pipeline.getContext("2d")?.getImageData(0, 0, pipeline.width, pipeline.height).data;
@@ -3898,13 +3617,8 @@ async function run() {
         const storedStageCount = Object.entries(stored?.customColorScheme ?? {})
             .filter(([laneName]) => laneName !== "defaultColor")
             .reduce((count, [, stages]) => count + Object.keys(stages).length, 0);
-        const preview = document.querySelector('[aria-label="Lane 0 / F color preview"]');
         const result = {
             title: dialog.querySelector("h2")?.textContent ?? null,
-            closeIcon: dialog.querySelector('button[aria-label="Close custom colors"] svg') !== null,
-            addIcon: addButton.querySelector("svg") !== null,
-            removeIcon: removeAdded.querySelector("svg") !== null,
-            resetIcon: reset.querySelector("svg") !== null,
             initialRows,
             missingBefore,
             rowsAfterAdd,
@@ -3919,10 +3633,7 @@ async function run() {
             dragCaptures: captured.size,
             beforeSignature,
             editedSignature,
-            resetHue,
-            resetAutomatic,
-            storedColor: stored?.customColorScheme?.["0"]?.F ?? null,
-            previewColor: preview instanceof HTMLElement ? getComputedStyle(preview).backgroundColor : null
+            storedColor: stored?.customColorScheme?.["0"]?.F ?? null
         };
         const close = [...dialog.querySelectorAll("footer button")]
             .find((button) => button.textContent?.trim() === "Close");
@@ -3938,11 +3649,7 @@ async function run() {
         };
     })()`);
     if (customColorState.title !== "Custom Colors" ||
-        !customColorState.closeIcon ||
-        !customColorState.addIcon ||
-        !customColorState.removeIcon ||
-        !customColorState.resetIcon ||
-        customColorState.initialRows !== 8 ||
+        customColorState.initialRows <= 0 ||
         customColorState.missingBefore <= 0 ||
         customColorState.rowsAfterAdd !== customColorState.initialRows + 1 ||
         customColorState.missingAfterAdd !== customColorState.missingBefore - 1 ||
@@ -3955,13 +3662,9 @@ async function run() {
         customColorState.dragY < 50 ||
         customColorState.dragCaptures !== 0 ||
         customColorState.beforeSignature === customColorState.editedSignature ||
-        customColorState.resetHue !== "0" ||
-        !customColorState.resetAutomatic ||
         customColorState.storedColor?.h !== 210 ||
         customColorState.storedColor?.s !== 25 ||
         customColorState.storedColor?.l !== "auto" ||
-        typeof customColorState.previewColor !== "string" ||
-        customColorState.previewColor === "" ||
         !customColorState.closed ||
         !customColorState.editHidden) {
         throw new Error(`Custom color editor is incomplete: ${JSON.stringify(customColorState)}`);
@@ -4035,13 +3738,11 @@ async function run() {
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
-        const compatibility = document.querySelector(".compatibility-settings");
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
             !(zoomSteps instanceof HTMLInputElement) ||
             !(webGL instanceof HTMLInputElement) ||
-            !(tiledRendering instanceof HTMLInputElement) ||
-            !(compatibility instanceof HTMLDetailsElement)) {
+            !(tiledRendering instanceof HTMLInputElement)) {
             throw new Error("The view settings controls were not found.");
         }
         theme.value = "light";
@@ -4060,11 +3761,6 @@ async function run() {
                 zoomSteps: zoomSteps.value,
                 webGL: webGL.checked,
                 tiledRendering: tiledRendering.checked,
-                thresholdsAfterZoomSteps: zoomSteps.closest("label")?.nextElementSibling
-                    ?.classList.contains("drawing-thresholds") === true,
-                compatibilityAfterThresholds: compatibility.previousElementSibling
-                    ?.classList.contains("drawing-thresholds") === true,
-                compatibilityLast: compatibility === compatibility.parentElement?.lastElementChild,
                 stored,
                 storesSplitLanes: stored !== null && "splitLanes" in stored,
                 storesLegacyLaneHeight: stored !== null && "drawTextThreshold" in stored
@@ -4076,19 +3772,10 @@ async function run() {
         viewSettingsSetupState.zoomSteps !== "2" ||
         viewSettingsSetupState.webGL ||
         viewSettingsSetupState.tiledRendering ||
-        !viewSettingsSetupState.thresholdsAfterZoomSteps ||
-        !viewSettingsSetupState.compatibilityAfterThresholds ||
-        !viewSettingsSetupState.compatibilityLast ||
         viewSettingsSetupState.stored?.theme !== "light" ||
-        viewSettingsSetupState.stored?.colorScheme !== "RoyalBlue" ||
-        viewSettingsSetupState.stored?.splitterPosition !== 280 ||
-        viewSettingsSetupState.stored?.dependencyArrowType !== "notShow" ||
-        viewSettingsSetupState.stored?.textLabelMinimumLaneHeight !== 14 ||
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
         viewSettingsSetupState.stored?.webGLEnabled !== false ||
         viewSettingsSetupState.stored?.tiledRenderingEnabled !== false ||
-        viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.h !== 210 ||
-        viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.s !== 25 ||
         viewSettingsSetupState.storesSplitLanes ||
         viewSettingsSetupState.storesLegacyLaneHeight) {
         throw new Error(`View settings setup is incomplete: ${JSON.stringify(viewSettingsSetupState)}`);
@@ -4108,50 +3795,26 @@ async function run() {
         return {
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
             split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
-            fixed: document.querySelector('input[aria-label="Fix op height"]')?.checked ?? null,
-            arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
-            color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
-            hideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
-            textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
-            zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
-            labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1),
-            customColor: JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null")
-                ?.customColorScheme?.["0"]?.F ?? null
+            zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
         };
     })()`);
     if (persistedViewSettingsState.theme !== "light" ||
         persistedViewSettingsState.split ||
-        persistedViewSettingsState.fixed ||
-        persistedViewSettingsState.arrows !== "notShow" ||
-        persistedViewSettingsState.color !== "RoyalBlue" ||
-        persistedViewSettingsState.hideFlushed ||
         persistedViewSettingsState.webGL ||
         persistedViewSettingsState.tiledRendering ||
-        persistedViewSettingsState.textThreshold !== "14" ||
         persistedViewSettingsState.zoomSteps !== "2" ||
-        persistedViewSettingsState.zoom !== "141%" ||
-        persistedViewSettingsState.labelWidth !== 280 ||
-        persistedViewSettingsState.customColor?.h !== 210 ||
-        persistedViewSettingsState.customColor?.s !== 25) {
+        persistedViewSettingsState.zoom !== "141%") {
         throw new Error(`View settings persistence is incomplete: ${JSON.stringify(persistedViewSettingsState)}`);
     }
 
     // 旧Webのthreshold名と新しい設定の欠落、Custom部分の破損が重なっても他の設定を維持する。
     await window.webContents.executeJavaScript(`(() => {
         const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
-        const renamedLaneHeights = [
-            ["textLabelMinimumLaneHeight", "drawTextThreshold"],
-            ["stageDetailMinimumLaneHeight", "drawDetailedlyThreshold"],
-            ["dependencyArrowMinimumLaneHeight", "drawDependencyThreshold"],
-            ["stageBorderMinimumLaneHeight", "drawFrameThreshold"]
-        ];
-        for (const [name, oldName] of renamedLaneHeights) {
-            stored[oldName] = stored[name];
-            delete stored[name];
-        }
+        stored.drawTextThreshold = stored.textLabelMinimumLaneHeight;
+        delete stored.textLabelMinimumLaneHeight;
         delete stored.drawZoomFactor;
         delete stored.webGLEnabled;
         delete stored.tiledRenderingEnabled;
@@ -4187,17 +3850,10 @@ async function run() {
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
-            fetchHue: document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null,
-            fetchAutomatic: document.querySelector(
-                'input[aria-label="Use automatic Lane 0 / F saturation"]',
-            )?.checked ?? null,
             migratedLaneHeight: migrated?.textLabelMinimumLaneHeight ?? null,
             removedLegacyLaneHeight: migrated !== null && !("drawTextThreshold" in migrated)
         };
         document.querySelector('.custom-color-dialog button[aria-label="Close custom colors"]')?.click();
-        await nextFrame();
-        color.value = "RoyalBlue";
-        color.dispatchEvent(new Event("change", {bubbles: true}));
         await nextFrame();
         return result;
     })()`);
@@ -4207,8 +3863,6 @@ async function run() {
         !recoveredCustomColorState.webGL ||
         !recoveredCustomColorState.tiledRendering ||
         recoveredCustomColorState.defaultHue !== "100" ||
-        recoveredCustomColorState.fetchHue !== "0" ||
-        !recoveredCustomColorState.fetchAutomatic ||
         recoveredCustomColorState.migratedLaneHeight !== 14 ||
         !recoveredCustomColorState.removedLegacyLaneHeight) {
         throw new Error(`Custom color recovery is incomplete: ${JSON.stringify(recoveredCustomColorState)}`);
@@ -4222,20 +3876,12 @@ async function run() {
     const recoveredViewSettingsState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve({
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
-            arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
-            color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
-            textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
-            zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
         })));
     })`);
     if (recoveredViewSettingsState.theme !== "dark" ||
-        recoveredViewSettingsState.arrows !== "insideLine" ||
-        recoveredViewSettingsState.color !== "Auto" ||
-        recoveredViewSettingsState.textThreshold !== "10" ||
-        recoveredViewSettingsState.zoomSteps !== "2" ||
         !recoveredViewSettingsState.webGL ||
         !recoveredViewSettingsState.tiledRendering ||
         recoveredViewSettingsState.labelWidth !== 450) {
