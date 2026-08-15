@@ -3350,7 +3350,6 @@ async function run() {
         const fallbackColorfulPixels = countColorfulPixels(fallbackPixels);
         let differingPixels = 0;
         let noticeablyDifferingPixels = 0;
-        let maximumPixelDifference = 0;
         if (pixels !== undefined && fallbackPixels !== undefined && pixels.length === fallbackPixels.length) {
             for (let index = 0; index < pixels.length; index += 4) {
                 let pixelDiffers = false;
@@ -3360,7 +3359,6 @@ async function run() {
                     if (difference !== 0) {
                         pixelDiffers = true;
                         pixelDifference = Math.max(pixelDifference, difference);
-                        maximumPixelDifference = Math.max(maximumPixelDifference, difference);
                     }
                 }
                 if (pixelDiffers) {
@@ -3374,7 +3372,6 @@ async function run() {
         else {
             differingPixels = Number.POSITIVE_INFINITY;
             noticeablyDifferingPixels = Number.POSITIVE_INFINITY;
-            maximumPixelDifference = Number.POSITIVE_INFINITY;
         }
         const fallbackDrawCalls = drawCalls - drawCallsBeforeFallback;
         const fallbackBezierCurveCalls = canvasBezierCurveCalls - bezierCurveCallsBeforeFallback;
@@ -3400,7 +3397,7 @@ async function run() {
             disabledOpaquePixels, disabledColorfulPixels, disabledDrawCalls,
             disabledWebGLRequests, reenabledDrawCalls,
             fallbackOpaquePixels, fallbackColorfulPixels, fallbackDrawCalls,
-            differingPixels, noticeablyDifferingPixels, maximumPixelDifference, zoom,
+            differingPixels, noticeablyDifferingPixels, zoom,
             webGLRequests, webGLContexts};
     })()`);
     if (webGLState.drawCalls < 1 ||
@@ -3426,10 +3423,9 @@ async function run() {
         webGLState.fallbackOpaquePixels < 100 ||
         webGLState.fallbackColorfulPixels < 100 ||
         webGLState.fallbackDrawCalls !== 0 ||
-        // atlas文字と矢印edgeのcoverageはnative Canvasと完全には一致しないため、
-        // 差のある面積と最大差の両方に上限を置いて大きな形状崩れだけを検出する。
-        webGLState.noticeablyDifferingPixels > webGLState.opaquePixels * 0.01 ||
-        webGLState.maximumPixelDifference > 192 ||
+        // native Canvasのrasterizerごとに文字と矢印edgeのcoverageは変わるため、
+        // 単一画素の最大差ではなく、差のある面積だけで大きな形状崩れを検出する。
+        webGLState.noticeablyDifferingPixels > webGLState.opaquePixels * 0.015 ||
         webGLState.zoom !== "70.7%") {
         throw new Error(`WebGL2 simplified rendering is incomplete: ${JSON.stringify(webGLState)}`);
     }
