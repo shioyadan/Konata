@@ -7,7 +7,7 @@ import { Zstd } from "@hpcc-js/wasm-zstd";
 import ZstdStreamWorker from "./zstd_stream_worker";
 
 type ZstdStreamMode = "compress" | "decompress";
-type ZstdWorkerAction = "chunk" | "finish";
+type ZstdWorkerAction = "chunk" | "finish" | "compress";
 
 interface ZstdWorkerResponse {
     readonly type: "result" | "error";
@@ -42,9 +42,14 @@ interface KonataZstdDecompressionStreamConstructor {
 let localCompressionTail = Promise.resolve();
 let localDecompressionTail = Promise.resolve();
 
+// page圧縮は要求が重なった時だけWorkerを増やし、入力展開とmain threadの余地を残して4本で止める。
+const MAX_PAGE_COMPRESSION_WORKERS = 4;
+// Worker群が追いつかない場合は同期圧縮へ戻し、未圧縮pageが入力サイズに比例して増えるのを防ぐ。
+const MAX_PENDING_PAGE_COMPRESSIONS = 8;
+
 async function acquireLocalZstd(mode: ZstdStreamMode): Promise<() => void> {
     // Node.jsの単体テストにはWeb Workerがないため、従来のsingletonを直列化して使う。
-    // browserでは各streamが独立したWorkerを持つので、この待ち合わせは発生しない。
+    // browserでは入力展開とpage圧縮が別Workerなので、この待ち合わせは発生しない。
     const previous = mode === "compress" ? localCompressionTail : localDecompressionTail;
     let release: () => void = () => undefined;
     const current = new Promise<void>((resolve) => {
@@ -120,6 +125,15 @@ class LocalZstdStreamBackend implements ZstdStreamBackend {
     }
 }
 
+function transferableBuffer(chunk: Uint8Array): ArrayBuffer {
+    // File/ReadableStreamから受け取ったchunkの所有権をWorkerへ移し、巨大入力の複製を避ける。
+    // subarrayの場合だけ範囲外のbyteを送らないよう、独立したbufferへ切り詰める。
+    return chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength &&
+        chunk.buffer instanceof ArrayBuffer
+        ? chunk.buffer
+        : chunk.slice().buffer;
+}
+
 class WorkerZstdStreamBackend implements ZstdStreamBackend {
     private readonly worker_ = new ZstdStreamWorker();
     private pending_: {
@@ -146,18 +160,18 @@ class WorkerZstdStreamBackend implements ZstdStreamBackend {
             const error = new Error(event.message || "Zstandard Worker failed.");
             this.pending_?.reject(error);
             this.pending_ = null;
-            this.close();
+            this.close(error);
         };
     }
 
     transform(chunk: Uint8Array): Promise<Uint8Array> {
-        // File/ReadableStreamから受け取ったchunkの所有権をWorkerへ移し、巨大入力の複製を避ける。
-        // subarrayの場合だけ範囲外のbyteを送らないよう、独立したbufferへ切り詰める。
-        const transferable = chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength &&
-            chunk.buffer instanceof ArrayBuffer
-            ? chunk.buffer
-            : chunk.slice().buffer;
-        return this.request_("chunk", transferable);
+        return this.request_("chunk", transferableBuffer(chunk));
+    }
+
+    // page圧縮poolは同じWorkerへ完全な入力を一つずつ送り、独立したframeを受け取る。
+    // streamのfinishを呼ばないため、同じWorkerとWASM instanceを後続pageにも再利用できる。
+    compressPage(input: Uint8Array, level: number): Promise<Uint8Array> {
+        return this.request_("compress", transferableBuffer(input), level);
     }
 
     async finish(): Promise<Uint8Array> {
@@ -179,7 +193,11 @@ class WorkerZstdStreamBackend implements ZstdStreamBackend {
         this.pending_ = null;
     }
 
-    private request_(action: ZstdWorkerAction, chunk?: ArrayBuffer): Promise<Uint8Array> {
+    private request_(
+        action: ZstdWorkerAction,
+        chunk?: ArrayBuffer,
+        level?: number,
+    ): Promise<Uint8Array> {
         if (this.closed_) {
             return Promise.reject(new Error("The Zstandard stream is closed."));
         }
@@ -188,7 +206,7 @@ class WorkerZstdStreamBackend implements ZstdStreamBackend {
         }
         return new Promise<Uint8Array>((resolve, reject) => {
             this.pending_ = { resolve, reject };
-            const message = { mode: this.mode_, action, chunk };
+            const message = { mode: this.mode_, action, chunk, level };
             if (chunk === undefined) {
                 this.worker_.postMessage(message);
             }
@@ -200,7 +218,7 @@ class WorkerZstdStreamBackend implements ZstdStreamBackend {
 }
 
 function createBackend(mode: ZstdStreamMode): ZstdStreamBackend {
-    // 製品browserではWorkerへ分離する。Node.jsの単体テストだけは同じWASM処理をmain threadで通す。
+    // 製品browserはWorkerへ分離し、Node.jsの単体テストだけmain threadで通す。
     return typeof Worker === "undefined"
         ? new LocalZstdStreamBackend(mode)
         : new WorkerZstdStreamBackend(mode);
@@ -277,9 +295,117 @@ class WasmKonataZstdDecompressionStream extends WasmKonataZstdStream {
     }
 }
 
-// 実装選択は意図的に自動化しない。将来browserのzstd対応を採用するときは、この2行だけを
-// CompressionStream/DecompressionStreamのconstructorへ明示的に差し替える。
+export interface KonataZstdPageCompressor {
+    compress(input: Uint8Array): Promise<Uint8Array>;
+    close(): void;
+}
+
+interface KonataZstdPageCompressorConstructor {
+    new (zstd: Zstd, level?: number): KonataZstdPageCompressor;
+}
+
+class WasmKonataZstdPageCompressor implements KonataZstdPageCompressor {
+    private readonly workerBackends_: WorkerZstdStreamBackend[] = [];
+    private readonly workerTails_: Promise<void>[] = [];
+    private readonly pendingByWorker_: number[] = [];
+    private localTail_ = Promise.resolve();
+    private pending_ = 0;
+    private closed_ = false;
+
+    constructor(
+        private readonly zstd_: Zstd,
+        private readonly level_ = 1,
+    ) {}
+
+    async compress(input: Uint8Array): Promise<Uint8Array> {
+        if (this.closed_) {
+            throw new Error("The Zstandard page compressor is closed.");
+        }
+        if (this.pending_ >= MAX_PENDING_PAGE_COMPRESSIONS) {
+            // 非同期処理が詰まった時だけ旧実装と同じ同期圧縮へ戻す。ただし公開契約は常に
+            // Promiseとし、呼出し側からWorker・同期WASM・将来の標準APIの違いを隠す。
+            return this.zstd_.compress(input, this.level_);
+        }
+        return typeof Worker === "undefined"
+            ? this.compressLocally_(input)
+            : this.compressInWorker_(input);
+    }
+
+    close(): void {
+        if (this.closed_) {
+            return;
+        }
+        this.closed_ = true;
+        for (const backend of this.workerBackends_) {
+            backend.close();
+        }
+    }
+
+    private compressInWorker_(input: Uint8Array): Promise<Uint8Array> {
+        let workerIndex = this.pendingByWorker_.findIndex((pending) => pending === 0);
+        if (workerIndex === -1 &&
+            this.workerBackends_.length < MAX_PAGE_COMPRESSION_WORKERS) {
+            workerIndex = this.workerBackends_.length;
+            this.workerBackends_.push(new WorkerZstdStreamBackend("compress"));
+            this.workerTails_.push(Promise.resolve());
+            this.pendingByWorker_.push(0);
+        }
+        if (workerIndex === -1) {
+            workerIndex = this.pendingByWorker_.indexOf(Math.min(...this.pendingByWorker_));
+        }
+
+        const backend = this.workerBackends_[workerIndex];
+        this.pending_++;
+        this.pendingByWorker_[workerIndex]++;
+        const result = this.workerTails_[workerIndex].then(() => {
+            if (this.closed_) {
+                throw new Error("The Zstandard page compressor is closed.");
+            }
+            return backend.compressPage(input, this.level_);
+        });
+        const settled = () => this.compressionSettled_(workerIndex);
+        this.workerTails_[workerIndex] = result.then(settled, settled);
+        return result;
+    }
+
+    private compressLocally_(input: Uint8Array): Promise<Uint8Array> {
+        this.pending_++;
+        const result = this.localTail_.then(async () => {
+            const release = await acquireLocalZstd("compress");
+            try {
+                if (this.closed_) {
+                    throw new Error("The Zstandard page compressor is closed.");
+                }
+                return this.zstd_.compress(input, this.level_);
+            }
+            finally {
+                release();
+            }
+        });
+        const settled = () => this.compressionSettled_();
+        this.localTail_ = result.then(settled, settled);
+        return result;
+    }
+
+    private compressionSettled_(workerIndex?: number): void {
+        this.pending_--;
+        if (workerIndex !== undefined) {
+            this.pendingByWorker_[workerIndex]--;
+        }
+    }
+}
+
+// 実装選択は意図的に自動化しない。将来browserのzstd対応を採用するときは、この選択と
+// factoryだけを標準constructor、または標準streamを使う薄いpage adapterへ差し替える。
 export const KonataZstdCompressionStream: KonataZstdCompressionStreamConstructor =
     WasmKonataZstdCompressionStream;
 export const KonataZstdDecompressionStream: KonataZstdDecompressionStreamConstructor =
     WasmKonataZstdDecompressionStream;
+const KonataZstdPageCompressorImplementation: KonataZstdPageCompressorConstructor =
+    WasmKonataZstdPageCompressor;
+
+export async function createKonataZstdPageCompressor(
+    level = 1,
+): Promise<KonataZstdPageCompressor> {
+    return new KonataZstdPageCompressorImplementation(await Zstd.load(), level);
+}

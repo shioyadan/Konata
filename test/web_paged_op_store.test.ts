@@ -58,7 +58,7 @@ function createComplexOp(): Op {
     return op;
 }
 
-test("PagedOpStore restores the complete mutable Op model", () => {
+test("PagedOpStore restores the complete mutable Op model", async () => {
     // 1 Op/page、展開page 1枚に制限し、別IDの追加で必ずserialize/deserializeを通す。
     const store = new PagedOpStore({
         pageSizeBits: 0,
@@ -71,6 +71,7 @@ test("PagedOpStore restores the complete mutable Op model", () => {
     const other = new Op();
     other.id = 1;
     store.setOp(other.id, other);
+    await store.waitForPendingCompression();
 
     assert.equal(store.serializedPageCount, 1);
     assert.equal(store.decodedPageCount, 1);
@@ -147,6 +148,7 @@ test("PagedOpStore restores the complete mutable Op model", () => {
     restored.labelDetail += "; updated";
     store.setOp(restored.id, restored);
     store.getOp(1);
+    await store.waitForPendingCompression();
     assert.equal(store.getOp(0)?.labelDetail, "detail\nline; updated");
 });
 
@@ -170,6 +172,8 @@ test("PagedOpStore stores independently decodable Zstandard pages", async () => 
     const third = new Op();
     third.id = 2;
     store.setOp(third.id, third);
+    // zstd圧縮はWorker相当の非同期経路なので、保存量を調べる前に完了だけを待つ。
+    await store.waitForPendingCompression();
 
     const metrics = store.levelMetrics[0];
     assert.equal(store.pageCodec, "zstd");
@@ -180,9 +184,67 @@ test("PagedOpStore stores independently decodable Zstandard pages", async () => 
     assert.equal(store.getOp(0)?.labelDetail, original.labelDetail);
     assert.equal(store.getOp(1)?.labelDetail, other.labelDetail);
     assert.equal(store.levelMetrics[0].decodeCount, 2);
+    store.close();
 });
 
-test("PagedOpStore uses coarse pages and both LRU layers", () => {
+test("PagedOpStore keeps and safely updates pages during asynchronous compression", async () => {
+    const store = await PagedOpStore.createZstd({
+        pageSizeBits: 0,
+        maxDecodedPages: 1,
+        levelSpans: [1],
+    });
+    const original = createComplexOp();
+    original.labelDetail = "before compression";
+    store.setOp(0, original);
+
+    const other = new Op();
+    other.id = 1;
+    store.setOp(1, other);
+    // 圧縮結果が返るまでは元のOpを切り離さず、読み込み中のRendererから同じobjectを参照できる。
+    assert.equal(store.getOp(0), original);
+
+    original.labelDetail = "updated while compressing";
+    store.setOp(0, original);
+    const third = new Op();
+    third.id = 2;
+    store.setOp(2, third);
+    await store.waitForPendingCompression();
+
+    const restored = store.getOp(0);
+    assert.ok(restored);
+    assert.notEqual(restored, original);
+    // 先に開始した圧縮の完了が、setOp()後に開始した新しい世代を上書きしない。
+    assert.equal(restored.labelDetail, "updated while compressing");
+    store.close();
+});
+
+test("PagedOpStore bounds pages waiting for asynchronous compression", async () => {
+    const store = await PagedOpStore.createZstd({
+        pageSizeBits: 0,
+        maxDecodedPages: 1,
+        maxCachedOps: 1,
+        levelSpans: [1],
+    });
+
+    for (let id = 0; id < 32; id++) {
+        const op = new Op();
+        op.id = id;
+        op.labelDetail = `operation ${id}`;
+        store.setOp(id, op);
+    }
+
+    // 同期fallbackもPromiseとして見えるため、同じcall stack内の完了通知を一度だけ処理させる。
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    // 1枚の表示用pageと最大8枚のWorker待ちだけをOpのまま保持する。
+    assert.ok(store.decodedPageCount <= 9);
+    await store.waitForPendingCompression();
+    assert.equal(store.decodedPageCount, 1);
+    assert.equal(store.getOp(0)?.labelDetail, "operation 0");
+    assert.equal(store.getOp(31)?.labelDetail, "operation 31");
+    store.close();
+});
+
+test("PagedOpStore uses coarse pages and both LRU layers", async () => {
     // 1 Op/pageにすると、最後のID以外は必ずserialize済みになる。
     const store = new PagedOpStore({
         pageSizeBits: 0,
@@ -195,6 +257,7 @@ test("PagedOpStore uses coarse pages and both LRU layers", () => {
         op.id = id;
         store.setOp(id, op);
     }
+    await store.waitForPendingCompression();
 
     assert.deepEqual(store.levelMetrics.map((level) => level.span), [1, 8, 64]);
     const before = store.levelMetrics;
@@ -247,6 +310,7 @@ test("OnikiriParser preserves post-retire updates through serialized pages", asy
         levelSpans: [1],
     });
     const trace = await new OnikiriParser(store).parse(new FileLineReader(file));
+    await store.waitForPendingCompression();
 
     assert.equal(trace.lastID, 1);
     assert.equal(trace.lastRID, 0);
@@ -280,6 +344,7 @@ test("OnikiriParser does not reload an evicted producer page for dependencies", 
         levelSpans: [1],
     });
     const trace = await new OnikiriParser(store).parse(new FileLineReader(file));
+    await store.waitForPendingCompression();
 
     assert.equal(store.levelMetrics[0].decodeCount, 0);
     assert.deepEqual(trace.getOp(2)?.prods.map((dependency) => ({ ...dependency })), [

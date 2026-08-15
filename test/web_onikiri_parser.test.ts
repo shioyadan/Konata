@@ -11,6 +11,7 @@ import { ArrayOpStore } from "../src/core/op_store";
 import {
     KonataZstdCompressionStream,
     KonataZstdDecompressionStream,
+    createKonataZstdPageCompressor,
 } from "../src/core/zstd_stream";
 
 function fileFromFixture(relativePath: string, type: string): File {
@@ -101,6 +102,22 @@ test("Konata Zstandard streams use the future browser API shape in both directio
     const restored = new Uint8Array(await new Response(restoredStream).arrayBuffer());
 
     assert.deepEqual(restored, source);
+});
+
+test("Konata Zstandard page compression always exposes an asynchronous contract", async () => {
+    const compressor = await createKonataZstdPageCompressor(1);
+    const encoder = new TextEncoder();
+    const requests = Array.from({ length: 16 }, (_, index) =>
+        compressor.compress(encoder.encode(`operation page ${index}`)));
+
+    // 内部の非同期queueが埋まり同期fallbackへ切り替わっても、利用側には常にPromiseを返す。
+    assert.ok(requests.every((request) => request instanceof Promise));
+    const zstd = await Zstd.load();
+    const decoder = new TextDecoder();
+    const restored = (await Promise.all(requests)).map((compressed) =>
+        decoder.decode(zstd.decompress(compressed)));
+    assert.deepEqual(restored, Array.from({ length: 16 }, (_, index) => `operation page ${index}`));
+    compressor.close();
 });
 
 test("Web Onikiri parser preserves core commands for a plain-text trace", async () => {

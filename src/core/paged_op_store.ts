@@ -9,14 +9,19 @@
 // setOp()はIDが各spanで割り切れるlevelへOpを書き、縮小表示時は最も粗い有効levelから
 // 取得する。これにより、離れたOpを描くために細かいpageを大量展開することを避ける。
 // 展開済みpageが上限を超えると、dirty pageをJSON.stringify()で保存し、必要ならpage単位の
-// 独立したzstd frameへ圧縮して元のOp参照を切る。getOp()は必要なpageだけを同期的に戻すため、
-// Renderer側の同期APIは旧版のまま維持できる。OpはJSONで表せるdataだけを持つため、page側で
-// fieldごとの変換やclass instanceの再生成は行わない。
+// 独立したzstd frameへ非同期圧縮する。圧縮が終わるまでは元のOpを保持し、完了後にだけ参照を
+// 切る。getOp()は必要なpageだけを同期的に戻すため、Renderer側の同期APIは旧版のまま維持
+// できる。OpはJSONで表せるdataだけを持つため、page側でfieldごとの変換やclass instanceの
+// 再生成は行わない。
 
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
 import { type Op } from "./model";
 import { resolveOpID, type MutableOpStore } from "./op_store";
+import {
+    createKonataZstdPageCompressor,
+    type KonataZstdPageCompressor,
+} from "./zstd_stream";
 
 // 各levelが保持する命令IDの間隔。level 0は全命令を持ち、以降は8命令ごとに間引くことで、
 // 縮小表示時に細かいpageを大量に展開せず、粗いlevelだけから命令を取得できるようにする。
@@ -24,12 +29,14 @@ const DEFAULT_LEVEL_SPANS = [1, 8, 64, 512, 4096] as const;
 // 描画で復元したOpをpage cacheとは別に保持するLRUの上限。panやzoomで同じ命令を繰り返し
 // 復元するcostを抑えつつ、大きなtraceでも未圧縮Opが増え続けない旧実装の値を維持する。
 const DEFAULT_MAX_CACHED_OPS = 32768;
-// pageは読込み中とcache miss時に同期圧縮するため、zstdは圧縮率より応答速度を優先するlevel 1を使う。
+// pageは読込み中に多数作られるため、圧縮率より速度を優先するlevel 1を維持する。
 const ZSTD_COMPRESSION_LEVEL = 1;
 
 interface DecodedPage {
     readonly ops: Array<Op | undefined>;
     dirty: boolean;
+    version: number;
+    compressing: boolean;
 }
 
 type StoredPagePayload = string | Uint8Array;
@@ -41,7 +48,7 @@ interface StoredPage {
 
 interface PageCodec {
     readonly name: "json" | "zstd";
-    encode(serialized: string): StoredPagePayload;
+    encode(ops: readonly (Op | undefined)[]): Promise<StoredPage>;
     decode(payload: StoredPagePayload): string;
     close(): void;
 }
@@ -69,7 +76,10 @@ export interface OpPageLevelMetrics {
 
 const jsonPageCodec: PageCodec = {
     name: "json",
-    encode: (serialized) => serialized,
+    encode: async (ops) => {
+        const serialized = JSON.stringify(ops);
+        return { payload: serialized, serializedCharacters: serialized.length };
+    },
     decode: (payload) => {
         if (typeof payload !== "string") {
             throw new Error("Expected a JSON page.");
@@ -79,12 +89,20 @@ const jsonPageCodec: PageCodec = {
     close: () => undefined,
 };
 
-function createZstdPageCodec(zstd: Zstd): PageCodec {
+function createZstdPageCodec(
+    zstd: Zstd,
+    compressor: KonataZstdPageCompressor,
+): PageCodec {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
     let encodeBuffer = new Uint8Array(0);
+    let closed = false;
 
-    const encode = (serialized: string): Uint8Array => {
+    const encodeInput = (ops: readonly (Op | undefined)[]) => {
+        if (closed) {
+            throw new Error("The operation page codec is closed.");
+        }
+        const serialized = JSON.stringify(ops);
         // TextEncoder.encode()はpageごとに一時Uint8Arrayを作る。Chromiumではこの確保と
         // UTF-8変換が大きなtraceの読込み時間を占めるため、最大page用のbufferを再利用する。
         // JSONは通常ASCIIが中心なので、まず1 UTF-16 code unitあたり1 byteだけを確保する。
@@ -104,12 +122,17 @@ function createZstdPageCodec(zstd: Zstd): PageCodec {
             throw new Error("The operation page could not be encoded as UTF-8.");
         }
 
-        // compress()は同期的にWASMへ入力をコピーする。返却後は同じ作業bufferを次のpageで
-        // 上書きでき、各pageが保持する圧縮済みUint8Arrayは互いに独立したままになる。
-        return zstd.compress(
-            encodeBuffer.subarray(0, encoded.written),
-            ZSTD_COMPRESSION_LEVEL,
-        );
+        return {
+            input: encodeBuffer.subarray(0, encoded.written),
+            serializedCharacters: serialized.length,
+        };
+    };
+
+    const encode = async (ops: readonly (Op | undefined)[]): Promise<StoredPage> => {
+        const encoded = encodeInput(ops);
+        // 圧縮器の内部実装を区別せず、常に非同期結果として扱う。
+        const payload = await compressor.compress(encoded.input.slice());
+        return { payload, serializedCharacters: encoded.serializedCharacters };
     };
 
     return {
@@ -123,6 +146,8 @@ function createZstdPageCodec(zstd: Zstd): PageCodec {
             return decoder.decode(zstd.decompress(payload));
         },
         close: () => {
+            closed = true;
+            compressor.close();
             // close後もStoreが参照される場合に、最大page用の作業bufferだけを残さない。
             encodeBuffer = new Uint8Array(0);
         },
@@ -140,6 +165,9 @@ class OpPageLevel {
     private decodeCount_ = 0;
     private decodeMilliseconds_ = 0;
     private maxDecodeMilliseconds_ = 0;
+    private pendingCompressions_ = 0;
+    private readonly idleResolvers_: Array<() => void> = [];
+    private closed_ = false;
 
     constructor(
         readonly span: number,
@@ -179,6 +207,7 @@ class OpPageLevel {
         const added = page.ops[offset] === undefined;
         page.ops[offset] = op;
         page.dirty = true;
+        page.version++;
         return added;
     }
 
@@ -189,6 +218,7 @@ class OpPageLevel {
     }
 
     close(): void {
+        this.closed_ = true;
         this.serializedPages_.clear();
         this.decodedPages_.clear();
         this.decodedPageLRU_.clear();
@@ -198,6 +228,17 @@ class OpPageLevel {
         this.decodeCount_ = 0;
         this.decodeMilliseconds_ = 0;
         this.maxDecodeMilliseconds_ = 0;
+        this.pendingCompressions_ = 0;
+        for (const resolve of this.idleResolvers_.splice(0)) {
+            resolve();
+        }
+    }
+
+    waitForPendingCompression(): Promise<void> {
+        if (this.pendingCompressions_ === 0 || this.closed_) {
+            return Promise.resolve();
+        }
+        return new Promise<void>((resolve) => this.idleResolvers_.push(resolve));
     }
 
     private pageIndex_(blockID: number): number {
@@ -207,7 +248,12 @@ class OpPageLevel {
     private loadPage_(pageIndex: number): DecodedPage {
         const cached = this.decodedPages_.get(pageIndex);
         if (cached !== undefined) {
+            const wasEvicted = !this.decodedPageLRU_.has(pageIndex);
             this.touchPage_(pageIndex);
+            if (wasEvicted) {
+                // 圧縮待ちのpageを再表示した場合はそのまま利用し、代わりにLRU最古を退避する。
+                this.evictPages_();
+            }
             return cached;
         }
 
@@ -225,7 +271,12 @@ class OpPageLevel {
             this.decodeMilliseconds_ += milliseconds;
             this.maxDecodeMilliseconds_ = Math.max(this.maxDecodeMilliseconds_, milliseconds);
         }
-        const page: DecodedPage = { ops, dirty: false };
+        const page: DecodedPage = {
+            ops,
+            dirty: false,
+            version: 0,
+            compressing: false,
+        };
         this.decodedPages_.set(pageIndex, page);
         this.touchPage_(pageIndex);
         this.evictPages_();
@@ -250,20 +301,81 @@ class OpPageLevel {
                 continue;
             }
             if (page.dirty || !this.serializedPages_.has(oldest)) {
-                // undefinedの穴はJSONでnullになり、page内offsetを維持できる。
-                const start = performance.now();
-                // Opにobject参照や保存専用fieldはないため、旧版と同じくpageを直接JSON化する。
-                const serialized = JSON.stringify(page.ops);
-                this.serializedPages_.set(oldest, {
-                    payload: this.codec_.encode(serialized),
-                    serializedCharacters: serialized.length,
-                });
-                const milliseconds = performance.now() - start;
-                this.serializeCount_++;
-                this.serializeMilliseconds_ += milliseconds;
-                this.maxSerializeMilliseconds_ = Math.max(this.maxSerializeMilliseconds_, milliseconds);
+                if (!page.compressing) {
+                    this.compressPage_(oldest, page);
+                }
+                // codec内部が同期処理でも契約は常にPromiseなので、完了通知までは元のOpを保持する。
+                continue;
             }
             this.decodedPages_.delete(oldest);
+        }
+    }
+
+    private compressPage_(pageIndex: number, page: DecodedPage): void {
+        const start = performance.now();
+        const version = page.version;
+        // Opにobject参照や保存専用fieldはないため、旧版と同じくpageを直接JSON化する。
+        // undefinedの穴はJSONでnullになり、page内offsetも維持される。
+        page.compressing = true;
+        this.pendingCompressions_++;
+        void this.codec_.encode(page.ops).then(
+            (storedPage) => this.compressionFinished_(
+                pageIndex,
+                page,
+                version,
+                storedPage,
+                start,
+            ),
+            (error: unknown) => this.compressionFailed_(page, error),
+        ).finally(() => this.compressionSettled_());
+    }
+
+    private compressionFinished_(
+        pageIndex: number,
+        page: DecodedPage,
+        version: number,
+        storedPage: StoredPage,
+        start: number,
+    ): void {
+        if (this.closed_) {
+            return;
+        }
+        const milliseconds = performance.now() - start;
+        this.serializeCount_++;
+        this.serializeMilliseconds_ += milliseconds;
+        this.maxSerializeMilliseconds_ = Math.max(this.maxSerializeMilliseconds_, milliseconds);
+        page.compressing = false;
+        // 圧縮開始後にsetOp()されたpageへ古い結果を戻さない。新しい内容は次の退避時に保存する。
+        if (page.version !== version) {
+            if (!this.decodedPageLRU_.has(pageIndex)) {
+                this.compressPage_(pageIndex, page);
+            }
+            return;
+        }
+        this.serializedPages_.set(pageIndex, storedPage);
+        page.dirty = false;
+        if (!this.decodedPageLRU_.has(pageIndex)) {
+            this.decodedPages_.delete(pageIndex);
+        }
+    }
+
+    private compressionFailed_(page: DecodedPage, error: unknown): void {
+        page.compressing = false;
+        if (!this.closed_) {
+            // 一つのpageを保存できなくても読み込み済みOpは残し、trace全体の解析を止めない。
+            console.warn("Failed to compress an operation page; keeping it in memory.", error);
+        }
+    }
+
+    private compressionSettled_(): void {
+        if (this.closed_) {
+            return;
+        }
+        this.pendingCompressions_--;
+        if (this.pendingCompressions_ === 0) {
+            for (const resolve of this.idleResolvers_.splice(0)) {
+                resolve();
+            }
         }
     }
 }
@@ -310,8 +422,12 @@ export class PagedOpStore implements MutableOpStore {
     }
 
     static async createZstd(options: PagedOpStoreOptions = {}): Promise<PagedOpStore> {
-        // WASMのcompileだけを非同期で済ませ、描画時の同期getOp()は維持する。
-        return new PagedOpStore(options, createZstdPageCodec(await Zstd.load()));
+        // 同期page展開用codecと、内部実装を隠した非同期圧縮器を組み合わせる。
+        const [zstd, compressor] = await Promise.all([
+            Zstd.load(),
+            createKonataZstdPageCompressor(ZSTD_COMPRESSION_LEVEL),
+        ]);
+        return new PagedOpStore(options, createZstdPageCodec(zstd, compressor));
     }
 
     get pageCodec(): "json" | "zstd" {
@@ -356,6 +472,11 @@ export class PagedOpStore implements MutableOpStore {
 
     get opCacheHitCount(): number {
         return this.opCacheHitCount_;
+    }
+
+    waitForPendingCompression(): Promise<void> {
+        return Promise.all(this.levels_.map((level) => level.waitForPendingCompression()))
+            .then(() => undefined);
     }
 
     setOp(id: number, op: Op): void {
@@ -421,10 +542,10 @@ export class PagedOpStore implements MutableOpStore {
     }
 
     close(): void {
+        this.pageCodec_.close();
         for (const level of this.levels_) {
             level.close();
         }
-        this.pageCodec_.close();
         this.opCache_.clear();
         this.retiredOpIDs_.length = 0;
         this.lastID_ = -1;

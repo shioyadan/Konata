@@ -3,6 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { performance } from "node:perf_hooks";
 
+import { FileLineReader } from "../src/core/file_line_reader";
 import type { ParsedTrace } from "../src/core/model";
 import { OnikiriParser } from "../src/core/onikiri_parser";
 import { ArrayOpStore, type MutableOpStore } from "../src/core/op_store";
@@ -162,7 +163,7 @@ async function benchmark(name: string, file: File, storeCase: StoreCase): Promis
 
     const start = performance.now();
     try {
-        trace = await new OnikiriParser(store).parse(file, () => {
+        trace = await new OnikiriParser(store).parse(new FileLineReader(file), () => {
             progressCallbacks++;
             const current = memorySnapshot();
             peak = {
@@ -177,6 +178,10 @@ async function benchmark(name: string, file: File, storeCase: StoreCase): Promis
     const parseMilliseconds = performance.now() - start;
     if (trace === undefined) {
         throw new Error("The parser did not return a trace.");
+    }
+    // parse完了時刻はそのまま記録し、保持量を比べる前にだけ非同期page圧縮の完了を待つ。
+    if (store instanceof PagedOpStore) {
+        await store.waitForPendingCompression();
     }
 
     collectGarbage();
