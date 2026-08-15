@@ -3990,7 +3990,6 @@ async function run() {
         persistentFileState,
         remoteTraceState,
     })}`);
-    window.destroy();
 }
 
 app.whenReady()
