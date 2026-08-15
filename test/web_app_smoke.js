@@ -2201,7 +2201,9 @@ async function run() {
             webGL: webGL.checked,
             tiledRendering: tiledRendering.checked,
             compatibilityOpen: compatibility.open,
-            textVisibility: textVisibility.value
+            textVisibility: textVisibility.value,
+            checkboxesOnRight: [hideFlushed, split, fixed, webGL, tiledRendering]
+                .every((control) => control.closest("label")?.lastElementChild === control)
         })));
     })`);
     if (!viewControlState.split ||
@@ -2213,6 +2215,7 @@ async function run() {
         !viewControlState.tiledRendering ||
         viewControlState.compatibilityOpen ||
         viewControlState.textVisibility !== "4" ||
+        !viewControlState.checkboxesOnRight ||
         !viewControlState.staysOpenAfterInsideClick ||
         !viewControlState.closesAfterOutsideClick) {
         throw new Error(`Renderer view controls are incomplete: ${JSON.stringify(viewControlState)}`);

@@ -1345,6 +1345,7 @@ export function App() {
                             </select>
                         </label>
                         <label title="Hide flushed instructions and arrange the remaining instructions by retire ID.">
+                            Hide flushed ops
                             <input
                                 type="checkbox"
                                 aria-label="Hide flushed ops"
@@ -1352,9 +1353,9 @@ export function App() {
                                 disabled={trace === null}
                                 onChange={(event) => toggleHideFlushedOps(event.target.checked)}
                             />
-                            Hide flushed ops
                         </label>
                         <label title="Show each pipeline lane on a separate row.">
+                            Split lanes
                             <input
                                 type="checkbox"
                                 aria-label="Split lanes"
@@ -1365,9 +1366,9 @@ export function App() {
                                     enabled: event.target.checked,
                                 })}
                             />
-                            Split lanes
                         </label>
                         <label title="Keep each instruction at a fixed total height when lanes are split.">
+                            Fix op height
                             <input
                                 type="checkbox"
                                 aria-label="Fix op height"
@@ -1378,7 +1379,6 @@ export function App() {
                                     enabled: event.target.checked,
                                 })}
                             />
-                            Fix op height
                         </label>
                         <div className="custom-color-control">
                             <label title={comparisonTab === null
@@ -1504,6 +1504,7 @@ export function App() {
                                 Compatibility
                             </summary>
                             <label title="Disable WebGL if rendering problems occur.">
+                                WebGL rendering
                                 <input
                                     type="checkbox"
                                     aria-label="WebGL rendering"
@@ -1513,9 +1514,9 @@ export function App() {
                                         enabled: event.target.checked,
                                     })}
                                 />
-                                WebGL rendering
                             </label>
                             <label title="Disable tiled rendering if scrolling or zooming displays stale or incomplete regions.">
+                                Tiled rendering
                                 <input
                                     type="checkbox"
                                     aria-label="Tiled rendering"
@@ -1525,7 +1526,6 @@ export function App() {
                                         enabled: event.target.checked,
                                     })}
                                 />
-                                Tiled rendering
                             </label>
                         </details>
                     </div>
