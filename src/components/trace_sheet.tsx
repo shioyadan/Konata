@@ -1,4 +1,5 @@
 import {
+    type CSSProperties,
     forwardRef,
     type MouseEvent as ReactMouseEvent,
     type PointerEvent,
@@ -210,7 +211,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         ? null
         : new KonataRenderMetrics(baselineTrace, baselineRenderSpec);
     const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
-    const splitterDraggingRef = useRef(false);
+    const splitterPointerIDRef = useRef<number | null>(null);
     const wheelZoomRef = useRef({
         modifierDown: false,
         trackpadDelta: 0,
@@ -572,28 +573,49 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         return () => observer.disconnect();
     }, [redraw]);
 
-    useLayoutEffect(() => {
-        const handleMouseMove = (event: MouseEvent) => {
-            const viewer = viewerRef.current;
-            if (!splitterDraggingRef.current || viewer === null) {
-                return;
-            }
-            const rect = viewer.getBoundingClientRect();
-            // ウィンドウ外までdragしても、どちらかのpaneが負の幅にならないよう補正する。
-            const position = Math.min(Math.max(event.clientX - rect.left, 0), Math.max(0, rect.width - 10));
-            onMoveSplitter(position);
-        };
-        const handleMouseUp = () => {
-            splitterDraggingRef.current = false;
-            setIsResizing(false);
-        };
-        window.addEventListener("mousemove", handleMouseMove);
-        window.addEventListener("mouseup", handleMouseUp);
-        return () => {
-            window.removeEventListener("mousemove", handleMouseMove);
-            window.removeEventListener("mouseup", handleMouseUp);
-        };
-    }, [onMoveSplitter]);
+    const moveSplitterFromPointer = (clientX: number) => {
+        const viewer = viewerRef.current;
+        if (viewer === null) {
+            return;
+        }
+        const rect = viewer.getBoundingClientRect();
+        // 保存値は画面幅と独立させ、狭い画面での表示上限はCSSだけで適用する。
+        const position = Math.min(Math.max(clientX - rect.left, 0), Math.max(0, rect.width - 10));
+        onMoveSplitter(position);
+    };
+
+    const handleSplitterPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0 || splitterPointerIDRef.current !== null) {
+            return;
+        }
+        splitterPointerIDRef.current = event.pointerId;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setIsResizing(true);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleSplitterPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+        if (splitterPointerIDRef.current !== event.pointerId) {
+            return;
+        }
+        moveSplitterFromPointer(event.clientX);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleSplitterPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+        if (splitterPointerIDRef.current !== event.pointerId) {
+            return;
+        }
+        splitterPointerIDRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        setIsResizing(false);
+        event.preventDefault();
+        event.stopPropagation();
+    };
 
     const handleWheel = useCallback((event: WheelEvent) => {
         if (trace === null) {
@@ -875,13 +897,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     return (
         <div
             ref={viewerRef}
-            className={`viewer${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
-            style={{
-                // trace公開前は操作対象がないためdividerを消し、初期画面を1枚のpaneとして見せる。
-                gridTemplateColumns: trace === null
-                    ? "0 minmax(0, 1fr)"
-                    : `minmax(0, min(${splitterPosition}px, calc(100% - 10px))) 10px minmax(0, 1fr)`,
-            }}
+            className={`viewer${trace === null ? " is-empty" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
+            // 保存したdesktop幅を維持したまま、狭い画面ではCSS側だけで表示幅を制限する。
+            style={{ "--label-pane-width": `${splitterPosition}px` } as CSSProperties}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -908,17 +926,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     aria-orientation="vertical"
                     aria-valuemin={0}
                     aria-valuenow={Math.round(splitterPosition)}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onMouseDown={(event) => {
-                        if (event.button !== 0) {
-                            return;
-                        }
-                        // 旧splitter_windowと同じく、drag中はwindow側でmove/upを追跡する。
-                        splitterDraggingRef.current = true;
-                        setIsResizing(true);
-                        event.preventDefault();
-                        event.stopPropagation();
-                    }}
+                    onPointerDown={handleSplitterPointerDown}
+                    onPointerMove={handleSplitterPointerMove}
+                    onPointerUp={handleSplitterPointerUp}
+                    onPointerCancel={handleSplitterPointerUp}
+                    onLostPointerCapture={handleSplitterPointerUp}
                 />
             )}
             <section className="viewer-pane pipeline-pane" aria-label="Pipeline chart">

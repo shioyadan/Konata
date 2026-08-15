@@ -750,7 +750,7 @@ async function verifyPersistentFileWorkflow(window, webFile) {
     return {firstPage, secondPage};
 }
 
-async function moveSplitter(window, position) {
+async function moveSplitter(window, position, pointerType = "mouse") {
     return window.webContents.executeJavaScript(`new Promise((resolve) => {
         const viewer = document.querySelector(".viewer");
         const label = document.querySelector(".label-pane");
@@ -765,26 +765,42 @@ async function moveSplitter(window, position) {
         const viewerRect = viewer.getBoundingClientRect();
         const splitterRect = splitter.getBoundingClientRect();
         const initialLabelWidth = Math.round(label.getBoundingClientRect().width);
-        splitter.dispatchEvent(new MouseEvent("mousedown", {
+        // synthetic pointerにも製品コードと同じcapture寿命を与え、mouseとtouchを同じ経路で確認する。
+        const captured = new Set();
+        Object.defineProperties(splitter, {
+            setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => captured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
+        });
+        const dispatchPointer = (type, clientX, buttons) => splitter.dispatchEvent(new PointerEvent(type, {
+            pointerId: 1,
+            pointerType: ${JSON.stringify(pointerType)},
+            isPrimary: true,
             bubbles: true,
             cancelable: true,
-            button: 0,
-            clientX: splitterRect.left + splitterRect.width / 2
+            button: type === "pointerdown" ? 0 : -1,
+            buttons,
+            clientX
         }));
-        window.dispatchEvent(new MouseEvent("mousemove", {
-            bubbles: true,
-            clientX: viewerRect.left + ${position}
+        dispatchPointer("pointerdown", splitterRect.left + splitterRect.width / 2, 1);
+        dispatchPointer("pointermove", viewerRect.left + ${position}, 1);
+        dispatchPointer("pointerup", viewerRect.left + ${position}, 0);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const result = {
+                initialLabelWidth,
+                viewerWidth: Math.round(viewer.getBoundingClientRect().width),
+                labelWidth: Math.round(label.getBoundingClientRect().width),
+                splitterWidth: Math.round(splitter.getBoundingClientRect().width),
+                pipelineWidth: Math.round(pipeline.getBoundingClientRect().width),
+                position: splitter.getAttribute("aria-valuenow"),
+                cursor: getComputedStyle(splitter).cursor,
+                capturedPointers: captured.size
+            };
+            delete splitter.setPointerCapture;
+            delete splitter.hasPointerCapture;
+            delete splitter.releasePointerCapture;
+            resolve(result);
         }));
-        window.dispatchEvent(new MouseEvent("mouseup", {bubbles: true}));
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
-            initialLabelWidth,
-            viewerWidth: Math.round(viewer.getBoundingClientRect().width),
-            labelWidth: Math.round(label.getBoundingClientRect().width),
-            splitterWidth: Math.round(splitter.getBoundingClientRect().width),
-            pipelineWidth: Math.round(pipeline.getBoundingClientRect().width),
-            position: splitter.getAttribute("aria-valuenow"),
-            cursor: getComputedStyle(splitter).cursor
-        })));
     })`);
 }
 
@@ -2139,8 +2155,53 @@ async function run() {
         firstSplitterState.splitterWidth !== 10 ||
         firstSplitterState.pipelineWidth !== firstSplitterState.viewerWidth - 330 ||
         firstSplitterState.position !== "320" ||
-        firstSplitterState.cursor !== "col-resize") {
+        firstSplitterState.cursor !== "col-resize" ||
+        firstSplitterState.capturedPointers !== 0) {
         throw new Error(`Trace pane splitter is incomplete: ${JSON.stringify(firstSplitterState)}`);
+    }
+
+    // 狭い画面ではdesktop用の保存幅を維持しながらlabelを40%までに抑え、touchでも調整できる。
+    window.setContentSize(390, 700);
+    const narrowPaneState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const viewer = document.querySelector(".viewer")?.getBoundingClientRect();
+            const label = document.querySelector(".label-pane")?.getBoundingClientRect();
+            const pipeline = document.querySelector(".pipeline-pane")?.getBoundingClientRect();
+            resolve({
+                viewerWidth: Math.round(viewer?.width ?? -1),
+                labelWidth: Math.round(label?.width ?? -1),
+                pipelineWidth: Math.round(pipeline?.width ?? -1),
+                position: document.querySelector(".pane-splitter")?.getAttribute("aria-valuenow") ?? null
+            });
+        }));
+    })`);
+    if (narrowPaneState.labelWidth > narrowPaneState.viewerWidth * 0.4 + 1 ||
+        narrowPaneState.pipelineWidth < narrowPaneState.viewerWidth * 0.55 ||
+        narrowPaneState.position !== "320") {
+        throw new Error(`Narrow trace panes are incomplete: ${JSON.stringify(narrowPaneState)}`);
+    }
+    const touchSplitterState = await moveSplitter(window, 120, "touch");
+    if (touchSplitterState.labelWidth !== 120 ||
+        touchSplitterState.pipelineWidth !== touchSplitterState.viewerWidth - 130 ||
+        touchSplitterState.position !== "120" ||
+        touchSplitterState.capturedPointers !== 0) {
+        throw new Error(`Touch splitter is incomplete: ${JSON.stringify(touchSplitterState)}`);
+    }
+    const recappedPaneState = await moveSplitter(window, 320, "touch");
+    if (recappedPaneState.labelWidth > recappedPaneState.viewerWidth * 0.4 + 1 ||
+        recappedPaneState.position !== "320" ||
+        recappedPaneState.capturedPointers !== 0) {
+        throw new Error(`Narrow pane cap is incomplete: ${JSON.stringify(recappedPaneState)}`);
+    }
+    window.setContentSize(1100, 700);
+    const restoredPaneState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            labelWidth: Math.round(document.querySelector(".label-pane")?.getBoundingClientRect().width ?? -1),
+            position: document.querySelector(".pane-splitter")?.getAttribute("aria-valuenow") ?? null
+        })));
+    })`);
+    if (restoredPaneState.labelWidth !== 320 || restoredPaneState.position !== "320") {
+        throw new Error(`Desktop pane width was not restored: ${JSON.stringify(restoredPaneState)}`);
     }
 
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
@@ -2280,7 +2341,8 @@ async function run() {
         secondSplitterState.labelWidth !== 280 ||
         secondSplitterState.splitterWidth !== 10 ||
         secondSplitterState.pipelineWidth !== secondSplitterState.viewerWidth - 290 ||
-        secondSplitterState.position !== "280") {
+        secondSplitterState.position !== "280" ||
+        secondSplitterState.capturedPointers !== 0) {
         throw new Error(`Second tab splitter is incomplete: ${JSON.stringify(secondSplitterState)}`);
     }
 

@@ -961,11 +961,20 @@ button:disabled {
 .viewer {
     position: relative;
     display: grid;
+    grid-template-columns:
+        minmax(0, min(var(--label-pane-width), calc(100% - 10px)))
+        10px
+        minmax(0, 1fr);
     min-height: 0;
     flex: 1;
     cursor: grab;
     touch-action: none;
     user-select: none;
+}
+
+/* trace公開前は操作対象がないためdividerを消し、初期画面を1枚のpaneとして見せる。 */
+.viewer.is-empty {
+    grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .viewer.is-panning {
@@ -986,11 +995,13 @@ button:disabled {
 /* 旧window_splitterと同じ10px幅を確保し、label側と一体に見せる。 */
 .pane-splitter {
     /* toolbarから開く設定panelより前へ出ないよう、描画面内の階層に留める。 */
+    position: relative;
     z-index: 0;
     min-width: 10px;
     border-right: 1px solid #555b68;
     background: #303340;
     cursor: col-resize;
+    touch-action: none;
 }
 
 .viewer.is-resizing,
@@ -2133,6 +2144,21 @@ button:disabled {
         width: 100%;
         margin-left: 0;
         order: 2;
+    }
+
+    /* pipelineを主表示として残し、desktopで保存した固定px幅は書き換えない。 */
+    .viewer:not(.is-empty) {
+        grid-template-columns:
+            minmax(0, min(var(--label-pane-width), 40%))
+            10px
+            minmax(0, 1fr);
+    }
+
+    /* 見た目の10px幅は保ちつつ、指でつかめる範囲だけを左右へ広げる。 */
+    .pane-splitter::after {
+        position: absolute;
+        inset: 0 -7px;
+        content: "";
     }
 
 }
