@@ -52,6 +52,7 @@ import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
     type MinimumLaneHeightKey,
+    type Operation,
     type PersistedViewSettings,
     Store,
 } from "./store";
@@ -61,6 +62,14 @@ interface ViewBookmark {
     readonly x: number;
     readonly y: number;
     readonly zoom: number;
+}
+
+interface OperationProgress {
+    readonly key: string;
+    readonly type: Operation | "stats";
+    readonly value: number;
+    readonly label: string;
+    readonly active: boolean;
 }
 
 // 各詳細を描画するlaneの最小高さと、UIの説明を1か所で対応付ける。
@@ -988,14 +997,39 @@ export function App() {
         statusType = "error";
     }
 
-    // 読込みとの同時実行時は、ESCで中断できる前景操作の進捗を優先して示す。
-    const operation = statsProgress !== null
-        ? { type: "stats", value: statsProgress, label: "Calculating statistics" }
-        : searchProgress !== null
-            ? { type: "search", value: searchProgress, label: "Searching trace" }
-            : loadState === "loading"
-                ? { type: "load", value: progress, label: `Loading ${fileName}` }
-                : null;
+    // 旧app_progress_barと同じく、Tabと処理種別ごとの進捗を独立して積む。
+    // 検索やStatsでloadを隠さず、非active Tabの処理も灰色で確認できるようにする。
+    const operations: OperationProgress[] = [];
+    for (const tab of tabs) {
+        const active = tab.id === activeTabID;
+        if (tab.loadState === "loading") {
+            operations.push({
+                key: `${tab.id}-load`,
+                type: "load",
+                value: tab.progress,
+                label: `Loading ${tab.fileName}`,
+                active,
+            });
+        }
+        if (tab.findContext.progress !== null) {
+            operations.push({
+                key: `${tab.id}-search`,
+                type: "search",
+                value: tab.findContext.progress,
+                label: `Searching ${tab.fileName}`,
+                active,
+            });
+        }
+    }
+    if (statsProgress !== null && activeTab !== null) {
+        operations.push({
+            key: `${activeTab.id}-stats`,
+            type: "stats",
+            value: statsProgress,
+            label: `Calculating statistics for ${activeTab.fileName}`,
+            active: true,
+        });
+    }
     const canReload = activeTab?.kind === "trace" &&
         activeTab.loadState !== "loading" && reloadableTabIDs.has(activeTab.id);
 
@@ -1261,7 +1295,7 @@ export function App() {
                 <button
                     className="button-with-icon toolbar-action"
                     type="button"
-                    disabled={trace === null || statsProgress !== null || searchProgress !== null}
+                    disabled={trace === null || statsProgress !== null}
                     onClick={showStats}
                 >
                     <BsBarChart aria-hidden="true" />
@@ -1540,16 +1574,23 @@ export function App() {
                     hasUnreadWarning={hasUnreadWarning}
                     onOpenLog={openLogPane}
                 />
-                {operation !== null && (
-                    <div
-                        className={`operation-progress ${operation.type}`}
-                        role="progressbar"
-                        aria-label={operation.label}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={Math.round(operation.value * 100)}
-                    >
-                        <div style={{ width: `${operation.value * 100}%` }} />
+                {operations.length > 0 && (
+                    <div className="operation-progress-stack">
+                        {operations.map((operation) => (
+                            <div
+                                className={`operation-progress ${operation.active
+                                    ? `active ${operation.type}`
+                                    : "background"}`}
+                                role="progressbar"
+                                aria-label={operation.label}
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={Math.round(operation.value * 100)}
+                                key={operation.key}
+                            >
+                                <div style={{ width: `${operation.value * 100}%` }} />
+                            </div>
+                        ))}
                     </div>
                 )}
             </header>

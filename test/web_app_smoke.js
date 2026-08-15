@@ -202,6 +202,8 @@ async function dropConcurrentZstdContents(window, contents) {
                         }
                         // 両方が展開入力へ到達するまで待たせ、singletonによる直列化への退行を検出する。
                         await bothStarted;
+                        // 2本のload progressを同時にDOM上で観測してから入力を再開する。
+                        await new Promise((resolve) => setTimeout(resolve, 100));
                         // File constructorへ渡した元bufferとは分け、テスト用stream自身が所有するchunkにする。
                         controller.enqueue(bytes.slice());
                     }
@@ -226,9 +228,20 @@ async function dropConcurrentZstdContents(window, contents) {
         }));
 
         const deadline = performance.now() + 20000;
+        let stackedProgress = null;
         while (performance.now() < deadline) {
             const tabs = [...document.querySelectorAll(".trace-tab")].filter((tab) =>
                 names.includes(tab.querySelector('[role="tab"]')?.textContent?.trim() ?? ""));
+            const stack = document.querySelector(".operation-progress-stack");
+            const bars = [...document.querySelectorAll(".operation-progress")];
+            if (stackedProgress === null && stack instanceof HTMLElement && bars.length >= 2) {
+                stackedProgress = {
+                    count: bars.length,
+                    zIndex: getComputedStyle(stack).zIndex,
+                    tops: bars.map((bar) => bar.getBoundingClientRect().top),
+                    colors: bars.map((bar) => getComputedStyle(bar.firstElementChild).backgroundColor)
+                };
+            }
             if (tabs.some((tab) => tab.dataset.loadState === "error")) {
                 throw new Error("A concurrent Zstandard trace failed to load: " + JSON.stringify({
                     tabs: tabs.map((tab) => ({
@@ -241,7 +254,7 @@ async function dropConcurrentZstdContents(window, contents) {
             }
             if (tabs.length === 2 && tabs.every((tab) => tab.dataset.loadState === "ready")) {
                 await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-                return {names, startedStreams};
+                return {names, startedStreams, stackedProgress};
             }
             await new Promise((resolve) => setTimeout(resolve, 10));
         }
@@ -402,6 +415,7 @@ async function verifyIncrementalRendering(window) {
                 const canvas = document.querySelector(".pipeline-pane canvas");
                 const toolbar = document.querySelector(".app-toolbar");
                 const progress = document.querySelector(".operation-progress");
+                const progressStack = document.querySelector(".operation-progress-stack");
                 const splitter = document.querySelector(".pane-splitter");
                 const status = document.querySelector(".status-loading");
                 const dots = status?.querySelector(".status-loading-dots");
@@ -449,11 +463,12 @@ async function verifyIncrementalRendering(window) {
                 }
                 if (toolbar instanceof HTMLElement &&
                     progress instanceof HTMLElement &&
+                    progressStack instanceof HTMLElement &&
                     splitter instanceof HTMLElement) {
                     // progressはtoolbarの下端からviewerへ3px重なるため、splitterより上の階層を維持する。
                     progressLayers = {
                         toolbar: getComputedStyle(toolbar).zIndex,
-                        progress: getComputedStyle(progress).zIndex,
+                        progress: getComputedStyle(progressStack).zIndex,
                         splitter: getComputedStyle(splitter).zIndex
                     };
                 }
@@ -3717,6 +3732,12 @@ async function run() {
     const zstdState = await readRenderedState(window);
     // gem5 fallbackはKanata判定後にFile.stream()を開き直すため、2 filesで合計4回開始する。
     if (concurrentZstdState.startedStreams < 2 ||
+        concurrentZstdState.stackedProgress?.count !== 2 ||
+        concurrentZstdState.stackedProgress?.zIndex !== "100" ||
+        concurrentZstdState.stackedProgress?.tops[1] -
+            concurrentZstdState.stackedProgress?.tops[0] !== 3 ||
+        !concurrentZstdState.stackedProgress?.colors.includes("rgb(180, 180, 180)") ||
+        !concurrentZstdState.stackedProgress?.colors.includes("rgb(77, 136, 255)") ||
         zstdState.loadState !== "ready" ||
         !concurrentZstdState.names.includes(zstdState.fileName) ||
         zstdState.opCount !== 1 ||

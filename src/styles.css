@@ -1126,31 +1126,38 @@ button:disabled {
     font-size: 0.75rem;
 }
 
-.operation-progress {
+.operation-progress-stack {
     position: absolute;
-    /* toolbar内では設定類と独立して、下端の3pxを常に最前面へ描く。 */
+    /* toolbar直下で各処理を縦に積み、Canvasやsplitterより前へ重ねる。 */
     z-index: 100;
     right: 0;
-    bottom: -3px;
+    top: 100%;
     left: 0;
-    height: 3px;
     pointer-events: none;
+}
+
+.operation-progress {
+    height: 3px;
 }
 
 .operation-progress div {
     height: 100%;
 }
 
-.operation-progress.load div {
+.operation-progress.active.load div {
     background: hsl(220 100% 65%);
 }
 
-.operation-progress.stats div {
+.operation-progress.active.stats div {
     background: hsl(20 50% 65%);
 }
 
-.operation-progress.search div {
+.operation-progress.active.search div {
     background: hsl(150 30% 50%);
+}
+
+.operation-progress.background div {
+    background: rgb(180 180 180);
 }
 
 .find-result {
