@@ -1516,7 +1516,7 @@ async function run() {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
 
-    // Ctrl+wheelはbrowser zoomを抑止する。外側の倍率は目標へ進み、Canvasだけが補間する。
+    // trackpad pinchは小数倍率へ、物理Ctrl+wheelは40 msの回転量に応じた最大2段へ畳む。
     const wheelZoomState = await window.webContents.executeJavaScript(`(async () => {
         const viewer = document.querySelector(".viewer");
         const reset = [...document.querySelectorAll(".zoom-controls button")]
@@ -1525,43 +1525,92 @@ async function run() {
         if (!(viewer instanceof HTMLElement) || !(reset instanceof HTMLButtonElement)) {
             throw new Error("The viewer zoom controls were not found.");
         }
+        const rect = viewer.getBoundingClientRect();
         const before = output?.textContent ?? null;
-        const event = new WheelEvent("wheel", {
+        const trackpadEvents = Array.from({length: 20}, () => new WheelEvent("wheel", {
             bubbles: true,
             cancelable: true,
             ctrlKey: true,
-            deltaY: -1,
-            clientX: viewer.getBoundingClientRect().left + 400,
-            clientY: viewer.getBoundingClientRect().top + 200
-        });
-        const dispatched = viewer.dispatchEvent(event);
-        const immediatelyAfter = output?.textContent ?? null;
+            deltaY: -10,
+            clientX: rect.left + 400,
+            clientY: rect.top + 200
+        }));
+        const trackpadDispatched = trackpadEvents.map((event) => viewer.dispatchEvent(event));
+        const trackpadImmediatelyAfter = output?.textContent ?? null;
         await new Promise((resolve) => requestAnimationFrame(() =>
             requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const during = output?.textContent ?? null;
+        const trackpadZoom = output?.textContent ?? null;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+
+        document.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "Control",
+            ctrlKey: true,
+            bubbles: true
+        }));
+        const wheelEvents = Array.from({length: 3}, () => new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: 120,
+            clientX: rect.left + 400,
+            clientY: rect.top + 200
+        }));
+        const wheelDispatched = wheelEvents.map((event) => viewer.dispatchEvent(event));
+        const wheelImmediatelyAfter = output?.textContent ?? null;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const wheelTarget = output?.textContent ?? null;
+        const cooledWheelEvent = new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: 120,
+            clientX: rect.left + 400,
+            clientY: rect.top + 200
+        });
+        const cooledWheelDispatched = viewer.dispatchEvent(cooledWheelEvent);
+        document.dispatchEvent(new KeyboardEvent("keyup", {
+            key: "Control",
+            bubbles: true
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const cooledWheelTarget = output?.textContent ?? null;
         await new Promise((resolve) => setTimeout(resolve, 220));
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        const zoom = output?.textContent ?? null;
+        const wheelZoom = output?.textContent ?? null;
         reset.click();
         const resetImmediatelyAfter = output?.textContent ?? null;
         await new Promise((resolve) => setTimeout(resolve, 300));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
-            canceled: !dispatched && event.defaultPrevented,
+            trackpadCanceled: trackpadDispatched.every((value, index) =>
+                !value && trackpadEvents[index].defaultPrevented),
+            wheelCanceled: wheelDispatched.every((value, index) =>
+                !value && wheelEvents[index].defaultPrevented) &&
+                !cooledWheelDispatched && cooledWheelEvent.defaultPrevented,
             before,
-            immediatelyAfter,
-            during,
-            zoom,
+            trackpadImmediatelyAfter,
+            trackpadZoom,
+            wheelImmediatelyAfter,
+            wheelTarget,
+            cooledWheelTarget,
+            wheelZoom,
             resetImmediatelyAfter,
             resetZoom: output?.textContent ?? null
         };
     })()`);
-    if (!wheelZoomState.canceled ||
+    if (!wheelZoomState.trackpadCanceled || !wheelZoomState.wheelCanceled ||
         wheelZoomState.before !== "100%" ||
-        wheelZoomState.immediatelyAfter !== "100%" ||
-        wheelZoomState.during !== "200%" ||
-        wheelZoomState.zoom !== "200%" ||
-        wheelZoomState.resetImmediatelyAfter !== "200%" ||
+        wheelZoomState.trackpadImmediatelyAfter !== "100%" ||
+        wheelZoomState.trackpadZoom !== "119%" ||
+        wheelZoomState.wheelImmediatelyAfter !== "100%" ||
+        wheelZoomState.wheelTarget !== "25%" ||
+        wheelZoomState.cooledWheelTarget !== "12.5%" ||
+        wheelZoomState.wheelZoom !== "12.5%" ||
+        wheelZoomState.resetImmediatelyAfter !== "12.5%" ||
         wheelZoomState.resetZoom !== "100%") {
         throw new Error(`Wheel zoom handling is incomplete: ${JSON.stringify(wheelZoomState)}`);
     }

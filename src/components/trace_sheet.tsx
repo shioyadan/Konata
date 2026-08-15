@@ -58,6 +58,24 @@ const ZOOM_ANIMATION_DURATION = 80;
 const SCROLL_ANIMATION_DURATION = 100;
 const VIEW_ANIMATION_DURATION = 200;
 const BOOKMARK_ZOOM_ANIMATION_DURATION = 160;
+const WHEEL_ZOOM_AGGREGATION_MS = 40;
+const WHEEL_LINE_DELTA = 40;
+const WHEEL_PAGE_DELTA = 300;
+const WHEEL_DELTA_PER_ZOOM_LEVEL = 120;
+const MAX_WHEEL_ZOOM_LEVELS = 2;
+const TRACKPAD_DELTA_PER_ZOOM_LEVEL = 100;
+const MAX_TRACKPAD_ZOOM_PER_FRAME = 0.25;
+
+function normalizeWheelDelta(event: WheelEvent): number {
+    // deltaの単位はdevice／OS依存なので、主要map rendererと同じ尺度へ先に揃える。
+    if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+        return event.deltaY * WHEEL_LINE_DELTA;
+    }
+    if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+        return event.deltaY * WHEEL_PAGE_DELTA;
+    }
+    return event.deltaY;
+}
 
 export interface TraceSheetHandle {
     clearToolTip(): void;
@@ -193,6 +211,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         : new KonataRenderMetrics(baselineTrace, baselineRenderSpec);
     const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
     const splitterDraggingRef = useRef(false);
+    const wheelZoomRef = useRef({
+        modifierDown: false,
+        trackpadDelta: 0,
+        centerX: 0,
+        centerY: 0,
+        frameID: null as number | null,
+        wheelDelta: 0,
+        wheelTimerID: null as number | null,
+    });
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
@@ -274,14 +301,16 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         );
     }, [baselineTrace, comparisonMode, startViewTransition, trace, viewController]);
 
-    const zoomAt = useCallback((factor: number, centerX: number, centerY: number) => {
+    const zoomAt = useCallback((factor: number, centerX: number, centerY: number, steps = 1) => {
         if (factor === 1) {
             return;
         }
         const from = viewController.currentSpec;
         const baselineFrom = viewController.currentBaselineSpec;
         const baseLevel = viewController.targetSpec.zoomLevel;
-        const zoomLevel = clampKonataZoomLevel(baseLevel + (factor > 1 ? -zoomStep : zoomStep));
+        const zoomLevel = clampKonataZoomLevel(
+            baseLevel + (factor > 1 ? -zoomStep : zoomStep) * steps,
+        );
         // 上限でのkey repeatは同じ終点へのanimationを再起動せず、進行中の最後の遷移を完了させる。
         if (zoomLevel === baseLevel) {
             return;
@@ -298,6 +327,30 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             { type: "zoomAt", duration: ZOOM_ANIMATION_DURATION, centerX, centerY },
         );
     }, [baselineTrace, startViewTransition, trace, viewController, zoomStep]);
+
+    const zoomImmediatelyBy = useCallback((
+        difference: number,
+        centerX: number,
+        centerY: number,
+        panX = 0,
+        panY = 0,
+    ) => {
+        const from = viewController.currentSpec;
+        const baselineFrom = viewController.currentBaselineSpec;
+        const applyZoom = (
+            currentTrace: ParsedTrace | null,
+            spec: Readonly<KonataRenderSpec>,
+        ) => {
+            const panned = new KonataRenderMetrics(currentTrace, spec).withPixelPan(panX, panY);
+            return getKonataView(new KonataRenderMetrics(currentTrace, panned).withZoomLevel(
+                panned.zoomLevel + difference, centerX, centerY,
+            ));
+        };
+        viewController.setImmediately(
+            applyZoom(trace, from),
+            baselineFrom === undefined ? undefined : applyZoom(baselineTrace, baselineFrom),
+        );
+    }, [baselineTrace, trace, viewController]);
 
     const transitionToView = useCallback((
         target: KonataView,
@@ -546,7 +599,57 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             const rect = pipelineCanvasRef.current?.getBoundingClientRect();
             const x = rect === undefined ? 0 : Math.max(0, event.clientX - rect.left);
             const y = rect === undefined ? 0 : Math.max(0, event.clientY - rect.top);
-            zoomAt(event.deltaY < 0 ? 1.2 : 1 / 1.2, x, y);
+            const delta = normalizeWheelDelta(event);
+            if (delta === 0) {
+                return;
+            }
+            const wheelZoom = wheelZoomRef.current;
+            if (!wheelZoom.modifierDown) {
+                wheelZoom.trackpadDelta += delta;
+                wheelZoom.centerX = x;
+                wheelZoom.centerY = y;
+                if (wheelZoom.frameID === null) {
+                    // Chromiumのpinchは高頻度なCtrl+wheelになるため、1 frameへまとめて小数倍率で追従する。
+                    wheelZoom.frameID = requestAnimationFrame(() => {
+                        wheelZoom.frameID = null;
+                        const difference = Math.max(
+                            -MAX_TRACKPAD_ZOOM_PER_FRAME,
+                            Math.min(
+                                MAX_TRACKPAD_ZOOM_PER_FRAME,
+                                wheelZoom.trackpadDelta / TRACKPAD_DELTA_PER_ZOOM_LEVEL * zoomStep,
+                            ),
+                        );
+                        wheelZoom.trackpadDelta = 0;
+                        zoomImmediatelyBy(difference, wheelZoom.centerX, wheelZoom.centerY);
+                    });
+                }
+                return;
+            }
+
+            wheelZoom.wheelDelta += delta;
+            wheelZoom.centerX = x;
+            wheelZoom.centerY = y;
+            if (wheelZoom.wheelTimerID === null) {
+                // 物理wheelは40 ms分を1操作へ畳み、通常1段、高速回転でも最大2段に抑える。
+                wheelZoom.wheelTimerID = window.setTimeout(() => {
+                    wheelZoom.wheelTimerID = null;
+                    const accumulated = wheelZoom.wheelDelta;
+                    wheelZoom.wheelDelta = 0;
+                    if (accumulated === 0) {
+                        return;
+                    }
+                    const steps = Math.min(
+                        MAX_WHEEL_ZOOM_LEVELS,
+                        Math.ceil(Math.abs(accumulated) / WHEEL_DELTA_PER_ZOOM_LEVEL),
+                    );
+                    zoomAt(
+                        accumulated < 0 ? 1.2 : 1 / 1.2,
+                        wheelZoom.centerX,
+                        wheelZoom.centerY,
+                        steps,
+                    );
+                }, WHEEL_ZOOM_AGGREGATION_MS);
+            }
             return;
         }
 
@@ -562,16 +665,43 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const differenceY = (event.deltaY > 0 ? 1 : -1) *
             3 / displayMetricsRef.current.zoomScale;
         moveView([0, differenceY], true);
-    }, [moveView, trace, zoomAt]);
+    }, [moveView, trace, zoomAt, zoomImmediatelyBy, zoomStep]);
 
     useLayoutEffect(() => {
         const viewer = viewerRef.current;
         if (viewer === null) {
             return;
         }
+        const handleModifierKey = (event: KeyboardEvent) => {
+            if (event.key === "Control" || event.key === "Meta") {
+                wheelZoomRef.current.modifierDown = event.type === "keydown";
+            }
+        };
+        const clearModifierKey = () => {
+            wheelZoomRef.current.modifierDown = false;
+        };
         // Reactのpassiveなwheel委譲ではCtrl+wheelのbrowser zoomを止められないため、ここだけ直接購読する。
         viewer.addEventListener("wheel", handleWheel, { passive: false });
-        return () => viewer.removeEventListener("wheel", handleWheel);
+        document.addEventListener("keydown", handleModifierKey);
+        document.addEventListener("keyup", handleModifierKey);
+        window.addEventListener("blur", clearModifierKey);
+        return () => {
+            viewer.removeEventListener("wheel", handleWheel);
+            document.removeEventListener("keydown", handleModifierKey);
+            document.removeEventListener("keyup", handleModifierKey);
+            window.removeEventListener("blur", clearModifierKey);
+            const wheelZoom = wheelZoomRef.current;
+            if (wheelZoom.frameID !== null) {
+                cancelAnimationFrame(wheelZoom.frameID);
+                wheelZoom.frameID = null;
+            }
+            if (wheelZoom.wheelTimerID !== null) {
+                clearTimeout(wheelZoom.wheelTimerID);
+                wheelZoom.wheelTimerID = null;
+            }
+            wheelZoom.trackpadDelta = 0;
+            wheelZoom.wheelDelta = 0;
+        };
     }, [handleWheel]);
 
     const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -644,34 +774,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (pipelineRect === undefined) {
             return;
         }
-        const factor = currentDistance / previousDistance;
         // 2点の中心移動もpanとして反映し、指の間にあった位置をzoom後も維持する。
         setToolTip(null);
         const panDeltaX = previousCenter.x - currentCenter.x;
         const panDeltaY = previousCenter.y - currentCenter.y;
-        const zoomDifference = -Math.log2(factor);
+        const zoomDifference = -Math.log2(currentDistance / previousDistance);
         const centerX = Math.max(0, currentCenter.x - pipelineRect.left);
         const centerY = Math.max(0, currentCenter.y - pipelineRect.top);
-        const applyPinch = (
-            currentTrace: ParsedTrace | null,
-            currentSpec: Readonly<KonataRenderSpec>,
-        ) => {
-            const panned = new KonataRenderMetrics(currentTrace, currentSpec).withPixelPan(
-                panDeltaX,
-                panDeltaY,
-            );
-            return getKonataView(new KonataRenderMetrics(currentTrace, panned).withZoomLevel(
-                panned.zoomLevel + zoomDifference,
-                centerX,
-                centerY,
-            ));
-        };
-        viewController.setImmediately(
-            applyPinch(trace, viewController.currentSpec),
-            viewController.currentBaselineSpec === undefined
-                ? undefined
-                : applyPinch(baselineTrace, viewController.currentBaselineSpec),
-        );
+        zoomImmediatelyBy(zoomDifference, centerX, centerY, panDeltaX, panDeltaY);
     };
 
     const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
