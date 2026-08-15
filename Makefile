@@ -67,9 +67,9 @@ serve:
 # ビルド方式に依存しないRenderer検証を共通化し、developmentとproductionの両方で使う。
 # CIではgzip sampleの解析を含む一連のUI検査に30秒以上かかるため、全体には余裕を持たせる。
 web-render-smoke:
-	ELECTRON_ENABLE_LOGGING=1 \
+	ELECTRON_ENABLE_LOGGING=1 KONATA_TEST_WEBGL=1 \
 		dbus-run-session -- xvfb-run -a timeout 60s \
-		$(ELECTRON) test/web_app_smoke.js --no-sandbox --disable-gpu
+		$(ELECTRON) test/web_app_smoke.js --no-sandbox
 
 # Web版をElectronのsandboxed Chromiumで読み込み、ReactのmountとCSS適用までを検証する。
 # Electron APIはテスト側だけで使い、src/やproduction成果物には含めない。

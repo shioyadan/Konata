@@ -6,7 +6,7 @@ import { ArrayOpStore } from "../src/core/op_store";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEP_ARROW_TYPE,
-} from "../src/renderer/konata_renderer";
+} from "../src/core/konata_renderer";
 import { type Change, Store } from "../src/store";
 import { getRemoteTraceFileNames } from "../src/trace_file_access";
 
@@ -114,6 +114,40 @@ test("Store reloads a trace in place and restores its view", () => {
 
     store.dispatch({ type: "STORE_CLOSE" });
     assert.equal(second.opStore.opCount, 0);
+});
+
+test("Store applies view targets immediately without animation state", () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+    store.dispatch({ type: "FILE_OPEN", fileName: "animation.log" });
+    const tab = store.activeTab;
+    assert.ok(tab !== null && tab.kind === "trace");
+
+    const target = { position: [30, 40] as const, zoomLevel: -2 };
+    store.dispatch({
+        type: "KONATA_SET_VIEW",
+        tabID: tab.id,
+        view: target,
+    });
+
+    // 補間中の表示位置は描画controllerだけが持ち、Storeからは最終値が即座に見える。
+    assert.deepEqual(tab.renderSpec.position, [30, 40]);
+    assert.equal(tab.renderSpec.zoomLevel, -2);
+    assert.ok(changes.some((change) =>
+        change.type === "PANE_CONTENT_UPDATE" && change.tabID === tab.id));
+
+    // 通常の描画設定を変えても、確定済みの目標位置はそのまま維持する。
+    store.dispatch({
+        type: "KONATA_CHANGE_COLOR_SCHEME",
+        tabID: tab.id,
+        scheme: "RoyalBlue",
+    });
+    assert.equal(tab.renderSpec.colorScheme, "RoyalBlue");
+    assert.deepEqual(tab.renderSpec.position, [30, 40]);
+    assert.equal(tab.renderSpec.zoomLevel, -2);
+
+    store.dispatch({ type: "STORE_CLOSE" });
 });
 
 test("Store handles a file-open request through parsing result actions", async () => {
@@ -322,32 +356,33 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     assert.deepEqual(comparison.baselineRenderSpec.position, [10, 0]);
     assert.deepEqual(comparison.renderSpec.position, [20, 0]);
     store.dispatch({
-        type: "KONATA_PAN_VIEW",
+        type: "KONATA_SET_VIEW",
         tabID: comparison.id,
-        deltaX: 128,
-        deltaY: 144,
-        target: "both",
+        view: { position: [22, 3], zoomLevel: comparison.renderSpec.zoomLevel },
+        baselineView: {
+            position: [12, 3],
+            zoomLevel: comparison.baselineRenderSpec.zoomLevel,
+        },
     });
-    // RIDを探し直さず、両Specの現在位置へ同じ移動量を加える。
+    // Controllerが求めたA/Bの目標値を、Storeは同時に確定する。
     assert.deepEqual(comparison.renderSpec.position, [22, 3]);
     assert.deepEqual(comparison.baselineRenderSpec.position, [12, 3]);
     store.dispatch({
-        type: "KONATA_PAN_VIEW",
+        type: "KONATA_SET_VIEW",
         tabID: comparison.id,
-        deltaX: 64,
-        deltaY: 0,
-        target: "selected",
+        baselineView: {
+            position: [13, 3],
+            zoomLevel: comparison.baselineRenderSpec.zoomLevel,
+        },
     });
     // A単独表示のpanはAだけを動かし、薄いBを位置合わせの基準として残す。
     assert.deepEqual(comparison.renderSpec.position, [22, 3]);
     assert.deepEqual(comparison.baselineRenderSpec.position, [13, 3]);
     store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "candidate" });
     store.dispatch({
-        type: "KONATA_PAN_VIEW",
+        type: "KONATA_SET_VIEW",
         tabID: comparison.id,
-        deltaX: 0,
-        deltaY: 96,
-        target: "selected",
+        view: { position: [22, 5], zoomLevel: comparison.renderSpec.zoomLevel },
     });
     // B単独表示では逆にBだけを動かせる。
     assert.deepEqual(comparison.renderSpec.position, [22, 5]);
@@ -523,6 +558,8 @@ test("Store searches and jumps without exposing Ops in its UI result", () => {
 test("Store restores and publishes persistent view settings", () => {
     const store = new Store({
         theme: "light",
+        webGLEnabled: true,
+        tiledRenderingEnabled: true,
         colorScheme: "RoyalBlue",
         customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
         splitterPosition: 321,
@@ -537,6 +574,8 @@ test("Store restores and publishes persistent view settings", () => {
     store.subscribeChange((change) => changes.push(change));
     const restored = store.getSnapshot().settings;
     assert.equal(restored.theme, "light");
+    assert.equal(restored.webGLEnabled, true);
+    assert.equal(restored.tiledRenderingEnabled, true);
     assert.equal(restored.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
     assert.equal(restored.textLabelMinimumLaneHeight, 11);
     assert.equal(restored.drawZoomFactor, 1.5);
@@ -552,6 +591,8 @@ test("Store restores and publishes persistent view settings", () => {
     assert.equal(tab.renderSpec.theme, "light");
 
     store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "dark" });
+    store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: false });
+    store.dispatch({ type: "KONATA_SET_TILED_RENDERING_ENABLED", enabled: false });
     store.dispatch({ type: "KONATA_SET_DEP_ARROW_TYPE", arrowType: DEP_ARROW_TYPE.NOT_SHOW });
     store.dispatch({
         type: "KONATA_CHANGE_MINIMUM_LANE_HEIGHT",
@@ -572,6 +613,8 @@ test("Store restores and publishes persistent view settings", () => {
 
     assert.deepEqual(store.persistedViewSettings, {
         theme: "dark",
+        webGLEnabled: false,
+        tiledRenderingEnabled: false,
         colorScheme: "Custom",
         customColorScheme,
         splitterPosition: 280,
@@ -583,7 +626,7 @@ test("Store restores and publishes persistent view settings", () => {
         drawZoomFactor: 2,
     });
     // Tab固有設定や旧Storeだけの一時設定では、永続化通知を増やさない。
-    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 7);
+    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 9);
 
     store.dispatch({ type: "STORE_CLOSE" });
 });
@@ -592,6 +635,7 @@ test("Store separates global view settings from tab-specific settings", () => {
     const store = new Store();
     const changes: Change[] = [];
     store.subscribeChange((change) => changes.push(change));
+    assert.equal(store.getSnapshot().settings.stageDetailMinimumLaneHeight, 0.5);
 
     store.dispatch({ type: "FILE_OPEN", fileName: "first.log" });
     const firstTab = store.activeTab;

@@ -3,16 +3,23 @@ import test from "node:test";
 
 import { Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
+import { CanvasBackend } from "../src/core/canvas_backend";
 import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEFAULT_KONATA_RENDER_SPEC,
     formatOpLabel,
     formatKonataZoomPercent,
+    getFirstDrawingRow,
     KONATA_OP_WIDTH,
     KonataRenderMetrics,
     KonataRenderer,
-} from "../src/renderer/konata_renderer";
+} from "../src/core/konata_renderer";
+import {
+    KonataViewController,
+    type KonataAnimationScheduler,
+    type KonataViewFrame,
+} from "../src/core/konata_view_controller";
 
 interface RecordedGradient {
     readonly points: [number, number, number, number];
@@ -22,16 +29,32 @@ interface RecordedGradient {
 interface RecordedContext {
     readonly fillTexts: Array<[string, number, number]>;
     readonly fillRects: Array<[number, number, number, number]>;
+    readonly fillStyles: string[];
+    readonly strokeRects: Array<[number, number, number, number]>;
+    readonly strokeStyles: string[];
+    readonly lineWidths: number[];
     readonly clearRects: Array<[number, number, number, number]>;
     readonly gradients: RecordedGradient[];
+    readonly commands: string[];
+    readonly pathStrokeStyles: string[];
+    readonly pathFillStyles: string[];
+    readonly pathLineWidths: number[];
     readonly context: CanvasRenderingContext2D;
 }
 
 function createRecordedContext(): RecordedContext {
     const fillTexts: Array<[string, number, number]> = [];
     const fillRects: Array<[number, number, number, number]> = [];
+    const fillStyles: string[] = [];
+    const strokeRects: Array<[number, number, number, number]> = [];
+    const strokeStyles: string[] = [];
+    const lineWidths: number[] = [];
     const clearRects: Array<[number, number, number, number]> = [];
     const gradients: RecordedGradient[] = [];
+    const commands: string[] = [];
+    const pathStrokeStyles: string[] = [];
+    const pathFillStyles: string[] = [];
+    const pathLineWidths: number[] = [];
     const context = {
         fillStyle: "",
         strokeStyle: "",
@@ -39,19 +62,52 @@ function createRecordedContext(): RecordedContext {
         font: "",
         setTransform() {},
         fillRect(x: number, y: number, width: number, height: number) {
+            commands.push("fillRect");
             fillRects.push([x, y, width, height]);
+            fillStyles.push(String(this.fillStyle));
         },
         clearRect(x: number, y: number, width: number, height: number) {
             clearRects.push([x, y, width, height]);
         },
-        strokeRect() {},
-        beginPath() {},
-        moveTo() {},
-        lineTo() {},
-        bezierCurveTo() {},
-        stroke() {},
-        fill() {},
+        strokeRect(x: number, y: number, width: number, height: number) {
+            commands.push("strokeRect");
+            strokeRects.push([x, y, width, height]);
+            strokeStyles.push(String(this.strokeStyle));
+            lineWidths.push(this.lineWidth);
+        },
+        beginPath() {
+            commands.push("beginPath");
+        },
+        moveTo(x: number, y: number) {
+            commands.push(`moveTo:${x},${y}`);
+        },
+        lineTo(x: number, y: number) {
+            commands.push(`lineTo:${x},${y}`);
+        },
+        bezierCurveTo(
+            controlPoint1X: number,
+            controlPoint1Y: number,
+            controlPoint2X: number,
+            controlPoint2Y: number,
+            x: number,
+            y: number,
+        ) {
+            commands.push(
+                `bezierCurveTo:${controlPoint1X},${controlPoint1Y},` +
+                `${controlPoint2X},${controlPoint2Y},${x},${y}`,
+            );
+        },
+        stroke() {
+            commands.push("stroke");
+            pathStrokeStyles.push(String(this.strokeStyle));
+            pathLineWidths.push(this.lineWidth);
+        },
+        fill() {
+            commands.push("fill");
+            pathFillStyles.push(String(this.fillStyle));
+        },
         fillText(text: string, x: number, y: number) {
+            commands.push(`text:${text}`);
             fillTexts.push([text, x, y]);
         },
         createLinearGradient(x0: number, y0: number, x1: number, y1: number) {
@@ -64,7 +120,21 @@ function createRecordedContext(): RecordedContext {
             };
         },
     } as unknown as CanvasRenderingContext2D;
-    return { fillTexts, fillRects, clearRects, gradients, context };
+    return {
+        fillTexts,
+        fillRects,
+        fillStyles,
+        strokeRects,
+        strokeStyles,
+        lineWidths,
+        clearRects,
+        gradients,
+        commands,
+        pathStrokeStyles,
+        pathFillStyles,
+        pathLineWidths,
+        context,
+    };
 }
 
 function createCanvas(context: CanvasRenderingContext2D, width = 320, height = 96): HTMLCanvasElement {
@@ -137,8 +207,60 @@ test("Web renderer draws stage names and elapsed cycles like the legacy renderer
         ["1", "2", "X"],
     );
     // 色はcycle方向ではなく、旧Rendererと同じstage上端から下端へのgradientにする。
-    assert.deepEqual(pipeline.gradients[0]?.points, [0, 0.5, 0, 24.5]);
+    const gradientPoints = pipeline.gradients[0]?.points;
+    assert.ok(gradientPoints !== undefined);
+    assert.ok(gradientPoints.every((value, index) =>
+        Math.abs(value - [0, 0.5, 0, 24.5][index]) < 0.00001));
     assert.equal(pipeline.gradients[0]?.stops.length, 2);
+});
+
+test("Web renderer skips elapsed-cycle text left of a long stage viewport", () => {
+    const { trace, op, stage } = createTrace();
+    op.fetchedCycle = 0;
+    op.retiredCycle = 1000;
+    stage.startCycle = 0;
+    stage.endCycle = 1000;
+    const pipeline = createRecordedContext();
+
+    new KonataRenderer().drawPipelineSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [200.5, 0] },
+        createCanvas(pipeline.context),
+    );
+
+    // 左端に一部かかる200から右端の210だけを残し、画面外の1..199はbackendへ渡さない。
+    assert.deepEqual(
+        pipeline.fillTexts
+            .map(([text]) => text)
+            .filter((text) => /^\d+$/.test(text)),
+        Array.from({ length: 11 }, (_, index) => String(200 + index)),
+    );
+});
+
+test("Web renderer preserves text order between overlapping lanes in the Canvas fallback", () => {
+    const { trace, op } = createTrace();
+    const secondStage = new Stage();
+    secondStage.name = "Y";
+    secondStage.startCycle = 2;
+    secondStage.endCycle = 5;
+    const secondLane = new Lane();
+    secondLane.stages.push(secondStage);
+    const secondLaneID = trace.stageLevelMap.getOrCreateLaneID("1");
+    op.lanes[secondLaneID] = secondLane;
+    trace.stageLevelMap.update("1", "Y", secondLane);
+    const pipeline = createRecordedContext();
+
+    new KonataRenderer().drawPipelineSpec(
+        trace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(pipeline.context),
+    );
+
+    const firstLaneText = pipeline.commands.indexOf("text:X");
+    const secondLaneText = pipeline.commands.indexOf("text:Y");
+    assert.ok(firstLaneText >= 0 && secondLaneText > firstLaneText);
+    // 後続laneの矩形を先行laneの文字より後へ残し、重ね表示のpainter順を変えない。
+    assert.ok(pipeline.commands.slice(firstLaneText + 1, secondLaneText).includes("fillRect"));
 });
 
 test("Web renderer reproduces drawing from a trace and render spec", () => {
@@ -192,6 +314,7 @@ test("Web render metrics preserve legacy zoom levels and lane heights", () => {
     trace.stageLevelMap.update("1", "Wb", secondLane);
 
     const base = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
+    assert.equal(base.spec.stageDetailMinimumLaneHeight, 0.5);
     const zoomedSpec = base.withZoomLevel(-1, 0, 0);
     const zoomed = new KonataRenderMetrics(trace, zoomedSpec);
     assert.equal(zoomed.zoomLevel, -1);
@@ -203,6 +326,23 @@ test("Web render metrics preserve legacy zoom levels and lane heights", () => {
     // 大幅な縮小時も0%と表示せず、倍率の違いが読み取れる精度を残す。
     assert.equal(formatKonataZoomPercent(8), "0.391%");
     assert.equal(formatKonataZoomPercent(24), "6.0e-6%");
+
+    // 0.069%付近ではRendererとタイル空判定の双方が30命令おきの代表だけを見る。
+    const overview = new KonataRenderMetrics(trace, {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        zoomLevel: 10.5,
+    });
+    assert.equal(formatKonataZoomPercent(overview.zoomLevel), "0.0691%");
+    assert.equal(overview.drawingStep, 30);
+
+    // 0.0781%では約26命令おきになるが、tile上端が端数でもtrace全体の位相へ揃える。
+    const seamOverview = new KonataRenderMetrics(trace, {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        zoomLevel: Math.log2(1280),
+    });
+    assert.equal(formatKonataZoomPercent(seamOverview.zoomLevel), "0.0781%");
+    assert.equal(seamOverview.drawingStep, 26);
+    assert.equal(getFirstDrawingRow(256 / seamOverview.opHeight, seamOverview.drawingStep), 13650);
 
     // lane分割時は既定でlane数に応じて命令行を高くし、高さ固定時だけ24pxへ戻す。
     const split = new KonataRenderMetrics(trace, {
@@ -382,7 +522,7 @@ test("Web renderer keeps minimum lane heights configurable", () => {
 
     renderer.drawSpec(
         trace,
-        { ...DEFAULT_KONATA_RENDER_SPEC, textLabelMinimumLaneHeight: 100 },
+        { ...DEFAULT_KONATA_RENDER_SPEC, textLabelMinimumLaneHeight: 100, theme: "light" },
         createCanvas(label.context),
         createCanvas(pipeline.context),
     );
@@ -391,4 +531,193 @@ test("Web renderer keeps minimum lane heights configurable", () => {
     assert.deepEqual(label.fillTexts, []);
     assert.deepEqual(pipeline.fillTexts, []);
     assert.equal(pipeline.gradients.length, 1);
+});
+
+test("Web renderer uses one solid rectangle per op at extreme zoom without WebGL", () => {
+    const { trace, op } = createTrace();
+    op.flush = true;
+    const renderer = new KonataRenderer();
+    const pipeline = createRecordedContext();
+
+    renderer.drawPipelineSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 6, theme: "light" },
+        createCanvas(pipeline.context),
+        undefined,
+        undefined,
+        undefined,
+        false,
+        false,
+    );
+
+    // stage数に比例させず、命令色を1回描いてからflush色を同じ範囲へ重ねる。
+    const opRectIndex = pipeline.fillStyles.indexOf("#888888");
+    assert.ok(opRectIndex >= 0);
+    assert.equal(pipeline.fillStyles[opRectIndex + 1], "rgba(0,0,0,0.4)");
+    assert.deepEqual(pipeline.fillRects[opRectIndex], pipeline.fillRects[opRectIndex + 1]);
+    assert.deepEqual(pipeline.fillTexts, []);
+    assert.deepEqual(pipeline.gradients, []);
+});
+
+test("Web renderer keeps stage borders in the accelerated Canvas fallback", () => {
+    const { trace } = createTrace();
+    const renderer = new KonataRenderer();
+    const pipeline = createRecordedContext();
+
+    renderer.drawPipelineSpec(
+        trace,
+        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 1, theme: "light" },
+        createCanvas(pipeline.context),
+    );
+
+    // 50%では文字を省略する一方、塗りと同じ矩形へlight themeの1px枠を残す。
+    const stageRectIndex = pipeline.fillStyles.indexOf("[object Object]");
+    assert.ok(stageRectIndex >= 0);
+    assert.deepEqual(pipeline.strokeRects, [pipeline.fillRects[stageRectIndex]]);
+    assert.deepEqual(pipeline.strokeStyles, ["#444444"]);
+    assert.deepEqual(pipeline.lineWidths, [1]);
+    assert.deepEqual(pipeline.fillTexts, []);
+});
+
+test("Canvas backend joins only consecutive touching fills with the same appearance", () => {
+    const recorded = createRecordedContext();
+    const backend = new CanvasBackend();
+    const draw = backend.begin(
+        createCanvas(recorded.context),
+        recorded.context,
+        320,
+        96,
+        false,
+    );
+
+    draw.fillVerticalGradientRect(4, 6, 8, 5, "#112233", "#445566", 0.1, 0.9);
+    draw.fillVerticalGradientRect(12, 6, 3, 5, "#112233", "#445566", 0.1, 0.9);
+    // 半透明色にも使える一般層なので、重なりはblend回数を保つため結合しない。
+    draw.fillVerticalGradientRect(14.5, 6, 3, 5, "#112233", "#445566", 0.1, 0.9);
+    // 座標が接してもgradientの形が異なるcommandは独立したままにする。
+    draw.fillVerticalGradientRect(17.5, 6, 2, 5, "#112233", "#445566", 0.2, 0.9);
+    backend.end();
+
+    assert.deepEqual(recorded.fillRects, [
+        [4, 6, 11, 5],
+        [14.5, 6, 3, 5],
+        [17.5, 6, 2, 5],
+    ]);
+    assert.deepEqual(recorded.gradients.map((gradient) => gradient.stops), [
+        [[0, "#112233"], [1, "#445566"]],
+        [[0, "#112233"], [1, "#445566"]],
+        [[0, "#112233"], [1, "#445566"]],
+    ]);
+});
+
+test("Canvas backend batches dependency arrow paths in the Canvas fallback", () => {
+    const recorded = createRecordedContext();
+    const backend = new CanvasBackend();
+    const draw = backend.begin(
+        createCanvas(recorded.context),
+        recorded.context,
+        320,
+        96,
+        false,
+    );
+    draw.strokeStyle = "#112233";
+    draw.fillStyle = "#445566";
+    draw.lineWidth = 2;
+
+    draw.beginPath();
+    draw.moveTo(1, 2);
+    draw.lineTo(11, 12);
+    draw.stroke();
+    draw.beginPath();
+    draw.moveTo(11, 12);
+    draw.lineTo(8, 10);
+    draw.lineTo(9, 8);
+    draw.fill();
+
+    draw.beginPath();
+    draw.moveTo(21, 22);
+    draw.bezierCurveTo(17, 22, 17, 32, 31, 32);
+    draw.stroke();
+    draw.beginPath();
+    draw.moveTo(31, 32);
+    draw.lineTo(28, 30);
+    draw.lineTo(29, 28);
+    draw.fill();
+    backend.end();
+
+    assert.equal(recorded.commands.filter((command) => command === "stroke").length, 1);
+    assert.equal(recorded.commands.filter((command) => command === "fill").length, 1);
+    assert.equal(recorded.commands.filter((command) => command === "beginPath").length, 2);
+    assert.ok(recorded.commands.includes("moveTo:1,2"));
+    assert.ok(recorded.commands.includes("lineTo:11,12"));
+    assert.ok(recorded.commands.includes("bezierCurveTo:17,22,17,32,31,32"));
+    assert.deepEqual(recorded.pathStrokeStyles, ["#112233"]);
+    assert.deepEqual(recorded.pathFillStyles, ["#445566"]);
+    assert.deepEqual(recorded.pathLineWidths, [2]);
+});
+
+test("View controller publishes targets immediately and keeps intermediate frames private", () => {
+    let now = 0;
+    let pendingFrame: FrameRequestCallback | null = null;
+    const scheduler: KonataAnimationScheduler = {
+        now: () => now,
+        request: (callback) => {
+            pendingFrame = callback;
+            return 1;
+        },
+        cancel: () => {
+            pendingFrame = null;
+        },
+    };
+    const frames: Readonly<KonataViewFrame>[] = [];
+    const targets: Array<{ readonly position: readonly [number, number]; readonly zoomLevel: number }> = [];
+    const controller = new KonataViewController(
+        { trace: null, targetSpec: DEFAULT_KONATA_RENDER_SPEC },
+        (frame) => frames.push(frame),
+        (target) => targets.push(target),
+        scheduler,
+    );
+    const target = {
+        position: [20, 10] as const,
+        zoomLevel: -1,
+    };
+
+    controller.transitionTo(target, undefined, { type: "linear", duration: 100 });
+
+    assert.deepEqual(targets, [{ position: [20, 10], zoomLevel: -1 }]);
+    assert.deepEqual(frames.at(-1)?.spec.position, [0, 0]);
+    assert.deepEqual(frames.at(-1)?.prefetchSpec?.position, [20, 10]);
+
+    now = 50;
+    const middleFrame = pendingFrame;
+    pendingFrame = null;
+    middleFrame?.(now);
+    assert.deepEqual(controller.currentSpec.position, [10, 5]);
+    assert.equal(controller.currentSpec.zoomLevel, -0.5);
+    // 中間frameを描いても、外側へ新しい状態通知は出さない。
+    assert.equal(targets.length, 1);
+
+    now = 100;
+    const finalFrame = pendingFrame;
+    pendingFrame = null;
+    finalFrame?.(now);
+    assert.deepEqual(controller.currentSpec, { ...DEFAULT_KONATA_RENDER_SPEC, ...target });
+    assert.equal(pendingFrame, null);
+
+    controller.transitionTo(
+        { position: [40, 20], zoomLevel: -2 },
+        undefined,
+        { type: "linear", duration: 100 },
+    );
+    now = 150;
+    const interruptedFrame = pendingFrame;
+    pendingFrame = null;
+    interruptedFrame?.(now);
+    assert.deepEqual(controller.currentSpec.position, [30, 15]);
+
+    // 直接操作は現在frameを起点にし、別の中断操作を挟まず進行中の補間を止める。
+    controller.setImmediately({ position: [31, 16], zoomLevel: -1.5 });
+    assert.deepEqual(controller.currentSpec.position, [31, 16]);
+    assert.equal(pendingFrame, null);
+    assert.equal(targets.length, 3);
 });

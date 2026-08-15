@@ -691,19 +691,23 @@ button:disabled {
     padding: 0.25rem 0.65rem;
 }
 
+.compatibility-settings,
 .drawing-thresholds {
     padding-top: 0.65rem;
     border-top: 1px solid #3f4754;
 }
 
+.compatibility-settings > summary,
 .drawing-thresholds > summary {
     cursor: pointer;
 }
 
+.compatibility-settings[open] > summary,
 .drawing-thresholds[open] > summary {
     margin-bottom: 0.55rem;
 }
 
+.compatibility-settings label + label,
 .drawing-thresholds label + label {
     margin-top: 0.45rem;
 }
@@ -1748,6 +1752,7 @@ button:disabled {
     color: #222;
 }
 
+.theme-light .compatibility-settings,
 .theme-light .drawing-thresholds {
     border-top-color: #ccc;
 }

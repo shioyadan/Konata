@@ -5,8 +5,39 @@ const http = require("node:http");
 const path = require("node:path");
 const {app, BrowserWindow} = require("electron");
 
-// Xvfb環境ではGPUを利用できないため、ウィンドウ生成前にsoftware描画へ固定する。
-app.commandLine.appendSwitch("disable-gpu");
+// XvfbではSwiftShaderを明示し、製品と同じWebGL2経路もsoftware GPU上で検査する。
+if (process.env.KONATA_TEST_WEBGL === "1") {
+    app.commandLine.appendSwitch("use-gl", "angle");
+    app.commandLine.appendSwitch("use-angle", "swiftshader");
+    app.commandLine.appendSwitch("enable-unsafe-swiftshader");
+}
+else {
+    app.commandLine.appendSwitch("disable-gpu");
+}
+
+// browser内の描画回数を計測する各検査で、prototypeの差し替えと復元を共有する。
+const METHOD_OBSERVER_HELPER = `
+    const observedMethodRestorers = [];
+    const observeMethod = (target, name, observer) => {
+        const original = target[name];
+        if (typeof original !== "function") {
+            throw new Error("The observed method was not found: " + name);
+        }
+        target[name] = function(...args) {
+            const result = Reflect.apply(original, this, args);
+            observer.call(this, args, result);
+            return result;
+        };
+        observedMethodRestorers.push(() => {
+            target[name] = original;
+        });
+    };
+    const restoreObservedMethods = () => {
+        for (const restore of observedMethodRestorers.reverse()) {
+            restore();
+        }
+    };
+`;
 
 async function dropContents(window, contents, fileName, mimeType, verifyProgressBar = false) {
     const encodedContents = contents.toString("base64");
@@ -1485,7 +1516,7 @@ async function run() {
         throw new Error(`Plain-text trace rendering is incomplete: ${JSON.stringify(plainState)}`);
     }
 
-    // Ctrl+wheelはbrowser zoomを抑止し、Konata内では移動経路が見えるよう補間する。
+    // trackpad pinchは小数倍率へ、物理Ctrl+wheelは40 msの回転量に応じた最大2段へ畳む。
     const wheelZoomState = await window.webContents.executeJavaScript(`(async () => {
         const viewer = document.querySelector(".viewer");
         const reset = [...document.querySelectorAll(".zoom-controls button")]
@@ -1494,44 +1525,92 @@ async function run() {
         if (!(viewer instanceof HTMLElement) || !(reset instanceof HTMLButtonElement)) {
             throw new Error("The viewer zoom controls were not found.");
         }
+        const rect = viewer.getBoundingClientRect();
         const before = output?.textContent ?? null;
-        const event = new WheelEvent("wheel", {
+        const trackpadEvents = Array.from({length: 20}, () => new WheelEvent("wheel", {
             bubbles: true,
             cancelable: true,
             ctrlKey: true,
-            deltaY: -1,
-            clientX: viewer.getBoundingClientRect().left + 400,
-            clientY: viewer.getBoundingClientRect().top + 200
-        });
-        const dispatched = viewer.dispatchEvent(event);
-        const immediatelyAfter = output?.textContent ?? null;
+            deltaY: -10,
+            clientX: rect.left + 400,
+            clientY: rect.top + 200
+        }));
+        const trackpadDispatched = trackpadEvents.map((event) => viewer.dispatchEvent(event));
+        const trackpadImmediatelyAfter = output?.textContent ?? null;
         await new Promise((resolve) => requestAnimationFrame(() =>
             requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const during = output?.textContent ?? null;
+        const trackpadZoom = output?.textContent ?? null;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+
+        document.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "Control",
+            ctrlKey: true,
+            bubbles: true
+        }));
+        const wheelEvents = Array.from({length: 3}, () => new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: 120,
+            clientX: rect.left + 400,
+            clientY: rect.top + 200
+        }));
+        const wheelDispatched = wheelEvents.map((event) => viewer.dispatchEvent(event));
+        const wheelImmediatelyAfter = output?.textContent ?? null;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const wheelTarget = output?.textContent ?? null;
+        const cooledWheelEvent = new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: 120,
+            clientX: rect.left + 400,
+            clientY: rect.top + 200
+        });
+        const cooledWheelDispatched = viewer.dispatchEvent(cooledWheelEvent);
+        document.dispatchEvent(new KeyboardEvent("keyup", {
+            key: "Control",
+            bubbles: true
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const cooledWheelTarget = output?.textContent ?? null;
         await new Promise((resolve) => setTimeout(resolve, 220));
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        const zoom = output?.textContent ?? null;
+        const wheelZoom = output?.textContent ?? null;
         reset.click();
         const resetImmediatelyAfter = output?.textContent ?? null;
         await new Promise((resolve) => setTimeout(resolve, 300));
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
-            canceled: !dispatched && event.defaultPrevented,
+            trackpadCanceled: trackpadDispatched.every((value, index) =>
+                !value && trackpadEvents[index].defaultPrevented),
+            wheelCanceled: wheelDispatched.every((value, index) =>
+                !value && wheelEvents[index].defaultPrevented) &&
+                !cooledWheelDispatched && cooledWheelEvent.defaultPrevented,
             before,
-            immediatelyAfter,
-            during,
-            zoom,
+            trackpadImmediatelyAfter,
+            trackpadZoom,
+            wheelImmediatelyAfter,
+            wheelTarget,
+            cooledWheelTarget,
+            wheelZoom,
             resetImmediatelyAfter,
             resetZoom: output?.textContent ?? null
         };
     })()`);
-    if (!wheelZoomState.canceled ||
+    if (!wheelZoomState.trackpadCanceled || !wheelZoomState.wheelCanceled ||
         wheelZoomState.before !== "100%" ||
-        wheelZoomState.immediatelyAfter !== "100%" ||
-        wheelZoomState.during === "100%" ||
-        wheelZoomState.during === "200%" ||
-        wheelZoomState.zoom !== "200%" ||
-        wheelZoomState.resetImmediatelyAfter !== "200%" ||
+        wheelZoomState.trackpadImmediatelyAfter !== "100%" ||
+        wheelZoomState.trackpadZoom !== "119%" ||
+        wheelZoomState.wheelImmediatelyAfter !== "100%" ||
+        wheelZoomState.wheelTarget !== "25%" ||
+        wheelZoomState.cooledWheelTarget !== "12.5%" ||
+        wheelZoomState.wheelZoom !== "12.5%" ||
+        wheelZoomState.resetImmediatelyAfter !== "12.5%" ||
         wheelZoomState.resetZoom !== "100%") {
         throw new Error(`Wheel zoom handling is incomplete: ${JSON.stringify(wheelZoomState)}`);
     }
@@ -1592,9 +1671,8 @@ async function run() {
         };
     })()`);
     if (doubleClickSetup.zoom !== "25%" ||
-        doubleClickZoomState.immediatelyAfter !== "25%" ||
-        doubleClickZoomState.during === "25%" ||
-        doubleClickZoomState.during === "100%" ||
+        doubleClickZoomState.immediatelyAfter !== "100%" ||
+        doubleClickZoomState.during !== "100%" ||
         doubleClickZoomState.zoom !== "100%" ||
         doubleClickZoomState.resetZoom !== "100%") {
         throw new Error(`Double click zoom is incomplete: ${JSON.stringify(doubleClickZoomState)}`);
@@ -1603,30 +1681,50 @@ async function run() {
     // shortcut一覧に示すCtrl/Command+上下が、browser scrollではなくKonataのzoomになることを確認する。
     const keyboardZoomState = await window.webContents.executeJavaScript(`(async () => {
         const output = document.querySelector(".zoom-controls output");
-        const zoom = async (key) => {
+        const zoom = (key, repeat = false) => {
             const event = new KeyboardEvent("keydown", {
                 key,
                 ctrlKey: true,
+                repeat,
                 bubbles: true,
                 cancelable: true
             });
             const dispatched = document.dispatchEvent(event);
-            await new Promise((resolve) => setTimeout(resolve, 220));
-            await new Promise((resolve) => requestAnimationFrame(resolve));
-            return {
-                canceled: !dispatched && event.defaultPrevented,
-                value: output?.textContent ?? null
-            };
+            return !dispatched && event.defaultPrevented;
         };
+        const firstCanceled = zoom("ArrowDown");
+        const repeatedCanceled = Array.from({length: 6}, () => zoom("ArrowDown", true))
+            .every(Boolean);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const duringCooldown = output?.textContent ?? null;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const cooledCanceled = zoom("ArrowDown", true);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const afterCooldown = output?.textContent ?? null;
+        const reversedCanceled = zoom("ArrowUp", true);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const reversed = output?.textContent ?? null;
+        const restoredCanceled = zoom("ArrowUp");
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
-            out: await zoom("ArrowDown"),
-            in: await zoom("ArrowUp")
+            firstCanceled,
+            repeatedCanceled,
+            cooledCanceled,
+            reversedCanceled,
+            restoredCanceled,
+            duringCooldown,
+            afterCooldown,
+            reversed,
+            restored: output?.textContent ?? null,
         };
     })()`);
-    if (!keyboardZoomState.out.canceled ||
-        keyboardZoomState.out.value !== "50%" ||
-        !keyboardZoomState.in.canceled ||
-        keyboardZoomState.in.value !== "100%") {
+    if (!keyboardZoomState.firstCanceled || !keyboardZoomState.repeatedCanceled ||
+        !keyboardZoomState.cooledCanceled || !keyboardZoomState.reversedCanceled ||
+        !keyboardZoomState.restoredCanceled ||
+        keyboardZoomState.duringCooldown !== "50%" ||
+        keyboardZoomState.afterCooldown !== "25%" || keyboardZoomState.reversed !== "50%" ||
+        keyboardZoomState.restored !== "100%") {
         throw new Error(`Keyboard zoom is incomplete: ${JSON.stringify(keyboardZoomState)}`);
     }
 
@@ -1699,12 +1797,15 @@ async function run() {
 
     // touch画面では2 pointer間の距離比を連続倍率へ変換し、browser gestureに渡さずzoomする。
     const pinchZoomState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        ${METHOD_OBSERVER_HELPER}
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane");
+        const pipelineCanvas = document.querySelector(".pipeline-pane canvas");
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         if (!(viewer instanceof HTMLElement) ||
             !(pipeline instanceof HTMLElement) ||
+            !(pipelineCanvas instanceof HTMLCanvasElement) ||
             !(reset instanceof HTMLButtonElement)) {
             throw new Error("The touch zoom controls were not found.");
         }
@@ -1716,6 +1817,24 @@ async function run() {
             releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
         });
         const rect = pipeline.getBoundingClientRect();
+        const prototype = CanvasRenderingContext2D.prototype;
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let generatedTiles = 0;
+        let scaledTileBlits = 0;
+        observeMethod(prototype, "fillRect", function() {
+            if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                generatedTiles++;
+            }
+        });
+        observeMethod(prototype, "drawImage", function(args) {
+            const source = args[0];
+            if (this.canvas === pipelineCanvas && this.imageSmoothingEnabled &&
+                source instanceof HTMLCanvasElement && !source.isConnected &&
+                source.width === tileBackingSize && source.height === tileBackingSize) {
+                scaledTileBlits++;
+            }
+        });
         const dispatchPointer = (type, pointerId, x, buttons) => viewer.dispatchEvent(new PointerEvent(type, {
             pointerId,
             pointerType: "touch",
@@ -1737,8 +1856,11 @@ async function run() {
                 zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
                 capturedPointers: captured.size,
                 panning: viewer.classList.contains("is-panning"),
-                touchAction: getComputedStyle(viewer).touchAction
+                touchAction: getComputedStyle(viewer).touchAction,
+                generatedTiles,
+                scaledTileBlits
             };
+            restoreObservedMethods();
             delete viewer.setPointerCapture;
             delete viewer.hasPointerCapture;
             delete viewer.releasePointerCapture;
@@ -1749,7 +1871,9 @@ async function run() {
     if (pinchZoomState.zoom !== "200%" ||
         pinchZoomState.capturedPointers !== 0 ||
         pinchZoomState.panning ||
-        pinchZoomState.touchAction !== "none") {
+        pinchZoomState.touchAction !== "none" ||
+        pinchZoomState.generatedTiles !== 0 ||
+        pinchZoomState.scaledTileBlits < 1) {
         throw new Error(`Pinch zoom handling is incomplete: ${JSON.stringify(pinchZoomState)}`);
     }
 
@@ -2192,6 +2316,10 @@ async function run() {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
+        const textCache = document.querySelector('input[aria-label="Text caching"]');
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        const compatibility = document.querySelector(".compatibility-settings");
         const drawingThresholds = document.querySelector(".drawing-thresholds");
         const textThreshold = document.querySelector('input[aria-label="Text labels minimum lane height"]');
         if (!(viewControls instanceof HTMLDetailsElement) ||
@@ -2204,6 +2332,10 @@ async function run() {
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
             !(zoomSteps instanceof HTMLInputElement) ||
+            !(webGL instanceof HTMLInputElement) ||
+            textCache !== null ||
+            !(tiledRendering instanceof HTMLInputElement) ||
+            !(compatibility instanceof HTMLDetailsElement) ||
             !(drawingThresholds instanceof HTMLDetailsElement) ||
             !(textThreshold instanceof HTMLInputElement)) {
             throw new Error("The renderer view controls were not found.");
@@ -2255,10 +2387,18 @@ async function run() {
             arrows: arrows.value,
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
             color: color.value,
+            webGL: webGL.checked,
+            tiledRendering: tiledRendering.checked,
+            compatibilityOpen: compatibility.open,
+            compatibilitySummary: compatibility.querySelector("summary")?.textContent?.trim() ?? null,
+            compatibilityTitle: compatibility.querySelector("summary")?.title ?? null,
             textThreshold: textThreshold.value,
             thresholdSummary: drawingThresholds.querySelector("summary")?.textContent?.trim() ?? null,
             thresholdSummaryTitle: drawingThresholds.querySelector("summary")?.title ?? null,
-            settingTitles: [theme, hideFlushed, split, fixed, color, arrows, zoomSteps]
+            settingTitles: [
+                theme, hideFlushed, split, fixed, color, arrows, zoomSteps,
+                webGL, tiledRendering,
+            ]
                 .map((control) => control.closest("label")?.title ?? null),
             thresholdLabels: Array.from(drawingThresholds.querySelectorAll("label"), (label) => ({
                 text: label.childNodes[0]?.textContent?.trim() ?? null,
@@ -2274,6 +2414,12 @@ async function run() {
         viewControlState.arrows !== "leftSideCurve" ||
         viewControlState.theme !== "light" ||
         viewControlState.color !== "Custom" ||
+        !viewControlState.webGL ||
+        !viewControlState.tiledRendering ||
+        viewControlState.compatibilityOpen ||
+        viewControlState.compatibilitySummary !== "Compatibility" ||
+        viewControlState.compatibilityTitle !==
+            "Rendering options for compatibility and troubleshooting." ||
         viewControlState.textThreshold !== "12" ||
         viewControlState.thresholdSummary !== "Minimum lane height (px)" ||
         viewControlState.thresholdSummaryTitle !==
@@ -2285,7 +2431,9 @@ async function run() {
             "Keep each instruction at a fixed total height when lanes are split.",
             "Choose how pipeline stages are colored.",
             "Choose how instruction dependencies are drawn.",
-            "Number of steps used to double or halve the zoom."
+            "Number of steps used to double or halve the zoom.",
+            "Disable WebGL if rendering problems occur.",
+            "Disable tiled rendering if scrolling or zooming displays stale or incomplete regions."
         ]) ||
         JSON.stringify(viewControlState.thresholdLabels) !== JSON.stringify([
             {
@@ -2444,20 +2592,22 @@ async function run() {
 
     // 比較Tabは元の2つを残し、同じ表示領域をA・overlay・Bで切り替える。
     const comparisonState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
         const nextFrame = () => new Promise((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        const originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
         let comparisonLayerCompositions = [];
-        CanvasRenderingContext2D.prototype.drawImage = function(...args) {
-            if (args[0] instanceof HTMLCanvasElement) {
+        observeMethod(CanvasRenderingContext2D.prototype, "drawImage", function(args) {
+            // tile内部のCanvas copyではなく、A/B layerから最終表示Canvasへの合成だけを数える。
+            if (args[0] instanceof HTMLCanvasElement &&
+                this.canvas instanceof HTMLCanvasElement &&
+                this.canvas.classList.contains("comparison-result-canvas")) {
                 comparisonLayerCompositions.push({
                     opacity: this.globalAlpha,
                     operation: this.globalCompositeOperation,
                     filter: this.filter
                 });
             }
-            return Reflect.apply(originalDrawImage, this, args);
-        };
+        });
         const summary = document.querySelector('[aria-label="Compare traces"]');
         if (!(summary instanceof HTMLElement)) {
             throw new Error("The comparison control was not found.");
@@ -2587,7 +2737,7 @@ async function run() {
         await nextFrame();
         document.querySelector('.trace-tab.is-active .trace-tab-close')?.click();
         await nextFrame();
-        CanvasRenderingContext2D.prototype.drawImage = originalDrawImage;
+        restoreObservedMethods();
         return {
             initial,
             finalOverlayState,
@@ -2793,6 +2943,767 @@ async function run() {
         gzipState.nonBackgroundPixels < 100) {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
+
+    const tileReuseState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const prototype = CanvasRenderingContext2D.prototype;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const viewer = document.querySelector('.viewer');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        if (!(pipeline instanceof HTMLCanvasElement) || !(viewer instanceof HTMLElement) ||
+            !(reset instanceof HTMLButtonElement)) {
+            throw new Error("The tiled pipeline controls were not found.");
+        }
+        reset.click();
+        // 可視範囲に続いて外周1 tileが完成するまで待ち、そこから1 tile分だけscrollする。
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let tileBlits = 0;
+        let alignedTileBlits = 0;
+        let previousFrameBlits = 0;
+        let operationOrder = 0;
+        let firstTileBlitOrder = null;
+        let firstNewTileRenderOrder = null;
+        let frameIndex = 0;
+        let observeFrames = true;
+        const renderedTilesByFrame = new Map();
+        const observeFrame = () => {
+            frameIndex++;
+            if (observeFrames) requestAnimationFrame(observeFrame);
+        };
+        requestAnimationFrame(observeFrame);
+        observeMethod(prototype, "drawImage", function(args) {
+            const source = args[0];
+            if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
+                !source.isConnected) {
+                if (source.width === tileBackingSize && source.height === tileBackingSize) {
+                    tileBlits++;
+                    const edges = [args[1], args[2], args[1] + args[3], args[2] + args[4]];
+                    if (edges.every((value) => {
+                        const devicePixel = value * devicePixelRatio;
+                        return Math.abs(devicePixel - Math.round(devicePixel)) < 0.000001;
+                    })) {
+                        alignedTileBlits++;
+                    }
+                    firstTileBlitOrder ??= ++operationOrder;
+                }
+                if (source.width === pipeline.width && source.height === pipeline.height) {
+                    previousFrameBlits++;
+                }
+            }
+        });
+        observeMethod(prototype, "fillRect", function() {
+            if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                firstNewTileRenderOrder ??= ++operationOrder;
+                const canvases = renderedTilesByFrame.get(frameIndex) ?? new Set();
+                canvases.add(this.canvas);
+                renderedTilesByFrame.set(frameIndex, canvases);
+            }
+        });
+        try {
+            // 横へ1 tile index進み、先読みringを使いつつ次の外周生成も発生させる。
+            for (let index = 0; index < 2; index++) {
+                viewer.dispatchEvent(new WheelEvent("wheel", {
+                    deltaX: 100,
+                    deltaY: 0,
+                    bubbles: true,
+                    cancelable: true,
+                }));
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            observeFrames = false;
+            return {
+                tileBlits,
+                alignedTileBlits,
+                previousFrameBlits,
+                firstTileBlitOrder,
+                firstNewTileRenderOrder,
+                maxNewTilesPerFrame: Math.max(
+                    0,
+                    ...[...renderedTilesByFrame.values()].map((canvases) => canvases.size),
+                ),
+            };
+        }
+        finally {
+            restoreObservedMethods();
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+    })()`);
+    if (tileReuseState.tileBlits < 1 ||
+        tileReuseState.alignedTileBlits !== tileReuseState.tileBlits ||
+        tileReuseState.previousFrameBlits < 1 ||
+        tileReuseState.firstTileBlitOrder === null ||
+        tileReuseState.firstNewTileRenderOrder === null ||
+        tileReuseState.firstTileBlitOrder >= tileReuseState.firstNewTileRenderOrder ||
+        tileReuseState.maxNewTilesPerFrame < 1 ||
+        tileReuseState.maxNewTilesPerFrame > 2) {
+        throw new Error(`Pipeline tiles were not reused while scrolling: ${JSON.stringify(tileReuseState)}`);
+    }
+
+    // key repeatやResetで倍率差が広がっても、旧倍率の空tile座標を画面全体について探索しない。
+    const extremeResetState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const prototype = CanvasRenderingContext2D.prototype;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        const output = document.querySelector('.zoom-controls output');
+        if (!(pipeline instanceof HTMLCanvasElement) || !(zoomSteps instanceof HTMLInputElement) ||
+            !(zoomOut instanceof HTMLButtonElement) ||
+            !(reset instanceof HTMLButtonElement) || !(output instanceof HTMLOutputElement)) {
+            throw new Error("The extreme zoom reset controls were not found.");
+        }
+        const originalZoomSteps = zoomSteps.value;
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let overlappedTileBlits = 0;
+        let observing = true;
+        let previousFrame = performance.now();
+        let maximumFrameGap = 0;
+        const observeFrame = (time) => {
+            maximumFrameGap = Math.max(maximumFrameGap, time - previousFrame);
+            previousFrame = time;
+            if (observing) requestAnimationFrame(observeFrame);
+        };
+        requestAnimationFrame(observeFrame);
+        observeMethod(prototype, "drawImage", function(args) {
+            const source = args[0];
+            if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
+                !source.isConnected && source.width === tileBackingSize &&
+                source.height === tileBackingSize && args[3] > 256 && args[4] > 256) {
+                overlappedTileBlits++;
+            }
+        });
+        try {
+            // animation途中のfallback tileを連続して再投影する。
+            inputSetter?.call(zoomSteps, "1");
+            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            maximumFrameGap = 0;
+            previousFrame = performance.now();
+            const repeatBegin = performance.now();
+            for (let index = 0; index < 10; index++) {
+                zoomOut.click();
+                await new Promise((resolve) => setTimeout(resolve, 33));
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const repeatedZoom = output.textContent;
+            const repeatedZoomDuration = performance.now() - repeatBegin;
+            const repeatedZoomMaximumFrameGap = maximumFrameGap;
+
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            overlappedTileBlits = 0;
+            inputSetter?.call(zoomSteps, "2");
+            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            for (let index = 0; index < 23; index++) {
+                zoomOut.click();
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const zoomBeforeReset = output.textContent;
+            const overlappedBeforeReset = overlappedTileBlits;
+            const begin = performance.now();
+            reset.click();
+            const resetClickDuration = performance.now() - begin;
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            return {
+                zoomBeforeReset,
+                zoomAfterReset: output.textContent,
+                resetClickDuration,
+                overlappedBeforeReset,
+                repeatedZoom,
+                repeatedZoomDuration,
+                repeatedZoomMaximumFrameGap,
+            };
+        }
+        finally {
+            observing = false;
+            restoreObservedMethods();
+            inputSetter?.call(zoomSteps, originalZoomSteps);
+            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+    })()`);
+    if (extremeResetState.zoomBeforeReset !== "0.0345%" ||
+        extremeResetState.zoomAfterReset !== "100%" ||
+        extremeResetState.overlappedBeforeReset < 1 ||
+        extremeResetState.repeatedZoom !== "0.0977%" ||
+        extremeResetState.repeatedZoomDuration >= 2000 ||
+        extremeResetState.repeatedZoomMaximumFrameGap >= 1000 ||
+        extremeResetState.resetClickDuration >= 1000) {
+        throw new Error(`Extreme zoom reset stalled: ${JSON.stringify(extremeResetState)}`);
+    }
+
+    // 互換設定でタイリングを切ると、tile jobを止めて表示Canvasへ直接描画する。
+    const tiledRenderingToggleState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const prototype = CanvasRenderingContext2D.prototype;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const viewer = document.querySelector('.viewer');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        if (!(pipeline instanceof HTMLCanvasElement) || !(viewer instanceof HTMLElement) ||
+            !(reset instanceof HTMLButtonElement) || !(webGL instanceof HTMLInputElement) ||
+            !(tiledRendering instanceof HTMLInputElement)) {
+            throw new Error("The tiled rendering compatibility control was not found.");
+        }
+        const originalWebGL = webGL.checked;
+        const originalTiledRendering = tiledRendering.checked;
+        if (!originalTiledRendering) {
+            throw new Error("Tiled rendering was not enabled by default.");
+        }
+        if (webGL.checked) {
+            webGL.click();
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let tileRenders = 0;
+        let tileBlits = 0;
+        let directFills = 0;
+        observeMethod(prototype, "fillRect", function() {
+            if (this.canvas === pipeline) {
+                directFills++;
+            }
+            else if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                tileRenders++;
+            }
+        });
+        observeMethod(prototype, "drawImage", function(args) {
+            const source = args[0];
+            if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
+                !source.isConnected && source.width === tileBackingSize && source.height === tileBackingSize) {
+                tileBlits++;
+            }
+        });
+        try {
+            tiledRendering.click();
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const disabled = {
+                enabled: tiledRendering.checked,
+                directFills,
+                tileRenders,
+                tileBlits,
+            };
+            viewer.dispatchEvent(new WheelEvent("wheel", {
+                deltaX: 100,
+                deltaY: 0,
+                bubbles: true,
+                cancelable: true,
+            }));
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const scrolled = {directFills, tileRenders, tileBlits};
+            tiledRendering.click();
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            return {
+                disabled,
+                scrolled,
+                reenabled: {
+                    enabled: tiledRendering.checked,
+                    directFills,
+                    tileRenders,
+                    tileBlits,
+                },
+            };
+        }
+        finally {
+            restoreObservedMethods();
+            if (tiledRendering.checked !== originalTiledRendering) {
+                tiledRendering.click();
+            }
+            if (webGL.checked !== originalWebGL) {
+                webGL.click();
+            }
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+    })()`);
+    if (tiledRenderingToggleState.disabled.enabled ||
+        tiledRenderingToggleState.disabled.directFills < 1 ||
+        tiledRenderingToggleState.disabled.tileRenders !== 0 ||
+        tiledRenderingToggleState.disabled.tileBlits !== 0 ||
+        tiledRenderingToggleState.scrolled.directFills <= tiledRenderingToggleState.disabled.directFills ||
+        tiledRenderingToggleState.scrolled.tileRenders !== 0 ||
+        tiledRenderingToggleState.scrolled.tileBlits !== 0 ||
+        !tiledRenderingToggleState.reenabled.enabled ||
+        tiledRenderingToggleState.reenabled.tileRenders < 1 ||
+        tiledRenderingToggleState.reenabled.tileBlits < 1) {
+        throw new Error(
+            `Tiled rendering compatibility setting is incomplete: ${JSON.stringify(tiledRenderingToggleState)}`,
+        );
+    }
+
+    // stage名と経過cycle数は最初の描画だけoffscreenへ描き、次の描画ではBLTだけになる。
+    const textAtlasState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const prototype = CanvasRenderingContext2D.prototype;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
+        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        if (!(pipeline instanceof HTMLCanvasElement) ||
+            !(theme instanceof HTMLSelectElement) ||
+            !(colorScheme instanceof HTMLSelectElement) ||
+            !(zoomSteps instanceof HTMLInputElement) ||
+            !(webGL instanceof HTMLInputElement) ||
+            !(zoomOut instanceof HTMLButtonElement) ||
+            !(reset instanceof HTMLButtonElement)) {
+            throw new Error("The text atlas controls were not found.");
+        }
+        const originalTheme = theme.value;
+        const originalColorScheme = colorScheme.value;
+        const originalZoomSteps = zoomSteps.value;
+        const originalWebGL = webGL.checked;
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        inputSetter?.call(zoomSteps, "2");
+        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        // Canvas fallbackでも文字atlasのBLTを維持する。
+        if (webGL.checked) {
+            webGL.click();
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
+        let atlasFillTexts = 0;
+        let pipelineFillTexts = 0;
+        let pipelineBlits = 0;
+        let smoothedPipelineBlits = 0;
+        let unsmoothedPipelineBlits = 0;
+        const generatedTileCanvases = new Set();
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        const blitScales = [];
+        observeMethod(prototype, "fillText", function() {
+            if (this.canvas === pipeline) {
+                pipelineFillTexts++;
+            }
+            else if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected) {
+                atlasFillTexts++;
+            }
+        });
+        observeMethod(prototype, "fillRect", function() {
+            if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                generatedTileCanvases.add(this.canvas);
+            }
+        });
+        observeMethod(prototype, "drawImage", function(args) {
+            if (this.canvas === pipeline && args[0] instanceof HTMLCanvasElement &&
+                !args[0].isConnected) {
+                pipelineBlits++;
+                if (this.imageSmoothingEnabled) {
+                    smoothedPipelineBlits++;
+                }
+                else {
+                    unsmoothedPipelineBlits++;
+                }
+                if (args.length === 9) {
+                    blitScales.push(args[7] * devicePixelRatio / args[3]);
+                }
+                else if (args.length === 5) {
+                    // タイル化後のzoom中は、直前の完成viewportを5引数drawImageで暫定拡縮する。
+                    blitScales.push(args[3] * devicePixelRatio / args[0].width);
+                }
+            }
+        });
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        try {
+            theme.value = "light";
+            theme.dispatchEvent(new Event("change", {bubbles: true}));
+            await new Promise((resolve) => setTimeout(resolve, 700));
+            await nextFrame();
+            const first = {
+                atlasFillTexts,
+                pipelineFillTexts,
+                pipelineBlits,
+                smoothedPipelineBlits,
+                unsmoothedPipelineBlits,
+                generatedTileCanvases: generatedTileCanvases.size,
+                fullRingTileCount:
+                    (Math.ceil(pipeline.clientWidth / 256) + 2) *
+                    (Math.ceil(pipeline.clientHeight / 256) + 2),
+            };
+
+            // 半stepの縮小animationでも100%用atlasを共有し、表示時だけ縮小する。
+            zoomOut.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            await nextFrame();
+            const scaled = {
+                atlasFillTexts,
+                pipelineFillTexts,
+                pipelineBlits,
+                smoothedPipelineBlits,
+                unsmoothedPipelineBlits,
+                minimumBlitScale: Math.min(...blitScales),
+                zoom: document.querySelector('.zoom-controls output')?.textContent ?? null,
+            };
+
+            // stageの配色だけを変えた再描画でも、同じatlasを維持する。
+            colorScheme.value = "Unique";
+            colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+            await nextFrame();
+            const recolored = {atlasFillTexts, pipelineFillTexts, pipelineBlits};
+            return {first, scaled, recolored};
+        }
+        finally {
+            restoreObservedMethods();
+            theme.value = originalTheme;
+            theme.dispatchEvent(new Event("change", {bubbles: true}));
+            colorScheme.value = originalColorScheme;
+            colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+            if (webGL.checked !== originalWebGL) {
+                webGL.click();
+            }
+            inputSetter?.call(zoomSteps, originalZoomSteps);
+            zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            await nextFrame();
+        }
+    })()`);
+    if (textAtlasState.first.atlasFillTexts < 1 ||
+        textAtlasState.first.generatedTileCanvases < 1 ||
+        textAtlasState.first.generatedTileCanvases >= textAtlasState.first.fullRingTileCount ||
+        textAtlasState.first.pipelineFillTexts !== 0 ||
+        textAtlasState.first.pipelineBlits <= textAtlasState.first.atlasFillTexts ||
+        textAtlasState.first.smoothedPipelineBlits !== 0 ||
+        textAtlasState.first.unsmoothedPipelineBlits !== textAtlasState.first.pipelineBlits ||
+        textAtlasState.scaled.atlasFillTexts < textAtlasState.first.atlasFillTexts ||
+        textAtlasState.scaled.pipelineFillTexts !== 0 ||
+        textAtlasState.scaled.pipelineBlits <= textAtlasState.first.pipelineBlits ||
+        textAtlasState.scaled.smoothedPipelineBlits <= textAtlasState.first.smoothedPipelineBlits ||
+        // zoom前／後のtileは中間倍率へ再投影するため、最終倍率70.7%までの縮小を許容する。
+        textAtlasState.scaled.minimumBlitScale < 0.7 ||
+        textAtlasState.scaled.minimumBlitScale >= 1 ||
+        textAtlasState.scaled.zoom !== "70.7%" ||
+        textAtlasState.recolored.atlasFillTexts !== textAtlasState.scaled.atlasFillTexts ||
+        textAtlasState.recolored.pipelineFillTexts !== 0 ||
+        textAtlasState.recolored.pipelineBlits <= textAtlasState.scaled.pipelineBlits) {
+        throw new Error(`Stage text atlas reuse is incomplete: ${JSON.stringify(textAtlasState)}`);
+    }
+
+    // 可視範囲へ十分な依存を置き、曲線矢印も矩形と同じWebGL batchへ入ることを確認する。
+    const arrowFixtureLines = ["Kanata\t0004", "C=\t0"];
+    for (let id = 0; id < 80; id++) {
+        arrowFixtureLines.push(
+            `I\t${id}\t${1000 + id}\t${id}`,
+            `L\t${id}\t0\top ${id}`,
+            `S\t${id}\t0\tF`,
+            "C\t1",
+            `S\t${id}\t0\tX`,
+        );
+        for (let distance = 1; distance <= 2 && distance <= id; distance++) {
+            arrowFixtureLines.push(`W\t${id}\t${id - distance}\t0`);
+        }
+        arrowFixtureLines.push(
+            "C\t1",
+            `E\t${id}\t0\tX`,
+            `R\t${id}\t${id}\t0`,
+        );
+    }
+    await dropContents(
+        window,
+        Buffer.from(arrowFixtureLines.join("\n") + "\n"),
+        "webgl-arrows.log",
+        "text/plain",
+    );
+
+    // 70.7%でstage gradient、枠、atlas文字、依存矢印をWebGL2へ一括描画する。
+    const webGLState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const glPrototype = globalThis.WebGL2RenderingContext?.prototype;
+        const canvasPrototype = HTMLCanvasElement.prototype;
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
+        const dependencyType = document.querySelector('select[aria-label="Dependency arrow type"]');
+        const webGLToggle = document.querySelector('input[aria-label="WebGL rendering"]');
+        const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        if (glPrototype === undefined || !(theme instanceof HTMLSelectElement) ||
+            !(colorScheme instanceof HTMLSelectElement) ||
+            !(dependencyType instanceof HTMLSelectElement) ||
+            !(webGLToggle instanceof HTMLInputElement) ||
+            !(zoomSteps instanceof HTMLInputElement) ||
+            !(zoomOut instanceof HTMLButtonElement) ||
+            !(reset instanceof HTMLButtonElement) || !(pipeline instanceof HTMLCanvasElement)) {
+            throw new Error("The WebGL2 simplified rendering controls were not found.");
+        }
+        const contextPrototype = CanvasRenderingContext2D.prototype;
+        const originalTheme = theme.value;
+        const originalColorScheme = colorScheme.value;
+        const originalDependencyType = dependencyType.value;
+        const originalWebGLEnabled = webGLToggle.checked;
+        const originalZoomSteps = zoomSteps.value;
+        let drawCalls = 0;
+        let instances = 0;
+        let maximumInstances = 0;
+        let gradientInstances = 0;
+        let strokeInstances = 0;
+        let textInstances = 0;
+        let interleavedText = false;
+        let atlasUploads = 0;
+        let webGLRequests = 0;
+        let webGLContexts = 0;
+        let arrowDrawCalls = 0;
+        let arrowInstances = 0;
+        let canvasBezierCurveCalls = 0;
+        let acceleratedContext = null;
+        observeMethod(canvasPrototype, "getContext", function(args, context) {
+            const type = args[0];
+            if (type === "webgl2") {
+                webGLRequests++;
+            }
+            if (type === "webgl2" && context !== null) {
+                webGLContexts++;
+                acceleratedContext = context;
+            }
+        });
+        observeMethod(glPrototype, "drawArraysInstanced", function(args) {
+            acceleratedContext = this;
+            drawCalls++;
+            instances += args[3];
+            maximumInstances = Math.max(maximumInstances, args[3]);
+            if (args[0] === this.TRIANGLE_STRIP && args[2] === 72) {
+                arrowDrawCalls++;
+                arrowInstances += args[3];
+            }
+        });
+        observeMethod(contextPrototype, "bezierCurveTo", function() {
+            canvasBezierCurveCalls++;
+        });
+        observeMethod(glPrototype, "bufferData", function(args) {
+            const data = args[1];
+            if (data instanceof Uint8Array && data.byteLength % 8 === 0) {
+                for (let offset = 0; offset < data.byteLength; offset += 8) {
+                    if (data[offset] !== data[offset + 4] ||
+                        data[offset + 1] !== data[offset + 5] ||
+                        data[offset + 2] !== data[offset + 6] ||
+                        data[offset + 3] !== data[offset + 7]) {
+                        gradientInstances++;
+                    }
+                }
+            }
+            if (data instanceof Float32Array && data.length >= 64 &&
+                data.every((value) => value === -1 || value === 0 || value === 1)) {
+                strokeInstances += data.reduce(
+                    (count, value) => count + (value > 0 ? 1 : 0),
+                    0,
+                );
+                textInstances += data.reduce(
+                    (count, value) => count + (value < 0 ? 1 : 0),
+                    0,
+                );
+                const firstText = data.findIndex((value) => value < 0);
+                interleavedText ||= firstText >= 0 &&
+                    data.subarray(firstText + 1).some((value) => value >= 0);
+            }
+        });
+        observeMethod(glPrototype, "texImage2D", function(args) {
+            const source = args.at(-1);
+            if (source instanceof HTMLCanvasElement && source.width === 1024 && source.height === 512) {
+                atlasUploads++;
+            }
+        });
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        inputSetter?.call(zoomSteps, "2");
+        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        theme.value = "light";
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        colorScheme.value = "Auto";
+        colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+        dependencyType.value = "leftSideCurve";
+        dependencyType.dispatchEvent(new Event("change", {bubbles: true}));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        for (let index = 0; index < 1; index++) {
+            zoomOut.click();
+        }
+        // 画素比較はtarget倍率の可視tileが一括公開された完成画像に対して行う。
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const countOpaquePixels = (pixels) => {
+            let count = 0;
+            if (pixels === undefined) {
+                return count;
+            }
+            for (let index = 3; index < pixels.length; index += 4) {
+                if (pixels[index] !== 0) {
+                    count++;
+                }
+            }
+            return count;
+        };
+        const countColorfulPixels = (pixels) => {
+            let count = 0;
+            if (pixels === undefined) {
+                return count;
+            }
+            for (let index = 0; index < pixels.length; index += 4) {
+                const red = pixels[index];
+                const green = pixels[index + 1];
+                const blue = pixels[index + 2];
+                if (pixels[index + 3] !== 0 &&
+                    Math.max(red, green, blue) - Math.min(red, green, blue) >= 16) {
+                    count++;
+                }
+            }
+            return count;
+        };
+        const context = pipeline.getContext("2d");
+        const pixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
+        const opaquePixels = countOpaquePixels(pixels);
+        const colorfulPixels = countColorfulPixels(pixels);
+        const zoom = document.querySelector('.zoom-controls output')?.textContent ?? null;
+        const enabledBezierCurveCalls = canvasBezierCurveCalls;
+
+        // View設定で無効にした直後は、同じ矩形列をWebGL drawなしでCanvasへ再生する。
+        const drawCallsBeforeDisabled = drawCalls;
+        const webGLRequestsBeforeDisabled = webGLRequests;
+        const bezierCurveCallsBeforeDisabled = canvasBezierCurveCalls;
+        webGLToggle.click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const disabledDrawCalls = drawCalls - drawCallsBeforeDisabled;
+        const disabledWebGLRequests = webGLRequests - webGLRequestsBeforeDisabled;
+        const disabledBezierCurveCalls = canvasBezierCurveCalls - bezierCurveCallsBeforeDisabled;
+        const disabledPixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
+        const disabledOpaquePixels = countOpaquePixels(disabledPixels);
+        const disabledColorfulPixels = countColorfulPixels(disabledPixels);
+        const drawCallsBeforeReenabled = drawCalls;
+        webGLToggle.click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const reenabledDrawCalls = drawCalls - drawCallsBeforeReenabled;
+
+        // context loss後も同じ操作を繰り返し、Canvas 2D fallbackだけで表示できることを確かめる。
+        const loseContext = acceleratedContext?.getExtension("WEBGL_lose_context");
+        if (acceleratedContext === null || loseContext === null || loseContext === undefined) {
+            throw new Error("The WebGL context-loss extension was not available: " + JSON.stringify({
+                hasContext: acceleratedContext !== null,
+                contextLost: acceleratedContext?.isContextLost() ?? null,
+                drawCalls,
+                webGLRequests,
+                webGLContexts,
+                textInstances,
+                atlasUploads,
+            }));
+        }
+        const contextLost = new Promise((resolve) => {
+            acceleratedContext.canvas.addEventListener("webglcontextlost", resolve, {once: true});
+        });
+        loseContext.loseContext();
+        await contextLost;
+        const drawCallsBeforeFallback = drawCalls;
+        const bezierCurveCallsBeforeFallback = canvasBezierCurveCalls;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        for (let index = 0; index < 1; index++) {
+            zoomOut.click();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const fallbackPixels = context?.getImageData(0, 0, pipeline.width, pipeline.height).data;
+        const fallbackOpaquePixels = countOpaquePixels(fallbackPixels);
+        const fallbackColorfulPixels = countColorfulPixels(fallbackPixels);
+        let differingPixels = 0;
+        let noticeablyDifferingPixels = 0;
+        let maximumPixelDifference = 0;
+        if (pixels !== undefined && fallbackPixels !== undefined && pixels.length === fallbackPixels.length) {
+            for (let index = 0; index < pixels.length; index += 4) {
+                let pixelDiffers = false;
+                let pixelDifference = 0;
+                for (let component = 0; component < 4; component++) {
+                    const difference = Math.abs(pixels[index + component] - fallbackPixels[index + component]);
+                    if (difference !== 0) {
+                        pixelDiffers = true;
+                        pixelDifference = Math.max(pixelDifference, difference);
+                        maximumPixelDifference = Math.max(maximumPixelDifference, difference);
+                    }
+                }
+                if (pixelDiffers) {
+                    differingPixels++;
+                }
+                if (pixelDifference > 8) {
+                    noticeablyDifferingPixels++;
+                }
+            }
+        }
+        else {
+            differingPixels = Number.POSITIVE_INFINITY;
+            noticeablyDifferingPixels = Number.POSITIVE_INFINITY;
+            maximumPixelDifference = Number.POSITIVE_INFINITY;
+        }
+        const fallbackDrawCalls = drawCalls - drawCallsBeforeFallback;
+        const fallbackBezierCurveCalls = canvasBezierCurveCalls - bezierCurveCallsBeforeFallback;
+        loseContext.restoreContext();
+        restoreObservedMethods();
+        theme.value = originalTheme;
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        colorScheme.value = originalColorScheme;
+        colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
+        dependencyType.value = originalDependencyType;
+        dependencyType.dispatchEvent(new Event("change", {bubbles: true}));
+        if (webGLToggle.checked !== originalWebGLEnabled) {
+            webGLToggle.click();
+        }
+        inputSetter?.call(zoomSteps, originalZoomSteps);
+        zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return {drawCalls, instances, maximumInstances, gradientInstances, strokeInstances,
+            textInstances, interleavedText, atlasUploads, arrowDrawCalls, arrowInstances,
+            enabledBezierCurveCalls, disabledBezierCurveCalls, fallbackBezierCurveCalls,
+            opaquePixels, colorfulPixels,
+            disabledOpaquePixels, disabledColorfulPixels, disabledDrawCalls,
+            disabledWebGLRequests, reenabledDrawCalls,
+            fallbackOpaquePixels, fallbackColorfulPixels, fallbackDrawCalls,
+            differingPixels, noticeablyDifferingPixels, maximumPixelDifference, zoom,
+            webGLRequests, webGLContexts};
+    })()`);
+    if (webGLState.drawCalls < 1 ||
+        webGLState.instances < 64 ||
+        webGLState.gradientInstances < 1 ||
+        webGLState.strokeInstances < 1 ||
+        webGLState.textInstances < 1 ||
+        !webGLState.interleavedText ||
+        webGLState.atlasUploads < 1 ||
+        webGLState.arrowDrawCalls < 1 ||
+        webGLState.arrowInstances < 1 ||
+        // 小さいdependency-only batchはCanvasへ残してよいが、GL有効時はfallbackより少なくする。
+        webGLState.enabledBezierCurveCalls >= webGLState.fallbackBezierCurveCalls ||
+        webGLState.disabledBezierCurveCalls < 1 ||
+        webGLState.fallbackBezierCurveCalls < 1 ||
+        webGLState.opaquePixels < 100 ||
+        webGLState.colorfulPixels < 100 ||
+        webGLState.disabledOpaquePixels < 100 ||
+        webGLState.disabledColorfulPixels < 100 ||
+        webGLState.disabledDrawCalls !== 0 ||
+        webGLState.disabledWebGLRequests !== 0 ||
+        webGLState.reenabledDrawCalls < 1 ||
+        webGLState.fallbackOpaquePixels < 100 ||
+        webGLState.fallbackColorfulPixels < 100 ||
+        webGLState.fallbackDrawCalls !== 0 ||
+        // atlas文字と矢印edgeのcoverageはnative Canvasと完全には一致しないため、
+        // 差のある面積と最大差の両方に上限を置いて大きな形状崩れだけを検出する。
+        webGLState.noticeablyDifferingPixels > webGLState.opaquePixels * 0.01 ||
+        webGLState.maximumPixelDifference > 192 ||
+        webGLState.zoom !== "70.7%") {
+        throw new Error(`WebGL2 simplified rendering is incomplete: ${JSON.stringify(webGLState)}`);
+    }
+    await window.webContents.executeJavaScript(`(() => {
+        const close = document.querySelector('button[aria-label="Close webgl-arrows.log"]');
+        if (!(close instanceof HTMLButtonElement)) {
+            throw new Error("The synthetic WebGL arrow tab was not found.");
+        }
+        close.click();
+    })()`);
 
     const {Zstd} = await import("@hpcc-js/wasm-zstd");
     const zstdSource = fs.readFileSync(gem5Fixture);
@@ -3036,23 +3947,60 @@ async function run() {
         throw new Error(`Custom color editor is incomplete: ${JSON.stringify(customColorState)}`);
     }
 
-    // toolbar操作は即時に飛ばず、旧Rendererの1段階zoom（100%→200%）へ補間する。
-    const zoomAnimationStart = await window.webContents.executeJavaScript(`(() => {
+    // toolbarの外側状態は最終倍率へ進み、Canvasは旧倍率tileを拡縮しながら最終tileを先行生成する。
+    const zoomAnimationState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const prototype = CanvasRenderingContext2D.prototype;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
         const output = document.querySelector(".zoom-controls output");
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        if (!(pipeline instanceof HTMLCanvasElement) || !(tiledRendering instanceof HTMLInputElement)) {
+            throw new Error("The animated tiled zoom controls were not found.");
+        }
+        // 旧倍率だけを完成状態にし、最終倍率が既存cacheへ当たらない条件を作る。
+        tiledRendering.click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        tiledRendering.click();
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let generatedTargetTiles = 0;
+        let scaledTileBlits = 0;
+        observeMethod(prototype, "fillRect", function() {
+            if (this.canvas instanceof HTMLCanvasElement && !this.canvas.isConnected &&
+                this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize) {
+                generatedTargetTiles++;
+            }
+        });
+        observeMethod(prototype, "drawImage", function(args) {
+            const source = args[0];
+            if (this.canvas === pipeline && this.imageSmoothingEnabled &&
+                source instanceof HTMLCanvasElement && !source.isConnected &&
+                source.width === tileBackingSize && source.height === tileBackingSize) {
+                scaledTileBlits++;
+            }
+        });
         const before = output?.textContent ?? null;
-        document.querySelector('button[aria-label="Zoom in"]')?.click();
-        return {before, immediatelyAfter: output?.textContent ?? null};
+        try {
+            document.querySelector('button[aria-label="Zoom in"]')?.click();
+            const immediatelyAfter = output?.textContent ?? null;
+            await new Promise((resolve) => requestAnimationFrame(() =>
+                requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            return {
+                before,
+                immediatelyAfter,
+                middle: output?.textContent ?? null,
+                generatedTargetTiles,
+                scaledTileBlits,
+            };
+        }
+        finally {
+            restoreObservedMethods();
+        }
     })()`);
-    if (zoomAnimationStart.before !== "100%" || zoomAnimationStart.immediatelyAfter !== "100%") {
-        throw new Error(`Zoom animation started incorrectly: ${JSON.stringify(zoomAnimationStart)}`);
-    }
-    const zoomAnimationMiddle = await window.webContents.executeJavaScript(`new Promise((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => {
-            resolve(document.querySelector(".zoom-controls output")?.textContent ?? null);
-        })));
-    })`);
-    if (zoomAnimationMiddle === "100%" || zoomAnimationMiddle === "200%") {
-        throw new Error(`Zoom animation has no visible middle frame: ${JSON.stringify(zoomAnimationMiddle)}`);
+    if (zoomAnimationState.before !== "100%" || zoomAnimationState.immediatelyAfter !== "100%" ||
+        zoomAnimationState.middle !== "200%" ||
+        zoomAnimationState.generatedTargetTiles < 1 || zoomAnimationState.scaledTileBlits < 1) {
+        throw new Error(`Zoom animation tiling is incomplete: ${JSON.stringify(zoomAnimationState)}`);
     }
     await waitForViewAnimation(window);
     const zoomedState = await readRenderedState(window);
@@ -3060,14 +4008,20 @@ async function run() {
         throw new Error(`Zoom rendering is incomplete: ${JSON.stringify(zoomedState)}`);
     }
 
-    // 非既定のthemeを保存し、旧Config対象外のlane分割は保存値へ混ぜない。
+    // 非既定のthemeとWebGL設定を保存し、Tab表示だけのlane分割は保存値へ混ぜない。
     const viewSettingsSetupState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const zoomSteps = document.querySelector('input[aria-label="Zoom steps per 2x"]');
+        const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        const compatibility = document.querySelector(".compatibility-settings");
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
-            !(zoomSteps instanceof HTMLInputElement)) {
+            !(zoomSteps instanceof HTMLInputElement) ||
+            !(webGL instanceof HTMLInputElement) ||
+            !(tiledRendering instanceof HTMLInputElement) ||
+            !(compatibility instanceof HTMLDetailsElement)) {
             throw new Error("The view settings controls were not found.");
         }
         theme.value = "light";
@@ -3076,14 +4030,21 @@ async function run() {
         const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
         inputSetter?.call(zoomSteps, "2");
         zoomSteps.dispatchEvent(new Event("input", {bubbles: true}));
+        webGL.click();
+        tiledRendering.click();
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
             resolve({
                 theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
                 split: split.checked,
                 zoomSteps: zoomSteps.value,
-                zoomStepsBeforeThresholds: zoomSteps.closest("label")?.nextElementSibling
+                webGL: webGL.checked,
+                tiledRendering: tiledRendering.checked,
+                thresholdsAfterZoomSteps: zoomSteps.closest("label")?.nextElementSibling
                     ?.classList.contains("drawing-thresholds") === true,
+                compatibilityAfterThresholds: compatibility.previousElementSibling
+                    ?.classList.contains("drawing-thresholds") === true,
+                compatibilityLast: compatibility === compatibility.parentElement?.lastElementChild,
                 stored,
                 storesSplitLanes: stored !== null && "splitLanes" in stored,
                 storesLegacyLaneHeight: stored !== null && "drawTextThreshold" in stored
@@ -3093,13 +4054,19 @@ async function run() {
     if (viewSettingsSetupState.theme !== "light" ||
         !viewSettingsSetupState.split ||
         viewSettingsSetupState.zoomSteps !== "2" ||
-        !viewSettingsSetupState.zoomStepsBeforeThresholds ||
+        viewSettingsSetupState.webGL ||
+        viewSettingsSetupState.tiledRendering ||
+        !viewSettingsSetupState.thresholdsAfterZoomSteps ||
+        !viewSettingsSetupState.compatibilityAfterThresholds ||
+        !viewSettingsSetupState.compatibilityLast ||
         viewSettingsSetupState.stored?.theme !== "light" ||
         viewSettingsSetupState.stored?.colorScheme !== "RoyalBlue" ||
         viewSettingsSetupState.stored?.splitterPosition !== 280 ||
         viewSettingsSetupState.stored?.dependencyArrowType !== "notShow" ||
         viewSettingsSetupState.stored?.textLabelMinimumLaneHeight !== 14 ||
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
+        viewSettingsSetupState.stored?.webGLEnabled !== false ||
+        viewSettingsSetupState.stored?.tiledRenderingEnabled !== false ||
         viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.h !== 210 ||
         viewSettingsSetupState.stored?.customColorScheme?.["0"]?.F?.s !== 25 ||
         viewSettingsSetupState.storesSplitLanes ||
@@ -3125,6 +4092,8 @@ async function run() {
             arrows: document.querySelector('select[aria-label="Dependency arrow type"]')?.value ?? null,
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
             hideFlushed: document.querySelector('input[aria-label="Hide flushed ops"]')?.checked ?? null,
+            webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
+            tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
             zoom: document.querySelector(".zoom-controls output")?.textContent ?? null,
@@ -3139,6 +4108,8 @@ async function run() {
         persistedViewSettingsState.arrows !== "notShow" ||
         persistedViewSettingsState.color !== "RoyalBlue" ||
         persistedViewSettingsState.hideFlushed ||
+        persistedViewSettingsState.webGL ||
+        persistedViewSettingsState.tiledRendering ||
         persistedViewSettingsState.textThreshold !== "14" ||
         persistedViewSettingsState.zoomSteps !== "2" ||
         persistedViewSettingsState.zoom !== "141%" ||
@@ -3148,7 +4119,7 @@ async function run() {
         throw new Error(`View settings persistence is incomplete: ${JSON.stringify(persistedViewSettingsState)}`);
     }
 
-    // 旧Webのthreshold名とzoom factorの欠落、Custom部分の破損が重なっても他の設定を維持する。
+    // 旧Webのthreshold名と新しい設定の欠落、Custom部分の破損が重なっても他の設定を維持する。
     await window.webContents.executeJavaScript(`(() => {
         const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
         const renamedLaneHeights = [
@@ -3162,6 +4133,8 @@ async function run() {
             delete stored[name];
         }
         delete stored.drawZoomFactor;
+        delete stored.webGLEnabled;
+        delete stored.tiledRenderingEnabled;
         stored.customColorScheme.defaultColor.h = 999;
         localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
     })()`);
@@ -3191,6 +4164,8 @@ async function run() {
                 'input[aria-label="Text labels minimum lane height"]',
             )?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
+            webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
+            tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
             fetchHue: document.querySelector('input[aria-label="Lane 0 / F hue"]')?.value ?? null,
             fetchAutomatic: document.querySelector(
@@ -3209,6 +4184,8 @@ async function run() {
     if (recoveredCustomColorState.theme !== "light" ||
         recoveredCustomColorState.textMinimumLaneHeight !== "14" ||
         recoveredCustomColorState.zoomSteps !== "1" ||
+        !recoveredCustomColorState.webGL ||
+        !recoveredCustomColorState.tiledRendering ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.fetchHue !== "0" ||
         !recoveredCustomColorState.fetchAutomatic ||
@@ -3229,6 +4206,8 @@ async function run() {
             color: document.querySelector('select[aria-label="Pipeline color scheme"]')?.value ?? null,
             textThreshold: document.querySelector('input[aria-label="Text labels minimum lane height"]')?.value ?? null,
             zoomSteps: document.querySelector('input[aria-label="Zoom steps per 2x"]')?.value ?? null,
+            webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
+            tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             labelWidth: Math.round(document.querySelector('.label-pane')?.getBoundingClientRect().width ?? -1)
         })));
     })`);
@@ -3237,6 +4216,8 @@ async function run() {
         recoveredViewSettingsState.color !== "Auto" ||
         recoveredViewSettingsState.textThreshold !== "10" ||
         recoveredViewSettingsState.zoomSteps !== "1" ||
+        !recoveredViewSettingsState.webGL ||
+        !recoveredViewSettingsState.tiledRendering ||
         recoveredViewSettingsState.labelWidth !== 450) {
         throw new Error(`View settings recovery is incomplete: ${JSON.stringify(recoveredViewSettingsState)}`);
     }
@@ -3266,7 +4247,13 @@ async function run() {
         throw new Error(`Remote trace workflow is incomplete: ${JSON.stringify(remoteTraceState)}`);
     }
 
-    console.log(`Web smoke test passed: ${JSON.stringify({persistentFileState, remoteTraceState})}`);
+    console.log(`Web smoke test passed: ${JSON.stringify({
+        tileReuseState,
+        textAtlasState,
+        webGLState,
+        persistentFileState,
+        remoteTraceState,
+    })}`);
     window.destroy();
 }
 
