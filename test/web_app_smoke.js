@@ -1366,6 +1366,7 @@ async function run() {
         ["Go to bookmark", "0–9"],
         ["Set bookmark", `${shortcutCommandKey}+0–9`],
         ["Close tab", "Middle-click tab"],
+        ["Cancel search or statistics", "Esc"],
         ["Close dialog", "Esc"]
     ];
     if (JSON.stringify(applicationMenuState.menuItems) !== JSON.stringify([

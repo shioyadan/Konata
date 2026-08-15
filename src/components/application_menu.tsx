@@ -41,6 +41,7 @@ function getShortcuts(platform: string): ReadonlyArray<readonly [string, string]
         ["Go to bookmark", "0–9"],
         ["Set bookmark", `${commandKey}+0–9`],
         ["Close tab", "Middle-click tab"],
+        ["Cancel search or statistics", "Esc"],
         ["Close dialog", "Esc"],
     ];
 }

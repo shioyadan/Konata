@@ -1039,6 +1039,7 @@ export class Store {
                 return;
             }
             const context = tab.findContext;
+            // request IDも進め、表示済みの結果だけでなく走査中の検索も同じActionで無効化する。
             context.requestID++;
             context.progress = null;
             context.result = null;

@@ -842,6 +842,18 @@ export function App() {
                 }
                 return;
             }
+            if (event.key === "Escape" && statsProgress !== null) {
+                // 計算世代を進めるとcalculateStats側の判定が成立し、次の中断点で走査も終了する。
+                resetStats();
+                event.preventDefault();
+                return;
+            }
+            if (event.key === "Escape" && searchProgress !== null) {
+                // 結果を消すActionはrequest IDも更新するため、進行中の非同期検索も同時に止まる。
+                hideSearchResult();
+                event.preventDefault();
+                return;
+            }
             const commandKey = event.ctrlKey || event.metaKey;
             if (commandPaletteInitial !== null) {
                 return;
@@ -930,7 +942,7 @@ export function App() {
         return () => document.removeEventListener("keydown", handleKeyDown);
     }, [commandPaletteInitial, goToBookmark, hideSearchResult, isCustomColorDialogOpen,
         isStatsDialogOpen, moveHorizontal, moveVertical, openCommandPalette, openFilePicker,
-        repeatSearch, setBookmark, trace, zoomAtCenter]);
+        repeatSearch, resetStats, searchProgress, setBookmark, statsProgress, trace, zoomAtCenter]);
 
     let statusMessage = "";
     let statusType: "loading" | "ready" | "warning" | "error" | "comparison" | "changed" | null = null;

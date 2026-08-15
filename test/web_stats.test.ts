@@ -137,3 +137,25 @@ test("calculateStats stops when its trace is replaced", async () => {
     // file切替やunmount時は、解放済みstoreを最後まで走査せず結果も表示しない。
     assert.equal(values, null);
 });
+
+test("calculateStats stops after cancellation during a scan", async () => {
+    const store = new ArrayOpStore();
+    const value = op(" add x1, x2 ", true);
+    for (let id = 0; id <= 50_002; id++) {
+        store.setOp(id, value);
+    }
+    store.setRetiredOp(0, value);
+    const trace = new ParsedTrace("cancel.log", store, new StageLevelMap(), 50_003);
+    let canceled = false;
+
+    const values = await calculateStats(
+        trace,
+        () => {
+            // UIのESC操作と同様、yield中に世代が変わった状態を再現する。
+            canceled = true;
+        },
+        () => canceled,
+    );
+
+    assert.equal(values, null);
+});

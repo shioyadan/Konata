@@ -494,6 +494,21 @@ test("Store keeps search context per tab and rejects stale search updates", () =
 
     store.dispatch({ type: "KONATA_FIND_HIDE_RESULT", tabID: firstTab.id });
     assert.equal(firstTab.findContext.progress, null);
+    // ESC相当の取消後に走査側から完了通知が届いても、古い検索結果を再表示しない。
+    store.dispatch({
+        type: "KONATA_FIND_FINISH",
+        tabID: firstTab.id,
+        requestID: secondRequestID,
+        result: {
+            targetPattern: "new",
+            foundString: "late result",
+            opID: foundOp.id,
+            anchorID: foundOp.id,
+            flushed: false,
+        },
+        message: "",
+    });
+    assert.equal(firstTab.findContext.result, null);
     assert.ok(changes.some((change) =>
         change.type === "PROGRESS_BAR_START" && change.operation === "search"));
     assert.ok(changes.some((change) =>
