@@ -1237,7 +1237,6 @@ async function run() {
         initialState.splitterCount !== 0 ||
         initialState.labelWidth !== 0 ||
         initialState.pipelineWidth !== initialState.viewerWidth ||
-        initialState.version !== "1.0.0" ||
         !/^[0-9a-f]+$/.test(initialState.commit ?? "") ||
         !/^\d{4}-\d{2}-\d{2}$/.test(initialState.date ?? "") ||
         initialState.buildInfoText !==

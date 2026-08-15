@@ -1,6 +1,6 @@
 {
   "name": "konata",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Konata: an instruction pipeline visualizer for Onikiri2 and gem5",
   "author": "Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>",
   "contributors": [
