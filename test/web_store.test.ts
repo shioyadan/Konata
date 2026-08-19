@@ -9,7 +9,7 @@ import {
     getVisibilityLevelForMinimumLaneHeight,
 } from "../src/core/konata_renderer";
 import { type Change, Store } from "../src/store";
-import { getRemoteTraceFileNames } from "../src/trace_file_access";
+import { getRemoteTraceFileNames, pickTraceFileAccess } from "../src/trace_file_access";
 
 function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpStore } {
     const op = new Op();
@@ -273,6 +273,46 @@ test("Store requests the DOM file input through a Change when no picker is avail
 
     assert.ok(changes.some((change) => change.type === "FILE_INPUT_REQUEST"));
     store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("Trace picker starts in the previously opened file's directory", async () => {
+    const pickerGlobal = globalThis as typeof globalThis & {
+        showOpenFilePicker?: (
+            options: { readonly id?: string; readonly startIn?: FileSystemFileHandle },
+        ) => Promise<readonly FileSystemFileHandle[]>;
+    };
+    const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "showOpenFilePicker");
+    const previousHandle = {
+        kind: "file",
+        name: "previous.log",
+    } as FileSystemFileHandle;
+    const selectedHandle = {
+        kind: "file",
+        name: "selected.log",
+    } as FileSystemFileHandle;
+    let receivedOptions: { readonly id?: string; readonly startIn?: FileSystemFileHandle } | null = null;
+    Object.defineProperty(globalThis, "showOpenFilePicker", {
+        configurable: true,
+        value: async (options: typeof receivedOptions) => {
+            receivedOptions = options;
+            return [selectedHandle];
+        },
+    });
+
+    try {
+        const access = await pickTraceFileAccess(previousHandle);
+        assert.equal(access?.name, "selected.log");
+        assert.equal(receivedOptions?.id, "konata-trace");
+        assert.equal(receivedOptions?.startIn, previousHandle);
+    }
+    finally {
+        if (previousDescriptor === undefined) {
+            delete pickerGlobal.showOpenFilePicker;
+        }
+        else {
+            Object.defineProperty(globalThis, "showOpenFilePicker", previousDescriptor);
+        }
+    }
 });
 
 test("Comparison tabs share source OpStores until the last view is closed", () => {

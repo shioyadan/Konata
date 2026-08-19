@@ -1402,7 +1402,7 @@ export class Store {
 
     private async pickAndOpenFile_(): Promise<void> {
         try {
-            const access = await pickTraceFileAccess();
+            const access = await pickTraceFileAccess(this.recentFiles_[0]?.handle);
             if (access !== null) {
                 await this.openFile_(await access.read(), access);
             }

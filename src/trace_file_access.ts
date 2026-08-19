@@ -25,6 +25,7 @@ type FileSystemObserverConstructor = new (
 ) => FileSystemObserverLike;
 
 const TRACE_FILE_PICKER_OPTIONS = {
+    id: "konata-trace",
     multiple: false,
     types: [{
         description: "Kanata or gem5 trace",
@@ -35,6 +36,9 @@ const TRACE_FILE_PICKER_OPTIONS = {
         },
     }],
 } as const;
+type TraceFilePickerOptions = typeof TRACE_FILE_PICKER_OPTIONS & {
+    readonly startIn?: FileSystemFileHandle;
+};
 const FILE_CHANGE_DEBOUNCE_MS = 500;
 
 export class TraceFilePermissionError extends Error {}
@@ -201,14 +205,21 @@ export function supportsTraceFilePicker(): boolean {
     }).showOpenFilePicker === "function";
 }
 
-export async function pickTraceFileAccess(): Promise<TraceFileAccess | null> {
+export async function pickTraceFileAccess(
+    startIn?: FileSystemFileHandle,
+): Promise<TraceFileAccess | null> {
     const showOpenFilePicker = (globalThis as typeof globalThis & {
         showOpenFilePicker: (
-            options: typeof TRACE_FILE_PICKER_OPTIONS,
+            options: TraceFilePickerOptions,
         ) => Promise<readonly FileSystemFileHandle[]>;
     }).showOpenFilePicker;
+    // 固定idはbrowserにKonata用の最終directoryを記憶させる。Recentのhandleがあれば
+    // startInを優先し、pageを開き直した後も直前のfileの親directoryから開始する。
+    const options: TraceFilePickerOptions = startIn === undefined
+        ? TRACE_FILE_PICKER_OPTIONS
+        : { ...TRACE_FILE_PICKER_OPTIONS, startIn };
     // user activationを維持するため、この関数内では最初の非同期処理としてpickerを呼ぶ。
-    const [handle] = await showOpenFilePicker.call(globalThis, TRACE_FILE_PICKER_OPTIONS);
+    const [handle] = await showOpenFilePicker.call(globalThis, options);
     return handle === undefined
         ? null
         : new HandleTraceFileAccess(handle as PersistentFileHandle, handle.name);
