@@ -982,6 +982,10 @@ button:disabled {
     grid-template-columns: 0 minmax(0, 1fr);
 }
 
+.viewer.has-stage-activity {
+    grid-template-rows: minmax(0, 1fr) 128px;
+}
+
 .viewer.is-panning {
     cursor: grabbing;
 }
@@ -1016,6 +1020,35 @@ button:disabled {
 
 .pipeline-pane {
     background: #262930;
+}
+
+.stage-activity-label-pane,
+.stage-activity-divider,
+.stage-activity-heatmap-pane {
+    border-top: 1px solid #555b68;
+}
+
+.stage-activity-label-pane,
+.stage-activity-divider {
+    background: #303340;
+}
+
+.stage-activity-heatmap-pane {
+    background: #262930;
+}
+
+.stage-activity-heatmap-pane canvas {
+    cursor: crosshair;
+}
+
+.stage-activity-status {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: #aeb5bf;
+    font-size: 0.72rem;
+    pointer-events: none;
 }
 
 .viewer canvas {
@@ -1960,6 +1993,25 @@ button:disabled {
     background: #fff;
 }
 
+.theme-light .stage-activity-label-pane,
+.theme-light .stage-activity-divider,
+.theme-light .stage-activity-heatmap-pane {
+    border-top-color: #b7bcc5;
+}
+
+.theme-light .stage-activity-label-pane,
+.theme-light .stage-activity-divider {
+    background: #f4f4f4;
+}
+
+.theme-light .stage-activity-heatmap-pane {
+    background: #fff;
+}
+
+.theme-light .stage-activity-status {
+    color: #596273;
+}
+
 .theme-light .log-pane {
     border-top-color: #aeb6c2;
     background: #f3f5f8;
@@ -2345,6 +2397,10 @@ button:disabled {
             minmax(0, min(var(--label-pane-width), 40%))
             10px
             minmax(0, 1fr);
+    }
+
+    .viewer.has-stage-activity {
+        grid-template-rows: minmax(0, 1fr) 96px;
     }
 
     /* 見た目の10px幅は保ちつつ、指でつかめる範囲だけを左右へ広げる。 */

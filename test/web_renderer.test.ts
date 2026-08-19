@@ -5,6 +5,14 @@ import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/
 import { ArrayOpStore } from "../src/core/op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
 import {
+    buildStageActivity,
+    drawStageActivityHeatmap,
+    getStageActivityAverage,
+    getStageActivitySample,
+    getStageTopDownBreakdownSample,
+    getStageStartRate,
+} from "../src/core/stage_activity_heatmap";
+import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
     DEFAULT_KONATA_RENDER_SPEC,
@@ -32,6 +40,7 @@ interface RecordedContext {
     readonly fillTexts: Array<[string, number, number]>;
     readonly fillRects: Array<[number, number, number, number]>;
     readonly fillStyles: string[];
+    readonly fillAlphas: number[];
     readonly strokeRects: Array<[number, number, number, number]>;
     readonly strokeStyles: string[];
     readonly lineWidths: number[];
@@ -48,6 +57,7 @@ function createRecordedContext(): RecordedContext {
     const fillTexts: Array<[string, number, number]> = [];
     const fillRects: Array<[number, number, number, number]> = [];
     const fillStyles: string[] = [];
+    const fillAlphas: number[] = [];
     const strokeRects: Array<[number, number, number, number]> = [];
     const strokeStyles: string[] = [];
     const lineWidths: number[] = [];
@@ -59,6 +69,7 @@ function createRecordedContext(): RecordedContext {
     const pathLineWidths: number[] = [];
     const context = {
         fillStyle: "",
+        globalAlpha: 1,
         strokeStyle: "",
         lineWidth: 1,
         font: "",
@@ -67,6 +78,7 @@ function createRecordedContext(): RecordedContext {
             commands.push("fillRect");
             fillRects.push([x, y, width, height]);
             fillStyles.push(String(this.fillStyle));
+            fillAlphas.push(this.globalAlpha);
         },
         clearRect(x: number, y: number, width: number, height: number) {
             clearRects.push([x, y, width, height]);
@@ -126,6 +138,7 @@ function createRecordedContext(): RecordedContext {
         fillTexts,
         fillRects,
         fillStyles,
+        fillAlphas,
         strokeRects,
         strokeStyles,
         lineWidths,
@@ -198,6 +211,478 @@ function createLatencyTrace(ranges: readonly (readonly [number, number])[]): Par
     });
     return new ParsedTrace("latency.log", store, new StageLevelMap(), 1000);
 }
+
+function createStageActivityTrace(cycleCount = 8): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    const addOp = (id: number, startCycle: number, endCycle: number, flush: boolean) => {
+        const op = new Op();
+        op.id = id;
+        op.rid = id;
+        op.retired = !flush;
+        op.flush = flush;
+        op.fetchedCycle = startCycle;
+        op.retiredCycle = endCycle;
+        const lane = new Lane();
+        const stage = new Stage();
+        stage.name = "X";
+        stage.startCycle = startCycle;
+        stage.endCycle = endCycle;
+        lane.stages.push(stage);
+        op.lanes[laneID] = lane;
+        levelMap.update("0", stage.name, lane);
+        store.setOp(id, op);
+        if (!flush) {
+            store.setRetiredOp(op.rid, op);
+        }
+    };
+    addOp(0, 0, 4, false);
+    addOp(1, 2, 6, true);
+    return new ParsedTrace("activity.log", store, levelMap, cycleCount);
+}
+
+function createTopDownBreakdownTrace(): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    const timings = [
+        { source: 2, allocation: 3, execution: 5, retiredCycle: 6 },
+        { source: 2, allocation: 3, execution: 5, retiredCycle: 6 },
+        // execution待ちの命令がbackend内に残っていても、allocationを妨げていなければ
+        // TMA Level 1では空きslotをBackendへ分類しない。
+        { source: 3, allocation: 4, execution: 9, retiredCycle: 10 },
+        { source: 8, allocation: 9, execution: 10, retiredCycle: 11 },
+    ] as const;
+    timings.forEach((timing, id) => {
+        const op = new Op();
+        op.id = id;
+        op.rid = id;
+        op.retired = id === 0 || id === 3;
+        op.flush = id === 1;
+        op.fetchedCycle = timing.source;
+        op.retiredCycle = timing.retiredCycle;
+        const lane = new Lane();
+        const ranges = [
+            ["arbitrary-source", timing.source, timing.allocation],
+            ["arbitrary-reservoir", timing.allocation, timing.execution],
+            ["arbitrary-event", timing.execution, timing.execution + 1],
+            ["arbitrary-tail", timing.execution + 1, timing.retiredCycle],
+        ] as const;
+        for (const [name, startCycle, endCycle] of ranges) {
+            const stage = new Stage();
+            stage.name = name;
+            stage.startCycle = startCycle;
+            stage.endCycle = endCycle;
+            lane.stages.push(stage);
+            levelMap.update("0", name, lane);
+        }
+        op.lanes[laneID] = lane;
+        store.setOp(id, op);
+        if (op.retired) {
+            store.setRetiredOp(op.rid, op);
+        }
+    });
+    return new ParsedTrace("topdown.log", store, levelMap, 12);
+}
+
+function createAllocationBlockedTrace(): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    const rangesByOp = [
+        [["entry-a", 3, 4], ["allocation", 4, 5], ["execution", 5, 6], ["tail", 6, 7]],
+        [["entry-b", 3, 4], ["allocation", 4, 7], ["execution", 7, 8], ["tail", 8, 9]],
+        [["entry-c", 3, 4], ["allocation", 4, 9], ["execution", 9, 10], ["tail", 10, 11]],
+        [["entry-d", 3, 4], ["allocation", 4, 11], ["execution", 11, 12], ["tail", 12, 13]],
+        // 最初の4命令は同時にallocateされた後、直列にexecutionへ進む。5番目だけは
+        // 通常1 cycleのentry-aを7 cycle占有し、backend入口で止められる。
+        [["entry-a", 5, 12], ["allocation", 12, 13], ["execution", 13, 14], ["tail", 14, 15]],
+    ] as const;
+    rangesByOp.forEach((ranges, id) => {
+        const op = new Op();
+        op.id = id;
+        op.rid = id;
+        op.retired = true;
+        op.fetchedCycle = ranges[0][1];
+        op.retiredCycle = ranges[ranges.length - 1][2];
+        const lane = new Lane();
+        for (const [name, startCycle, endCycle] of ranges) {
+            const stage = new Stage();
+            stage.name = name;
+            stage.startCycle = startCycle;
+            stage.endCycle = endCycle;
+            lane.stages.push(stage);
+            levelMap.update("0", name, lane);
+        }
+        op.lanes[laneID] = lane;
+        store.setOp(id, op);
+        store.setRetiredOp(id, op);
+    });
+    return new ParsedTrace("allocation-blocked.log", store, levelMap, 16);
+}
+
+test("Stage activity aggregates overlapping intervals and flushed ops", async () => {
+    const trace = createStageActivityTrace();
+    const activity = await buildStageActivity(trace);
+    assert.ok(activity !== null);
+    assert.equal(activity.binWidth, 1);
+    assert.equal(activity.binCount, 8);
+    assert.deepEqual(activity.rows.map((row) => row.label), ["X"]);
+    const row = activity.rows[0];
+    assert.deepEqual(
+        Array.from({ length: activity.binCount }, (_, cycle) =>
+            getStageActivityAverage(row, activity.binWidth, cycle, cycle + 1, false)),
+        [1, 1, 2, 2, 1, 1, 0, 0],
+    );
+    assert.deepEqual(
+        Array.from({ length: activity.binCount }, (_, cycle) =>
+            getStageActivityAverage(row, activity.binWidth, cycle, cycle + 1, true)),
+        [1, 1, 1, 1, 0, 0, 0, 0],
+    );
+    assert.equal(row.totalPeak, 2);
+    assert.equal(row.nonFlushedPeak, 1);
+    assert.equal(activity.totalPeak, 2);
+    assert.equal(activity.nonFlushedPeak, 1);
+    assert.deepEqual(
+        Array.from({ length: activity.binCount }, (_, cycle) =>
+            getStageStartRate(row, activity.binWidth, cycle, cycle + 1, false)),
+        [1, 0, 1, 0, 0, 0, 0, 0],
+    );
+    assert.deepEqual(
+        Array.from({ length: activity.binCount }, (_, cycle) =>
+            getStageStartRate(row, activity.binWidth, cycle, cycle + 1, true)),
+        [1, 0, 0, 0, 0, 0, 0, 0],
+    );
+    assert.equal(row.totalStartPeak, 1);
+    assert.equal(row.nonFlushedStartPeak, 1);
+    assert.equal(activity.totalStartPeak, 1);
+    assert.equal(activity.nonFlushedStartPeak, 1);
+
+    const multiStageTrace = createStageActivityTrace();
+    const multiStageOp = multiStageTrace.getOpForScan(0);
+    assert.ok(multiStageOp !== undefined);
+    const multiStageLane = multiStageOp.lanes[0];
+    assert.ok(multiStageLane !== null);
+    const smallerStage = new Stage();
+    smallerStage.name = "arbitrary-small-stage";
+    smallerStage.startCycle = 0;
+    smallerStage.endCycle = 4;
+    multiStageLane.stages.push(smallerStage);
+    multiStageTrace.stageLevelMap.update("0", smallerStage.name, multiStageLane);
+    const multiStageActivity = await buildStageActivity(multiStageTrace);
+    assert.ok(multiStageActivity !== null);
+    assert.equal(multiStageActivity.totalPeak, 2);
+    assert.deepEqual(
+        multiStageActivity.rows.map((activityRow) => [activityRow.stageName, activityRow.totalPeak]),
+        [["X", 2], ["arbitrary-small-stage", 1]],
+    );
+    multiStageTrace.close();
+
+    const coarse = await buildStageActivity(trace, { maxCellCount: 2 });
+    assert.ok(coarse !== null);
+    assert.equal(coarse.binWidth, 4);
+    assert.equal(coarse.binCount, 2);
+    assert.equal(getStageActivityAverage(coarse.rows[0], 4, 0, 4, false), 1.5);
+    assert.equal(getStageActivityAverage(coarse.rows[0], 4, 4, 8, false), 0.5);
+    assert.equal(getStageStartRate(coarse.rows[0], 4, 0, 4, false), 0.5);
+    assert.equal(getStageStartRate(coarse.rows[0], 4, 0, 4, true), 0.25);
+    assert.equal(coarse.rows[0].totalStartPeak, 0.5);
+    assert.equal(coarse.rows[0].nonFlushedStartPeak, 0.25);
+    trace.close();
+
+    const partialLastBinTrace = createStageActivityTrace(7);
+    const partialLastBin = await buildStageActivity(partialLastBinTrace, { maxCellCount: 2 });
+    assert.ok(partialLastBin !== null);
+    assert.equal(partialLastBin.binWidth, 4);
+    assert.ok(Math.abs(
+        getStageActivityAverage(partialLastBin.rows[0], 4, 4, 7, false) - 2 / 3,
+    ) < 1e-6);
+    partialLastBinTrace.close();
+});
+
+test("Stage starts retain same-cycle events even for zero-width stages", async () => {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    [1, 1, 2].forEach((cycle, id) => {
+        const op = new Op();
+        op.id = id;
+        op.rid = id;
+        op.retired = true;
+        op.fetchedCycle = cycle;
+        op.retiredCycle = cycle + 1;
+        const lane = new Lane();
+        const stage = new Stage();
+        stage.name = "arbitrary-width-stage";
+        stage.startCycle = cycle;
+        stage.endCycle = cycle;
+        lane.stages.push(stage);
+        op.lanes[laneID] = lane;
+        levelMap.update("0", stage.name, lane);
+        store.setOp(id, op);
+        store.setRetiredOp(id, op);
+    });
+    const trace = new ParsedTrace("starts.log", store, levelMap, 4);
+    const activity = await buildStageActivity(trace);
+    assert.ok(activity !== null);
+    const row = activity.rows[0];
+    assert.equal(row.totalPeak, 0);
+    assert.equal(row.totalStartPeak, 2);
+    assert.deepEqual(
+        Array.from({ length: 4 }, (_, cycle) =>
+            getStageStartRate(row, 1, cycle, cycle + 1, false)),
+        [0, 2, 1, 0],
+    );
+    trace.close();
+});
+
+test("Top-down-like view classifies allocation slots without stage names", async () => {
+    const trace = createTopDownBreakdownTrace();
+    const activity = await buildStageActivity(trace);
+    assert.ok(activity !== null);
+    const analysis = activity.topDownAnalysis;
+    assert.ok(analysis !== null);
+    assert.equal(activity.rows[analysis.allocationRowIndex].stageName, "arbitrary-reservoir");
+    assert.equal(activity.rows[analysis.executionRowIndex].stageName, "arbitrary-event");
+    assert.equal(analysis.allocationWidth, 2);
+    assert.equal(analysis.transitionCount, 4);
+    assert.equal(analysis.transitionCoverage, 1);
+    assert.equal(analysis.admissionRows.length, 1);
+    assert.equal(activity.rows[analysis.admissionRows[0].rowIndex].stageName, "arbitrary-source");
+    assert.equal(analysis.admissionRows[0].typicalLatency, 1);
+
+    const fullAllocation = getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
+        0,
+        160,
+    );
+    assert.ok(fullAllocation !== null);
+    assert.equal(fullAllocation.totalSlots, 2);
+    assert.equal(fullAllocation.retiringSlots, 1);
+    assert.equal(fullAllocation.squashedSlots, 1);
+    assert.equal(fullAllocation.unresolvedSlots, 0);
+    assert.equal(fullAllocation.frontendBound, 0);
+    assert.equal(fullAllocation.backendBound, 0);
+
+    const partialAllocation = getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
+        32,
+        160,
+    );
+    assert.ok(partialAllocation !== null);
+    assert.equal(partialAllocation.totalSlots, 2);
+    assert.equal(partialAllocation.retiringSlots, 0);
+    assert.equal(partialAllocation.squashedSlots, 0);
+    assert.equal(partialAllocation.unresolvedSlots, 1);
+    // execution待ちの命令が残っていても、allocation入口が詰まっていなければFrontend。
+    assert.equal(partialAllocation.frontendBound, 1);
+    assert.equal(partialAllocation.backendBound, 0);
+
+    const postSquashGap = getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
+        96,
+        160,
+    );
+    assert.ok(postSquashGap !== null);
+    assert.equal(postSquashGap.totalSlots, 2);
+    // squash後の空白だけからrecoveryを推定せず、入口backpressureがなければFrontend。
+    assert.equal(postSquashGap.squashedSlots, 0);
+    assert.equal(postSquashGap.frontendBound, 2);
+    assert.equal(postSquashGap.backendBound, 0);
+
+    const frontend = getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [9, 0] },
+        0,
+        160,
+    );
+    assert.ok(frontend !== null);
+    assert.equal(frontend.totalSlots, 2);
+    assert.equal(frontend.retiringSlots, 1);
+    assert.equal(frontend.frontendBound, 1);
+    assert.equal(frontend.backendBound, 0);
+
+    const labels = createRecordedContext();
+    const heatmap = createRecordedContext();
+    drawStageActivityHeatmap(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
+        createCanvas(labels.context, 450, 128),
+        createCanvas(heatmap.context, 320, 128),
+        "topdown",
+        "global",
+    );
+    assert.ok(labels.fillTexts.some(([text]) => text === "Top-down-like (auto)"));
+    assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-event")));
+    assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-reservoir")));
+    assert.ok(labels.fillTexts.some(([text]) => text.includes("entrance arbitrary-source +1c")));
+    assert.ok(heatmap.fillRects.length > 0);
+    for (const color of ["#66bb6a", "#ef5350", "#42a5f5", "#b0bec5"]) {
+        assert.ok(heatmap.fillStyles.includes(color));
+    }
+    trace.close();
+});
+
+test("Top-down-like view distinguishes allocated dependencies from allocation backpressure", async () => {
+    const trace = createAllocationBlockedTrace();
+    const activity = await buildStageActivity(trace);
+    assert.ok(activity !== null);
+    const analysis = activity.topDownAnalysis;
+    assert.ok(analysis !== null);
+    assert.equal(activity.rows[analysis.allocationRowIndex].stageName, "allocation");
+    assert.equal(activity.rows[analysis.executionRowIndex].stageName, "execution");
+    assert.equal(analysis.allocationWidth, 4);
+    assert.equal(analysis.admissionRows.length, 4);
+    assert.equal(activity.rows[analysis.admissionRows[0].rowIndex].stageName, "entry-a");
+    assert.equal(analysis.admissionRows[0].typicalLatency, 1);
+
+    const allocatedDependencies = getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [4, 0] },
+        0,
+        160,
+    );
+    assert.ok(allocatedDependencies !== null);
+    assert.equal(allocatedDependencies.retiringSlots, 4);
+    assert.equal(allocatedDependencies.frontendBound, 0);
+    assert.equal(allocatedDependencies.backendBound, 0);
+
+    const blocked = getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [6, 0] },
+        0,
+        160,
+    );
+    assert.ok(blocked !== null);
+    assert.equal(blocked.frontendBound, 0);
+    assert.equal(blocked.backendBound, 4);
+
+    const labels = createRecordedContext();
+    const heatmap = createRecordedContext();
+    drawStageActivityHeatmap(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [6, 0] },
+        createCanvas(labels.context, 450, 128),
+        createCanvas(heatmap.context, 160, 128),
+        "topdown",
+        "global",
+    );
+    assert.ok(heatmap.fillStyles.includes("#ffa726"));
+    trace.close();
+});
+
+test("Stage activity stops after yielding when its pane is closed", async () => {
+    const trace = createStageActivityTrace();
+    let canceled = false;
+    const building = buildStageActivity(trace, {
+        yieldInterval: 1,
+        isCanceled: () => canceled,
+    });
+    canceled = true;
+    assert.equal(await building, null);
+    trace.close();
+});
+
+test("Stage activity heatmap follows the pipeline cycle scale and Unique colors", async () => {
+    const trace = createStageActivityTrace();
+    const activity = await buildStageActivity(trace);
+    assert.ok(activity !== null);
+    const labels = createRecordedContext();
+    const heatmap = createRecordedContext();
+    drawStageActivityHeatmap(
+        activity,
+        {
+            ...DEFAULT_KONATA_RENDER_SPEC,
+            theme: "light",
+            position: [1, 0],
+        },
+        createCanvas(labels.context, 160, 32),
+        createCanvas(heatmap.context, 160, 32),
+        "active",
+        "stage",
+    );
+
+    assert.deepEqual(labels.fillTexts.map(([text]) => text), ["X", "peak 2"]);
+    assert.ok(heatmap.fillRects.some(([x, _y, width]) => x === 0 && width === 32));
+    assert.ok(heatmap.fillAlphas.some((alpha) => alpha === 0.5));
+    assert.ok(heatmap.fillAlphas.some((alpha) => alpha === 1));
+    assert.ok(labels.fillRects.some(([_x, _y, width, height]) => width > 100 && height === 2));
+    assert.deepEqual(heatmap.gradients[0]?.stops, [
+        [0, "hsl(250,95%,95%)"],
+        [1, "hsl(250,70%,80%)"],
+    ]);
+
+    const sample = getStageActivitySample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
+        "active",
+        32,
+        0,
+        160,
+        32,
+    );
+    assert.ok(sample !== null);
+    assert.equal(sample.startCycle, 2);
+    assert.equal(sample.activity, 2);
+    assert.equal(sample.rowPeak, 2);
+    assert.equal(sample.relativeLevel, 1);
+    assert.equal(sample.peakShare, 1);
+    assert.equal(sample.startCount, 1);
+    assert.equal(sample.startRate, 1);
+    assert.equal(sample.startPeak, 1);
+
+    const startsSample = getStageActivitySample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
+        "starts",
+        32,
+        0,
+        160,
+        32,
+    );
+    assert.ok(startsSample !== null);
+    assert.equal(startsSample.rowPeak, 1);
+    assert.equal(startsSample.relativeLevel, 1);
+
+    const startsHeatmap = createRecordedContext();
+    drawStageActivityHeatmap(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
+        createCanvas(createRecordedContext().context, 160, 32),
+        createCanvas(startsHeatmap.context, 160, 32),
+        "starts",
+        "stage",
+    );
+    assert.ok(startsHeatmap.fillAlphas.some((alpha) => alpha === 1));
+
+    const globalStartsHeatmap = createRecordedContext();
+    drawStageActivityHeatmap(
+        { ...activity, totalStartPeak: 2, nonFlushedStartPeak: 2 },
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
+        createCanvas(createRecordedContext().context, 160, 32),
+        createCanvas(globalStartsHeatmap.context, 160, 32),
+        "starts",
+        "global",
+    );
+    assert.ok(globalStartsHeatmap.fillAlphas.some((alpha) => alpha === 0.5));
+
+    const globalHeatmap = createRecordedContext();
+    drawStageActivityHeatmap(
+        { ...activity, totalPeak: 4, nonFlushedPeak: 2 },
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
+        createCanvas(createRecordedContext().context, 160, 32),
+        createCanvas(globalHeatmap.context, 160, 32),
+        "active",
+        "global",
+    );
+    assert.ok(globalHeatmap.fillAlphas.some((alpha) => alpha === 0.25));
+    assert.ok(globalHeatmap.fillAlphas.some((alpha) => alpha === 0.5));
+    trace.close();
+});
 
 test("Web renderer keeps the legacy instruction label format", () => {
     const { op } = createTrace();

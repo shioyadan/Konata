@@ -52,6 +52,10 @@ import {
     type KonataView,
     type RendererTheme,
 } from "./core/konata_renderer";
+import type {
+    StageActivityMetric,
+    StageActivityScale,
+} from "./core/stage_activity_heatmap";
 import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
@@ -1380,6 +1384,53 @@ export function App() {
                                 })}
                             />
                         </label>
+                        <label title="Show a stage occupancy heatmap below the pipeline.">
+                            Stage activity
+                            <input
+                                type="checkbox"
+                                aria-label="Stage activity"
+                                checked={settings.stageActivityVisible}
+                                disabled={trace === null || comparisonTab !== null}
+                                onChange={(event) => store.dispatch({
+                                    type: "KONATA_SET_STAGE_ACTIVITY_VISIBLE",
+                                    enabled: event.target.checked,
+                                })}
+                            />
+                        </label>
+                        <label title="Show occupancy, stage starts, or an automatically inferred allocation-slot breakdown.">
+                            Activity metric
+                            <select
+                                aria-label="Stage activity metric"
+                                value={settings.stageActivityMetric}
+                                disabled={!settings.stageActivityVisible || trace === null || comparisonTab !== null}
+                                onChange={(event) => store.dispatch({
+                                    type: "KONATA_SET_STAGE_ACTIVITY_METRIC",
+                                    metric: event.target.value as StageActivityMetric,
+                                })}
+                            >
+                                <option value="active">Active</option>
+                                <option value="starts">Starts</option>
+                                <option value="topdown">Top-down-like (auto)</option>
+                            </select>
+                        </label>
+                        <label title="Normalize the selected metric by each stage peak or the largest peak in the trace.">
+                            Activity scale
+                            <select
+                                aria-label="Stage activity scale"
+                                value={settings.stageActivityMetric === "topdown"
+                                    ? "stage"
+                                    : settings.stageActivityScale}
+                                disabled={!settings.stageActivityVisible || settings.stageActivityMetric === "topdown" ||
+                                    trace === null || comparisonTab !== null}
+                                onChange={(event) => store.dispatch({
+                                    type: "KONATA_SET_STAGE_ACTIVITY_SCALE",
+                                    scale: event.target.value as StageActivityScale,
+                                })}
+                            >
+                                <option value="stage">Per-stage peak</option>
+                                <option value="global">Global peak</option>
+                            </select>
+                        </label>
                         <div className="custom-color-control">
                             <label title={comparisonTab === null
                                 ? "Choose how pipeline stages are colored."
@@ -1677,6 +1728,9 @@ export function App() {
                 renderVersion={renderVersion}
                 webGLEnabled={settings.webGLEnabled}
                 tiledRenderingEnabled={settings.tiledRenderingEnabled}
+                stageActivityVisible={settings.stageActivityVisible}
+                stageActivityMetric={settings.stageActivityMetric}
+                stageActivityScale={settings.stageActivityScale}
                 zoomStep={1 / settings.drawZoomFactor}
                 findResult={findResult}
                 comparison={comparisonTab === null ? null : {
