@@ -242,6 +242,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
+    // UI／制御層は集計結果の寿命だけを所有する。StageActivityDataはTraceから
+    // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
     const [stageActivityData, setStageActivityData] = useState<StageActivityData | null>(null);
     const [stageActivityError, setStageActivityError] = useState(false);
     const comparisonMode = comparison?.mode ?? null;
@@ -572,6 +574,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         viewController.redraw();
     }, [viewController]);
 
+    // Traceまたはpaneの寿命が変わった時だけ集計する。metric／scale／zoomの
+    // 変更は下のuseLayoutEffectから同じStageActivityDataを再描画する。
     useEffect(() => {
         let canceled = false;
         setStageActivityData(null);
@@ -979,6 +983,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                             ? null
                             : `${row.label} → ${sample.allocationRow.label}: ${format(admission.typicalLatency)} cycles usual`;
                     }).filter((label): label is string => label !== null);
+                    const recovery = sample.analysis.minimumRecoveryCycles === null
+                        ? "minimum recovery unavailable"
+                        : `minimum recovery ${format(sample.analysis.minimumRecoveryCycles)} cycles ` +
+                            `(${sample.analysis.minimumRecoverySampleCount} samples)`;
                     text = [
                         `Top-down-like (auto allocation: ${sample.allocationRow.label}, before ${sample.executionRow.label})`,
                         ...admissionRows.map((label) => `Allocation entrance: ${label}`),
@@ -986,6 +994,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         `Observed slots: ${format(sample.totalSlots)} (allocation width ≥${format(sample.analysis.allocationWidth)}/cycle)`,
                         `Retiring: ${format(sample.retiringSlots)} (${percent(sample.retiringSlots)}%)`,
                         `Bad speculation (allocated & squashed): ${format(sample.squashedSlots)} (${percent(sample.squashedSlots)}%)`,
+                        `Bad speculation (misprediction shadow): ${format(sample.mispredictionShadowSlots)} (${percent(sample.mispredictionShadowSlots)}%)`,
+                        `Misprediction windows: ${sample.analysis.mispredictionWindowCount}; ${recovery}`,
                         `Frontend bound: ${format(sample.frontendBound)} (${percent(sample.frontendBound)}%)`,
                         `Backend bound: ${format(sample.backendBound)} (${percent(sample.backendBound)}%)`,
                         `Unresolved allocation: ${format(sample.unresolvedSlots)} (${percent(sample.unresolvedSlots)}%)`,

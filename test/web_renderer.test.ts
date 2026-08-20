@@ -322,6 +322,91 @@ function createAllocationBlockedTrace(): ParsedTrace {
     return new ParsedTrace("allocation-blocked.log", store, levelMap, 16);
 }
 
+function createMispredictionShadowTrace(
+    recoveryLatencies: readonly number[],
+    firstWindowHasAllocationBackpressure = false,
+): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    let id = 0;
+    const addOp = (
+        retired: boolean,
+        flush: boolean,
+        labelName: string,
+        ranges: readonly (readonly [string, number, number])[],
+    ) => {
+        const op = new Op();
+        op.id = id;
+        op.gid = id;
+        op.rid = id;
+        op.tid = 0;
+        op.retired = retired;
+        op.flush = flush;
+        op.labelName = labelName;
+        op.fetchedCycle = ranges[0][1];
+        op.retiredCycle = ranges[ranges.length - 1][2];
+        const lane = new Lane();
+        for (const [name, startCycle, endCycle] of ranges) {
+            const stage = new Stage();
+            stage.name = name;
+            stage.startCycle = startCycle;
+            stage.endCycle = endCycle;
+            lane.stages.push(stage);
+            levelMap.update("0", name, lane);
+        }
+        op.lanes[laneID] = lane;
+        store.setOp(id, op);
+        if (retired) {
+            store.setRetiredOp(op.rid, op);
+        }
+        id++;
+    };
+
+    recoveryLatencies.forEach((recoveryLatency, eventIndex) => {
+        const base = 10 + eventIndex * 50;
+        const causeLabel = eventIndex === 0
+            ? "0x00001000: c_bnez a0, target:IntAlu"
+            : eventIndex === 1
+                ? "0x00401000: JNZ_I : wrip t1, t2:IntAlu"
+                : eventIndex === 2
+                    ? "0x00001000: cbnz x0, target:IntAlu"
+                    : "bne x1, x2, target";
+        // stage名は意図的に一般名にする。retired control-flowの直後にflush列があり、
+        // その後の最初のretired命令をcorrect pathの再allocationとして観測する。
+        addOp(true, false, causeLabel, [
+            ["arbitrary-source", base, base + 1],
+            ["arbitrary-reservoir", base + 1, base + 4],
+            ["arbitrary-event", base + 4, base + 5],
+            ["arbitrary-complete", base + 5, base + 6],
+            ["arbitrary-tail", base + 6, base + 7],
+        ]);
+        const wrongPathSourceEnd = eventIndex === 0 && firstWindowHasAllocationBackpressure
+            ? base + 4
+            : base + 2;
+        addOp(false, true, "add x3, x4, x5", [
+            ["arbitrary-source", base + 1, wrongPathSourceEnd],
+            ["arbitrary-reservoir", wrongPathSourceEnd, base + 4],
+            ["arbitrary-event", base + 4, base + 5],
+            ["arbitrary-complete", base + 5, base + 6],
+            ["arbitrary-tail", base + 6, base + 7],
+        ]);
+        const correctAllocation = base + 5 + recoveryLatency;
+        addOp(true, false, "add x6, x7, x8", [
+            ["arbitrary-source", correctAllocation - 1, correctAllocation],
+            ["arbitrary-reservoir", correctAllocation, correctAllocation + 2],
+            ["arbitrary-event", correctAllocation + 2, correctAllocation + 3],
+            ["arbitrary-complete", correctAllocation + 3, correctAllocation + 4],
+            ["arbitrary-tail", correctAllocation + 4, correctAllocation + 5],
+        ]);
+    });
+    const finalLatency = recoveryLatencies[recoveryLatencies.length - 1] ?? 0;
+    const lastCycle = recoveryLatencies.length === 0
+        ? 1
+        : 10 + (recoveryLatencies.length - 1) * 50 + finalLatency + 16;
+    return new ParsedTrace("misprediction-shadow.log", store, levelMap, lastCycle);
+}
+
 test("Stage activity aggregates overlapping intervals and flushed ops", async () => {
     const trace = createStageActivityTrace();
     const activity = await buildStageActivity(trace);
@@ -572,6 +657,88 @@ test("Top-down-like view distinguishes allocated dependencies from allocation ba
         "global",
     );
     assert.ok(heatmap.fillStyles.includes("#ffa726"));
+    trace.close();
+});
+
+test("Top-down-like view retrospectively classifies supported misprediction shadows", async () => {
+    const trace = createMispredictionShadowTrace(
+        [...Array<number>(10).fill(3), 30],
+        true,
+    );
+    const activity = await buildStageActivity(trace);
+    assert.ok(activity !== null);
+    const analysis = activity.topDownAnalysis;
+    assert.ok(analysis !== null);
+    assert.equal(activity.rows[analysis.allocationRowIndex].stageName, "arbitrary-reservoir");
+    assert.equal(activity.rows[analysis.executionRowIndex].stageName, "arbitrary-event");
+    assert.equal(analysis.mispredictionWindowCount, 11);
+    assert.equal(analysis.minimumRecoveryCycles, 3);
+    assert.equal(analysis.minimumRecoverySampleCount, 10);
+
+    const sampleCycle = (cycle: number) => getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [cycle, 0] },
+        0,
+        160,
+    );
+    const blocked = sampleCycle(12);
+    assert.ok(blocked !== null);
+    // 入口で止まった命令自体が後にflushされるなら、有効なBackend仕事ではない。
+    assert.equal(blocked.backendBound, 0);
+    assert.equal(blocked.mispredictionShadowSlots, 1);
+
+    const recovered = sampleCycle(16);
+    assert.ok(recovered !== null);
+    assert.equal(recovered.frontendBound, 0);
+    assert.equal(recovered.mispredictionShadowSlots, 1);
+
+    const outlierBase = 10 + 10 * 50;
+    const cappedOutlier = sampleCycle(outlierBase + 9);
+    assert.ok(cappedOutlier !== null);
+    // 単発の長いcorrect-path待ちは、反復観測した最短回復を越えればFrontendへ戻す。
+    assert.equal(cappedOutlier.mispredictionShadowSlots, 0);
+    assert.equal(cappedOutlier.frontendBound, 1);
+
+    const labels = createRecordedContext();
+    drawStageActivityHeatmap(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [10, 0] },
+        createCanvas(labels.context, 500, 128),
+        createCanvas(createRecordedContext().context, 160, 128),
+        "topdown",
+        "global",
+    );
+    assert.ok(labels.fillTexts.some(([text]) => text.includes("shadow 11, +3c min")));
+    trace.close();
+});
+
+test("Top-down-like view does not learn recovery from an unsupported sample", async () => {
+    const trace = createMispredictionShadowTrace([30]);
+    const activity = await buildStageActivity(trace);
+    assert.ok(activity !== null);
+    const analysis = activity.topDownAnalysis;
+    assert.ok(analysis !== null);
+    assert.equal(analysis.mispredictionWindowCount, 1);
+    assert.equal(analysis.minimumRecoveryCycles, null);
+    assert.equal(analysis.minimumRecoverySampleCount, 0);
+
+    const beforeComplete = getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [14, 0] },
+        0,
+        160,
+    );
+    assert.ok(beforeComplete !== null);
+    assert.equal(beforeComplete.mispredictionShadowSlots, 1);
+    const afterComplete = getStageTopDownBreakdownSample(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [16, 0] },
+        0,
+        160,
+    );
+    assert.ok(afterComplete !== null);
+    assert.equal(afterComplete.mispredictionShadowSlots, 0);
+    assert.equal(afterComplete.frontendBound, 1);
     trace.close();
 });
 

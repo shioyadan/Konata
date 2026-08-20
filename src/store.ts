@@ -71,6 +71,7 @@ export interface GlobalViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    // Storeは軽量なUI選択だけを保持する。集計済みStageActivityDataはTraceSheetが所有する。
     readonly stageActivityVisible: boolean;
     readonly stageActivityMetric: StageActivityMetric;
     readonly stageActivityScale: StageActivityScale;

@@ -1384,6 +1384,7 @@ export function App() {
                                 })}
                             />
                         </label>
+                        {/* ここは表示設定のみをStoreへ渡す。Traceの集計とCanvas描画はTraceSheetが起動する。 */}
                         <label title="Show a stage occupancy heatmap below the pipeline.">
                             Stage activity
                             <input

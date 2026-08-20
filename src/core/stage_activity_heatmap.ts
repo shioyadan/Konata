@@ -1,3 +1,11 @@
+/**
+ * Stage activityのデータ集計とCanvas描画を実装する。
+ *
+ * `buildStageActivity()`はParsedTraceだけを読み、ReactやCanvasを知らない集計層である。
+ * `drawStageActivityHeatmap()`は集計済みのStageActivityDataだけを描き、Traceを再走査しない。
+ * 表示設定、構築のcancel、Canvasの所有はTraceSheetが担い、既存のpipeline Rendererと
+ * 独立した小さな2D Canvasとして保つ。
+ */
 import type { ParsedTrace } from "./model";
 import {
     getKonataZoomScale,
@@ -16,6 +24,9 @@ const DEFAULT_YIELD_INTERVAL = 50_000;
 // Top-down breakdownはcycle単位で分類してから表示binへ集約する。巨大traceで一時配列が
 // stage heatmap本体より大きくならないよう、試作中は厳密解析へ上限を設ける。
 const MAX_EXACT_TOP_DOWN_CYCLE_COUNT = 4 * 1024 * 1024;
+// 1件だけの短い外れ値をpipeline固有の最短回復時間としない。通常の分岐回復なら
+// 同じcycle数が繰り返し現れるため、十分な反復を持つ最小bucketだけを採用する。
+const MIN_SUPPORTED_RECOVERY_SAMPLE_COUNT = 10;
 
 export type StageActivityScale = "stage" | "global";
 export type StageActivityMetric = "active" | "starts" | "topdown";
@@ -58,8 +69,12 @@ export interface StageTopDownAnalysis {
     readonly transitionCount: number;
     readonly transitionCoverage: number;
     readonly admissionRows: readonly StageAllocationAdmissionRow[];
+    readonly mispredictionWindowCount: number;
+    readonly minimumRecoveryCycles: number | null;
+    readonly minimumRecoverySampleCount: number;
     readonly retiringPrefix: Float64Array;
     readonly squashedPrefix: Float64Array;
+    readonly mispredictionShadowPrefix: Float64Array;
     readonly unresolvedPrefix: Float64Array;
     readonly frontendPrefix: Float64Array;
     readonly backendPrefix: Float64Array;
@@ -107,6 +122,7 @@ export interface StageTopDownBreakdownSample {
     readonly totalSlots: number;
     readonly retiringSlots: number;
     readonly squashedSlots: number;
+    readonly mispredictionShadowSlots: number;
     readonly unresolvedSlots: number;
     readonly frontendBound: number;
     readonly backendBound: number;
@@ -300,6 +316,48 @@ interface StageAllocationReference {
     readonly admissionRows: readonly StageAllocationAdmissionRow[];
 }
 
+interface TopDownOpRecord {
+    readonly flush: boolean;
+    readonly retired: boolean;
+    readonly isControlFlow: boolean;
+    readonly allocationCycle: number | null;
+    readonly completionCycle: number | null;
+}
+
+interface MispredictionWindow {
+    readonly startCycle: number;
+    readonly completionCycle: number;
+    nextCorrectAllocationCycle: number | null;
+    valid: boolean;
+}
+
+function isLikelyControlFlowLabel(labelName: string): boolean {
+    // flush列の直前という動的な関係を主な根拠にし、labelはbranch／jump以外のclearを
+    // 誤って結び付けないためのgateにだけ使う。x86 gem5は最終micro-opのwripを要求する。
+    const separator = labelName.indexOf(":");
+    const disassembly = (separator < 0 ? labelName : labelName.slice(separator + 1)).trim();
+    const mnemonic = (disassembly.split(/\s+/, 1)[0] ?? "").toLowerCase();
+    if (/\bwrip\b/i.test(disassembly)) {
+        return /^(?:j|call|ret)/.test(mnemonic);
+    }
+    const uncompressed = mnemonic.replace(/^c[._]/, "");
+    return /^(?:j|jr|jal|jalr|call|ret)$/.test(uncompressed) ||
+        /^(?:b|bl|blr|br|bx|bal|beq|bne|beqz|bnez|blt|bge|bltu|bgeu|bgez|bltz|blez|bgtz|cbz|cbnz|tbz|tbnz)(?:\..*)?$/.test(uncompressed);
+}
+
+function getSupportedMinimum(
+    histogram: ReadonlyMap<number, number>,
+): { readonly value: number; readonly sampleCount: number } | null {
+    const latencies = [...histogram.keys()].sort((left, right) => left - right);
+    for (const latency of latencies) {
+        const sampleCount = histogram.get(latency) ?? 0;
+        if (sampleCount >= MIN_SUPPORTED_RECOVERY_SAMPLE_COUNT) {
+            return { value: latency, sampleCount };
+        }
+    }
+    return null;
+}
+
 function inferAllocationReference(
     rows: readonly StageActivityRow[],
     transitions: StageTransitionCounts,
@@ -432,7 +490,14 @@ async function buildStageTopDownAnalysis(
     const retiringStarts = new Uint32Array(cycleCount);
     const squashedStarts = new Uint32Array(cycleCount);
     const unresolvedStarts = new Uint32Array(cycleCount);
-    const admissionDiff = new Int32Array(cycleCount + 1);
+    const backendAdmissionDiff = new Int32Array(cycleCount + 1);
+    const flushedAdmissionDiff = new Int32Array(cycleCount + 1);
+    const previousOpByThread = new Map<number, Readonly<TopDownOpRecord>>();
+    const pendingWindowByThread = new Map<number, MispredictionWindow>();
+    const mispredictionWindows: MispredictionWindow[] = [];
+    const recoveryLatencyHistogram = new Map<number, number>();
+    // O3PipeViewにallocation-side recovery eventはないため、以下はPMU TMAの厳密な
+    // 復元ではなく、後にflushと分かった命令列から作る事後的な因果分類である。
     const admissionRowsByStage = new Map<string, Readonly<StageAllocationAdmissionRow>>();
     for (const admission of reference.admissionRows) {
         const row = rows[admission.rowIndex];
@@ -451,10 +516,12 @@ async function buildStageTopDownAnalysis(
         }
         const allocationLane = op.lanes[allocationRow.laneID];
         let firstAllocationCycle: number | null = null;
+        let completionCycle: number | null = null;
         if (allocationLane !== null && allocationLane !== undefined) {
             let previousStageName: string | null = null;
             let previousStageStart = 0;
             let previousStageEnd = 0;
+            let executionSeen = false;
             for (const stage of allocationLane.stages) {
                 const endCycle = stage.endCycle === 0 ? op.retiredCycle : stage.endCycle;
                 if (stage.name !== previousStageName) {
@@ -462,10 +529,10 @@ async function buildStageTopDownAnalysis(
                         ? undefined
                         : admissionRowsByStage.get(previousStageName);
                     if (stage.name === allocationRow.stageName && admission !== undefined) {
-                        // allocation直前のstageに通常より長く留まった区間は、backendが
-                        // 新しいuopを受け入れられないallocation backpressureとして扱う。
+                        // allocation直前のstageに通常より長く留まった区間を入口停滞とする。
+                        // 後にflushされる命令の停滞は、有効な仕事を早めないため別に保持する。
                         addExactInterval(
-                            admissionDiff,
+                            op.flush ? flushedAdmissionDiff : backendAdmissionDiff,
                             cycleCount,
                             previousStageStart + admission.typicalLatency,
                             Math.min(previousStageEnd, stage.startCycle),
@@ -482,6 +549,12 @@ async function buildStageTopDownAnalysis(
                         ? stage.startCycle
                         : Math.min(firstAllocationCycle, stage.startCycle);
                 }
+                if (stage.name === executionRow.stageName) {
+                    executionSeen = true;
+                } else if (executionSeen && completionCycle === null) {
+                    // executionの直後に始まるstageを、stage名に依存しないComplete proxyにする。
+                    completionCycle = stage.startCycle;
+                }
             }
         }
         if (firstAllocationCycle !== null) {
@@ -494,6 +567,53 @@ async function buildStageTopDownAnalysis(
                     : unresolvedStarts;
             addExactStart(target, cycleCount, firstAllocationCycle);
         }
+
+        const tid = op.tid;
+        const previous = previousOpByThread.get(tid);
+        if (op.flush) {
+            if (previous !== undefined && !previous.flush && previous.retired &&
+                previous.isControlFlow && previous.allocationCycle !== null &&
+                previous.completionCycle !== null &&
+                previous.completionCycle > previous.allocationCycle) {
+                // 同じthreadで連続するflush列の直前にあるretiring control-flow命令だけを
+                // 原因候補とする。明示cause eventがない形式では、これ以上広い推定をしない。
+                const window: MispredictionWindow = {
+                    startCycle: previous.allocationCycle,
+                    completionCycle: previous.completionCycle,
+                    nextCorrectAllocationCycle: null,
+                    valid: true,
+                };
+                mispredictionWindows.push(window);
+                pendingWindowByThread.set(tid, window);
+            }
+        } else {
+            const pendingWindow = pendingWindowByThread.get(tid);
+            if (pendingWindow !== undefined) {
+                pendingWindowByThread.delete(tid);
+                if (op.retired && firstAllocationCycle !== null &&
+                    firstAllocationCycle >= pendingWindow.completionCycle) {
+                    pendingWindow.nextCorrectAllocationCycle = firstAllocationCycle;
+                    const latency = Math.floor(
+                        firstAllocationCycle - pendingWindow.completionCycle,
+                    );
+                    recoveryLatencyHistogram.set(
+                        latency,
+                        (recoveryLatencyHistogram.get(latency) ?? 0) + 1,
+                    );
+                } else {
+                    // cause対応が正しければ、flush後のcorrect allocationが原因命令の
+                    // Completeより前へ来ることはない。矛盾する候補はshadow自体に使わない。
+                    pendingWindow.valid = false;
+                }
+            }
+        }
+        previousOpByThread.set(tid, {
+            flush: op.flush,
+            retired: op.retired,
+            isControlFlow: isLikelyControlFlowLabel(op.labelName),
+            allocationCycle: firstAllocationCycle,
+            completionCycle,
+        });
 
         workSinceYield++;
         if (workSinceYield >= yieldInterval) {
@@ -515,14 +635,39 @@ async function buildStageTopDownAnalysis(
         return null;
     }
 
+    const supportedRecovery = getSupportedMinimum(recoveryLatencyHistogram);
+    const mispredictionDiff = new Int32Array(cycleCount + 1);
+    let mispredictionWindowCount = 0;
+    for (const window of mispredictionWindows) {
+        if (!window.valid) {
+            continue;
+        }
+        let endCycle = window.completionCycle;
+        if (supportedRecovery !== null && window.nextCorrectAllocationCycle !== null) {
+            // 実際のcorrect allocationより先へは延ばさない。長いI-cache／ITLB待ちは
+            // supported minimumを超えた時点から従来のFrontend／Backend判定へ戻す。
+            endCycle = Math.min(
+                window.nextCorrectAllocationCycle,
+                window.completionCycle + supportedRecovery.value,
+            );
+        }
+        addExactInterval(mispredictionDiff, cycleCount, window.startCycle, endCycle);
+        mispredictionWindowCount++;
+    }
+
     const retiringPrefix = new Float64Array(binCount + 1);
     const squashedPrefix = new Float64Array(binCount + 1);
+    const mispredictionShadowPrefix = new Float64Array(binCount + 1);
     const unresolvedPrefix = new Float64Array(binCount + 1);
     const frontendPrefix = new Float64Array(binCount + 1);
     const backendPrefix = new Float64Array(binCount + 1);
-    let admissionDepth = 0;
+    let backendAdmissionDepth = 0;
+    let flushedAdmissionDepth = 0;
+    let mispredictionDepth = 0;
     for (let cycle = 0; cycle < cycleCount; cycle++) {
-        admissionDepth += admissionDiff[cycle];
+        backendAdmissionDepth += backendAdmissionDiff[cycle];
+        flushedAdmissionDepth += flushedAdmissionDiff[cycle];
+        mispredictionDepth += mispredictionDiff[cycle];
         const retired = retiringStarts[cycle];
         const squashed = squashedStarts[cycle];
         const unresolved = unresolvedStarts[cycle];
@@ -531,11 +676,19 @@ async function buildStageTopDownAnalysis(
         addBinValue(retiringPrefix, binWidth, cycle, retired);
         addBinValue(squashedPrefix, binWidth, cycle, squashed);
         addBinValue(unresolvedPrefix, binWidth, cycle, unresolved);
-        if (admissionDepth > 0) {
+        if (flushedAdmissionDepth > 0) {
+            // 入口で止まった命令自体が後にflushされるなら、その停滞を解消しても
+            // wrong-path処理が増えるだけなので、空きslotもBad Speculationへ入れる。
+            addBinValue(mispredictionShadowPrefix, binWidth, cycle, unused);
+        } else if (backendAdmissionDepth > 0) {
             // 後段queueに命令があるだけではBackendにしない。TMA Level 1はexecution
             // issueではなくallocationを観測するため、入口で実際に止まった場合だけを
-            // Backend backpressureとし、その他の空きallocation slotはFrontendとする。
+            // Backend backpressureとする。retire／未確定命令の停滞だけがここへ来る。
             addBinValue(backendPrefix, binWidth, cycle, unused);
+        } else if (mispredictionDepth > 0) {
+            // 事後的に予測ミスと確定した区間では、Frontend供給を増やしても
+            // correct-path命令はallocateできない。残余slotだけをshadowへ移す。
+            addBinValue(mispredictionShadowPrefix, binWidth, cycle, unused);
         } else {
             addBinValue(frontendPrefix, binWidth, cycle, unused);
         }
@@ -551,6 +704,7 @@ async function buildStageTopDownAnalysis(
     [
         retiringPrefix,
         squashedPrefix,
+        mispredictionShadowPrefix,
         unresolvedPrefix,
         frontendPrefix,
         backendPrefix,
@@ -558,8 +712,12 @@ async function buildStageTopDownAnalysis(
     return {
         ...reference,
         allocationWidth,
+        mispredictionWindowCount,
+        minimumRecoveryCycles: supportedRecovery?.value ?? null,
+        minimumRecoverySampleCount: supportedRecovery?.sampleCount ?? 0,
         retiringPrefix,
         squashedPrefix,
+        mispredictionShadowPrefix,
         unresolvedPrefix,
         frontendPrefix,
         backendPrefix,
@@ -567,8 +725,9 @@ async function buildStageTopDownAnalysis(
 }
 
 /**
- * Traceからstageごとの平均active命令数と開始rateを作る。
+ * 集計層: Traceからstageごとの平均active命令数と開始rateを作る。
  *
+ * Active、Starts、Top-down-likeの全てを一度で構築し、metric切替時はこの結果を再利用する。
  * cell数を固定上限へ収め、短いTraceは1 cycle/bin、長いTraceは自動的に粗粒度化する。
  * 呼出し側はViewを閉じた時やTraceを破棄する時にisCanceledをtrueへする。
  */
@@ -833,6 +992,9 @@ function getStageTopDownBreakdown(
     const squashedSlots = getRawPrefixCount(
         analysis.squashedPrefix, data.binWidth, startCycle, endCycle,
     );
+    const mispredictionShadowSlots = getRawPrefixCount(
+        analysis.mispredictionShadowPrefix, data.binWidth, startCycle, endCycle,
+    );
     const unresolvedSlots = getRawPrefixCount(
         analysis.unresolvedPrefix, data.binWidth, startCycle, endCycle,
     );
@@ -842,7 +1004,7 @@ function getStageTopDownBreakdown(
     const backendBound = getRawPrefixCount(
         analysis.backendPrefix, data.binWidth, startCycle, endCycle,
     );
-    const totalSlots = retiringSlots + squashedSlots + unresolvedSlots +
+    const totalSlots = retiringSlots + squashedSlots + mispredictionShadowSlots + unresolvedSlots +
         frontendBound + backendBound;
     return {
         analysis,
@@ -853,6 +1015,7 @@ function getStageTopDownBreakdown(
         totalSlots,
         retiringSlots,
         squashedSlots,
+        mispredictionShadowSlots,
         unresolvedSlots,
         frontendBound,
         backendBound,
@@ -1096,7 +1259,7 @@ function drawTopDownBreakdownInterval(
     }
     const segments = [
         [sample.retiringSlots, colors.retiring],
-        [sample.squashedSlots, colors.badSpeculation],
+        [sample.squashedSlots + sample.mispredictionShadowSlots, colors.badSpeculation],
         [sample.frontendBound, colors.frontendBound],
         [sample.backendBound, colors.backendBound],
         [sample.unresolvedSlots, colors.unresolved],
@@ -1152,8 +1315,13 @@ function drawStageTopDownBreakdown(
         return row === undefined ? "" : `${row.label} +${format(admission.typicalLatency)}c`;
     }).filter((label) => label.length > 0).join(", ");
     const entrance = admissionLabel.length === 0 ? "" : ` · entrance ${admissionLabel}`;
+    const shadow = analysis.mispredictionWindowCount === 0
+        ? ""
+        : analysis.minimumRecoveryCycles === null
+            ? ` · shadow ${analysis.mispredictionWindowCount}`
+            : ` · shadow ${analysis.mispredictionWindowCount}, +${format(analysis.minimumRecoveryCycles)}c min`;
     labelContext.fillText(
-        `Before ${executionRow.label}${entrance} · ${(analysis.transitionCoverage * 100).toFixed(0)}% links`,
+        `Before ${executionRow.label}${entrance}${shadow} · ${(analysis.transitionCoverage * 100).toFixed(0)}% links`,
         margin,
         49,
     );
@@ -1296,7 +1464,12 @@ function drawActivityRow(
     }
 }
 
-/** 既存pipeline Rendererから独立した、小さいstage activity Canvasを描く。 */
+/**
+ * 描画層: 集計済みdataを、既存pipeline Rendererから独立したCanvasへ描く。
+ *
+ * specのcycle位置とzoomを使うことで上のpipelineと横軸を揃える。ここでTraceや
+ * Storeは参照せず、metricやscaleの切替は再集計ではなく再描画だけで反映する。
+ */
 export function drawStageActivityHeatmap(
     data: Readonly<StageActivityData>,
     spec: Readonly<KonataRenderSpec>,
