@@ -33,7 +33,7 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
 
     assert.equal(trace.lastID, 0);
     assert.equal(trace.lastRID, 0);
-    assert.equal(trace.lastCycle, 6);
+    assert.equal(trace.lastCycle, 7);
     assert.equal(trace.opCount, 1);
     assert.deepEqual([...trace.laneNames], ["0"]);
     // UIはこの列挙からCustom色の追加候補を作るため、変換後のstage順を明示する。
@@ -68,13 +68,13 @@ test("Web gem5 parser preserves ticks and pipeline stages", async () => {
             retired: true,
             flush: false,
             fetchedCycle: 0,
-            retiredCycle: 6,
+            retiredCycle: 7,
             consCycle: 5,
             prodCycle: 5,
         },
     );
     assert.equal(op.labelName, "0x00001000:  add r1, r2");
-    // retireはCmを閉じ、同じtickから1 cycle幅のRt stageを追加する。
+    // retireはCmを閉じ、同じtickから1 cycle幅のRt stageを追加し、命令終端も揃える。
     assert.deepEqual(
         op.lanes[mainLaneID]?.stages.map((stage) => [stage.name, stage.startCycle, stage.endCycle]),
         [
@@ -138,7 +138,7 @@ test("Web gem5 parser publishes one trace only after detecting its format", asyn
     assert.ok(partialTraces.length >= 2);
     assert.ok(partialTraces.every((partialTrace) => partialTrace === trace));
     assert.equal(trace.opCount, 1);
-    assert.equal(trace.lastCycle, 6);
+    assert.equal(trace.lastCycle, 7);
 });
 
 test("Web gem5 parser reorders sequence numbers and keeps flushed operations", async () => {
@@ -248,7 +248,7 @@ test("Web gem5 parser restores dependencies for underscored register classes", a
     assert.deepEqual(trace.getOp(1)?.prods.map((dependency) => dependency.opID), [0]);
 });
 
-test("Web gem5 parser preserves micro PC and retire suffix ticks without extending retirement", async () => {
+test("Web gem5 parser preserves retire suffix ticks while aligning the drawing end", async () => {
     const contents = [
         "O3PipeView:fetch:1000:0x10:3:10: store",
         "O3PipeView:decode:2000",
@@ -264,8 +264,8 @@ test("Web gem5 parser preserves micro PC and retire suffix ticks without extendi
     assert.match(trace.getOp(0)?.labelDetail ?? "", /Store Tick: 5001/);
     const op = trace.getOp(0);
     assert.ok(op);
-    assert.equal(op.retiredCycle, 3);
-    assert.equal(trace.lastCycle, 3);
+    assert.equal(op.retiredCycle, 4);
+    assert.equal(trace.lastCycle, 4);
     assert.equal(trace.stageLevelMap.getLaneID("memory"), undefined);
     assert.equal(op.lanes.some((lane) => lane?.stages.some((stage) => stage.name === "Sc")), false);
 });
@@ -292,8 +292,8 @@ test("Web gem5 parser preserves memory completion at and after retire as raw det
         assert.match(op.labelDetail, /Memory Complete: .*Completed mem instruction/);
         assert.equal(op.lanes.some((lane) => lane?.stages.some((stage) => stage.name === "Mc")), false);
     }
-    assert.equal(trace.getOp(1)?.retiredCycle, 7);
-    assert.equal(trace.lastCycle, 7);
+    assert.equal(trace.getOp(1)?.retiredCycle, 8);
+    assert.equal(trace.lastCycle, 8);
     const mainLaneID = trace.stageLevelMap.getLaneID("0") ?? -1;
     assert.ok(trace.getOp(1)?.lanes[mainLaneID]?.stages.some(
         (stage) => /Completed mem instruction/.test(stage.labels),
@@ -325,7 +325,7 @@ test("Web gem5 parser keeps a pre-retire memory completion as the existing Mc st
         ],
     );
     assert.match(op.labelDetail, /Memory Complete: .*Completed mem instruction/);
-    assert.equal(trace.lastCycle, 6);
+    assert.equal(trace.lastCycle, 7);
 });
 
 test("Web gem5 parser does not backdate Mc when extra logs are not tick ordered", async () => {
