@@ -2749,6 +2749,11 @@ async function run() {
                     ? {value: color.value, disabled: color.disabled}
                     : null;
             })(),
+            statsDisabled: (() => {
+                const stats = [...document.querySelectorAll('.app-toolbar > button')]
+                    .find((button) => button.textContent?.trim() === "Stats");
+                return stats instanceof HTMLButtonElement ? stats.disabled : null;
+            })(),
             overlayLayerCompositions: comparisonLayerCompositions.slice(-2)
         };
         comparisonLayerCompositions = [];
@@ -2853,6 +2858,7 @@ async function run() {
             value: "Comparison",
             disabled: true
         }) ||
+        comparisonState.initial.statsDisabled !== true ||
         JSON.stringify(comparisonState.initial.overlayLayerCompositions) !== JSON.stringify([
             {opacity: 1, operation: "source-over", filter: "none"},
             {opacity: 0.5, operation: "source-over", filter: "none"}

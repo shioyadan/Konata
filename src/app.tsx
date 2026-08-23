@@ -816,7 +816,7 @@ export function App() {
     };
 
     const showStats = () => {
-        if (trace === null || statsProgress !== null) {
+        if (trace === null || comparisonTab !== null || statsProgress !== null) {
             return;
         }
         // 読込み中は開始時点のID・cycle境界までを集計し、完了後の値と区別して表示する。
@@ -1332,7 +1332,7 @@ export function App() {
                 <button
                     className="button-with-icon toolbar-action mobile-toolbar-secondary"
                     type="button"
-                    disabled={trace === null || statsProgress !== null}
+                    disabled={trace === null || comparisonTab !== null || statsProgress !== null}
                     onClick={showStats}
                 >
                     <BsBarChart aria-hidden="true" />
@@ -1656,7 +1656,7 @@ export function App() {
                             )}
                             <button
                                 type="button"
-                                disabled={trace === null || statsProgress !== null}
+                                disabled={trace === null || comparisonTab !== null || statsProgress !== null}
                                 onClick={showStats}
                             >
                                 <BsBarChart aria-hidden="true" /> Stats
