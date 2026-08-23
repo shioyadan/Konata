@@ -13,6 +13,10 @@ import {
     type RendererTheme,
 } from "./konata_renderer";
 
+// 縮小表示ではOp描画と同じくglobal cycleへ揃えた代表点だけを見る。各cycle内では
+// 全allocation slotを数えるため、slot位置によるcategory比率の偏りは作らない。
+const MAX_SAMPLED_CYCLES_PER_PIXEL = 64;
+
 interface PreparedCanvas {
     readonly context: CanvasRenderingContext2D;
     readonly width: number;
@@ -116,10 +120,9 @@ function drawLabels(
     const format = (value: number) => Number.isInteger(value)
         ? value.toString()
         : value.toFixed(1);
-    const averaged = data.binWidth === 1 ? "" : ` (${data.binWidth}-cycle avg)`;
     context.fillText("Top-down-like (auto)", margin, 13);
     context.fillText(
-        `Allocation ${analysis.allocationStage.label} · width ≥${format(analysis.allocationWidth)}/c${averaged}`,
+        `Allocation ${analysis.allocationStage.label} · width ≥${format(analysis.allocationWidth)}/c`,
         margin,
         31,
     );
@@ -170,11 +173,16 @@ export function getTopDownBreakdownAtPixel(
     if (cycle < 0 || cycle >= data.cycleCount) {
         return null;
     }
-    const startCycle = Math.floor(cycle / data.binWidth) * data.binWidth;
+    const opWidth = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
+    if (opWidth >= 1) {
+        const startCycle = Math.floor(cycle);
+        return getTopDownBreakdown(data, startCycle, startCycle + 1);
+    }
     return getTopDownBreakdown(
         data,
-        startCycle,
-        Math.min(data.cycleCount, startCycle + data.binWidth),
+        cycle,
+        spec.position[0] + (x + 1) / opWidth,
+        MAX_SAMPLED_CYCLES_PER_PIXEL,
     );
 }
 
@@ -200,12 +208,12 @@ export function drawTopDownHeatmap(
     const opWidth = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
     const leftCycle = spec.position[0];
     const rightCycle = leftCycle + heatmap.width / opWidth;
-    if (data.binWidth * opWidth >= 1) {
-        const firstBin = Math.max(0, Math.floor(leftCycle / data.binWidth));
-        const lastBin = Math.min(data.binCount, Math.ceil(rightCycle / data.binWidth));
-        for (let bin = firstBin; bin < lastBin; bin++) {
-            const startCycle = bin * data.binWidth;
-            const endCycle = Math.min(data.cycleCount, startCycle + data.binWidth);
+    if (opWidth >= 1) {
+        const firstCycle = Math.max(0, Math.floor(leftCycle));
+        const lastCycle = Math.min(data.cycleCount, Math.ceil(rightCycle));
+        for (let cycle = firstCycle; cycle < lastCycle; cycle++) {
+            const startCycle = cycle;
+            const endCycle = cycle + 1;
             const sample = getTopDownBreakdown(data, startCycle, endCycle);
             if (sample !== null) {
                 const left = Math.max(0, (startCycle - leftCycle) * opWidth);
@@ -220,7 +228,9 @@ export function drawTopDownHeatmap(
     for (let x = 0; x < heatmap.width; x++) {
         const startCycle = Math.max(0, leftCycle + x / opWidth);
         const endCycle = Math.min(data.cycleCount, leftCycle + (x + 1) / opWidth);
-        const sample = getTopDownBreakdown(data, startCycle, endCycle);
+        const sample = getTopDownBreakdown(
+            data, startCycle, endCycle, MAX_SAMPLED_CYCLES_PER_PIXEL,
+        );
         if (sample !== null) {
             drawBreakdown(heatmap.context, sample, colors, x, 1, heatmap.height);
         }

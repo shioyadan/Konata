@@ -6,6 +6,7 @@ import { ArrayOpStore } from "../src/core/op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
 import {
     buildTopDownData,
+    getTopDownBreakdown,
 } from "../src/core/top_down_analysis";
 import {
     drawTopDownHeatmap,
@@ -443,6 +444,8 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(analysis.allocationStage.stageName, "arbitrary-reservoir");
     assert.equal(analysis.executionStage.stageName, "arbitrary-event");
     assert.equal(analysis.allocationWidth, 2);
+    assert.ok(analysis.slots instanceof Uint8Array);
+    assert.equal(analysis.slots.length, activity.cycleCount * analysis.allocationWidth);
     assert.equal(analysis.transitionCoverage, 1);
     assert.equal(analysis.admissionStages.length, 1);
     assert.equal(analysis.admissionStages[0].stage.stageName, "arbitrary-source");
@@ -581,6 +584,12 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
     assert.equal(analysis.recoveryWindowCount, 11);
     assert.equal(analysis.minimumRecoveryCycles, 3);
     assert.equal(analysis.minimumRecoverySampleCount, 10);
+
+    const sampled = getTopDownBreakdown(activity, 0, activity.cycleCount, 4);
+    assert.ok(sampled !== null);
+    assert.ok(sampled.samplingStride > 1);
+    assert.ok(sampled.sampledCycleCount <= 4);
+    assert.equal(sampled.totalSlots, sampled.sampledCycleCount * analysis.allocationWidth);
 
     const sampleCycle = (cycle: number) => getTopDownBreakdownAtPixel(
         activity,

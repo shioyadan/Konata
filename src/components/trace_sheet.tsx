@@ -962,9 +962,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 if (sample === null) {
                     text = null;
                 } else {
-                    const digits = data.binWidth === 1 ? 0 : 2;
-                    const format = (value: number) =>
-                        value.toFixed(digits).replace(/\.00$/, "");
+                    const format = (value: number) => value.toFixed(0);
                     const percent = (value: number) => sample.totalSlots === 0
                         ? "0.0"
                         : (value / sample.totalSlots * 100).toFixed(1);
@@ -975,11 +973,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         ? "minimum recovery unavailable"
                         : `minimum recovery ${format(sample.analysis.minimumRecoveryCycles)} cycles ` +
                             `(${sample.analysis.minimumRecoverySampleCount} samples)`;
+                    const representedSlots = (sample.endCycle - sample.startCycle) *
+                        sample.analysis.allocationWidth;
+                    const observedSlots = sample.samplingStride === 1
+                        ? `Observed slots: ${format(sample.totalSlots)}`
+                        : `Sampled slots: ${format(sample.totalSlots)} of ` +
+                            `${format(representedSlots)} (every ${sample.samplingStride} cycles)`;
                     text = [
                         `Top-down-like (auto allocation: ${sample.analysis.allocationStage.label}, before ${sample.analysis.executionStage.label})`,
                         ...admissionRows.map((label) => `Allocation entrance: ${label}`),
-                        `Cycles: ${sample.startCycle}–${sample.endCycle - 1} (${data.binWidth} cycles/bin)`,
-                        `Observed slots: ${format(sample.totalSlots)} (allocation width ≥${format(sample.analysis.allocationWidth)}/cycle)`,
+                        `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
+                        `${observedSlots} (allocation width ≥${format(sample.analysis.allocationWidth)}/cycle)`,
                         `Retiring: ${format(sample.retiringSlots)} (${percent(sample.retiringSlots)}%)`,
                         `Bad speculation (allocated & squashed): ${format(sample.squashedSlots)} (${percent(sample.squashedSlots)}%)`,
                         `Bad speculation (recovery bubbles): ${format(sample.recoveryBubbleSlots)} (${percent(sample.recoveryBubbleSlots)}%)`,
@@ -987,7 +991,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         `Frontend bound: ${format(sample.frontendBound)} (${percent(sample.frontendBound)}%)`,
                         `Backend bound: ${format(sample.backendBound)} (${percent(sample.backendBound)}%)`,
                         `Unresolved allocation: ${format(sample.unresolvedSlots)} (${percent(sample.unresolvedSlots)}%)`,
-                        "All ops are included; allocation and bound categories are inferred.",
+                        "All ops are analyzed; zoomed-out values are sampled.",
                     ].join("\n");
                 }
             } else {
