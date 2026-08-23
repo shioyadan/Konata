@@ -37,7 +37,6 @@ export interface TopDownAnalysis {
     readonly allocationStage: TopDownStage;
     readonly executionStage: TopDownStage;
     readonly allocationWidth: number;
-    readonly transitionCount: number;
     readonly transitionCoverage: number;
     readonly admissionStages: readonly TopDownAdmission[];
     readonly recoveryWindowCount: number;
@@ -54,7 +53,6 @@ export interface TopDownAnalysis {
 export interface TopDownAdmission {
     readonly stage: TopDownStage;
     readonly typicalLatency: number;
-    readonly transitionCount: number;
 }
 
 export interface TopDownData {
@@ -84,14 +82,12 @@ export interface TopDownBuildOptions {
 }
 
 interface StageRecord extends TopDownStage {
+    readonly rowIndex: number;
     readonly laneID: number;
     startCount: number;
 }
 
-function createRows(trace: ParsedTrace): {
-    readonly rows: StageRecord[];
-    readonly rowIndices: ReadonlyMap<number, ReadonlyMap<string, number>>;
-} {
+function createRows(trace: ParsedTrace) {
     const rows: StageRecord[] = [];
     const rowIndices = new Map<number, Map<string, number>>();
     const showLaneName = trace.stageLevelMap.laneNum > 1;
@@ -111,6 +107,7 @@ function createRows(trace: ParsedTrace): {
         for (const stageName of trace.stageLevelMap.getStageNames(laneName)) {
             laneRows.set(stageName, rows.length);
             rows.push({
+                rowIndex: rows.length,
                 laneID,
                 stageName,
                 label: showLaneName ? `${laneName}/${stageName}` : stageName,
@@ -128,32 +125,17 @@ type StageTransitionLatencies = ReadonlyMap<
 >;
 
 interface StageAllocationReference {
-    readonly allocationRowIndex: number;
-    readonly executionRowIndex: number;
+    readonly allocationRow: StageRecord;
+    readonly executionRow: StageRecord;
     readonly allocationWidth: number;
-    readonly transitionCount: number;
     readonly transitionCoverage: number;
     readonly admissionRows: readonly StageAdmissionReference[];
 }
 
 interface StageAdmissionReference {
-    readonly rowIndex: number;
+    readonly row: StageRecord;
     readonly typicalLatency: number;
     readonly transitionCount: number;
-}
-
-interface TopDownOpRecord {
-    readonly flush: boolean;
-    readonly retired: boolean;
-    readonly isControlFlow: boolean;
-    readonly allocationCycle: number | null;
-    readonly completionCycle: number | null;
-}
-
-interface RecoveryWindow {
-    readonly startCycle: number;
-    nextCorrectAllocationCycle: number | null;
-    valid: boolean;
 }
 
 function isLikelyControlFlowLabel(labelName: string): boolean {
@@ -173,14 +155,14 @@ function isLikelyControlFlowLabel(labelName: string): boolean {
 function getSupportedMinimum(
     histogram: ReadonlyMap<number, number>,
 ): { readonly value: number; readonly sampleCount: number } | null {
-    const latencies = [...histogram.keys()].sort((left, right) => left - right);
-    for (const latency of latencies) {
-        const sampleCount = histogram.get(latency) ?? 0;
-        if (sampleCount >= MIN_SUPPORTED_RECOVERY_SAMPLE_COUNT) {
-            return { value: latency, sampleCount };
+    let supported: { readonly value: number; readonly sampleCount: number } | null = null;
+    for (const [latency, sampleCount] of histogram) {
+        if (sampleCount >= MIN_SUPPORTED_RECOVERY_SAMPLE_COUNT &&
+            (supported === null || latency < supported.value)) {
+            supported = { value: latency, sampleCount };
         }
     }
-    return null;
+    return supported;
 }
 
 function buildAllocationReference(
@@ -230,15 +212,14 @@ function buildAllocationReference(
                 typicalCount = latencyCount;
             }
         }
-        admissionRows.push({ rowIndex, typicalLatency, transitionCount: count });
+        admissionRows.push({ row: rows[rowIndex], typicalLatency, transitionCount: count });
     }
     admissionRows.sort((left, right) =>
-        right.transitionCount - left.transitionCount || left.rowIndex - right.rowIndex);
+        right.transitionCount - left.transitionCount || left.row.rowIndex - right.row.rowIndex);
     return {
-        allocationRowIndex,
-        executionRowIndex,
+        allocationRow,
+        executionRow: rows[executionRowIndex],
         allocationWidth: detection.width,
-        transitionCount,
         transitionCoverage,
         admissionRows,
     };
@@ -280,7 +261,6 @@ function finishPrefix(prefix: Float64Array): void {
 
 async function classifyTopDownSlots(
     trace: ParsedTrace,
-    rows: readonly StageRecord[],
     reference: Readonly<StageAllocationReference>,
     cycleCount: number,
     binWidth: number,
@@ -291,27 +271,23 @@ async function classifyTopDownSlots(
     if (cycleCount > MAX_EXACT_TOP_DOWN_CYCLE_COUNT) {
         return null;
     }
-    const allocationRow = rows[reference.allocationRowIndex];
-    const executionRow = rows[reference.executionRowIndex];
-    if (allocationRow === undefined || executionRow === undefined) {
-        return null;
-    }
+    const { allocationRow, executionRow } = reference;
 
     const retiringStarts = new Uint32Array(cycleCount);
     const squashedStarts = new Uint32Array(cycleCount);
     const unresolvedStarts = new Uint32Array(cycleCount);
     const backendAdmissionDiff = new Int32Array(cycleCount + 1);
-    const previousOpByThread = new Map<number, Readonly<TopDownOpRecord>>();
-    const pendingWindowByThread = new Map<number, RecoveryWindow>();
-    const recoveryWindows: RecoveryWindow[] = [];
+    const previousRecoveryStartByThread = new Map<number, number>();
+    const pendingRecoveryStartByThread = new Map<number, number>();
+    const recoveryWindows: Array<readonly [startCycle: number, endCycle: number]> = [];
     const recoveryLatencyHistogram = new Map<number, number>();
+    let recoveryWindowCount = 0;
     // O3PipeViewにallocation-side recovery eventはないため、以下はPMU TMAの厳密な
     // 復元ではなく、後にflushと分かった命令列から作る事後的な因果分類である。
     const admissionRowsByStage = new Map<string, Readonly<StageAdmissionReference>>();
     for (const admission of reference.admissionRows) {
-        const row = rows[admission.rowIndex];
-        if (row !== undefined && row.laneID === allocationRow.laneID) {
-            admissionRowsByStage.set(row.stageName, admission);
+        if (admission.row.laneID === allocationRow.laneID) {
+            admissionRowsByStage.set(admission.row.stageName, admission);
         }
     }
     let workSinceYield = 0;
@@ -378,52 +354,38 @@ async function classifyTopDownSlots(
         }
 
         const tid = op.tid;
-        const previous = previousOpByThread.get(tid);
+        const previousRecoveryStart = previousRecoveryStartByThread.get(tid);
         if (op.flush) {
-            if (previous !== undefined && !previous.flush && previous.retired &&
-                previous.isControlFlow && previous.allocationCycle !== null &&
-                previous.completionCycle !== null &&
-                previous.completionCycle > previous.allocationCycle) {
+            if (previousRecoveryStart !== undefined) {
                 // 同じthreadで連続するflush列の直前にあるretiring control-flow命令だけを
                 // 原因候補とする。明示cause eventがない形式では、これ以上広い推定をしない。
-                const window: RecoveryWindow = {
-                    // recovery bubbleは原因命令のallocation時ではなく、resolution proxyである
-                    // completion後から始まる。
-                    startCycle: previous.completionCycle,
-                    nextCorrectAllocationCycle: null,
-                    valid: true,
-                };
-                recoveryWindows.push(window);
-                pendingWindowByThread.set(tid, window);
+                pendingRecoveryStartByThread.set(tid, previousRecoveryStart);
+                recoveryWindowCount++;
             }
         } else {
-            const pendingWindow = pendingWindowByThread.get(tid);
-            if (pendingWindow !== undefined) {
-                pendingWindowByThread.delete(tid);
+            const recoveryStart = pendingRecoveryStartByThread.get(tid);
+            if (recoveryStart !== undefined) {
+                pendingRecoveryStartByThread.delete(tid);
                 if (op.retired && firstAllocationCycle !== null &&
-                    firstAllocationCycle >= pendingWindow.startCycle) {
-                    pendingWindow.nextCorrectAllocationCycle = firstAllocationCycle;
-                    const latency = Math.floor(
-                        firstAllocationCycle - pendingWindow.startCycle,
-                    );
+                    firstAllocationCycle >= recoveryStart) {
+                    recoveryWindows.push([recoveryStart, firstAllocationCycle]);
+                    const latency = Math.floor(firstAllocationCycle - recoveryStart);
                     recoveryLatencyHistogram.set(
                         latency,
                         (recoveryLatencyHistogram.get(latency) ?? 0) + 1,
                     );
                 } else {
-                    // cause対応が正しければ、flush後のcorrect allocationが原因命令の
-                    // Completeより前へ来ることはない。矛盾する候補はrecovery判定に使わない。
-                    pendingWindow.valid = false;
+                    recoveryWindowCount--;
                 }
             }
         }
-        previousOpByThread.set(tid, {
-            flush: op.flush,
-            retired: op.retired,
-            isControlFlow: isLikelyControlFlowLabel(op.labelName),
-            allocationCycle: firstAllocationCycle,
-            completionCycle,
-        });
+        previousRecoveryStartByThread.delete(tid);
+        if (!op.flush && op.retired && firstAllocationCycle !== null &&
+            completionCycle !== null && completionCycle > firstAllocationCycle &&
+            isLikelyControlFlowLabel(op.labelName)) {
+            // completionを、次の命令がflushされた場合のresolution proxyとしてだけ残す。
+            previousRecoveryStartByThread.set(tid, completionCycle);
+        }
 
         workSinceYield++;
         if (workSinceYield >= yieldInterval) {
@@ -438,22 +400,16 @@ async function classifyTopDownSlots(
 
     const supportedRecovery = getSupportedMinimum(recoveryLatencyHistogram);
     const recoveryDiff = new Int32Array(cycleCount + 1);
-    let recoveryWindowCount = 0;
-    for (const window of recoveryWindows) {
-        if (!window.valid) {
-            continue;
-        }
-        let endCycle = window.startCycle;
-        if (supportedRecovery !== null && window.nextCorrectAllocationCycle !== null) {
+    if (supportedRecovery !== null) {
+        for (const [startCycle, nextCorrectAllocationCycle] of recoveryWindows) {
             // 実際のcorrect allocationより先へは延ばさない。長いI-cache／ITLB待ちは
             // supported minimumを超えた時点から従来のFrontend／Backend判定へ戻す。
-            endCycle = Math.min(
-                window.nextCorrectAllocationCycle,
-                window.startCycle + supportedRecovery.value,
+            const endCycle = Math.min(
+                nextCorrectAllocationCycle,
+                startCycle + supportedRecovery.value,
             );
+            addExactInterval(recoveryDiff, cycleCount, startCycle, endCycle);
         }
-        addExactInterval(recoveryDiff, cycleCount, window.startCycle, endCycle);
-        recoveryWindowCount++;
     }
 
     const retiringPrefix = new Float64Array(binCount + 1);
@@ -514,14 +470,14 @@ async function classifyTopDownSlots(
             label: executionRow.label,
         },
         allocationWidth,
-        transitionCount: reference.transitionCount,
         transitionCoverage: reference.transitionCoverage,
         admissionStages: reference.admissionRows.map((admission) => {
-            const stage = rows[admission.rowIndex];
             return {
-                stage: { stageName: stage.stageName, label: stage.label },
+                stage: {
+                    stageName: admission.row.stageName,
+                    label: admission.row.label,
+                },
                 typicalLatency: admission.typicalLatency,
-                transitionCount: admission.transitionCount,
             };
         }),
         recoveryWindowCount,
@@ -649,7 +605,6 @@ export async function buildTopDownData(
         ? null
         : await classifyTopDownSlots(
             trace,
-            rows,
             allocationReference,
             cycleCount,
             binWidth,

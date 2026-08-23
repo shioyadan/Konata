@@ -443,7 +443,6 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(analysis.allocationStage.stageName, "arbitrary-reservoir");
     assert.equal(analysis.executionStage.stageName, "arbitrary-event");
     assert.equal(analysis.allocationWidth, 2);
-    assert.equal(analysis.transitionCount, 4);
     assert.equal(analysis.transitionCoverage, 1);
     assert.equal(analysis.admissionStages.length, 1);
     assert.equal(analysis.admissionStages[0].stage.stageName, "arbitrary-source");
