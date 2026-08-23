@@ -388,12 +388,31 @@ export function App() {
     const activeTab = store.activeTab;
     const comparisonTab = activeTab?.kind === "comparison" ? activeTab : null;
     const comparisonCandidates = tabs.filter((tab) =>
-        tab.kind === "trace" && tab.loadState === "ready" && tab.trace !== null && tab.id !== activeTab?.id);
+        tab.kind === "trace" && tab.trace !== null && tab.id !== activeTab?.id);
     const selectedComparisonCandidateID = comparisonCandidates.some((tab) => tab.id === comparisonCandidateID)
         ? comparisonCandidateID
         : comparisonCandidates[0]?.id ?? null;
     const trace = activeTab?.trace ?? null;
-    const loadState = activeTab?.loadState ?? "idle";
+    // 比較開始後も、元Tabが同じlive Traceをparseしている間は直接描画を続ける。
+    // Reloadで置き換わったTraceや、閉じた元Tabが残したsnapshotは完成済みとして扱う。
+    const liveComparisonSourceTabIDs = new Set<number>();
+    if (comparisonTab !== null) {
+        for (const tab of tabs) {
+            if (tab.kind !== "trace" || tab.loadState !== "loading") {
+                continue;
+            }
+            const isLiveBaseline = tab.id === comparisonTab.baselineSourceTabID &&
+                tab.trace === comparisonTab.baselineTrace;
+            const isLiveCandidate = tab.id === comparisonTab.candidateSourceTabID &&
+                tab.trace === comparisonTab.trace;
+            if (isLiveBaseline || isLiveCandidate) {
+                liveComparisonSourceTabIDs.add(tab.id);
+            }
+        }
+    }
+    const loadState = liveComparisonSourceTabIDs.size > 0
+        ? "loading"
+        : activeTab?.loadState ?? "idle";
     const fileName = activeTab?.fileName ?? "";
     const progress = activeTab?.progress ?? 0;
     const errorMessage = activeTab?.errorMessage ?? "";
@@ -622,7 +641,8 @@ export function App() {
 
     const openComparison = useCallback(() => {
         const baseline = store.activeTab;
-        if (baseline?.kind !== "trace" || selectedComparisonCandidateID === null) {
+        if (baseline?.kind !== "trace" || baseline.trace === null ||
+            selectedComparisonCandidateID === null) {
             return;
         }
         store.dispatch({
@@ -1015,7 +1035,7 @@ export function App() {
     // 検索やStatsでloadを隠さず、非active Tabの処理も灰色で確認できるようにする。
     const operations: OperationProgress[] = [];
     for (const tab of tabs) {
-        const active = tab.id === activeTabID;
+        const active = tab.id === activeTabID || liveComparisonSourceTabIDs.has(tab.id);
         if (tab.loadState === "loading") {
             operations.push({
                 key: `${tab.id}-load`,
@@ -1209,11 +1229,14 @@ export function App() {
                         <summary
                             className="toolbar-action"
                             aria-label="Compare traces"
-                            aria-disabled={activeTab?.kind !== "trace" || selectedComparisonCandidateID === null}
+                            aria-disabled={activeTab?.kind !== "trace" || activeTab.trace === null ||
+                                selectedComparisonCandidateID === null}
                             title="Compare traces"
-                            tabIndex={activeTab?.kind !== "trace" || selectedComparisonCandidateID === null ? -1 : undefined}
+                            tabIndex={activeTab?.kind !== "trace" || activeTab.trace === null ||
+                                selectedComparisonCandidateID === null ? -1 : undefined}
                             onClick={(event) => {
-                                if (activeTab?.kind !== "trace" || selectedComparisonCandidateID === null) {
+                                if (activeTab?.kind !== "trace" || activeTab.trace === null ||
+                                    selectedComparisonCandidateID === null) {
                                     event.preventDefault();
                                     return;
                                 }
@@ -1623,7 +1646,8 @@ export function App() {
                                     </label>
                                     <button
                                         type="button"
-                                        disabled={activeTab?.kind !== "trace" || selectedComparisonCandidateID === null}
+                                        disabled={activeTab?.kind !== "trace" || activeTab.trace === null ||
+                                            selectedComparisonCandidateID === null}
                                         onClick={openComparison}
                                     >
                                         <BsIntersect aria-hidden="true" /> Compare

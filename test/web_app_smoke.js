@@ -467,6 +467,150 @@ async function verifyIncrementalRendering(window) {
     })`);
 }
 
+async function verifyComparisonWhileLoading(window) {
+    return window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const initialTabCount = document.querySelectorAll(".trace-tab").length;
+        let releaseSecondChunks = () => {};
+        const secondChunksBlocked = new Promise((resolve) => {
+            releaseSecondChunks = resolve;
+        });
+        const createLoadingFile = (fileName, serialBase) => {
+            const firstLines = [
+                "Kanata\\t0004",
+                "I\\t0\\t" + serialBase + "\\t0",
+                "S\\t0\\t0\\tF",
+                "C\\t1",
+                "R\\t0\\t0\\t0"
+            ];
+            while (firstLines.length < 8192) {
+                firstLines.push("C\\t0");
+            }
+            const firstText = firstLines.join("\\n") + "\\n";
+            const secondText = [
+                "I\\t1\\t" + (serialBase + 1) + "\\t0",
+                "S\\t1\\t0\\tF",
+                "C\\t1",
+                "R\\t1\\t1\\t0"
+            ].join("\\n");
+            const file = new File([firstText, secondText], fileName, {type: "text/plain"});
+            const encoder = new TextEncoder();
+            const chunks = [encoder.encode(firstText), encoder.encode(secondText)];
+            Object.defineProperty(file, "stream", {value: () => {
+                let index = 0;
+                return new ReadableStream({
+                    async pull(controller) {
+                        if (index >= chunks.length) {
+                            controller.close();
+                            return;
+                        }
+                        if (index === 1) {
+                            await secondChunksBlocked;
+                        }
+                        controller.enqueue(chunks[index]);
+                        index++;
+                    }
+                });
+            }});
+            return file;
+        };
+
+        const target = document.querySelector(".trace-app");
+        if (target === null) {
+            throw new Error("The trace drop target was not found.");
+        }
+        const event = new Event("drop", {bubbles: true, cancelable: true});
+        Object.defineProperty(event, "dataTransfer", {value: {files: [
+            createLoadingFile("loading-a.log", 100),
+            createLoadingFile("loading-b.log", 200)
+        ]}});
+        target.dispatchEvent(event);
+
+        const deadline = performance.now() + 5000;
+        let summary = null;
+        let candidate = null;
+        let candidateOption = null;
+        let partialReady = false;
+        while (performance.now() < deadline) {
+            const sourceTabs = [...document.querySelectorAll(".trace-tab")]
+                .filter((tab) => ["loading-a.log", "loading-b.log"].includes(
+                    tab.querySelector('[role="tab"]')?.textContent?.trim() ?? ""));
+            summary = document.querySelector('[aria-label="Compare traces"]');
+            candidate = document.querySelector('select[aria-label="Comparison candidate"]');
+            candidateOption = candidate instanceof HTMLSelectElement
+                ? [...candidate.options].find((option) => option.textContent?.trim() === "loading-a.log") ?? null
+                : null;
+            const root = document.querySelector(".trace-app");
+            if (sourceTabs.length === 2 &&
+                sourceTabs.every((tab) => tab.dataset.loadState === "loading") &&
+                root?.dataset.loadState === "loading" && root.dataset.opCount === "1" &&
+                summary?.getAttribute("aria-disabled") === "false" &&
+                candidate instanceof HTMLSelectElement && candidateOption !== null) {
+                partialReady = true;
+                break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        if (!partialReady || !(summary instanceof HTMLElement) || !(candidate instanceof HTMLSelectElement) ||
+            candidateOption === null) {
+            throw new Error("Compare did not become available for live traces.");
+        }
+
+        summary.click();
+        candidate.value = candidateOption.value;
+        candidate.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        const open = [...document.querySelectorAll(".comparison-controls-panel button")]
+            .find((button) => button.textContent?.trim() === "Compare");
+        if (!(open instanceof HTMLButtonElement)) {
+            throw new Error("The live comparison button was not found.");
+        }
+        open.click();
+        await nextFrame();
+
+        const comparisonTab = document.querySelector(".trace-tab.is-active");
+        const activeLoadLabels = [...document.querySelectorAll(".operation-progress.active.load")]
+            .map((progress) => progress.getAttribute("aria-label"))
+            .sort();
+        const partial = {
+            title: comparisonTab?.querySelector('[role="tab"]')?.textContent?.trim() ?? null,
+            tabKind: comparisonTab?.getAttribute("data-tab-kind") ?? null,
+            loadState: document.querySelector(".trace-app")?.dataset.loadState ?? null,
+            opCount: document.querySelector(".trace-app")?.dataset.opCount ?? null,
+            canvasMode: document.querySelector(".comparison-result-canvas")?.dataset.comparisonMode ?? null,
+            activeLoadLabels
+        };
+
+        releaseSecondChunks();
+        const completionDeadline = performance.now() + 5000;
+        while (performance.now() < completionDeadline) {
+            const sourceTabs = [...document.querySelectorAll(".trace-tab")]
+                .filter((tab) => ["loading-a.log", "loading-b.log"].includes(
+                    tab.querySelector('[role="tab"]')?.textContent?.trim() ?? ""));
+            const root = document.querySelector(".trace-app");
+            if (sourceTabs.length === 2 && sourceTabs.every((tab) => tab.dataset.loadState === "ready") &&
+                root?.dataset.loadState === "ready" && root.dataset.opCount === "2") {
+                await nextFrame();
+                document.querySelector(".trace-tab.is-active .trace-tab-close")?.click();
+                await nextFrame();
+                document.querySelector('button[aria-label="Close loading-a.log"]')?.click();
+                document.querySelector('button[aria-label="Close loading-b.log"]')?.click();
+                await nextFrame();
+                return {
+                    partial,
+                    finalLoadState: root.dataset.loadState,
+                    finalOpCount: root.dataset.opCount,
+                    restoredTabCount: document.querySelectorAll(".trace-tab").length,
+                    initialTabCount
+                };
+            }
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        throw new Error("Timed out while completing a live comparison.");
+    })()`);
+}
+
 async function verifyClosedTabCancelsLoading(window) {
     return window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
         const lines = ["Kanata\\t0004", "I\\t0\\t10\\t0", "S\\t0\\t0\\tF"];
@@ -1328,6 +1472,22 @@ async function run() {
         incrementalState.progressLayers?.progress !== "100" ||
         incrementalState.progressLayers?.splitter !== "0") {
         throw new Error(`Incremental trace rendering is incomplete: ${JSON.stringify(incrementalState)}`);
+    }
+
+    const liveComparisonState = await verifyComparisonWhileLoading(window);
+    if (liveComparisonState.partial.title !== "loading-b.log ↔ loading-a.log" ||
+        liveComparisonState.partial.tabKind !== "comparison" ||
+        liveComparisonState.partial.loadState !== "loading" ||
+        liveComparisonState.partial.opCount !== "1" ||
+        liveComparisonState.partial.canvasMode !== "overlay" ||
+        JSON.stringify(liveComparisonState.partial.activeLoadLabels) !== JSON.stringify([
+            "Loading loading-a.log",
+            "Loading loading-b.log"
+        ]) ||
+        liveComparisonState.finalLoadState !== "ready" ||
+        liveComparisonState.finalOpCount !== "2" ||
+        liveComparisonState.restoredTabCount !== liveComparisonState.initialTabCount) {
+        throw new Error(`Live comparison is incomplete: ${JSON.stringify(liveComparisonState)}`);
     }
 
     const parserTimingLog = await window.webContents.executeJavaScript(`(async () => {

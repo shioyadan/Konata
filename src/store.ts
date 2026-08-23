@@ -752,6 +752,7 @@ export class Store {
             tab.setTrace(action.trace);
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+                ...this.comparisonContentUpdatesForSource_(tab, action.trace),
             ]);
             return;
         }
@@ -767,6 +768,7 @@ export class Store {
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PROGRESS_BAR_FINISH", tabID: tab.id, operation: "load" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+                ...this.comparisonContentUpdatesForSource_(tab, action.trace),
             ]);
             return;
         }
@@ -786,6 +788,9 @@ export class Store {
             this.publish_(this.snapshot_.activeTabID, [
                 { type: "PROGRESS_BAR_FINISH", tabID: tab.id, operation: "load" },
                 { type: "PANE_CONTENT_UPDATE", tabID: tab.id },
+                ...(tabTrace === null
+                    ? []
+                    : this.comparisonContentUpdatesForSource_(tab, tabTrace)),
             ]);
             return;
         }
@@ -829,8 +834,7 @@ export class Store {
             const baseline = this.tabs_.get(action.baselineTabID);
             const candidate = this.tabs_.get(action.candidateTabID);
             if (baseline?.kind !== "trace" || candidate?.kind !== "trace" ||
-                baseline.id === candidate.id || baseline.loadState !== "ready" ||
-                candidate.loadState !== "ready" || baseline.trace === null || candidate.trace === null) {
+                baseline.id === candidate.id || baseline.trace === null || candidate.trace === null) {
                 return;
             }
 
@@ -1674,6 +1678,26 @@ export class Store {
         if (tab.kind === "comparison") {
             tab.setBaselineRenderSpec(update(tab.baselineTrace, tab.baselineRenderSpec));
         }
+    }
+
+    private comparisonContentUpdatesForSource_(
+        source: Tab,
+        trace: ParsedTrace,
+    ): Change[] {
+        const changes: Change[] = [];
+        for (const tab of this.tabs_.values()) {
+            if (tab.kind !== "comparison") {
+                continue;
+            }
+            // 初回load中の比較は同じlive Traceを参照する。Reload後に元Tabへ入った
+            // 新しいTraceは、比較Tabが保持する以前のsnapshotへ伝播させない。
+            const usesBaseline = tab.baselineSourceTabID === source.id && tab.baselineTrace === trace;
+            const usesCandidate = tab.candidateSourceTabID === source.id && tab.trace === trace;
+            if (usesBaseline || usesCandidate) {
+                changes.push({ type: "PANE_CONTENT_UPDATE", tabID: tab.id });
+            }
+        }
+        return changes;
     }
 
     private setView_(tab: StoreTab, baseline: boolean, view: KonataView): void {
