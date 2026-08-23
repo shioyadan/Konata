@@ -14,14 +14,13 @@ import { BsX } from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
 import {
-    buildStageActivity,
-    drawStageActivityHeatmap,
-    getStageActivitySample,
-    getStageTopDownBreakdownSample,
-    type StageActivityData,
-    type StageActivityMetric,
-    type StageActivityScale,
-} from "../core/stage_activity_heatmap";
+    buildTopDownData,
+    type TopDownData,
+} from "../core/top_down_analysis";
+import {
+    drawTopDownHeatmap,
+    getTopDownBreakdownAtPixel,
+} from "../core/top_down_heatmap";
 import {
     COMPARISON_COLOR_SCHEME,
     clampKonataZoomLevel,
@@ -115,9 +114,7 @@ interface TraceSheetProps {
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
-    readonly stageActivityVisible: boolean;
-    readonly stageActivityMetric: StageActivityMetric;
-    readonly stageActivityScale: StageActivityScale;
+    readonly topDownVisible: boolean;
     readonly zoomStep: number;
     readonly findResult: FindResult | null;
     readonly comparison: {
@@ -164,9 +161,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderVersion,
     webGLEnabled,
     tiledRenderingEnabled,
-    stageActivityVisible,
-    stageActivityMetric,
-    stageActivityScale,
+    topDownVisible,
     zoomStep,
     findResult,
     comparison,
@@ -179,8 +174,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
-    const stageActivityLabelCanvasRef = useRef<HTMLCanvasElement>(null);
-    const stageActivityCanvasRef = useRef<HTMLCanvasElement>(null);
+    const topDownLabelCanvasRef = useRef<HTMLCanvasElement>(null);
+    const topDownCanvasRef = useRef<HTMLCanvasElement>(null);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const findResultRef = useRef<HTMLDivElement>(null);
@@ -242,13 +237,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
-    // UI／制御層は集計結果の寿命だけを所有する。StageActivityDataはTraceから
+    // UI／制御層は集計結果の寿命だけを所有する。TopDownDataはTraceから
     // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
-    const [stageActivityData, setStageActivityData] = useState<StageActivityData | null>(null);
-    const [stageActivityError, setStageActivityError] = useState(false);
+    const [topDownData, setTopDownData] = useState<TopDownData | null>(null);
+    const [topDownError, setTopDownError] = useState(false);
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
-    const showStageActivityPane = stageActivityVisible && comparison === null &&
+    const showTopDownPane = topDownVisible && comparison === null &&
         trace !== null && loadState === "ready";
     // A単独表示だけはラベルとマウス参照もAへ切り替え、それ以外はBを前面の情報源にする。
     const displayRenderer = comparisonMode === "baseline" && baselineRenderer !== null
@@ -423,8 +418,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             pipelineCanvasRef.current,
             baselineLayerCanvasRef.current,
             candidateLayerCanvasRef.current,
-            stageActivityLabelCanvasRef.current,
-            stageActivityCanvasRef.current,
+            topDownLabelCanvasRef.current,
+            topDownCanvasRef.current,
         ]) {
             if (canvas !== null) {
                 // software Canvasの遅延描画資源を、参照中のTraceより先に切り離す。
@@ -442,8 +437,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     ) => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
-        const stageActivityLabelCanvas = stageActivityLabelCanvasRef.current;
-        const stageActivityCanvas = stageActivityCanvasRef.current;
+        const topDownLabelCanvas = topDownLabelCanvasRef.current;
+        const topDownCanvas = topDownCanvasRef.current;
         const candidateMetrics = new KonataRenderMetrics(trace, candidateSpec);
         const currentBaselineMetrics = currentBaselineSpec === undefined
             ? null
@@ -470,15 +465,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ...tileOptions,
             prefetchSpec: baselinePrefetchSpec,
         } as const;
-        if (showStageActivityPane && stageActivityData !== null &&
-            stageActivityLabelCanvas !== null && stageActivityCanvas !== null) {
-            drawStageActivityHeatmap(
-                stageActivityData,
+        if (showTopDownPane && topDownData !== null &&
+            topDownLabelCanvas !== null && topDownCanvas !== null) {
+            drawTopDownHeatmap(
+                topDownData,
                 candidateSpec,
-                stageActivityLabelCanvas,
-                stageActivityCanvas,
-                stageActivityMetric,
-                stageActivityScale,
+                topDownLabelCanvas,
+                topDownCanvas,
             );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
@@ -552,10 +545,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         findResult,
         loadState,
         renderer,
-        showStageActivityPane,
-        stageActivityData,
-        stageActivityMetric,
-        stageActivityScale,
+        showTopDownPane,
+        topDownData,
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
@@ -574,40 +565,40 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         viewController.redraw();
     }, [viewController]);
 
-    // Traceまたはpaneの寿命が変わった時だけ集計する。metric／scale／zoomの
-    // 変更は下のuseLayoutEffectから同じStageActivityDataを再描画する。
+    // Traceまたはpaneの寿命が変わった時だけ集計する。zoomやthemeの変更は
+    // 下のuseLayoutEffectから同じTopDownDataを再描画する。
     useEffect(() => {
         let canceled = false;
-        setStageActivityData(null);
-        setStageActivityError(false);
-        if (!showStageActivityPane || trace === null) {
+        setTopDownData(null);
+        setTopDownError(false);
+        if (!showTopDownPane || trace === null) {
             return () => {
                 canceled = true;
             };
         }
 
-        void buildStageActivity(trace, { isCanceled: () => canceled })
+        void buildTopDownData(trace, { isCanceled: () => canceled })
             .then((data) => {
                 if (!canceled && data !== null) {
-                    setStageActivityData(data);
+                    setTopDownData(data);
                 }
             })
             .catch((error: unknown) => {
                 if (!canceled) {
                     console.warn("Could not build stage activity.", error);
-                    setStageActivityError(true);
+                    setTopDownError(true);
                 }
             });
         return () => {
             canceled = true;
         };
-    }, [showStageActivityPane, trace]);
+    }, [showTopDownPane, trace]);
 
     useLayoutEffect(() => {
-        if (showStageActivityPane && stageActivityData !== null) {
+        if (showTopDownPane && topDownData !== null) {
             redraw();
         }
-    }, [redraw, showStageActivityPane, stageActivityData, stageActivityMetric, stageActivityScale]);
+    }, [redraw, showTopDownPane, topDownData]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
@@ -700,7 +691,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const target = event.target as HTMLElement | null;
-        if (target?.closest(".stage-activity-pane")) {
+        if (target?.closest(".top-down-pane")) {
             return;
         }
         event.preventDefault();
@@ -943,7 +934,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     };
 
     const updateToolTip = (
-        pane: "label" | "pipeline" | "stage-activity",
+        pane: "label" | "pipeline" | "top-down",
         event: ReactMouseEvent<HTMLCanvasElement>,
     ) => {
         if (trace === null || pointerPositionsRef.current.size > 0) {
@@ -959,10 +950,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const y = event.clientY - canvasRect.top;
         const currentMetrics = displayMetricsRef.current;
         let text: string | null;
-        if (pane === "stage-activity") {
-            const data = stageActivityData;
-            if (data !== null && stageActivityMetric === "topdown") {
-                const sample = getStageTopDownBreakdownSample(
+        if (pane === "top-down") {
+            const data = topDownData;
+            if (data !== null) {
+                const sample = getTopDownBreakdownAtPixel(
                     data,
                     viewController.currentSpec,
                     x,
@@ -977,18 +968,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     const percent = (value: number) => sample.totalSlots === 0
                         ? "0.0"
                         : (value / sample.totalSlots * 100).toFixed(1);
-                    const admissionRows = sample.analysis.admissionRows.map((admission) => {
-                        const row = data.rows[admission.rowIndex];
-                        return row === undefined
-                            ? null
-                            : `${row.label} → ${sample.allocationRow.label}: ${format(admission.typicalLatency)} cycles usual`;
-                    }).filter((label): label is string => label !== null);
+                    const admissionRows = sample.analysis.admissionStages.map((admission) =>
+                        `${admission.stage.label} → ${sample.analysis.allocationStage.label}: ` +
+                        `${format(admission.typicalLatency)} cycles usual`);
                     const recovery = sample.analysis.minimumRecoveryCycles === null
                         ? "minimum recovery unavailable"
                         : `minimum recovery ${format(sample.analysis.minimumRecoveryCycles)} cycles ` +
                             `(${sample.analysis.minimumRecoverySampleCount} samples)`;
                     text = [
-                        `Top-down-like (auto allocation: ${sample.allocationRow.label}, before ${sample.executionRow.label})`,
+                        `Top-down-like (auto allocation: ${sample.analysis.allocationStage.label}, before ${sample.analysis.executionStage.label})`,
                         ...admissionRows.map((label) => `Allocation entrance: ${label}`),
                         `Cycles: ${sample.startCycle}–${sample.endCycle - 1} (${data.binWidth} cycles/bin)`,
                         `Observed slots: ${format(sample.totalSlots)} (allocation width ≥${format(sample.analysis.allocationWidth)}/cycle)`,
@@ -1003,38 +991,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     ].join("\n");
                 }
             } else {
-                const sample = data === null ? null : getStageActivitySample(
-                    data,
-                    viewController.currentSpec,
-                    stageActivityMetric,
-                    x,
-                    y,
-                    event.currentTarget.clientWidth,
-                    event.currentTarget.clientHeight,
-                );
-                if (sample === null) {
-                    text = null;
-                } else {
-                    const digits = data !== null && data.binWidth === 1 ? 0 : 2;
-                    const format = (value: number) =>
-                        value.toFixed(digits).replace(/\.00$/, "");
-                    const averaged = data !== null && data.binWidth > 1
-                        ? ` (${data.binWidth}-cycle average)`
-                        : "";
-                    const relativeLabel = stageActivityMetric === "active"
-                        ? "Relative active"
-                        : "Relative start rate";
-                    text = [
-                        sample.row.label,
-                        `Cycles: ${sample.startCycle}–${sample.endCycle - 1} (${data?.binWidth ?? 1} cycles/bin)`,
-                        `Average active: ${format(sample.activity)} ops`,
-                        `Starts: ${format(sample.startCount)} ops (${format(sample.startRate)}/cycle)`,
-                        `Active peak: ${format(sample.activePeak)} ops`,
-                        `Start-rate peak: ${format(sample.startPeak)}/cycle${averaged}`,
-                        `${relativeLabel}: ${(sample.relativeLevel * 100).toFixed(1)}% of this stage peak`,
-                        `Peak size: ${(sample.peakShare * 100).toFixed(1)}% of the largest stage`,
-                    ].join("\n");
-                }
+                text = null;
             }
         } else {
             text = pane === "label"
@@ -1043,9 +1000,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         setToolTip(text === null ? null : {
             left: event.clientX - viewerRect.left,
-            top: pane === "stage-activity"
-                ? Math.max(0, event.clientY - viewerRect.top -
-                    (stageActivityMetric === "topdown" ? 215 : 145))
+            top: pane === "top-down"
+                ? Math.max(0, event.clientY - viewerRect.top - 215)
                 : event.clientY - viewerRect.top + 20,
             text,
         });
@@ -1062,7 +1018,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     return (
         <div
             ref={viewerRef}
-            className={`viewer${trace === null ? " is-empty" : ""}${showStageActivityPane ? " has-stage-activity" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
+            className={`viewer${trace === null ? " is-empty" : ""}${showTopDownPane ? " has-top-down" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
             // 保存したdesktop幅を維持したまま、狭い画面ではCSS側だけで表示幅を制限する。
             style={{ "--label-pane-width": `${splitterPosition}px` } as CSSProperties}
             onPointerDown={handlePointerDown}
@@ -1109,32 +1065,32 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     The pipeline chart requires canvas support.
                 </canvas>
             </section>
-            {showStageActivityPane && (
+            {showTopDownPane && (
                 <>
                     <section
-                        className="viewer-pane stage-activity-pane stage-activity-label-pane"
-                        aria-label="Stage activity labels"
+                        className="viewer-pane top-down-pane top-down-label-pane"
+                        aria-label="Top-down-like labels"
                         onPointerDown={(event) => event.stopPropagation()}
                     >
-                        <canvas ref={stageActivityLabelCanvasRef} aria-label="Stage activity labels canvas" />
+                        <canvas ref={topDownLabelCanvasRef} aria-label="Top-down-like labels canvas" />
                     </section>
-                    <div className="stage-activity-divider" aria-hidden="true" />
+                    <div className="top-down-divider" aria-hidden="true" />
                     <section
-                        className="viewer-pane stage-activity-pane stage-activity-heatmap-pane"
-                        aria-label="Stage activity heatmap"
+                        className="viewer-pane top-down-pane top-down-heatmap-pane"
+                        aria-label="Top-down-like heatmap"
                         onPointerDown={(event) => event.stopPropagation()}
                     >
                         <canvas
-                            ref={stageActivityCanvasRef}
-                            aria-label="Stage activity heatmap canvas"
-                            onMouseMove={(event) => updateToolTip("stage-activity", event)}
+                            ref={topDownCanvasRef}
+                            aria-label="Top-down-like heatmap canvas"
+                            onMouseMove={(event) => updateToolTip("top-down", event)}
                             onMouseLeave={() => setToolTip(null)}
                         />
-                        {stageActivityData === null && (
-                            <span className="stage-activity-status">
-                                {stageActivityError
-                                    ? "Stage activity unavailable"
-                                    : "Building stage activity…"}
+                        {topDownData === null && (
+                            <span className="top-down-status">
+                                {topDownError
+                                    ? "Top-down-like analysis unavailable"
+                                    : "Building top-down-like analysis…"}
                             </span>
                         )}
                     </section>

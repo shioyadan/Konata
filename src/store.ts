@@ -6,10 +6,6 @@
 
 import type { TraceInput } from "./core/file_line_reader";
 import type { Op, ParsedTrace } from "./core/model";
-import type {
-    StageActivityMetric,
-    StageActivityScale,
-} from "./core/stage_activity_heatmap";
 import { parseTraceFile } from "./core/trace_parser";
 import {
     loadRecentFiles,
@@ -71,10 +67,8 @@ export interface GlobalViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
-    // Storeは軽量なUI選択だけを保持する。集計済みStageActivityDataはTraceSheetが所有する。
-    readonly stageActivityVisible: boolean;
-    readonly stageActivityMetric: StageActivityMetric;
-    readonly stageActivityScale: StageActivityScale;
+    // Storeは表示有無だけを保持する。集計済みTopDownDataはTraceSheetが所有する。
+    readonly topDownVisible: boolean;
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly dependencyArrowType: DependencyArrowType;
     readonly splitLanes: boolean;
@@ -90,9 +84,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     theme: "dark",
     webGLEnabled: true,
     tiledRenderingEnabled: true,
-    stageActivityVisible: false,
-    stageActivityMetric: "active",
-    stageActivityScale: "stage",
+    topDownVisible: false,
     customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
@@ -239,9 +231,7 @@ export type Action =
     | { readonly type: "KONATA_CHANGE_UI_COLOR_THEME"; readonly theme: RendererTheme }
     | { readonly type: "KONATA_SET_WEBGL_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_TILED_RENDERING_ENABLED"; readonly enabled: boolean }
-    | { readonly type: "KONATA_SET_STAGE_ACTIVITY_VISIBLE"; readonly enabled: boolean }
-    | { readonly type: "KONATA_SET_STAGE_ACTIVITY_METRIC"; readonly metric: StageActivityMetric }
-    | { readonly type: "KONATA_SET_STAGE_ACTIVITY_SCALE"; readonly scale: StageActivityScale }
+    | { readonly type: "KONATA_SET_TOP_DOWN_VISIBLE"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_DEP_ARROW_TYPE"; readonly arrowType: DependencyArrowType }
     | { readonly type: "KONATA_SPLIT_LANES"; readonly enabled: boolean }
     | { readonly type: "KONATA_FIX_OP_HEIGHT"; readonly enabled: boolean }
@@ -1099,25 +1089,11 @@ export class Store {
             }, false, true);
             return;
         }
-        case "KONATA_SET_STAGE_ACTIVITY_VISIBLE": {
+        case "KONATA_SET_TOP_DOWN_VISIBLE": {
             // 集計costを明示的な操作時だけ発生させる試作設定で、再起動後はOFFへ戻す。
             this.setGlobalViewSettings_({
                 ...this.settings_,
-                stageActivityVisible: action.enabled,
-            });
-            return;
-        }
-        case "KONATA_SET_STAGE_ACTIVITY_METRIC": {
-            this.setGlobalViewSettings_({
-                ...this.settings_,
-                stageActivityMetric: action.metric,
-            });
-            return;
-        }
-        case "KONATA_SET_STAGE_ACTIVITY_SCALE": {
-            this.setGlobalViewSettings_({
-                ...this.settings_,
-                stageActivityScale: action.scale,
+                topDownVisible: action.enabled,
             });
             return;
         }

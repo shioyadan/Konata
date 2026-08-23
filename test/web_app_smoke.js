@@ -2330,23 +2330,19 @@ async function run() {
         throw new Error(`Desktop pane width was not restored: ${JSON.stringify(restoredPaneState)}`);
     }
 
-    // 明示的に有効化した時だけ下部へstage activityを作り、上のcycle幅と同じCanvas列へ揃える。
-    const stageActivityState = await window.webContents.executeJavaScript(`(async () => {
+    // 明示的に有効化した時だけ下部へTop-down-like表示を作り、上のcycle幅と揃える。
+    const topDownState = await window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-        const toggle = document.querySelector('input[aria-label="Stage activity"]');
-        const metric = document.querySelector('select[aria-label="Stage activity metric"]');
-        const scale = document.querySelector('select[aria-label="Stage activity scale"]');
+        const toggle = document.querySelector('input[aria-label="Top-down-like heatmap"]');
         const initialPipelineHeight = document.querySelector(".pipeline-pane")?.getBoundingClientRect().height ?? -1;
-        if (!(toggle instanceof HTMLInputElement) || !(metric instanceof HTMLSelectElement) ||
-            !(scale instanceof HTMLSelectElement) || toggle.disabled || toggle.checked ||
-            !metric.disabled || metric.value !== "active" || !scale.disabled || scale.value !== "stage") {
+        if (!(toggle instanceof HTMLInputElement) || toggle.disabled || toggle.checked) {
             throw new Error("The stage activity control was not ready.");
         }
         toggle.click();
         const deadline = performance.now() + 2000;
         while (performance.now() < deadline) {
-            const canvas = document.querySelector('canvas[aria-label="Stage activity heatmap canvas"]');
-            const status = document.querySelector(".stage-activity-status");
+            const canvas = document.querySelector('canvas[aria-label="Top-down-like heatmap canvas"]');
+            const status = document.querySelector(".top-down-status");
             if (canvas instanceof HTMLCanvasElement && status === null && canvas.width > 1) {
                 break;
             }
@@ -2355,63 +2351,35 @@ async function run() {
         await nextFrame();
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane");
-        const labelCanvas = document.querySelector('canvas[aria-label="Stage activity labels canvas"]');
-        const heatmapCanvas = document.querySelector('canvas[aria-label="Stage activity heatmap canvas"]');
+        const labelCanvas = document.querySelector('canvas[aria-label="Top-down-like labels canvas"]');
+        const heatmapCanvas = document.querySelector('canvas[aria-label="Top-down-like heatmap canvas"]');
         if (!(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
             !(labelCanvas instanceof HTMLCanvasElement) || !(heatmapCanvas instanceof HTMLCanvasElement)) {
             throw new Error("The stage activity pane was not created.");
         }
-        if (metric.disabled || scale.disabled) {
-            throw new Error("The stage activity selectors were not enabled.");
-        }
-        metric.value = "starts";
-        metric.dispatchEvent(new Event("change", { bubbles: true }));
-        scale.value = "global";
-        scale.dispatchEvent(new Event("change", { bubbles: true }));
-        await nextFrame();
-        const pixels = heatmapCanvas.getContext("2d")?.getImageData(
-            0, 0, heatmapCanvas.width, heatmapCanvas.height).data;
-        const colors = new Set();
-        if (pixels !== undefined) {
-            for (let index = 0; index < pixels.length; index += 16) {
-                colors.add(pixels[index] + "," + pixels[index + 1] + "," + pixels[index + 2]);
-            }
-        }
-        metric.value = "topdown";
-        metric.dispatchEvent(new Event("change", { bubbles: true }));
-        await nextFrame();
         const result = {
             checked: toggle.checked,
-            hasClass: viewer.classList.contains("has-stage-activity"),
+            hasClass: viewer.classList.contains("has-top-down"),
             paneHeight: Math.round(heatmapCanvas.getBoundingClientRect().height),
             labelAligned: Math.round(labelCanvas.getBoundingClientRect().width) ===
                 Math.round(document.querySelector(".label-pane")?.getBoundingClientRect().width ?? -1),
             heatmapAligned: Math.round(heatmapCanvas.getBoundingClientRect().width) ===
                 Math.round(pipeline.getBoundingClientRect().width),
-            pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height),
-            colorCount: colors.size,
-            metric: metric.value,
-            scale: scale.value,
-            issueScaleDisabled: scale.disabled
+            pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height)
         };
         toggle.click();
         await nextFrame();
         return {
             ...result,
-            removed: document.querySelector(".stage-activity-pane") === null,
-            metricDisabled: metric.disabled,
-            scaleDisabled: scale.disabled
+            removed: document.querySelector(".top-down-pane") === null
         };
     })()`);
-    if (!stageActivityState.checked || !stageActivityState.hasClass ||
-        stageActivityState.paneHeight < 120 || stageActivityState.paneHeight > 128 ||
-        !stageActivityState.labelAligned ||
-        !stageActivityState.heatmapAligned || stageActivityState.pipelineHeightReduction !== 128 ||
-        stageActivityState.colorCount < 2 || stageActivityState.metric !== "topdown" ||
-        stageActivityState.scale !== "stage" || !stageActivityState.issueScaleDisabled ||
-        !stageActivityState.removed ||
-        !stageActivityState.metricDisabled || !stageActivityState.scaleDisabled) {
-        throw new Error(`Stage activity heatmap is incomplete: ${JSON.stringify(stageActivityState)}`);
+    if (!topDownState.checked || !topDownState.hasClass ||
+        topDownState.paneHeight < 120 || topDownState.paneHeight > 128 ||
+        !topDownState.labelAligned ||
+        !topDownState.heatmapAligned || topDownState.pipelineHeightReduction !== 128 ||
+        !topDownState.removed) {
+        throw new Error(`Top-down-like heatmap is incomplete: ${JSON.stringify(topDownState)}`);
     }
 
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
@@ -2421,9 +2389,7 @@ async function run() {
         const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const fixed = document.querySelector('input[aria-label="Fix op height"]');
-        const stageActivity = document.querySelector('input[aria-label="Stage activity"]');
-        const stageActivityMetric = document.querySelector('select[aria-label="Stage activity metric"]');
-        const stageActivityScale = document.querySelector('select[aria-label="Stage activity scale"]');
+        const topDown = document.querySelector('input[aria-label="Top-down-like heatmap"]');
         const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
@@ -2437,9 +2403,7 @@ async function run() {
             !(hideFlushed instanceof HTMLInputElement) ||
             !(split instanceof HTMLInputElement) ||
             !(fixed instanceof HTMLInputElement) ||
-            !(stageActivity instanceof HTMLInputElement) ||
-            !(stageActivityMetric instanceof HTMLSelectElement) ||
-            !(stageActivityScale instanceof HTMLSelectElement) ||
+            !(topDown instanceof HTMLInputElement) ||
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
@@ -2478,7 +2442,7 @@ async function run() {
             tiledRendering: tiledRendering.checked,
             compatibilityOpen: compatibility.open,
             textVisibility: textVisibility.value,
-            checkboxesOnRight: [hideFlushed, split, fixed, stageActivity, webGL, tiledRendering]
+            checkboxesOnRight: [hideFlushed, split, fixed, topDown, webGL, tiledRendering]
                 .every((control) => control.closest("label")?.lastElementChild === control)
         })));
     })`);

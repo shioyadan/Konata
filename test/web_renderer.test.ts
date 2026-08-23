@@ -5,13 +5,12 @@ import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/
 import { ArrayOpStore } from "../src/core/op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
 import {
-    buildStageActivity,
-    drawStageActivityHeatmap,
-    getStageActivityAverage,
-    getStageActivitySample,
-    getStageTopDownBreakdownSample,
-    getStageStartRate,
-} from "../src/core/stage_activity_heatmap";
+    buildTopDownData,
+} from "../src/core/top_down_analysis";
+import {
+    drawTopDownHeatmap,
+    getTopDownBreakdownAtPixel,
+} from "../src/core/top_down_heatmap";
 import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -212,7 +211,7 @@ function createLatencyTrace(ranges: readonly (readonly [number, number])[]): Par
     return new ParsedTrace("latency.log", store, new StageLevelMap(), 1000);
 }
 
-function createStageActivityTrace(cycleCount = 8): ParsedTrace {
+function createTopDownCancellationTrace(cycleCount = 8): ParsedTrace {
     const store = new ArrayOpStore();
     const levelMap = new StageLevelMap();
     const laneID = levelMap.getOrCreateLaneID("0");
@@ -435,137 +434,22 @@ function createMispredictionShadowTrace(
     );
 }
 
-test("Stage activity aggregates overlapping intervals and flushed ops", async () => {
-    const trace = createStageActivityTrace();
-    const activity = await buildStageActivity(trace);
-    assert.ok(activity !== null);
-    assert.equal(activity.binWidth, 1);
-    assert.equal(activity.binCount, 8);
-    assert.deepEqual(activity.rows.map((row) => row.label), ["X"]);
-    const row = activity.rows[0];
-    assert.deepEqual(
-        Array.from({ length: activity.binCount }, (_, cycle) =>
-            getStageActivityAverage(row, activity.binWidth, cycle, cycle + 1, false)),
-        [1, 1, 2, 2, 1, 1, 0, 0],
-    );
-    assert.deepEqual(
-        Array.from({ length: activity.binCount }, (_, cycle) =>
-            getStageActivityAverage(row, activity.binWidth, cycle, cycle + 1, true)),
-        [1, 1, 1, 1, 0, 0, 0, 0],
-    );
-    assert.equal(row.totalPeak, 2);
-    assert.equal(row.nonFlushedPeak, 1);
-    assert.equal(activity.totalPeak, 2);
-    assert.equal(activity.nonFlushedPeak, 1);
-    assert.deepEqual(
-        Array.from({ length: activity.binCount }, (_, cycle) =>
-            getStageStartRate(row, activity.binWidth, cycle, cycle + 1, false)),
-        [1, 0, 1, 0, 0, 0, 0, 0],
-    );
-    assert.deepEqual(
-        Array.from({ length: activity.binCount }, (_, cycle) =>
-            getStageStartRate(row, activity.binWidth, cycle, cycle + 1, true)),
-        [1, 0, 0, 0, 0, 0, 0, 0],
-    );
-    assert.equal(row.totalStartPeak, 1);
-    assert.equal(row.nonFlushedStartPeak, 1);
-    assert.equal(activity.totalStartPeak, 1);
-    assert.equal(activity.nonFlushedStartPeak, 1);
-
-    const multiStageTrace = createStageActivityTrace();
-    const multiStageOp = multiStageTrace.getOpForScan(0);
-    assert.ok(multiStageOp !== undefined);
-    const multiStageLane = multiStageOp.lanes[0];
-    assert.ok(multiStageLane !== null);
-    const smallerStage = new Stage();
-    smallerStage.name = "arbitrary-small-stage";
-    smallerStage.startCycle = 0;
-    smallerStage.endCycle = 4;
-    multiStageLane.stages.push(smallerStage);
-    multiStageTrace.stageLevelMap.update("0", smallerStage.name, multiStageLane);
-    const multiStageActivity = await buildStageActivity(multiStageTrace);
-    assert.ok(multiStageActivity !== null);
-    assert.equal(multiStageActivity.totalPeak, 2);
-    assert.deepEqual(
-        multiStageActivity.rows.map((activityRow) => [activityRow.stageName, activityRow.totalPeak]),
-        [["X", 2], ["arbitrary-small-stage", 1]],
-    );
-    multiStageTrace.close();
-
-    const coarse = await buildStageActivity(trace, { maxCellCount: 2 });
-    assert.ok(coarse !== null);
-    assert.equal(coarse.binWidth, 4);
-    assert.equal(coarse.binCount, 2);
-    assert.equal(getStageActivityAverage(coarse.rows[0], 4, 0, 4, false), 1.5);
-    assert.equal(getStageActivityAverage(coarse.rows[0], 4, 4, 8, false), 0.5);
-    assert.equal(getStageStartRate(coarse.rows[0], 4, 0, 4, false), 0.5);
-    assert.equal(getStageStartRate(coarse.rows[0], 4, 0, 4, true), 0.25);
-    assert.equal(coarse.rows[0].totalStartPeak, 0.5);
-    assert.equal(coarse.rows[0].nonFlushedStartPeak, 0.25);
-    trace.close();
-
-    const partialLastBinTrace = createStageActivityTrace(7);
-    const partialLastBin = await buildStageActivity(partialLastBinTrace, { maxCellCount: 2 });
-    assert.ok(partialLastBin !== null);
-    assert.equal(partialLastBin.binWidth, 4);
-    assert.ok(Math.abs(
-        getStageActivityAverage(partialLastBin.rows[0], 4, 4, 7, false) - 2 / 3,
-    ) < 1e-6);
-    partialLastBinTrace.close();
-});
-
-test("Stage starts retain same-cycle events even for zero-width stages", async () => {
-    const store = new ArrayOpStore();
-    const levelMap = new StageLevelMap();
-    const laneID = levelMap.getOrCreateLaneID("0");
-    [1, 1, 2].forEach((cycle, id) => {
-        const op = new Op();
-        op.id = id;
-        op.rid = id;
-        op.retired = true;
-        op.fetchedCycle = cycle;
-        op.retiredCycle = cycle + 1;
-        const lane = new Lane();
-        const stage = new Stage();
-        stage.name = "arbitrary-width-stage";
-        stage.startCycle = cycle;
-        stage.endCycle = cycle;
-        lane.stages.push(stage);
-        op.lanes[laneID] = lane;
-        levelMap.update("0", stage.name, lane);
-        store.setOp(id, op);
-        store.setRetiredOp(id, op);
-    });
-    const trace = new ParsedTrace("starts.log", store, levelMap, 4);
-    const activity = await buildStageActivity(trace);
-    assert.ok(activity !== null);
-    const row = activity.rows[0];
-    assert.equal(row.totalPeak, 0);
-    assert.equal(row.totalStartPeak, 2);
-    assert.deepEqual(
-        Array.from({ length: 4 }, (_, cycle) =>
-            getStageStartRate(row, 1, cycle, cycle + 1, false)),
-        [0, 2, 1, 0],
-    );
-    trace.close();
-});
-
 test("Top-down-like view classifies allocation slots without stage names", async () => {
     const trace = createTopDownBreakdownTrace();
-    const activity = await buildStageActivity(trace);
+    const activity = await buildTopDownData(trace);
     assert.ok(activity !== null);
-    const analysis = activity.topDownAnalysis;
+    const analysis = activity.analysis;
     assert.ok(analysis !== null);
-    assert.equal(activity.rows[analysis.allocationRowIndex].stageName, "arbitrary-reservoir");
-    assert.equal(activity.rows[analysis.executionRowIndex].stageName, "arbitrary-event");
+    assert.equal(analysis.allocationStage.stageName, "arbitrary-reservoir");
+    assert.equal(analysis.executionStage.stageName, "arbitrary-event");
     assert.equal(analysis.allocationWidth, 2);
     assert.equal(analysis.transitionCount, 4);
     assert.equal(analysis.transitionCoverage, 1);
-    assert.equal(analysis.admissionRows.length, 1);
-    assert.equal(activity.rows[analysis.admissionRows[0].rowIndex].stageName, "arbitrary-source");
-    assert.equal(analysis.admissionRows[0].typicalLatency, 1);
+    assert.equal(analysis.admissionStages.length, 1);
+    assert.equal(analysis.admissionStages[0].stage.stageName, "arbitrary-source");
+    assert.equal(analysis.admissionStages[0].typicalLatency, 1);
 
-    const fullAllocation = getStageTopDownBreakdownSample(
+    const fullAllocation = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
         0,
@@ -579,7 +463,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(fullAllocation.frontendBound, 0);
     assert.equal(fullAllocation.backendBound, 0);
 
-    const partialAllocation = getStageTopDownBreakdownSample(
+    const partialAllocation = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
         32,
@@ -594,7 +478,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(partialAllocation.frontendBound, 1);
     assert.equal(partialAllocation.backendBound, 0);
 
-    const postSquashGap = getStageTopDownBreakdownSample(
+    const postSquashGap = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
         96,
@@ -607,7 +491,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(postSquashGap.frontendBound, 2);
     assert.equal(postSquashGap.backendBound, 0);
 
-    const frontend = getStageTopDownBreakdownSample(
+    const frontend = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [9, 0] },
         0,
@@ -621,13 +505,11 @@ test("Top-down-like view classifies allocation slots without stage names", async
 
     const labels = createRecordedContext();
     const heatmap = createRecordedContext();
-    drawStageActivityHeatmap(
+    drawTopDownHeatmap(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
         createCanvas(labels.context, 450, 128),
         createCanvas(heatmap.context, 320, 128),
-        "topdown",
-        "global",
     );
     assert.ok(labels.fillTexts.some(([text]) => text === "Top-down-like (auto)"));
     assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-event")));
@@ -642,18 +524,18 @@ test("Top-down-like view classifies allocation slots without stage names", async
 
 test("Top-down-like view distinguishes allocated dependencies from allocation backpressure", async () => {
     const trace = createAllocationBlockedTrace();
-    const activity = await buildStageActivity(trace);
+    const activity = await buildTopDownData(trace);
     assert.ok(activity !== null);
-    const analysis = activity.topDownAnalysis;
+    const analysis = activity.analysis;
     assert.ok(analysis !== null);
-    assert.equal(activity.rows[analysis.allocationRowIndex].stageName, "allocation");
-    assert.equal(activity.rows[analysis.executionRowIndex].stageName, "execution");
+    assert.equal(analysis.allocationStage.stageName, "allocation");
+    assert.equal(analysis.executionStage.stageName, "execution");
     assert.equal(analysis.allocationWidth, 4);
-    assert.equal(analysis.admissionRows.length, 4);
-    assert.equal(activity.rows[analysis.admissionRows[0].rowIndex].stageName, "entry-a");
-    assert.equal(analysis.admissionRows[0].typicalLatency, 1);
+    assert.equal(analysis.admissionStages.length, 4);
+    assert.equal(analysis.admissionStages[0].stage.stageName, "entry-a");
+    assert.equal(analysis.admissionStages[0].typicalLatency, 1);
 
-    const allocatedDependencies = getStageTopDownBreakdownSample(
+    const allocatedDependencies = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [4, 0] },
         0,
@@ -664,7 +546,7 @@ test("Top-down-like view distinguishes allocated dependencies from allocation ba
     assert.equal(allocatedDependencies.frontendBound, 0);
     assert.equal(allocatedDependencies.backendBound, 0);
 
-    const blocked = getStageTopDownBreakdownSample(
+    const blocked = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [6, 0] },
         0,
@@ -676,13 +558,11 @@ test("Top-down-like view distinguishes allocated dependencies from allocation ba
 
     const labels = createRecordedContext();
     const heatmap = createRecordedContext();
-    drawStageActivityHeatmap(
+    drawTopDownHeatmap(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [6, 0] },
         createCanvas(labels.context, 450, 128),
         createCanvas(heatmap.context, 160, 128),
-        "topdown",
-        "global",
     );
     assert.ok(heatmap.fillStyles.includes("#ffa726"));
     trace.close();
@@ -693,17 +573,17 @@ test("Top-down-like view retrospectively classifies supported misprediction shad
         [...Array<number>(10).fill(3), 30],
         true,
     );
-    const activity = await buildStageActivity(trace);
+    const activity = await buildTopDownData(trace);
     assert.ok(activity !== null);
-    const analysis = activity.topDownAnalysis;
+    const analysis = activity.analysis;
     assert.ok(analysis !== null);
-    assert.equal(activity.rows[analysis.allocationRowIndex].stageName, "arbitrary-reservoir");
-    assert.equal(activity.rows[analysis.executionRowIndex].stageName, "arbitrary-event");
+    assert.equal(analysis.allocationStage.stageName, "arbitrary-reservoir");
+    assert.equal(analysis.executionStage.stageName, "arbitrary-event");
     assert.equal(analysis.mispredictionWindowCount, 11);
     assert.equal(analysis.minimumRecoveryCycles, 3);
     assert.equal(analysis.minimumRecoverySampleCount, 10);
 
-    const sampleCycle = (cycle: number) => getStageTopDownBreakdownSample(
+    const sampleCycle = (cycle: number) => getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [cycle, 0] },
         0,
@@ -728,13 +608,11 @@ test("Top-down-like view retrospectively classifies supported misprediction shad
     assert.equal(cappedOutlier.frontendBound, 1);
 
     const labels = createRecordedContext();
-    drawStageActivityHeatmap(
+    drawTopDownHeatmap(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [10, 0] },
         createCanvas(labels.context, 500, 128),
         createCanvas(createRecordedContext().context, 160, 128),
-        "topdown",
-        "global",
     );
     assert.ok(labels.fillTexts.some(([text]) => text.includes("shadow 11, +3c min")));
     trace.close();
@@ -742,15 +620,15 @@ test("Top-down-like view retrospectively classifies supported misprediction shad
 
 test("Top-down-like view does not learn recovery from an unsupported sample", async () => {
     const trace = createMispredictionShadowTrace([30]);
-    const activity = await buildStageActivity(trace);
+    const activity = await buildTopDownData(trace);
     assert.ok(activity !== null);
-    const analysis = activity.topDownAnalysis;
+    const analysis = activity.analysis;
     assert.ok(analysis !== null);
     assert.equal(analysis.mispredictionWindowCount, 1);
     assert.equal(analysis.minimumRecoveryCycles, null);
     assert.equal(analysis.minimumRecoverySampleCount, 0);
 
-    const beforeComplete = getStageTopDownBreakdownSample(
+    const beforeComplete = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [14, 0] },
         0,
@@ -758,7 +636,7 @@ test("Top-down-like view does not learn recovery from an unsupported sample", as
     );
     assert.ok(beforeComplete !== null);
     assert.equal(beforeComplete.mispredictionShadowSlots, 1);
-    const afterComplete = getStageTopDownBreakdownSample(
+    const afterComplete = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [16, 0] },
         0,
@@ -770,112 +648,15 @@ test("Top-down-like view does not learn recovery from an unsupported sample", as
     trace.close();
 });
 
-test("Stage activity stops after yielding when its pane is closed", async () => {
-    const trace = createStageActivityTrace();
+test("Top-down-like analysis stops after yielding when its pane is closed", async () => {
+    const trace = createTopDownCancellationTrace();
     let canceled = false;
-    const building = buildStageActivity(trace, {
+    const building = buildTopDownData(trace, {
         yieldInterval: 1,
         isCanceled: () => canceled,
     });
     canceled = true;
     assert.equal(await building, null);
-    trace.close();
-});
-
-test("Stage activity heatmap follows the pipeline cycle scale and Unique colors", async () => {
-    const trace = createStageActivityTrace();
-    const activity = await buildStageActivity(trace);
-    assert.ok(activity !== null);
-    const labels = createRecordedContext();
-    const heatmap = createRecordedContext();
-    drawStageActivityHeatmap(
-        activity,
-        {
-            ...DEFAULT_KONATA_RENDER_SPEC,
-            theme: "light",
-            position: [1, 0],
-        },
-        createCanvas(labels.context, 160, 32),
-        createCanvas(heatmap.context, 160, 32),
-        "active",
-        "stage",
-    );
-
-    assert.deepEqual(labels.fillTexts.map(([text]) => text), ["X", "peak 2"]);
-    assert.ok(heatmap.fillRects.some(([x, _y, width]) => x === 0 && width === 32));
-    assert.ok(heatmap.fillAlphas.some((alpha) => alpha === 0.5));
-    assert.ok(heatmap.fillAlphas.some((alpha) => alpha === 1));
-    assert.ok(labels.fillRects.some(([_x, _y, width, height]) => width > 100 && height === 2));
-    assert.deepEqual(heatmap.gradients[0]?.stops, [
-        [0, "hsl(250,95%,95%)"],
-        [1, "hsl(250,70%,80%)"],
-    ]);
-
-    const sample = getStageActivitySample(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
-        "active",
-        32,
-        0,
-        160,
-        32,
-    );
-    assert.ok(sample !== null);
-    assert.equal(sample.startCycle, 2);
-    assert.equal(sample.activity, 2);
-    assert.equal(sample.rowPeak, 2);
-    assert.equal(sample.relativeLevel, 1);
-    assert.equal(sample.peakShare, 1);
-    assert.equal(sample.startCount, 1);
-    assert.equal(sample.startRate, 1);
-    assert.equal(sample.startPeak, 1);
-
-    const startsSample = getStageActivitySample(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
-        "starts",
-        32,
-        0,
-        160,
-        32,
-    );
-    assert.ok(startsSample !== null);
-    assert.equal(startsSample.rowPeak, 1);
-    assert.equal(startsSample.relativeLevel, 1);
-
-    const startsHeatmap = createRecordedContext();
-    drawStageActivityHeatmap(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
-        createCanvas(createRecordedContext().context, 160, 32),
-        createCanvas(startsHeatmap.context, 160, 32),
-        "starts",
-        "stage",
-    );
-    assert.ok(startsHeatmap.fillAlphas.some((alpha) => alpha === 1));
-
-    const globalStartsHeatmap = createRecordedContext();
-    drawStageActivityHeatmap(
-        { ...activity, totalStartPeak: 2, nonFlushedStartPeak: 2 },
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
-        createCanvas(createRecordedContext().context, 160, 32),
-        createCanvas(globalStartsHeatmap.context, 160, 32),
-        "starts",
-        "global",
-    );
-    assert.ok(globalStartsHeatmap.fillAlphas.some((alpha) => alpha === 0.5));
-
-    const globalHeatmap = createRecordedContext();
-    drawStageActivityHeatmap(
-        { ...activity, totalPeak: 4, nonFlushedPeak: 2 },
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] },
-        createCanvas(createRecordedContext().context, 160, 32),
-        createCanvas(globalHeatmap.context, 160, 32),
-        "active",
-        "global",
-    );
-    assert.ok(globalHeatmap.fillAlphas.some((alpha) => alpha === 0.25));
-    assert.ok(globalHeatmap.fillAlphas.some((alpha) => alpha === 0.5));
     trace.close();
 });
 
