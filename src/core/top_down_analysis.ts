@@ -40,12 +40,12 @@ export interface TopDownAnalysis {
     readonly transitionCount: number;
     readonly transitionCoverage: number;
     readonly admissionStages: readonly TopDownAdmission[];
-    readonly mispredictionWindowCount: number;
+    readonly recoveryWindowCount: number;
     readonly minimumRecoveryCycles: number | null;
     readonly minimumRecoverySampleCount: number;
     readonly retiringPrefix: Float64Array;
     readonly squashedPrefix: Float64Array;
-    readonly mispredictionShadowPrefix: Float64Array;
+    readonly recoveryBubblePrefix: Float64Array;
     readonly unresolvedPrefix: Float64Array;
     readonly frontendPrefix: Float64Array;
     readonly backendPrefix: Float64Array;
@@ -71,7 +71,7 @@ export interface TopDownBreakdown {
     readonly totalSlots: number;
     readonly retiringSlots: number;
     readonly squashedSlots: number;
-    readonly mispredictionShadowSlots: number;
+    readonly recoveryBubbleSlots: number;
     readonly unresolvedSlots: number;
     readonly frontendBound: number;
     readonly backendBound: number;
@@ -150,9 +150,8 @@ interface TopDownOpRecord {
     readonly completionCycle: number | null;
 }
 
-interface MispredictionWindow {
+interface RecoveryWindow {
     readonly startCycle: number;
-    readonly completionCycle: number;
     nextCorrectAllocationCycle: number | null;
     valid: boolean;
 }
@@ -302,10 +301,9 @@ async function classifyTopDownSlots(
     const squashedStarts = new Uint32Array(cycleCount);
     const unresolvedStarts = new Uint32Array(cycleCount);
     const backendAdmissionDiff = new Int32Array(cycleCount + 1);
-    const flushedAdmissionDiff = new Int32Array(cycleCount + 1);
     const previousOpByThread = new Map<number, Readonly<TopDownOpRecord>>();
-    const pendingWindowByThread = new Map<number, MispredictionWindow>();
-    const mispredictionWindows: MispredictionWindow[] = [];
+    const pendingWindowByThread = new Map<number, RecoveryWindow>();
+    const recoveryWindows: RecoveryWindow[] = [];
     const recoveryLatencyHistogram = new Map<number, number>();
     // O3PipeViewにallocation-side recovery eventはないため、以下はPMU TMAの厳密な
     // 復元ではなく、後にflushと分かった命令列から作る事後的な因果分類である。
@@ -341,9 +339,9 @@ async function classifyTopDownSlots(
                         : admissionRowsByStage.get(previousStageName);
                     if (stage.name === allocationRow.stageName && admission !== undefined) {
                         // allocation直前のstageに通常より長く留まった区間を入口停滞とする。
-                        // 後にflushされる命令の停滞は、有効な仕事を早めないため別に保持する。
+                        // 命令が後にflushされても、resolution前の空きslotはrecoveryではない。
                         addExactInterval(
-                            op.flush ? flushedAdmissionDiff : backendAdmissionDiff,
+                            backendAdmissionDiff,
                             cycleCount,
                             previousStageStart + admission.typicalLatency,
                             Math.min(previousStageEnd, stage.startCycle),
@@ -388,13 +386,14 @@ async function classifyTopDownSlots(
                 previous.completionCycle > previous.allocationCycle) {
                 // 同じthreadで連続するflush列の直前にあるretiring control-flow命令だけを
                 // 原因候補とする。明示cause eventがない形式では、これ以上広い推定をしない。
-                const window: MispredictionWindow = {
-                    startCycle: previous.allocationCycle,
-                    completionCycle: previous.completionCycle,
+                const window: RecoveryWindow = {
+                    // recovery bubbleは原因命令のallocation時ではなく、resolution proxyである
+                    // completion後から始まる。
+                    startCycle: previous.completionCycle,
                     nextCorrectAllocationCycle: null,
                     valid: true,
                 };
-                mispredictionWindows.push(window);
+                recoveryWindows.push(window);
                 pendingWindowByThread.set(tid, window);
             }
         } else {
@@ -402,10 +401,10 @@ async function classifyTopDownSlots(
             if (pendingWindow !== undefined) {
                 pendingWindowByThread.delete(tid);
                 if (op.retired && firstAllocationCycle !== null &&
-                    firstAllocationCycle >= pendingWindow.completionCycle) {
+                    firstAllocationCycle >= pendingWindow.startCycle) {
                     pendingWindow.nextCorrectAllocationCycle = firstAllocationCycle;
                     const latency = Math.floor(
-                        firstAllocationCycle - pendingWindow.completionCycle,
+                        firstAllocationCycle - pendingWindow.startCycle,
                     );
                     recoveryLatencyHistogram.set(
                         latency,
@@ -413,7 +412,7 @@ async function classifyTopDownSlots(
                     );
                 } else {
                     // cause対応が正しければ、flush後のcorrect allocationが原因命令の
-                    // Completeより前へ来ることはない。矛盾する候補はshadow自体に使わない。
+                    // Completeより前へ来ることはない。矛盾する候補はrecovery判定に使わない。
                     pendingWindow.valid = false;
                 }
             }
@@ -438,38 +437,36 @@ async function classifyTopDownSlots(
     const allocationWidth = reference.allocationWidth;
 
     const supportedRecovery = getSupportedMinimum(recoveryLatencyHistogram);
-    const mispredictionDiff = new Int32Array(cycleCount + 1);
-    let mispredictionWindowCount = 0;
-    for (const window of mispredictionWindows) {
+    const recoveryDiff = new Int32Array(cycleCount + 1);
+    let recoveryWindowCount = 0;
+    for (const window of recoveryWindows) {
         if (!window.valid) {
             continue;
         }
-        let endCycle = window.completionCycle;
+        let endCycle = window.startCycle;
         if (supportedRecovery !== null && window.nextCorrectAllocationCycle !== null) {
             // 実際のcorrect allocationより先へは延ばさない。長いI-cache／ITLB待ちは
             // supported minimumを超えた時点から従来のFrontend／Backend判定へ戻す。
             endCycle = Math.min(
                 window.nextCorrectAllocationCycle,
-                window.completionCycle + supportedRecovery.value,
+                window.startCycle + supportedRecovery.value,
             );
         }
-        addExactInterval(mispredictionDiff, cycleCount, window.startCycle, endCycle);
-        mispredictionWindowCount++;
+        addExactInterval(recoveryDiff, cycleCount, window.startCycle, endCycle);
+        recoveryWindowCount++;
     }
 
     const retiringPrefix = new Float64Array(binCount + 1);
     const squashedPrefix = new Float64Array(binCount + 1);
-    const mispredictionShadowPrefix = new Float64Array(binCount + 1);
+    const recoveryBubblePrefix = new Float64Array(binCount + 1);
     const unresolvedPrefix = new Float64Array(binCount + 1);
     const frontendPrefix = new Float64Array(binCount + 1);
     const backendPrefix = new Float64Array(binCount + 1);
     let backendAdmissionDepth = 0;
-    let flushedAdmissionDepth = 0;
-    let mispredictionDepth = 0;
+    let recoveryDepth = 0;
     for (let cycle = 0; cycle < cycleCount; cycle++) {
         backendAdmissionDepth += backendAdmissionDiff[cycle];
-        flushedAdmissionDepth += flushedAdmissionDiff[cycle];
-        mispredictionDepth += mispredictionDiff[cycle];
+        recoveryDepth += recoveryDiff[cycle];
         const retired = retiringStarts[cycle];
         const squashed = squashedStarts[cycle];
         const unresolved = unresolvedStarts[cycle];
@@ -478,19 +475,15 @@ async function classifyTopDownSlots(
         addBinValue(retiringPrefix, binWidth, cycle, retired);
         addBinValue(squashedPrefix, binWidth, cycle, squashed);
         addBinValue(unresolvedPrefix, binWidth, cycle, unresolved);
-        if (flushedAdmissionDepth > 0) {
-            // 入口で止まった命令自体が後にflushされるなら、その停滞を解消しても
-            // wrong-path処理が増えるだけなので、空きslotもBad Speculationへ入れる。
-            addBinValue(mispredictionShadowPrefix, binWidth, cycle, unused);
+        if (recoveryDepth > 0) {
+            // resolution後にcorrect pathがallocate可能になるまでの空きslotは、TMAの
+            // recovery bubbleに相当する。ただし反復観測した最短回復時間を上限とする。
+            addBinValue(recoveryBubblePrefix, binWidth, cycle, unused);
         } else if (backendAdmissionDepth > 0) {
             // 後段queueに命令があるだけではBackendにしない。TMA Level 1はexecution
             // issueではなくallocationを観測するため、入口で実際に止まった場合だけを
-            // Backend backpressureとする。retire／未確定命令の停滞だけがここへ来る。
+            // Backend backpressureとする。最終的にflushされる命令もresolution前は含む。
             addBinValue(backendPrefix, binWidth, cycle, unused);
-        } else if (mispredictionDepth > 0) {
-            // 事後的に予測ミスと確定した区間では、Frontend供給を増やしても
-            // correct-path命令はallocateできない。残余slotだけをshadowへ移す。
-            addBinValue(mispredictionShadowPrefix, binWidth, cycle, unused);
         } else {
             addBinValue(frontendPrefix, binWidth, cycle, unused);
         }
@@ -506,7 +499,7 @@ async function classifyTopDownSlots(
     [
         retiringPrefix,
         squashedPrefix,
-        mispredictionShadowPrefix,
+        recoveryBubblePrefix,
         unresolvedPrefix,
         frontendPrefix,
         backendPrefix,
@@ -531,12 +524,12 @@ async function classifyTopDownSlots(
                 transitionCount: admission.transitionCount,
             };
         }),
-        mispredictionWindowCount,
+        recoveryWindowCount,
         minimumRecoveryCycles: supportedRecovery?.value ?? null,
         minimumRecoverySampleCount: supportedRecovery?.sampleCount ?? 0,
         retiringPrefix,
         squashedPrefix,
-        mispredictionShadowPrefix,
+        recoveryBubblePrefix,
         unresolvedPrefix,
         frontendPrefix,
         backendPrefix,
@@ -719,8 +712,8 @@ export function getTopDownBreakdown(
     const squashedSlots = getRawPrefixCount(
         analysis.squashedPrefix, data.binWidth, startCycle, endCycle,
     );
-    const mispredictionShadowSlots = getRawPrefixCount(
-        analysis.mispredictionShadowPrefix, data.binWidth, startCycle, endCycle,
+    const recoveryBubbleSlots = getRawPrefixCount(
+        analysis.recoveryBubblePrefix, data.binWidth, startCycle, endCycle,
     );
     const unresolvedSlots = getRawPrefixCount(
         analysis.unresolvedPrefix, data.binWidth, startCycle, endCycle,
@@ -731,7 +724,7 @@ export function getTopDownBreakdown(
     const backendBound = getRawPrefixCount(
         analysis.backendPrefix, data.binWidth, startCycle, endCycle,
     );
-    const totalSlots = retiringSlots + squashedSlots + mispredictionShadowSlots + unresolvedSlots +
+    const totalSlots = retiringSlots + squashedSlots + recoveryBubbleSlots + unresolvedSlots +
         frontendBound + backendBound;
     return {
         analysis,
@@ -740,7 +733,7 @@ export function getTopDownBreakdown(
         totalSlots,
         retiringSlots,
         squashedSlots,
-        mispredictionShadowSlots,
+        recoveryBubbleSlots,
         unresolvedSlots,
         frontendBound,
         backendBound,

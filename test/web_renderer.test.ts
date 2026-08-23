@@ -327,7 +327,7 @@ function createAllocationBlockedTrace(): ParsedTrace {
     return new ParsedTrace("allocation-blocked.log", store, levelMap, 16);
 }
 
-function createMispredictionShadowTrace(
+function createRecoveryBubbleTrace(
     recoveryLatencies: readonly number[],
     firstWindowHasAllocationBackpressure = false,
 ): ParsedTrace {
@@ -427,7 +427,7 @@ function createMispredictionShadowTrace(
         ]);
     }
     return new ParsedTrace(
-        "misprediction-shadow.log",
+        "recovery-bubble.log",
         store,
         levelMap,
         Math.max(1, lastEndCycle + 1),
@@ -568,8 +568,8 @@ test("Top-down-like view distinguishes allocated dependencies from allocation ba
     trace.close();
 });
 
-test("Top-down-like view retrospectively classifies supported misprediction shadows", async () => {
-    const trace = createMispredictionShadowTrace(
+test("Top-down-like view retrospectively classifies supported recovery bubbles", async () => {
+    const trace = createRecoveryBubbleTrace(
         [...Array<number>(10).fill(3), 30],
         true,
     );
@@ -579,7 +579,7 @@ test("Top-down-like view retrospectively classifies supported misprediction shad
     assert.ok(analysis !== null);
     assert.equal(analysis.allocationStage.stageName, "arbitrary-reservoir");
     assert.equal(analysis.executionStage.stageName, "arbitrary-event");
-    assert.equal(analysis.mispredictionWindowCount, 11);
+    assert.equal(analysis.recoveryWindowCount, 11);
     assert.equal(analysis.minimumRecoveryCycles, 3);
     assert.equal(analysis.minimumRecoverySampleCount, 10);
 
@@ -591,20 +591,20 @@ test("Top-down-like view retrospectively classifies supported misprediction shad
     );
     const blocked = sampleCycle(12);
     assert.ok(blocked !== null);
-    // 入口で止まった命令自体が後にflushされるなら、有効なBackend仕事ではない。
-    assert.equal(blocked.backendBound, 0);
-    assert.equal(blocked.mispredictionShadowSlots, 1);
+    // resolution前のwrong-path命令が入口で止まった空きslotは、通常のBackend停滞である。
+    assert.equal(blocked.backendBound, 1);
+    assert.equal(blocked.recoveryBubbleSlots, 0);
 
     const recovered = sampleCycle(16);
     assert.ok(recovered !== null);
     assert.equal(recovered.frontendBound, 0);
-    assert.equal(recovered.mispredictionShadowSlots, 1);
+    assert.equal(recovered.recoveryBubbleSlots, 1);
 
     const outlierBase = 10 + 10 * 50;
     const cappedOutlier = sampleCycle(outlierBase + 9);
     assert.ok(cappedOutlier !== null);
     // 単発の長いcorrect-path待ちは、反復観測した最短回復を越えればFrontendへ戻す。
-    assert.equal(cappedOutlier.mispredictionShadowSlots, 0);
+    assert.equal(cappedOutlier.recoveryBubbleSlots, 0);
     assert.equal(cappedOutlier.frontendBound, 1);
 
     const labels = createRecordedContext();
@@ -614,17 +614,17 @@ test("Top-down-like view retrospectively classifies supported misprediction shad
         createCanvas(labels.context, 500, 128),
         createCanvas(createRecordedContext().context, 160, 128),
     );
-    assert.ok(labels.fillTexts.some(([text]) => text.includes("shadow 11, +3c min")));
+    assert.ok(labels.fillTexts.some(([text]) => text.includes("recovery 11, +3c min")));
     trace.close();
 });
 
 test("Top-down-like view does not learn recovery from an unsupported sample", async () => {
-    const trace = createMispredictionShadowTrace([30]);
+    const trace = createRecoveryBubbleTrace([30]);
     const activity = await buildTopDownData(trace);
     assert.ok(activity !== null);
     const analysis = activity.analysis;
     assert.ok(analysis !== null);
-    assert.equal(analysis.mispredictionWindowCount, 1);
+    assert.equal(analysis.recoveryWindowCount, 1);
     assert.equal(analysis.minimumRecoveryCycles, null);
     assert.equal(analysis.minimumRecoverySampleCount, 0);
 
@@ -635,7 +635,8 @@ test("Top-down-like view does not learn recovery from an unsupported sample", as
         160,
     );
     assert.ok(beforeComplete !== null);
-    assert.equal(beforeComplete.mispredictionShadowSlots, 1);
+    assert.equal(beforeComplete.recoveryBubbleSlots, 0);
+    assert.equal(beforeComplete.frontendBound, 1);
     const afterComplete = getTopDownBreakdownAtPixel(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [16, 0] },
@@ -643,7 +644,7 @@ test("Top-down-like view does not learn recovery from an unsupported sample", as
         160,
     );
     assert.ok(afterComplete !== null);
-    assert.equal(afterComplete.mispredictionShadowSlots, 0);
+    assert.equal(afterComplete.recoveryBubbleSlots, 0);
     assert.equal(afterComplete.frontendBound, 1);
     trace.close();
 });

@@ -77,7 +77,7 @@ function drawBreakdown(
     }
     const segments = [
         [sample.retiringSlots, colors.retiring],
-        [sample.squashedSlots + sample.mispredictionShadowSlots, colors.badSpeculation],
+        [sample.squashedSlots + sample.recoveryBubbleSlots, colors.badSpeculation],
         [sample.frontendBound, colors.frontendBound],
         [sample.backendBound, colors.backendBound],
         [sample.unresolvedSlots, colors.unresolved],
@@ -127,13 +127,13 @@ function drawLabels(
         .map((entry) => `${entry.stage.label} +${format(entry.typicalLatency)}c`)
         .join(", ");
     const entrance = admission === "" ? "" : ` · entrance ${admission}`;
-    const shadow = analysis.mispredictionWindowCount === 0
+    const recovery = analysis.recoveryWindowCount === 0
         ? ""
         : analysis.minimumRecoveryCycles === null
-            ? ` · shadow ${analysis.mispredictionWindowCount}`
-            : ` · shadow ${analysis.mispredictionWindowCount}, +${format(analysis.minimumRecoveryCycles)}c min`;
+            ? ` · recovery ${analysis.recoveryWindowCount}`
+            : ` · recovery ${analysis.recoveryWindowCount}, +${format(analysis.minimumRecoveryCycles)}c min`;
     context.fillText(
-        `Before ${analysis.executionStage.label}${entrance}${shadow} · ${(analysis.transitionCoverage * 100).toFixed(0)}% links`,
+        `Before ${analysis.executionStage.label}${entrance}${recovery} · ${(analysis.transitionCoverage * 100).toFixed(0)}% links`,
         margin,
         49,
     );
