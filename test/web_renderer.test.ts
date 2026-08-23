@@ -247,7 +247,9 @@ function createTopDownBreakdownTrace(): ParsedTrace {
     const levelMap = new StageLevelMap();
     const laneID = levelMap.getOrCreateLaneID("0");
     const timings = [
-        { source: 2, allocation: 3, execution: 5, retiredCycle: 6 },
+        // The oldest retired op leaves the reservoir after the younger retired op. This
+        // makes the otherwise arbitrary reservoir an observable allocation queue.
+        { source: 2, allocation: 3, execution: 11, retiredCycle: 13 },
         { source: 2, allocation: 3, execution: 5, retiredCycle: 6 },
         // execution待ちの命令がbackend内に残っていても、allocationを妨げていなければ
         // TMA Level 1では空きslotをBackendへ分類しない。
@@ -257,7 +259,9 @@ function createTopDownBreakdownTrace(): ParsedTrace {
     timings.forEach((timing, id) => {
         const op = new Op();
         op.id = id;
+        op.gid = id;
         op.rid = id;
+        op.tid = 0;
         op.retired = id === 0 || id === 3;
         op.flush = id === 1;
         op.fetchedCycle = timing.source;
@@ -283,7 +287,7 @@ function createTopDownBreakdownTrace(): ParsedTrace {
             store.setRetiredOp(op.rid, op);
         }
     });
-    return new ParsedTrace("topdown.log", store, levelMap, 12);
+    return new ParsedTrace("topdown.log", store, levelMap, 14);
 }
 
 function createAllocationBlockedTrace(): ParsedTrace {
@@ -291,10 +295,10 @@ function createAllocationBlockedTrace(): ParsedTrace {
     const levelMap = new StageLevelMap();
     const laneID = levelMap.getOrCreateLaneID("0");
     const rangesByOp = [
-        [["entry-a", 3, 4], ["allocation", 4, 5], ["execution", 5, 6], ["tail", 6, 7]],
-        [["entry-b", 3, 4], ["allocation", 4, 7], ["execution", 7, 8], ["tail", 8, 9]],
-        [["entry-c", 3, 4], ["allocation", 4, 9], ["execution", 9, 10], ["tail", 10, 11]],
-        [["entry-d", 3, 4], ["allocation", 4, 11], ["execution", 11, 12], ["tail", 12, 13]],
+        [["entry-a", 3, 4], ["allocation", 4, 11], ["execution", 11, 12], ["tail", 12, 13]],
+        [["entry-b", 3, 4], ["allocation", 4, 9], ["execution", 9, 10], ["tail", 10, 11]],
+        [["entry-c", 3, 4], ["allocation", 4, 7], ["execution", 7, 8], ["tail", 8, 9]],
+        [["entry-d", 3, 4], ["allocation", 4, 5], ["execution", 5, 6], ["tail", 6, 7]],
         // 最初の4命令は同時にallocateされた後、直列にexecutionへ進む。5番目だけは
         // 通常1 cycleのentry-aを7 cycle占有し、backend入口で止められる。
         [["entry-a", 5, 12], ["allocation", 12, 13], ["execution", 13, 14], ["tail", 14, 15]],
@@ -302,7 +306,9 @@ function createAllocationBlockedTrace(): ParsedTrace {
     rangesByOp.forEach((ranges, id) => {
         const op = new Op();
         op.id = id;
+        op.gid = id;
         op.rid = id;
+        op.tid = 0;
         op.retired = true;
         op.fetchedCycle = ranges[0][1];
         op.retiredCycle = ranges[ranges.length - 1][2];
@@ -330,6 +336,7 @@ function createMispredictionShadowTrace(
     const levelMap = new StageLevelMap();
     const laneID = levelMap.getOrCreateLaneID("0");
     let id = 0;
+    let lastEndCycle = 0;
     const addOp = (
         retired: boolean,
         flush: boolean,
@@ -346,6 +353,7 @@ function createMispredictionShadowTrace(
         op.labelName = labelName;
         op.fetchedCycle = ranges[0][1];
         op.retiredCycle = ranges[ranges.length - 1][2];
+        lastEndCycle = Math.max(lastEndCycle, op.retiredCycle);
         const lane = new Lane();
         for (const [name, startCycle, endCycle] of ranges) {
             const stage = new Stage();
@@ -400,11 +408,31 @@ function createMispredictionShadowTrace(
             ["arbitrary-tail", correctAllocation + 4, correctAllocation + 5],
         ]);
     });
-    const finalLatency = recoveryLatencies[recoveryLatencies.length - 1] ?? 0;
-    const lastCycle = recoveryLatencies.length === 0
-        ? 1
-        : 10 + (recoveryLatencies.length - 1) * 50 + finalLatency + 16;
-    return new ParsedTrace("misprediction-shadow.log", store, levelMap, lastCycle);
+    if (recoveryLatencies.length > 0) {
+        // Add a small, causally neutral out-of-order completion after the measured windows so
+        // the generic detector can identify the allocation queue from order alone.
+        const evidence = lastEndCycle + 2;
+        addOp(true, false, "add x9, x10, x11", [
+            ["arbitrary-source", evidence - 1, evidence],
+            ["arbitrary-reservoir", evidence, evidence + 6],
+            ["arbitrary-event", evidence + 6, evidence + 7],
+            ["arbitrary-complete", evidence + 7, evidence + 8],
+            ["arbitrary-tail", evidence + 8, evidence + 9],
+        ]);
+        addOp(true, false, "add x12, x13, x14", [
+            ["arbitrary-source", evidence, evidence + 1],
+            ["arbitrary-reservoir", evidence + 1, evidence + 3],
+            ["arbitrary-event", evidence + 3, evidence + 4],
+            ["arbitrary-complete", evidence + 4, evidence + 5],
+            ["arbitrary-tail", evidence + 5, evidence + 6],
+        ]);
+    }
+    return new ParsedTrace(
+        "misprediction-shadow.log",
+        store,
+        levelMap,
+        Math.max(1, lastEndCycle + 1),
+    );
 }
 
 test("Stage activity aggregates overlapping intervals and flushed ops", async () => {

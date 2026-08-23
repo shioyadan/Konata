@@ -6,6 +6,10 @@
  * 表示設定、構築のcancel、Canvasの所有はTraceSheetが担い、既存のpipeline Rendererと
  * 独立した小さな2D Canvasとして保つ。
  */
+import {
+    type DetectedAllocationStage,
+    StageStructureDetector,
+} from "./stage_structure_detector";
 import type { ParsedTrace } from "./model";
 import {
     getKonataZoomScale,
@@ -311,6 +315,7 @@ type StageTransitionLatencies = ReadonlyMap<
 interface StageAllocationReference {
     readonly allocationRowIndex: number;
     readonly executionRowIndex: number;
+    readonly allocationWidth: number;
     readonly transitionCount: number;
     readonly transitionCoverage: number;
     readonly admissionRows: readonly StageAllocationAdmissionRow[];
@@ -358,57 +363,37 @@ function getSupportedMinimum(
     return null;
 }
 
-function inferAllocationReference(
+function buildAllocationReference(
+    detection: Readonly<DetectedAllocationStage>,
     rows: readonly StageActivityRow[],
+    rowIndices: ReadonlyMap<number, ReadonlyMap<string, number>>,
     transitions: StageTransitionCounts,
     transitionLatencies: StageTransitionLatencies,
 ): StageAllocationReference | null {
-    let best: {
-        readonly reference: StageAllocationReference;
-        readonly score: number;
-    } | null = null;
-    for (const [allocationRowIndex, successors] of transitions) {
-        let executionRowIndex = -1;
-        let transitionCount = 0;
-        for (const [candidateIndex, count] of successors) {
-            if (count > transitionCount) {
-                executionRowIndex = candidateIndex;
-                transitionCount = count;
-            }
-        }
-        const allocationRow = rows[allocationRowIndex];
-        const executionRow = rows[executionRowIndex];
-        // 終端stageへの遷移はROBからretireへの流れである可能性が高いため候補から外す。
-        // 残る候補のうち、最も大きな滞留を受けるstageをbackend入口の自動推定とする。
-        // 後続stageは入口より後のexecution側であることを確認するためだけに使う。
-        if (allocationRow === undefined || executionRow === undefined ||
-            (transitions.get(executionRowIndex)?.size ?? 0) === 0 ||
-            allocationRow.totalPeak <= 0 || allocationRow.totalStartPeak <= 0) {
-            continue;
-        }
-        const allocationStarts = allocationRow.totalStartsPrefix[
-            allocationRow.totalStartsPrefix.length - 1
-        ];
-        const transitionCoverage = allocationStarts === 0
-            ? 0
-            : Math.min(1, transitionCount / allocationStarts);
-        const reference = {
-            allocationRowIndex,
-            executionRowIndex,
-            transitionCount,
-            transitionCoverage,
-            admissionRows: [] as readonly StageAllocationAdmissionRow[],
-        };
-        const score = allocationRow.totalPeak * transitionCoverage;
-        if (best === null || score > best.score ||
-            (score === best.score && transitionCount > best.reference.transitionCount)) {
-            best = { reference, score };
-        }
-    }
-    if (best === null) {
+    const allocationRowIndex = rowIndices.get(detection.laneID)?.get(detection.stageName);
+    if (allocationRowIndex === undefined) {
         return null;
     }
-    const allocationRowIndex = best.reference.allocationRowIndex;
+    const successors = transitions.get(allocationRowIndex);
+    let executionRowIndex = -1;
+    let transitionCount = 0;
+    for (const [candidateIndex, count] of successors ?? []) {
+        if (count > transitionCount) {
+            executionRowIndex = candidateIndex;
+            transitionCount = count;
+        }
+    }
+    const allocationRow = rows[allocationRowIndex];
+    if (allocationRow === undefined || rows[executionRowIndex] === undefined ||
+        detection.width <= 0) {
+        return null;
+    }
+    const allocationStarts = allocationRow.totalStartsPrefix[
+        allocationRow.totalStartsPrefix.length - 1
+    ];
+    const transitionCoverage = allocationStarts === 0
+        ? 0
+        : Math.min(1, transitionCount / allocationStarts);
     const admissionRows: StageAllocationAdmissionRow[] = [];
     for (const [rowIndex, successors] of transitions) {
         const count = successors.get(allocationRowIndex) ?? 0;
@@ -431,7 +416,14 @@ function inferAllocationReference(
     }
     admissionRows.sort((left, right) =>
         right.transitionCount - left.transitionCount || left.rowIndex - right.rowIndex);
-    return { ...best.reference, admissionRows };
+    return {
+        allocationRowIndex,
+        executionRowIndex,
+        allocationWidth: detection.width,
+        transitionCount,
+        transitionCoverage,
+        admissionRows,
+    };
 }
 
 function addExactInterval(
@@ -511,7 +503,7 @@ async function buildStageTopDownAnalysis(
             return null;
         }
         const op = trace.getOpForScan(id);
-        if (op === undefined) {
+        if (op === undefined || op.eof) {
             continue;
         }
         const allocationLane = op.lanes[allocationRow.laneID];
@@ -624,16 +616,7 @@ async function buildStageTopDownAnalysis(
             }
         }
     }
-    let allocationWidth = 0;
-    for (let cycle = 0; cycle < cycleCount; cycle++) {
-        allocationWidth = Math.max(
-            allocationWidth,
-            retiringStarts[cycle] + squashedStarts[cycle] + unresolvedStarts[cycle],
-        );
-    }
-    if (allocationWidth <= 0) {
-        return null;
-    }
+    const allocationWidth = reference.allocationWidth;
 
     const supportedRecovery = getSupportedMinimum(recoveryLatencyHistogram);
     const mispredictionDiff = new Int32Array(cycleCount + 1);
@@ -760,6 +743,7 @@ export async function buildStageActivity(
     }
 
     const yieldInterval = Math.max(1, options.yieldInterval ?? DEFAULT_YIELD_INTERVAL);
+    const stageStructureDetector = new StageStructureDetector();
     const transitionCounts = new Map<number, Map<number, number>>();
     const transitionLatencies = new Map<number, Map<number, Map<number, number>>>();
     let workSinceYield = 0;
@@ -769,6 +753,7 @@ export async function buildStageActivity(
         }
         const op = trace.getOpForScan(id);
         if (op !== undefined) {
+            stageStructureDetector.observe(op);
             for (let laneID = 0; laneID < op.lanes.length; laneID++) {
                 const lane = op.lanes[laneID];
                 const laneRows = rowIndices.get(laneID);
@@ -861,11 +846,16 @@ export async function buildStageActivity(
             ...finished,
         };
     });
-    const allocationReference = inferAllocationReference(
-        finishedRows,
-        transitionCounts,
-        transitionLatencies,
-    );
+    const allocationDetection = stageStructureDetector.finish().allocation;
+    const allocationReference = allocationDetection === null
+        ? null
+        : buildAllocationReference(
+            allocationDetection,
+            finishedRows,
+            rowIndices,
+            transitionCounts,
+            transitionLatencies,
+        );
     const topDownAnalysis = allocationReference === null
         ? null
         : await buildStageTopDownAnalysis(
