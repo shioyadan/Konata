@@ -983,7 +983,13 @@ button:disabled {
 }
 
 .viewer.has-trace-navigator {
-    grid-template-rows: minmax(0, 1fr) 128px;
+    --trace-navigator-default-height: 128px;
+    --trace-navigator-effective-height: clamp(
+        64px,
+        var(--trace-navigator-height, var(--trace-navigator-default-height)),
+        calc(100% - 96px)
+    );
+    grid-template-rows: minmax(0, 1fr) var(--trace-navigator-effective-height);
 }
 
 .viewer.is-panning {
@@ -1026,6 +1032,32 @@ button:disabled {
 .trace-navigator-cycle-divider,
 .trace-navigator-cycle-pane {
     border-top: 1px solid #555b68;
+}
+
+/* rowを増やさず境界へ重ね、既定のNavigator高さとpipeline領域を変えない。 */
+.trace-navigator-resizer {
+    position: absolute;
+    z-index: 1;
+    right: 0;
+    bottom: calc(var(--trace-navigator-effective-height) - 5px);
+    left: 0;
+    height: 10px;
+    cursor: row-resize;
+    touch-action: none;
+}
+
+.trace-navigator-resizer::after {
+    position: absolute;
+    top: 4px;
+    left: calc(50% - 20px);
+    width: 40px;
+    border-top: 2px solid #697181;
+    content: "";
+}
+
+.viewer.is-resizing-trace-navigator,
+.viewer.is-resizing-trace-navigator .trace-navigator-resizer {
+    cursor: row-resize;
 }
 
 .trace-navigator-cycle-label-pane,
@@ -1999,6 +2031,10 @@ button:disabled {
     border-top-color: #b7bcc5;
 }
 
+.theme-light .trace-navigator-resizer::after {
+    border-top-color: #8c929c;
+}
+
 .theme-light .trace-navigator-cycle-label-pane,
 .theme-light .trace-navigator-cycle-divider {
     background: #f4f4f4;
@@ -2400,7 +2436,16 @@ button:disabled {
     }
 
     .viewer.has-trace-navigator {
-        grid-template-rows: minmax(0, 1fr) 96px;
+        --trace-navigator-default-height: 96px;
+    }
+
+    .trace-navigator-resizer {
+        bottom: calc(var(--trace-navigator-effective-height) - 12px);
+        height: 24px;
+    }
+
+    .trace-navigator-resizer::after {
+        top: 11px;
     }
 
     /* 見た目の10px幅は保ちつつ、指でつかめる範囲だけを左右へ広げる。 */

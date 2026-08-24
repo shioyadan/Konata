@@ -75,6 +75,8 @@ const WHEEL_DELTA_PER_ZOOM_LEVEL = 120;
 const MAX_WHEEL_ZOOM_LEVELS = 2;
 const TRACKPAD_DELTA_PER_ZOOM_LEVEL = 100;
 const MAX_TRACKPAD_ZOOM_PER_FRAME = 0.25;
+const MIN_TRACE_NAVIGATOR_HEIGHT = 64;
+const MIN_PIPELINE_HEIGHT = 96;
 
 function normalizeWheelDelta(event: WheelEvent): number {
     // deltaの単位はdevice／OS依存なので、主要map rendererと同じ尺度へ先に揃える。
@@ -225,6 +227,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         : new KonataRenderMetrics(baselineTrace, baselineRenderSpec);
     const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
     const splitterPointerIDRef = useRef<number | null>(null);
+    const traceNavigatorResizerPointerIDRef = useRef<number | null>(null);
     const wheelZoomRef = useRef({
         modifierDown: false,
         trackpadDelta: 0,
@@ -236,6 +239,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     });
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
+    const [isTraceNavigatorResizing, setIsTraceNavigatorResizing] = useState(false);
+    const [traceNavigatorHeight, setTraceNavigatorHeight] = useState<number | null>(null);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
     // UI／制御層は集計結果の寿命だけを所有する。TopDownDataはTraceから
     // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
@@ -600,6 +605,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
     }, [redraw, showTraceNavigator, topDownData]);
 
+    useLayoutEffect(() => {
+        if (traceNavigatorHeight !== null) {
+            // viewer外形は変わらないため、子paneのrow変更後は明示的にCanvasを再描画する。
+            redraw();
+        }
+    }, [redraw, traceNavigatorHeight]);
+
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
         resetPipelineCanvas: resetPipelineCanvases,
@@ -686,12 +698,59 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         event.stopPropagation();
     };
 
+    const moveTraceNavigatorResizerFromPointer = (clientY: number) => {
+        const viewer = viewerRef.current;
+        if (viewer === null) {
+            return;
+        }
+        const rect = viewer.getBoundingClientRect();
+        const maxHeight = Math.max(0, rect.height - MIN_PIPELINE_HEIGHT);
+        const minHeight = Math.min(MIN_TRACE_NAVIGATOR_HEIGHT, maxHeight);
+        setTraceNavigatorHeight(Math.round(Math.min(
+            Math.max(rect.bottom - clientY, minHeight),
+            maxHeight,
+        )));
+    };
+
+    const handleTraceNavigatorResizerPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0 || traceNavigatorResizerPointerIDRef.current !== null) {
+            return;
+        }
+        traceNavigatorResizerPointerIDRef.current = event.pointerId;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setIsTraceNavigatorResizing(true);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleTraceNavigatorResizerPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+        if (traceNavigatorResizerPointerIDRef.current !== event.pointerId) {
+            return;
+        }
+        moveTraceNavigatorResizerFromPointer(event.clientY);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleTraceNavigatorResizerPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+        if (traceNavigatorResizerPointerIDRef.current !== event.pointerId) {
+            return;
+        }
+        traceNavigatorResizerPointerIDRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        setIsTraceNavigatorResizing(false);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
     const handleWheel = useCallback((event: WheelEvent) => {
         if (trace === null) {
             return;
         }
         const target = event.target as HTMLElement | null;
-        if (target?.closest(".trace-navigator-pane")) {
+        if (target?.closest(".trace-navigator-pane, .trace-navigator-resizer")) {
             return;
         }
         event.preventDefault();
@@ -1022,9 +1081,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     return (
         <div
             ref={viewerRef}
-            className={`viewer${trace === null ? " is-empty" : ""}${showTraceNavigator ? " has-trace-navigator" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
+            className={`viewer${trace === null ? " is-empty" : ""}${showTraceNavigator ? " has-trace-navigator" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}${isTraceNavigatorResizing ? " is-resizing-trace-navigator" : ""}`}
             // 保存したdesktop幅を維持したまま、狭い画面ではCSS側だけで表示幅を制限する。
-            style={{ "--label-pane-width": `${splitterPosition}px` } as CSSProperties}
+            style={{
+                "--label-pane-width": `${splitterPosition}px`,
+                ...(traceNavigatorHeight === null
+                    ? {}
+                    : { "--trace-navigator-height": `${traceNavigatorHeight}px` }),
+            } as CSSProperties}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -1071,6 +1135,20 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             </section>
             {showTraceNavigator && (
                 <>
+                    <div
+                        className="trace-navigator-resizer"
+                        role="separator"
+                        aria-label="Resize trace navigator"
+                        aria-orientation="horizontal"
+                        aria-valuemin={MIN_TRACE_NAVIGATOR_HEIGHT}
+                        aria-valuenow={traceNavigatorHeight ?? undefined}
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={handleTraceNavigatorResizerPointerDown}
+                        onPointerMove={handleTraceNavigatorResizerPointerMove}
+                        onPointerUp={handleTraceNavigatorResizerPointerUp}
+                        onPointerCancel={handleTraceNavigatorResizerPointerUp}
+                        onLostPointerCapture={handleTraceNavigatorResizerPointerUp}
+                    />
                     <section
                         className="viewer-pane trace-navigator-pane trace-navigator-cycle-label-pane"
                         aria-label="Cycle navigator labels"

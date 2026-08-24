@@ -2353,8 +2353,10 @@ async function run() {
         const pipeline = document.querySelector(".pipeline-pane");
         const labelCanvas = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
         const navigatorCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+        const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
         if (!(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
-            !(labelCanvas instanceof HTMLCanvasElement) || !(navigatorCanvas instanceof HTMLCanvasElement)) {
+            !(labelCanvas instanceof HTMLCanvasElement) ||
+            !(navigatorCanvas instanceof HTMLCanvasElement) || !(resizer instanceof HTMLElement)) {
             throw new Error("The trace navigator pane was not created.");
         }
         const result = {
@@ -2367,10 +2369,47 @@ async function run() {
                 Math.round(pipeline.getBoundingClientRect().width),
             pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height)
         };
+        // 境界へ重ねたseparatorをdragし、上下Canvasのlayoutとbacking storeが追従することを確認する。
+        const captured = new Set();
+        Object.defineProperties(resizer, {
+            setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => captured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
+        });
+        const viewerRect = viewer.getBoundingClientRect();
+        const resizerRect = resizer.getBoundingClientRect();
+        const dispatchPointer = (type, clientY, buttons) => resizer.dispatchEvent(new PointerEvent(type, {
+            pointerId: 2,
+            pointerType: "mouse",
+            isPrimary: true,
+            bubbles: true,
+            cancelable: true,
+            button: type === "pointerdown" ? 0 : -1,
+            buttons,
+            clientY
+        }));
+        dispatchPointer("pointerdown", resizerRect.top + resizerRect.height / 2, 1);
+        dispatchPointer("pointermove", viewerRect.bottom - 180, 1);
+        dispatchPointer("pointerup", viewerRect.bottom - 180, 0);
+        await nextFrame();
+        await nextFrame();
+        const resized = {
+            paneHeight: Math.round(navigatorCanvas.getBoundingClientRect().height),
+            pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height),
+            canvasHeight: navigatorCanvas.height,
+            separatorHeight: Math.round(resizer.getBoundingClientRect().height),
+            position: resizer.getAttribute("aria-valuenow"),
+            cursor: getComputedStyle(resizer).cursor,
+            capturedPointers: captured.size
+        };
+        delete resizer.setPointerCapture;
+        delete resizer.hasPointerCapture;
+        delete resizer.releasePointerCapture;
         toggle.click();
         await nextFrame();
         return {
             ...result,
+            resized,
             removed: document.querySelector(".trace-navigator-pane") === null
         };
     })()`);
@@ -2378,6 +2417,13 @@ async function run() {
         navigatorState.paneHeight < 120 || navigatorState.paneHeight > 128 ||
         !navigatorState.labelAligned ||
         !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 128 ||
+        navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
+        navigatorState.resized.pipelineHeightReduction !== 180 ||
+        navigatorState.resized.canvasHeight < 179 ||
+        navigatorState.resized.separatorHeight !== 10 ||
+        navigatorState.resized.position !== "180" ||
+        navigatorState.resized.cursor !== "row-resize" ||
+        navigatorState.resized.capturedPointers !== 0 ||
         !navigatorState.removed) {
         throw new Error(`Trace navigator is incomplete: ${JSON.stringify(navigatorState)}`);
     }
