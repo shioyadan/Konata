@@ -518,9 +518,23 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-reservoir")));
     assert.ok(labels.fillTexts.some(([text]) => text.includes("entrance arbitrary-source +1c")));
     assert.ok(cycleNavigator.fillRects.length > 0);
-    for (const color of ["#66bb6a", "#ef5350", "#42a5f5", "#b0bec5"]) {
+    for (const color of [
+        "hsl(280,55%,55%)",
+        "hsl(140,55%,55%)",
+        "hsl(195,55%,55%)",
+        "hsl(0,0%,55%)",
+    ]) {
         assert.ok(cycleNavigator.fillStyles.includes(color));
     }
+
+    const lightNavigator = createRecordedContext();
+    drawCycleNavigator(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0], theme: "light" },
+        createCanvas(createRecordedContext().context, 450, 128),
+        createCanvas(lightNavigator.context, 320, 128),
+    );
+    assert.ok(lightNavigator.fillStyles.includes("hsl(280,73%,73%)"));
     trace.close();
 });
 
@@ -566,7 +580,7 @@ test("Top-down-like view distinguishes allocated dependencies from allocation ba
         createCanvas(labels.context, 450, 128),
         createCanvas(cycleNavigator.context, 160, 128),
     );
-    assert.ok(cycleNavigator.fillStyles.includes("#ffa726"));
+    assert.ok(cycleNavigator.fillStyles.includes("hsl(30,55%,55%)"));
     trace.close();
 });
 

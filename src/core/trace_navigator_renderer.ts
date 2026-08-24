@@ -10,12 +10,12 @@ import {
     getKonataZoomScale,
     KONATA_OP_WIDTH,
     type KonataRenderSpec,
-    type RendererTheme,
 } from "./konata_renderer";
 
 // 縮小表示ではOp描画と同じくglobal cycleへ揃えた代表点だけを見る。各cycle内では
 // 全allocation slotを数えるため、slot位置によるcategory比率の偏りは作らない。
 const MAX_SAMPLED_CYCLES_PER_PIXEL = 64;
+const styles = { light: lightStyle, dark: darkStyle };
 
 interface PreparedCanvas {
     readonly context: CanvasRenderingContext2D;
@@ -29,6 +29,13 @@ interface BreakdownColors {
     readonly unresolved: string;
     readonly frontendBound: string;
     readonly backendBound: string;
+}
+
+interface StageColorTone {
+    readonly sBegin: string;
+    readonly sEnd: string;
+    readonly lBegin: string;
+    readonly lEnd: string;
 }
 
 function prepareCanvas(canvas: HTMLCanvasElement): PreparedCanvas {
@@ -49,23 +56,24 @@ function prepareCanvas(canvas: HTMLCanvasElement): PreparedCanvas {
     return { context, width, height };
 }
 
-function getColors(theme: RendererTheme): BreakdownColors {
-    // Top-down categoryはstageではないため、stage paletteから独立したsemantic colorを使う。
-    return theme === "light"
-        ? {
-            retiring: "#2e7d32",
-            badSpeculation: "#c62828",
-            frontendBound: "#1565c0",
-            backendBound: "#ef6c00",
-            unresolved: "#616161",
-        }
-        : {
-            retiring: "#66bb6a",
-            badSpeculation: "#ef5350",
-            frontendBound: "#42a5f5",
-            backendBound: "#ffa726",
-            unresolved: "#b0bec5",
-        };
+function createBreakdownColors(stageColor: Readonly<StageColorTone>): BreakdownColors {
+    // gradient両端のうち50%から遠いtoneを中間へ寄せ、theme分岐なしで
+    // 広い単色stackに適した明るい側のtoneを得る。
+    const tone = (begin: string, end: string) => Math.round(50 + Math.max(
+        Math.abs(Number(begin) - 50),
+        Math.abs(Number(end) - 50),
+    ) / 2);
+    const saturation = tone(stageColor.sBegin, stageColor.sEnd);
+    const lightness = tone(stageColor.lBegin, stageColor.lEnd);
+    const create = (hue: number, neutral = false) =>
+        `hsl(${hue},${neutral ? 0 : saturation}%,${lightness}%)`;
+    return {
+        retiring: create(280),
+        badSpeculation: create(140),
+        frontendBound: create(195),
+        backendBound: create(30),
+        unresolved: create(0, true),
+    };
 }
 
 function drawBreakdown(
@@ -104,7 +112,7 @@ function drawLabels(
     colors: Readonly<BreakdownColors>,
 ): void {
     const { analysis } = data;
-    const style = spec.theme === "light" ? lightStyle : darkStyle;
+    const style = styles[spec.theme];
     const margin = Number(style.labelPane.marginLeft);
     const { context } = canvas;
     context.font = `${style.fontStyle} 12px ${style.fontFamily}`;
@@ -194,12 +202,12 @@ export function drawCycleNavigator(
 ): void {
     const label = prepareCanvas(labelCanvas);
     const cycleNavigator = prepareCanvas(cycleCanvas);
-    const style = spec.theme === "light" ? lightStyle : darkStyle;
+    const style = styles[spec.theme];
     label.context.fillStyle = style.labelPane.backgroundColor;
     label.context.fillRect(0, 0, label.width, label.height);
     cycleNavigator.context.fillStyle = style.pipelinePane.backgroundColor;
     cycleNavigator.context.fillRect(0, 0, cycleNavigator.width, cycleNavigator.height);
-    const colors = getColors(spec.theme);
+    const colors = createBreakdownColors(style.pipelinePane.stageBackgroundColor);
     drawLabels(data, spec, label, colors);
     if (data.analysis === null) {
         return;
@@ -232,7 +240,9 @@ export function drawCycleNavigator(
             data, startCycle, endCycle, MAX_SAMPLED_CYCLES_PER_PIXEL,
         );
         if (sample !== null) {
-            drawBreakdown(cycleNavigator.context, sample, colors, x, 1, cycleNavigator.height);
+            drawBreakdown(
+                cycleNavigator.context, sample, colors, x, 1, cycleNavigator.height,
+            );
         }
     }
 }
