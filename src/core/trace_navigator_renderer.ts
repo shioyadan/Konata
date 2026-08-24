@@ -56,23 +56,27 @@ function prepareCanvas(canvas: HTMLCanvasElement): PreparedCanvas {
     return { context, width, height };
 }
 
-function createBreakdownColors(stageColor: Readonly<StageColorTone>): BreakdownColors {
+function createBreakdownColors(
+    stageColor: Readonly<StageColorTone>,
+    backgroundColor: string,
+): BreakdownColors {
     // gradient両端のうち50%から遠いtoneを中間へ寄せ、theme分岐なしで
     // 広い単色stackに適した明るい側のtoneを得る。
     const tone = (begin: string, end: string) => Math.round(50 + Math.max(
         Math.abs(Number(begin) - 50),
         Math.abs(Number(end) - 50),
     ) / 2);
-    const saturation = tone(stageColor.sBegin, stageColor.sEnd);
+    // 広い単色面はstageより鮮やかに見えるため、theme共通で彩度だけを抑える。
+    const saturation = tone(stageColor.sBegin, stageColor.sEnd) - 20;
     const lightness = tone(stageColor.lBegin, stageColor.lEnd);
     const create = (hue: number, neutral = false) =>
         `hsl(${hue},${neutral ? 0 : saturation}%,${lightness}%)`;
     return {
-        retiring: create(280),
-        badSpeculation: create(140),
-        frontendBound: create(195),
+        retiring: create(140),
+        badSpeculation: create(0, true),
+        frontendBound: create(240),
         backendBound: create(30),
-        unresolved: create(0, true),
+        unresolved: backgroundColor,
     };
 }
 
@@ -162,6 +166,11 @@ function drawLabels(
         const center = 72 + Math.floor(index / 3) * 22;
         context.fillStyle = color;
         context.fillRect(left, center - 5, 10, 10);
+        if (color === colors.unresolved) {
+            context.strokeStyle = style.labelPane.fontColor;
+            context.lineWidth = 1;
+            context.strokeRect(left + 0.5, center - 4.5, 9, 9);
+        }
         context.fillStyle = style.labelPane.fontColor;
         context.fillText(label, left + 15, center, columnWidth - 18);
     });
@@ -207,7 +216,10 @@ export function drawCycleNavigator(
     label.context.fillRect(0, 0, label.width, label.height);
     cycleNavigator.context.fillStyle = style.pipelinePane.backgroundColor;
     cycleNavigator.context.fillRect(0, 0, cycleNavigator.width, cycleNavigator.height);
-    const colors = createBreakdownColors(style.pipelinePane.stageBackgroundColor);
+    const colors = createBreakdownColors(
+        style.pipelinePane.stageBackgroundColor,
+        style.pipelinePane.backgroundColor,
+    );
     drawLabels(data, spec, label, colors);
     if (data.analysis === null) {
         return;

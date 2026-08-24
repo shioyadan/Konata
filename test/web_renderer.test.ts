@@ -524,12 +524,14 @@ test("Top-down-like view classifies allocation slots without stage names", async
         labels.fillTexts.map(([text]) => text).filter((text) => legendNames.has(text)),
         ["Bad speculation", "Frontend bound", "Backend bound", "Unresolved", "Retiring"],
     );
+    assert.equal(labels.strokeRects.length, 1);
+    assert.equal(labels.strokeStyles[0], "#c7c8ca");
     assert.ok(cycleNavigator.fillRects.length > 0);
     for (const color of [
-        "hsl(280,55%,55%)",
-        "hsl(140,55%,55%)",
-        "hsl(195,55%,55%)",
         "hsl(0,0%,55%)",
+        "hsl(240,35%,55%)",
+        "hsl(140,35%,55%)",
+        "#262930",
     ]) {
         assert.ok(cycleNavigator.fillStyles.includes(color));
     }
@@ -537,8 +539,8 @@ test("Top-down-like view classifies allocation slots without stage names", async
         .map((rect, index) => ({ rect, color: cycleNavigator.fillStyles[index] }))
         .filter(({ rect }) => rect[0] === x && rect[2] < 320)
         .map(({ color }) => color);
-    assert.deepEqual(colorsAtX(0), ["hsl(140,55%,55%)", "hsl(280,55%,55%)"]);
-    assert.deepEqual(colorsAtX(32), ["hsl(195,55%,55%)", "hsl(0,0%,55%)"]);
+    assert.deepEqual(colorsAtX(0), ["hsl(0,0%,55%)", "hsl(140,35%,55%)"]);
+    assert.deepEqual(colorsAtX(32), ["hsl(240,35%,55%)", "#262930"]);
 
     const lightNavigator = createRecordedContext();
     drawCycleNavigator(
@@ -547,7 +549,14 @@ test("Top-down-like view classifies allocation slots without stage names", async
         createCanvas(createRecordedContext().context, 450, 128),
         createCanvas(lightNavigator.context, 320, 128),
     );
-    assert.ok(lightNavigator.fillStyles.includes("hsl(280,73%,73%)"));
+    for (const color of [
+        "hsl(0,0%,73%)",
+        "hsl(240,53%,73%)",
+        "hsl(140,53%,73%)",
+        "#ffffff",
+    ]) {
+        assert.ok(lightNavigator.fillStyles.includes(color));
+    }
     trace.close();
 });
 
@@ -593,7 +602,7 @@ test("Top-down-like view distinguishes allocated dependencies from allocation ba
         createCanvas(labels.context, 450, 128),
         createCanvas(cycleNavigator.context, 160, 128),
     );
-    assert.ok(cycleNavigator.fillStyles.includes("hsl(30,55%,55%)"));
+    assert.ok(cycleNavigator.fillStyles.includes("hsl(30,35%,55%)"));
     trace.close();
 });
 
