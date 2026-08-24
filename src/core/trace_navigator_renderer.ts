@@ -88,11 +88,11 @@ function drawBreakdown(
         return;
     }
     const segments = [
-        [sample.retiringSlots, colors.retiring],
         [sample.squashedSlots + sample.recoveryBubbleSlots, colors.badSpeculation],
         [sample.frontendBound, colors.frontendBound],
         [sample.backendBound, colors.backendBound],
         [sample.unresolvedSlots, colors.unresolved],
+        [sample.retiringSlots, colors.retiring],
     ] as const;
     let top = 0;
     for (const [value, color] of segments) {
@@ -150,11 +150,11 @@ function drawLabels(
     );
 
     const legends = [
-        ["Retiring", colors.retiring],
         ["Bad speculation", colors.badSpeculation],
         ["Frontend bound", colors.frontendBound],
         ["Backend bound", colors.backendBound],
         ["Unresolved", colors.unresolved],
+        ["Retiring", colors.retiring],
     ] as const;
     const columnWidth = Math.max(100, (canvas.width - margin * 2) / 3);
     legends.forEach(([label, color], index) => {

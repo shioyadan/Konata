@@ -517,6 +517,13 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-event")));
     assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-reservoir")));
     assert.ok(labels.fillTexts.some(([text]) => text.includes("entrance arbitrary-source +1c")));
+    const legendNames = new Set([
+        "Bad speculation", "Frontend bound", "Backend bound", "Unresolved", "Retiring",
+    ]);
+    assert.deepEqual(
+        labels.fillTexts.map(([text]) => text).filter((text) => legendNames.has(text)),
+        ["Bad speculation", "Frontend bound", "Backend bound", "Unresolved", "Retiring"],
+    );
     assert.ok(cycleNavigator.fillRects.length > 0);
     for (const color of [
         "hsl(280,55%,55%)",
@@ -526,6 +533,12 @@ test("Top-down-like view classifies allocation slots without stage names", async
     ]) {
         assert.ok(cycleNavigator.fillStyles.includes(color));
     }
+    const colorsAtX = (x: number) => cycleNavigator.fillRects
+        .map((rect, index) => ({ rect, color: cycleNavigator.fillStyles[index] }))
+        .filter(({ rect }) => rect[0] === x && rect[2] < 320)
+        .map(({ color }) => color);
+    assert.deepEqual(colorsAtX(0), ["hsl(140,55%,55%)", "hsl(280,55%,55%)"]);
+    assert.deepEqual(colorsAtX(32), ["hsl(195,55%,55%)", "hsl(0,0%,55%)"]);
 
     const lightNavigator = createRecordedContext();
     drawCycleNavigator(
