@@ -9,9 +9,9 @@ import {
     getTopDownBreakdown,
 } from "../src/core/top_down_analysis";
 import {
-    drawTopDownHeatmap,
+    drawCycleNavigator,
     getTopDownBreakdownAtPixel,
-} from "../src/core/top_down_heatmap";
+} from "../src/core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -506,20 +506,20 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(frontend.backendBound, 0);
 
     const labels = createRecordedContext();
-    const heatmap = createRecordedContext();
-    drawTopDownHeatmap(
+    const cycleNavigator = createRecordedContext();
+    drawCycleNavigator(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
         createCanvas(labels.context, 450, 128),
-        createCanvas(heatmap.context, 320, 128),
+        createCanvas(cycleNavigator.context, 320, 128),
     );
     assert.ok(labels.fillTexts.some(([text]) => text === "Top-down-like (auto)"));
     assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-event")));
     assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-reservoir")));
     assert.ok(labels.fillTexts.some(([text]) => text.includes("entrance arbitrary-source +1c")));
-    assert.ok(heatmap.fillRects.length > 0);
+    assert.ok(cycleNavigator.fillRects.length > 0);
     for (const color of ["#66bb6a", "#ef5350", "#42a5f5", "#b0bec5"]) {
-        assert.ok(heatmap.fillStyles.includes(color));
+        assert.ok(cycleNavigator.fillStyles.includes(color));
     }
     trace.close();
 });
@@ -559,14 +559,14 @@ test("Top-down-like view distinguishes allocated dependencies from allocation ba
     assert.equal(blocked.backendBound, 4);
 
     const labels = createRecordedContext();
-    const heatmap = createRecordedContext();
-    drawTopDownHeatmap(
+    const cycleNavigator = createRecordedContext();
+    drawCycleNavigator(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [6, 0] },
         createCanvas(labels.context, 450, 128),
-        createCanvas(heatmap.context, 160, 128),
+        createCanvas(cycleNavigator.context, 160, 128),
     );
-    assert.ok(heatmap.fillStyles.includes("#ffa726"));
+    assert.ok(cycleNavigator.fillStyles.includes("#ffa726"));
     trace.close();
 });
 
@@ -616,7 +616,7 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
     assert.equal(cappedOutlier.frontendBound, 1);
 
     const labels = createRecordedContext();
-    drawTopDownHeatmap(
+    drawCycleNavigator(
         activity,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [10, 0] },
         createCanvas(labels.context, 500, 128),

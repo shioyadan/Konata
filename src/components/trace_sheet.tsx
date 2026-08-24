@@ -18,9 +18,9 @@ import {
     type TopDownData,
 } from "../core/top_down_analysis";
 import {
-    drawTopDownHeatmap,
+    drawCycleNavigator,
     getTopDownBreakdownAtPixel,
-} from "../core/top_down_heatmap";
+} from "../core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
     clampKonataZoomLevel,
@@ -114,7 +114,7 @@ interface TraceSheetProps {
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
-    readonly topDownVisible: boolean;
+    readonly traceNavigatorVisible: boolean;
     readonly zoomStep: number;
     readonly findResult: FindResult | null;
     readonly comparison: {
@@ -161,7 +161,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderVersion,
     webGLEnabled,
     tiledRenderingEnabled,
-    topDownVisible,
+    traceNavigatorVisible,
     zoomStep,
     findResult,
     comparison,
@@ -174,8 +174,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
-    const topDownLabelCanvasRef = useRef<HTMLCanvasElement>(null);
-    const topDownCanvasRef = useRef<HTMLCanvasElement>(null);
+    const cycleNavigatorLabelCanvasRef = useRef<HTMLCanvasElement>(null);
+    const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const findResultRef = useRef<HTMLDivElement>(null);
@@ -243,7 +243,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [topDownError, setTopDownError] = useState(false);
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
-    const showTopDownPane = topDownVisible && comparison === null &&
+    const showTraceNavigator = traceNavigatorVisible && comparison === null &&
         trace !== null && loadState === "ready";
     // A単独表示だけはラベルとマウス参照もAへ切り替え、それ以外はBを前面の情報源にする。
     const displayRenderer = comparisonMode === "baseline" && baselineRenderer !== null
@@ -418,8 +418,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             pipelineCanvasRef.current,
             baselineLayerCanvasRef.current,
             candidateLayerCanvasRef.current,
-            topDownLabelCanvasRef.current,
-            topDownCanvasRef.current,
+            cycleNavigatorLabelCanvasRef.current,
+            cycleNavigatorCanvasRef.current,
         ]) {
             if (canvas !== null) {
                 // software Canvasの遅延描画資源を、参照中のTraceより先に切り離す。
@@ -437,8 +437,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     ) => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
-        const topDownLabelCanvas = topDownLabelCanvasRef.current;
-        const topDownCanvas = topDownCanvasRef.current;
+        const cycleNavigatorLabelCanvas = cycleNavigatorLabelCanvasRef.current;
+        const cycleNavigatorCanvas = cycleNavigatorCanvasRef.current;
         const candidateMetrics = new KonataRenderMetrics(trace, candidateSpec);
         const currentBaselineMetrics = currentBaselineSpec === undefined
             ? null
@@ -465,13 +465,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ...tileOptions,
             prefetchSpec: baselinePrefetchSpec,
         } as const;
-        if (showTopDownPane && topDownData !== null &&
-            topDownLabelCanvas !== null && topDownCanvas !== null) {
-            drawTopDownHeatmap(
+        if (showTraceNavigator && topDownData !== null &&
+            cycleNavigatorLabelCanvas !== null && cycleNavigatorCanvas !== null) {
+            drawCycleNavigator(
                 topDownData,
                 candidateSpec,
-                topDownLabelCanvas,
-                topDownCanvas,
+                cycleNavigatorLabelCanvas,
+                cycleNavigatorCanvas,
             );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
@@ -545,7 +545,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         findResult,
         loadState,
         renderer,
-        showTopDownPane,
+        showTraceNavigator,
         topDownData,
         tiledRenderer,
         baselineTiledRenderer,
@@ -571,7 +571,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         let canceled = false;
         setTopDownData(null);
         setTopDownError(false);
-        if (!showTopDownPane || trace === null) {
+        if (!showTraceNavigator || trace === null) {
             return () => {
                 canceled = true;
             };
@@ -585,20 +585,20 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             })
             .catch((error: unknown) => {
                 if (!canceled) {
-                    console.warn("Could not build stage activity.", error);
+                    console.warn("Could not build top-down analysis.", error);
                     setTopDownError(true);
                 }
             });
         return () => {
             canceled = true;
         };
-    }, [showTopDownPane, trace]);
+    }, [showTraceNavigator, trace]);
 
     useLayoutEffect(() => {
-        if (showTopDownPane && topDownData !== null) {
+        if (showTraceNavigator && topDownData !== null) {
             redraw();
         }
-    }, [redraw, showTopDownPane, topDownData]);
+    }, [redraw, showTraceNavigator, topDownData]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
@@ -691,7 +691,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const target = event.target as HTMLElement | null;
-        if (target?.closest(".top-down-pane")) {
+        if (target?.closest(".trace-navigator-pane")) {
             return;
         }
         event.preventDefault();
@@ -1022,7 +1022,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     return (
         <div
             ref={viewerRef}
-            className={`viewer${trace === null ? " is-empty" : ""}${showTopDownPane ? " has-top-down" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
+            className={`viewer${trace === null ? " is-empty" : ""}${showTraceNavigator ? " has-trace-navigator" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
             // 保存したdesktop幅を維持したまま、狭い画面ではCSS側だけで表示幅を制限する。
             style={{ "--label-pane-width": `${splitterPosition}px` } as CSSProperties}
             onPointerDown={handlePointerDown}
@@ -1069,29 +1069,29 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     The pipeline chart requires canvas support.
                 </canvas>
             </section>
-            {showTopDownPane && (
+            {showTraceNavigator && (
                 <>
                     <section
-                        className="viewer-pane top-down-pane top-down-label-pane"
-                        aria-label="Top-down-like labels"
+                        className="viewer-pane trace-navigator-pane trace-navigator-cycle-label-pane"
+                        aria-label="Cycle navigator labels"
                         onPointerDown={(event) => event.stopPropagation()}
                     >
-                        <canvas ref={topDownLabelCanvasRef} aria-label="Top-down-like labels canvas" />
+                        <canvas ref={cycleNavigatorLabelCanvasRef} aria-label="Cycle navigator labels canvas" />
                     </section>
-                    <div className="top-down-divider" aria-hidden="true" />
+                    <div className="trace-navigator-cycle-divider" aria-hidden="true" />
                     <section
-                        className="viewer-pane top-down-pane top-down-heatmap-pane"
-                        aria-label="Top-down-like heatmap"
+                        className="viewer-pane trace-navigator-pane trace-navigator-cycle-pane"
+                        aria-label="Cycle navigator"
                         onPointerDown={(event) => event.stopPropagation()}
                     >
                         <canvas
-                            ref={topDownCanvasRef}
-                            aria-label="Top-down-like heatmap canvas"
+                            ref={cycleNavigatorCanvasRef}
+                            aria-label="Cycle navigator canvas"
                             onMouseMove={(event) => updateToolTip("top-down", event)}
                             onMouseLeave={() => setToolTip(null)}
                         />
                         {topDownData === null && (
-                            <span className="top-down-status">
+                            <span className="trace-navigator-cycle-status">
                                 {topDownError
                                     ? "Top-down-like analysis unavailable"
                                     : "Building top-down-like analysis…"}

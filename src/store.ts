@@ -67,8 +67,8 @@ export interface GlobalViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
-    // Storeは表示有無だけを保持する。集計済みTopDownDataはTraceSheetが所有する。
-    readonly topDownVisible: boolean;
+    // Storeはnavigatorの表示有無だけを保持する。集計済みTopDownDataはTraceSheetが所有する。
+    readonly traceNavigatorVisible: boolean;
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly dependencyArrowType: DependencyArrowType;
     readonly splitLanes: boolean;
@@ -84,7 +84,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     theme: "dark",
     webGLEnabled: true,
     tiledRenderingEnabled: true,
-    topDownVisible: false,
+    traceNavigatorVisible: false,
     customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
@@ -231,7 +231,7 @@ export type Action =
     | { readonly type: "KONATA_CHANGE_UI_COLOR_THEME"; readonly theme: RendererTheme }
     | { readonly type: "KONATA_SET_WEBGL_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_TILED_RENDERING_ENABLED"; readonly enabled: boolean }
-    | { readonly type: "KONATA_SET_TOP_DOWN_VISIBLE"; readonly enabled: boolean }
+    | { readonly type: "KONATA_SET_TRACE_NAVIGATOR_VISIBLE"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_DEP_ARROW_TYPE"; readonly arrowType: DependencyArrowType }
     | { readonly type: "KONATA_SPLIT_LANES"; readonly enabled: boolean }
     | { readonly type: "KONATA_FIX_OP_HEIGHT"; readonly enabled: boolean }
@@ -1089,11 +1089,11 @@ export class Store {
             }, false, true);
             return;
         }
-        case "KONATA_SET_TOP_DOWN_VISIBLE": {
+        case "KONATA_SET_TRACE_NAVIGATOR_VISIBLE": {
             // 集計costを明示的な操作時だけ発生させる試作設定で、再起動後はOFFへ戻す。
             this.setGlobalViewSettings_({
                 ...this.settings_,
-                topDownVisible: action.enabled,
+                traceNavigatorVisible: action.enabled,
             });
             return;
         }

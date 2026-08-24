@@ -2331,18 +2331,18 @@ async function run() {
     }
 
     // 明示的に有効化した時だけ下部へTop-down-like表示を作り、上のcycle幅と揃える。
-    const topDownState = await window.webContents.executeJavaScript(`(async () => {
+    const navigatorState = await window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-        const toggle = document.querySelector('input[aria-label="Top-down-like heatmap"]');
+        const toggle = document.querySelector('input[aria-label="Trace navigator"]');
         const initialPipelineHeight = document.querySelector(".pipeline-pane")?.getBoundingClientRect().height ?? -1;
         if (!(toggle instanceof HTMLInputElement) || toggle.disabled || toggle.checked) {
-            throw new Error("The stage activity control was not ready.");
+            throw new Error("The trace navigator control was not ready.");
         }
         toggle.click();
         const deadline = performance.now() + 2000;
         while (performance.now() < deadline) {
-            const canvas = document.querySelector('canvas[aria-label="Top-down-like heatmap canvas"]');
-            const status = document.querySelector(".top-down-status");
+            const canvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+            const status = document.querySelector(".trace-navigator-cycle-status");
             if (canvas instanceof HTMLCanvasElement && status === null && canvas.width > 1) {
                 break;
             }
@@ -2351,19 +2351,19 @@ async function run() {
         await nextFrame();
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane");
-        const labelCanvas = document.querySelector('canvas[aria-label="Top-down-like labels canvas"]');
-        const heatmapCanvas = document.querySelector('canvas[aria-label="Top-down-like heatmap canvas"]');
+        const labelCanvas = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
+        const navigatorCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
         if (!(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
-            !(labelCanvas instanceof HTMLCanvasElement) || !(heatmapCanvas instanceof HTMLCanvasElement)) {
-            throw new Error("The stage activity pane was not created.");
+            !(labelCanvas instanceof HTMLCanvasElement) || !(navigatorCanvas instanceof HTMLCanvasElement)) {
+            throw new Error("The trace navigator pane was not created.");
         }
         const result = {
             checked: toggle.checked,
-            hasClass: viewer.classList.contains("has-top-down"),
-            paneHeight: Math.round(heatmapCanvas.getBoundingClientRect().height),
+            hasClass: viewer.classList.contains("has-trace-navigator"),
+            paneHeight: Math.round(navigatorCanvas.getBoundingClientRect().height),
             labelAligned: Math.round(labelCanvas.getBoundingClientRect().width) ===
                 Math.round(document.querySelector(".label-pane")?.getBoundingClientRect().width ?? -1),
-            heatmapAligned: Math.round(heatmapCanvas.getBoundingClientRect().width) ===
+            navigatorAligned: Math.round(navigatorCanvas.getBoundingClientRect().width) ===
                 Math.round(pipeline.getBoundingClientRect().width),
             pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height)
         };
@@ -2371,15 +2371,15 @@ async function run() {
         await nextFrame();
         return {
             ...result,
-            removed: document.querySelector(".top-down-pane") === null
+            removed: document.querySelector(".trace-navigator-pane") === null
         };
     })()`);
-    if (!topDownState.checked || !topDownState.hasClass ||
-        topDownState.paneHeight < 120 || topDownState.paneHeight > 128 ||
-        !topDownState.labelAligned ||
-        !topDownState.heatmapAligned || topDownState.pipelineHeightReduction !== 128 ||
-        !topDownState.removed) {
-        throw new Error(`Top-down-like heatmap is incomplete: ${JSON.stringify(topDownState)}`);
+    if (!navigatorState.checked || !navigatorState.hasClass ||
+        navigatorState.paneHeight < 120 || navigatorState.paneHeight > 128 ||
+        !navigatorState.labelAligned ||
+        !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 128 ||
+        !navigatorState.removed) {
+        throw new Error(`Trace navigator is incomplete: ${JSON.stringify(navigatorState)}`);
     }
 
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
@@ -2389,7 +2389,7 @@ async function run() {
         const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const fixed = document.querySelector('input[aria-label="Fix op height"]');
-        const topDown = document.querySelector('input[aria-label="Top-down-like heatmap"]');
+        const navigator = document.querySelector('input[aria-label="Trace navigator"]');
         const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
@@ -2403,7 +2403,7 @@ async function run() {
             !(hideFlushed instanceof HTMLInputElement) ||
             !(split instanceof HTMLInputElement) ||
             !(fixed instanceof HTMLInputElement) ||
-            !(topDown instanceof HTMLInputElement) ||
+            !(navigator instanceof HTMLInputElement) ||
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
@@ -2442,7 +2442,7 @@ async function run() {
             tiledRendering: tiledRendering.checked,
             compatibilityOpen: compatibility.open,
             textVisibility: textVisibility.value,
-            checkboxesOnRight: [hideFlushed, split, fixed, topDown, webGL, tiledRendering]
+            checkboxesOnRight: [hideFlushed, split, fixed, navigator, webGL, tiledRendering]
                 .every((control) => control.closest("label")?.lastElementChild === control)
         })));
     })`);

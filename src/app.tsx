@@ -1381,15 +1381,15 @@ export function App() {
                             />
                         </label>
                         {/* ここは表示設定のみをStoreへ渡す。Traceの集計とCanvas描画はTraceSheetが起動する。 */}
-                        <label title="Show an automatically inferred allocation-slot breakdown below the pipeline.">
-                            Top-down-like
+                        <label title="Show a visual trace navigator below the pipeline.">
+                            Trace navigator
                             <input
                                 type="checkbox"
-                                aria-label="Top-down-like heatmap"
-                                checked={settings.topDownVisible}
+                                aria-label="Trace navigator"
+                                checked={settings.traceNavigatorVisible}
                                 disabled={trace === null || comparisonTab !== null}
                                 onChange={(event) => store.dispatch({
-                                    type: "KONATA_SET_TOP_DOWN_VISIBLE",
+                                    type: "KONATA_SET_TRACE_NAVIGATOR_VISIBLE",
                                     enabled: event.target.checked,
                                 })}
                             />
@@ -1691,7 +1691,7 @@ export function App() {
                 renderVersion={renderVersion}
                 webGLEnabled={settings.webGLEnabled}
                 tiledRenderingEnabled={settings.tiledRenderingEnabled}
-                topDownVisible={settings.topDownVisible}
+                traceNavigatorVisible={settings.traceNavigatorVisible}
                 zoomStep={1 / settings.drawZoomFactor}
                 findResult={findResult}
                 comparison={comparisonTab === null ? null : {

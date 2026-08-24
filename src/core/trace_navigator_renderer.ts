@@ -1,4 +1,4 @@
-/** Top-down-likeの集計結果をpipelineと同じcycle軸のCanvasへ描画する。 */
+/** Top-down-likeの集計結果をtrace navigatorのcycle方向Canvasへ描画する。 */
 import darkStyle from "../../theme/dark/style.json";
 import lightStyle from "../../theme/light/style.json";
 import {
@@ -43,7 +43,7 @@ function prepareCanvas(canvas: HTMLCanvasElement): PreparedCanvas {
     }
     const context = canvas.getContext("2d");
     if (context === null) {
-        throw new Error("A 2D canvas context is required to draw the top-down-like heatmap.");
+        throw new Error("A 2D canvas context is required to draw the trace navigator.");
     }
     context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     return { context, width, height };
@@ -186,19 +186,19 @@ export function getTopDownBreakdownAtPixel(
     );
 }
 
-export function drawTopDownHeatmap(
+export function drawCycleNavigator(
     data: Readonly<TopDownData>,
     spec: Readonly<KonataRenderSpec>,
     labelCanvas: HTMLCanvasElement,
-    heatmapCanvas: HTMLCanvasElement,
+    cycleCanvas: HTMLCanvasElement,
 ): void {
     const label = prepareCanvas(labelCanvas);
-    const heatmap = prepareCanvas(heatmapCanvas);
+    const cycleNavigator = prepareCanvas(cycleCanvas);
     const style = spec.theme === "light" ? lightStyle : darkStyle;
     label.context.fillStyle = style.labelPane.backgroundColor;
     label.context.fillRect(0, 0, label.width, label.height);
-    heatmap.context.fillStyle = style.pipelinePane.backgroundColor;
-    heatmap.context.fillRect(0, 0, heatmap.width, heatmap.height);
+    cycleNavigator.context.fillStyle = style.pipelinePane.backgroundColor;
+    cycleNavigator.context.fillRect(0, 0, cycleNavigator.width, cycleNavigator.height);
     const colors = getColors(spec.theme);
     drawLabels(data, spec, label, colors);
     if (data.analysis === null) {
@@ -207,7 +207,7 @@ export function drawTopDownHeatmap(
 
     const opWidth = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
     const leftCycle = spec.position[0];
-    const rightCycle = leftCycle + heatmap.width / opWidth;
+    const rightCycle = leftCycle + cycleNavigator.width / opWidth;
     if (opWidth >= 1) {
         const firstCycle = Math.max(0, Math.floor(leftCycle));
         const lastCycle = Math.min(data.cycleCount, Math.ceil(rightCycle));
@@ -217,22 +217,22 @@ export function drawTopDownHeatmap(
             const sample = getTopDownBreakdown(data, startCycle, endCycle);
             if (sample !== null) {
                 const left = Math.max(0, (startCycle - leftCycle) * opWidth);
-                const right = Math.min(heatmap.width, (endCycle - leftCycle) * opWidth);
-                drawBreakdown(heatmap.context, sample, colors, left,
-                    Math.max(1, right - left), heatmap.height);
+                const right = Math.min(cycleNavigator.width, (endCycle - leftCycle) * opWidth);
+                drawBreakdown(cycleNavigator.context, sample, colors, left,
+                    Math.max(1, right - left), cycleNavigator.height);
             }
         }
         return;
     }
 
-    for (let x = 0; x < heatmap.width; x++) {
+    for (let x = 0; x < cycleNavigator.width; x++) {
         const startCycle = Math.max(0, leftCycle + x / opWidth);
         const endCycle = Math.min(data.cycleCount, leftCycle + (x + 1) / opWidth);
         const sample = getTopDownBreakdown(
             data, startCycle, endCycle, MAX_SAMPLED_CYCLES_PER_PIXEL,
         );
         if (sample !== null) {
-            drawBreakdown(heatmap.context, sample, colors, x, 1, heatmap.height);
+            drawBreakdown(cycleNavigator.context, sample, colors, x, 1, cycleNavigator.height);
         }
     }
 }

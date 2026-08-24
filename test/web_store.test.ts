@@ -661,7 +661,7 @@ test("Store restores and publishes persistent view settings", () => {
     // lane分割と固定高さは旧Configの保存対象ではなく、再起動時には初期値へ戻る。
     assert.equal(restored.splitLanes, false);
     assert.equal(restored.fixOpHeight, false);
-    assert.equal(restored.topDownVisible, false);
+    assert.equal(restored.traceNavigatorVisible, false);
 
     store.dispatch({ type: "FILE_OPEN", fileName: "restored.log" });
     const tab = store.activeTab;
@@ -689,7 +689,7 @@ test("Store restores and publishes persistent view settings", () => {
     store.dispatch({ type: "KONATA_CHANGE_ZOOM_SPEED", speed: "normal" });
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({ type: "KONATA_FIX_OP_HEIGHT", enabled: true });
-    store.dispatch({ type: "KONATA_SET_TOP_DOWN_VISIBLE", enabled: true });
+    store.dispatch({ type: "KONATA_SET_TRACE_NAVIGATOR_VISIBLE", enabled: true });
     store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
 
     assert.deepEqual(store.persistedViewSettings, {
@@ -708,7 +708,7 @@ test("Store restores and publishes persistent view settings", () => {
     });
     // Tab固有設定や旧Storeだけの一時設定では、永続化通知を増やさない。
     assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 9);
-    assert.equal(store.getSnapshot().settings.topDownVisible, true);
+    assert.equal(store.getSnapshot().settings.traceNavigatorVisible, true);
 
     store.dispatch({ type: "STORE_CLOSE" });
 });
@@ -816,7 +816,7 @@ test("Store restores View defaults without moving the trace or discarding custom
     store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "light" });
     store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: false });
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
-    store.dispatch({ type: "KONATA_SET_TOP_DOWN_VISIBLE", enabled: true });
+    store.dispatch({ type: "KONATA_SET_TRACE_NAVIGATOR_VISIBLE", enabled: true });
     store.dispatch({ type: "KONATA_CHANGE_ZOOM_SPEED", speed: "fast" });
     store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });
     store.dispatch({ type: "KONATA_CHANGE_COLOR_SCHEME", tabID: tab.id, scheme: "Custom" });
@@ -828,7 +828,7 @@ test("Store restores View defaults without moving the trace or discarding custom
         ...defaults,
         customColorScheme,
     });
-    assert.equal(store.getSnapshot().settings.topDownVisible, false);
+    assert.equal(store.getSnapshot().settings.traceNavigatorVisible, false);
     assert.deepEqual(tab.renderSpec.position, [17, 23]);
     assert.equal(tab.renderSpec.zoomLevel, 3);
     assert.equal(tab.splitterPosition, 333);
