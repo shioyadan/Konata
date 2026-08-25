@@ -396,11 +396,29 @@ async function verifyIncrementalRendering(window) {
         let progressLayers = null;
         let loadingStatus = null;
         let partialToolState = null;
+        let partialNavigator = null;
+        let navigatorRequested = false;
+        let finishing = false;
         const check = () => {
             const root = document.querySelector(".trace-app");
             const state = root?.dataset.loadState;
             const opCount = Number(root?.dataset.opCount ?? -1);
             if (state === "loading" && opCount === 1) {
+                const navigatorToggle = document.querySelector('input[aria-label="Trace navigator"]');
+                if (!navigatorRequested && navigatorToggle instanceof HTMLInputElement &&
+                    !navigatorToggle.disabled) {
+                    navigatorRequested = true;
+                    navigatorToggle.click();
+                }
+                const navigatorPane = document.querySelector(".trace-navigator-cycle-pane");
+                const navigatorStatus = navigatorPane?.querySelector(".trace-navigator-cycle-status");
+                if (navigatorToggle instanceof HTMLInputElement && navigatorToggle.checked &&
+                    navigatorPane instanceof HTMLElement && navigatorStatus instanceof HTMLElement) {
+                    partialNavigator = {
+                        visible: true,
+                        status: navigatorStatus.textContent ?? ""
+                    };
+                }
                 const searchButton = document.querySelector('button[aria-label="Search trace"]');
                 const statsButton = [...document.querySelectorAll(".app-toolbar button")]
                     .find((candidate) => candidate.textContent?.trim() === "Stats");
@@ -443,14 +461,20 @@ async function verifyIncrementalRendering(window) {
                     }
                 }
             }
-            if (state === "ready" && opCount === 2) {
-                resolve({
+            if (!finishing && state === "ready" && opCount === 2 && partialNavigator !== null) {
+                finishing = true;
+                const navigatorToggle = document.querySelector('input[aria-label="Trace navigator"]');
+                if (navigatorToggle instanceof HTMLInputElement && navigatorToggle.checked) {
+                    navigatorToggle.click();
+                }
+                requestAnimationFrame(() => resolve({
                     partialPixels,
                     finalOpCount: opCount,
                     partialToolState,
+                    partialNavigator,
                     progressLayers,
                     loadingStatus
-                });
+                }));
                 return;
             }
             if (state === "error") {
@@ -1321,6 +1345,8 @@ async function run() {
         incrementalState.finalOpCount !== 2 ||
         !incrementalState.partialToolState?.searchEnabled ||
         !incrementalState.partialToolState?.statsEnabled ||
+        !incrementalState.partialNavigator?.visible ||
+        !incrementalState.partialNavigator?.status?.startsWith("Collecting pipeline sample…") ||
         !incrementalState.loadingStatus?.text?.startsWith("Loading incremental.log…") ||
         !incrementalState.loadingStatus?.hasIndicator ||
         incrementalState.loadingStatus?.role !== "status" ||

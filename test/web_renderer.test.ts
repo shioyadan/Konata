@@ -7,6 +7,7 @@ import { CanvasBackend } from "../src/core/canvas_backend";
 import {
     buildTopDownData,
     getTopDownBreakdown,
+    updateTopDownData,
 } from "../src/core/top_down_analysis";
 import {
     drawCycleNavigator,
@@ -290,6 +291,37 @@ function createTopDownBreakdownTrace(): ParsedTrace {
     return new ParsedTrace("topdown.log", store, levelMap, 14);
 }
 
+function appendTopDownBreakdownOp(
+    trace: ParsedTrace,
+    id: number,
+    ranges: readonly (readonly [string, number, number])[],
+): void {
+    const laneID = trace.stageLevelMap.getLaneID("0");
+    assert.ok(laneID !== undefined);
+    const op = new Op();
+    op.id = id;
+    op.gid = id;
+    op.rid = id;
+    op.tid = 0;
+    op.retired = true;
+    op.fetchedCycle = ranges[0]?.[1] ?? 0;
+    op.retiredCycle = ranges.at(-1)?.[2] ?? op.fetchedCycle;
+    const lane = new Lane();
+    for (const [name, startCycle, endCycle] of ranges) {
+        const stage = new Stage();
+        stage.name = name;
+        stage.startCycle = startCycle;
+        stage.endCycle = endCycle;
+        lane.stages.push(stage);
+        trace.stageLevelMap.update("0", name, lane);
+    }
+    op.lanes[laneID] = lane;
+    const store = trace.opStore as ArrayOpStore;
+    store.setOp(id, op);
+    store.setRetiredOp(op.rid, op);
+    trace.updateLastCycle(Math.max(trace.lastCycle, op.retiredCycle));
+}
+
 function createAllocationBlockedTrace(): ParsedTrace {
     const store = new ArrayOpStore();
     const levelMap = new StageLevelMap();
@@ -557,6 +589,68 @@ test("Top-down-like view classifies allocation slots without stage names", async
     ]) {
         assert.ok(lightNavigator.fillStyles.includes(color));
     }
+    trace.close();
+});
+
+test("Top-down-like analysis fixes its trace range while a live trace grows", async () => {
+    const trace = createTopDownBreakdownTrace();
+    const building = buildTopDownData(trace, { yieldInterval: 1 });
+
+    // build開始後に、既存candidateの投入cycle順を壊す命令を同じlive traceへ追加する。
+    // 今回のsnapshotへ混入すればallocation検出が失敗するため、結果から範囲固定を確認できる。
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 2, 3],
+        ["arbitrary-reservoir", 3, 12],
+        ["arbitrary-event", 12, 13],
+        ["arbitrary-tail", 13, 14],
+    ]);
+
+    const activity = await building;
+    assert.ok(activity !== null && activity.analysis !== null);
+    assert.equal(activity.analysis.allocationWidth, 2);
+    trace.close();
+});
+
+test("Top-down-like live updates stop at gaps and follow the retired fetch frontier", async () => {
+    const trace = createTopDownBreakdownTrace();
+    const data = await buildTopDownData(trace);
+    assert.ok(data !== null && data.analysis !== null);
+
+    appendTopDownBreakdownOp(trace, 5, [
+        ["arbitrary-source", 12, 14],
+        ["arbitrary-reservoir", 14, 16],
+        ["arbitrary-event", 16, 17],
+        ["arbitrary-tail", 17, 18],
+    ]);
+    // ID 6の正常リタイアでfetch cycle 20より前を確定させるが、ID 4の穴では停止する。
+    appendTopDownBreakdownOp(trace, 6, [
+        ["arbitrary-source", 20, 21],
+        ["arbitrary-reservoir", 21, 22],
+        ["arbitrary-event", 22, 23],
+        ["arbitrary-tail", 23, 24],
+    ]);
+    const withGap = updateTopDownData(data, trace);
+    assert.equal(withGap.sourceLastID, 3);
+    assert.ok(withGap.analysis !== null);
+    assert.ok(withGap.analysis.slots.length >=
+        withGap.cycleCount * withGap.analysis.allocationWidth);
+    const backend = getTopDownBreakdown(withGap, 13, 14);
+    assert.ok(backend !== null);
+    assert.equal(backend.backendBound, 0);
+
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 12, 13],
+        ["arbitrary-reservoir", 13, 15],
+        ["arbitrary-event", 15, 16],
+        ["arbitrary-tail", 16, 17],
+    ]);
+    const filled = updateTopDownData(withGap, trace);
+    assert.equal(filled.sourceLastID, 5);
+    const filledGap = getTopDownBreakdown(filled, 13, 14);
+    assert.ok(filledGap !== null);
+    assert.equal(filledGap.retiringSlots, 1);
+    assert.equal(filledGap.backendBound, 1);
+    assert.equal(updateTopDownData(filled, trace), filled);
     trace.close();
 });
 

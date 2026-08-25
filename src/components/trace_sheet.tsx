@@ -15,7 +15,9 @@ import { BsX } from "react-icons/bs";
 import type { ParsedTrace } from "../core/model";
 import {
     buildTopDownData,
+    TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT,
     type TopDownData,
+    updateTopDownData,
 } from "../core/top_down_analysis";
 import {
     drawCycleNavigator,
@@ -245,11 +247,22 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     // UI／制御層は集計結果の寿命だけを所有する。TopDownDataはTraceから
     // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
     const [topDownData, setTopDownData] = useState<TopDownData | null>(null);
+    const topDownLiveDataRef = useRef<{
+        readonly trace: ParsedTrace;
+        data: TopDownData;
+    } | null>(null);
     const [topDownError, setTopDownError] = useState(false);
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
     const showTraceNavigator = traceNavigatorVisible && comparison === null &&
-        trace !== null && loadState === "ready";
+        trace !== null;
+    const topDownSampleReady = trace !== null && (loadState === "ready" ||
+        trace.opCount >= TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT);
+    const topDownStatusMessage = topDownError
+        ? "Top-down-like analysis unavailable"
+        : !topDownSampleReady
+            ? `Collecting pipeline sample… ${(trace?.opCount ?? 0).toLocaleString()} / ${TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT.toLocaleString()} ops`
+            : "Building top-down-like analysis…";
     // A単独表示だけはラベルとマウス参照もAへ切り替え、それ以外はBを前面の情報源にする。
     const displayRenderer = comparisonMode === "baseline" && baselineRenderer !== null
         ? baselineRenderer
@@ -570,22 +583,39 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         viewController.redraw();
     }, [viewController]);
 
-    // Traceまたはpaneの寿命が変わった時だけ集計する。zoomやthemeの変更は
-    // 下のuseLayoutEffectから同じTopDownDataを再描画する。
+    // Traceまたはpaneを切り替えた時は、以前のTraceから作った派生dataを外す。
     useEffect(() => {
-        let canceled = false;
+        topDownLiveDataRef.current = null;
         setTopDownData(null);
         setTopDownError(false);
-        if (!showTraceNavigator || trace === null) {
+    }, [showTraceNavigator, trace]);
+
+    // 読み込み中は最初の50k命令で構造を決め、完了時だけ末尾まで再解析する。
+    // zoomやthemeの変更は下のuseLayoutEffectから同じTopDownDataを再描画する。
+    useEffect(() => {
+        let canceled = false;
+        if (!showTraceNavigator || trace === null || !topDownSampleReady) {
             return () => {
                 canceled = true;
             };
         }
+        setTopDownError(false);
 
-        void buildTopDownData(trace, { isCanceled: () => canceled })
+        void buildTopDownData(trace, {
+            isCanceled: () => canceled,
+            live: loadState !== "ready",
+        })
             .then((data) => {
                 if (!canceled && data !== null) {
-                    setTopDownData(data);
+                    if (data.analysis === null) {
+                        topDownLiveDataRef.current = null;
+                        setTopDownData(data);
+                        return;
+                    }
+                    // 全体解析中にParserが公開した分も、最初の表示へまとめて追記する。
+                    const currentData = updateTopDownData(data, trace);
+                    topDownLiveDataRef.current = { trace, data: currentData };
+                    setTopDownData(currentData);
                 }
             })
             .catch((error: unknown) => {
@@ -597,7 +627,18 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         return () => {
             canceled = true;
         };
-    }, [showTraceNavigator, trace]);
+    }, [loadState, showTraceNavigator, topDownSampleReady, trace]);
+
+    // Pipelineと同じ途中Traceの公開通知ごとに、節目間の差分だけをNavigatorへ反映する。
+    useEffect(() => {
+        const live = topDownLiveDataRef.current;
+        if (!showTraceNavigator || trace === null || live?.trace !== trace) {
+            return;
+        }
+        const data = updateTopDownData(live.data, trace);
+        live.data = data;
+        setTopDownData((current) => current === data ? current : data);
+    }, [renderVersion, showTraceNavigator, trace]);
 
     useLayoutEffect(() => {
         if (showTraceNavigator && topDownData !== null) {
@@ -1170,9 +1211,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         />
                         {topDownData === null && (
                             <span className="trace-navigator-cycle-status">
-                                {topDownError
-                                    ? "Top-down-like analysis unavailable"
-                                    : "Building top-down-like analysis…"}
+                                {topDownStatusMessage}
                             </span>
                         )}
                     </section>
