@@ -125,11 +125,12 @@ function createRows(trace: ParsedTrace) {
     return { rows, rowIndices };
 }
 
-type StageTransitionCounts = ReadonlyMap<number, ReadonlyMap<number, number>>;
-type StageTransitionLatencies = ReadonlyMap<
-    number,
-    ReadonlyMap<number, ReadonlyMap<number, number>>
->;
+interface StageTransition {
+    readonly from: number;
+    readonly to: number;
+    count: number;
+    readonly latencies: Map<number, number>;
+}
 
 interface StageAllocationReference {
     readonly allocationRow: StageRecord;
@@ -142,7 +143,6 @@ interface StageAllocationReference {
 interface StageAdmissionReference {
     readonly row: StageRecord;
     readonly typicalLatency: number;
-    readonly transitionCount: number;
 }
 
 function isLikelyControlFlowLabel(labelName: string): boolean {
@@ -172,97 +172,130 @@ function getSupportedMinimum(
     return supported;
 }
 
+function getTypicalLatency(histogram: ReadonlyMap<number, number>): number {
+    let typicalLatency = 0;
+    let typicalCount = -1;
+    for (const [latency, count] of histogram) {
+        if (count > typicalCount || (count === typicalCount && latency < typicalLatency)) {
+            typicalLatency = latency;
+            typicalCount = count;
+        }
+    }
+    return typicalLatency;
+}
+
 function buildAllocationReference(
     detection: Readonly<DetectedAllocationStage>,
     rows: readonly StageRecord[],
     rowIndices: ReadonlyMap<number, ReadonlyMap<string, number>>,
-    transitions: StageTransitionCounts,
-    transitionLatencies: StageTransitionLatencies,
+    transitions: ReadonlyMap<number, Readonly<StageTransition>>,
 ): StageAllocationReference | null {
     const allocationRowIndex = rowIndices.get(detection.laneID)?.get(detection.stageName);
     if (allocationRowIndex === undefined) {
         return null;
     }
-    const successors = transitions.get(allocationRowIndex);
-    let executionRowIndex = -1;
-    let transitionCount = 0;
-    for (const [candidateIndex, count] of successors ?? []) {
-        if (count > transitionCount) {
-            executionRowIndex = candidateIndex;
-            transitionCount = count;
+    let successor: Readonly<StageTransition> | null = null;
+    const predecessors: Readonly<StageTransition>[] = [];
+    for (const transition of transitions.values()) {
+        if (transition.from === allocationRowIndex &&
+            (successor === null || transition.count > successor.count)) {
+            successor = transition;
+        }
+        if (transition.to === allocationRowIndex && transition.latencies.size > 0) {
+            predecessors.push(transition);
         }
     }
     const allocationRow = rows[allocationRowIndex];
-    if (allocationRow === undefined || rows[executionRowIndex] === undefined ||
+    if (allocationRow === undefined || successor === null || rows[successor.to] === undefined ||
         detection.width <= 0) {
         return null;
     }
     const allocationStarts = allocationRow.startCount;
     const transitionCoverage = allocationStarts === 0
         ? 0
-        : Math.min(1, transitionCount / allocationStarts);
-    const admissionRows: StageAdmissionReference[] = [];
-    for (const [rowIndex, successors] of transitions) {
-        const count = successors.get(allocationRowIndex) ?? 0;
-        const histogram = transitionLatencies.get(rowIndex)?.get(allocationRowIndex);
-        if (count <= 0 || histogram === undefined || histogram.size === 0) {
-            continue;
-        }
-        let typicalLatency = 0;
-        let typicalCount = -1;
-        for (const [latency, latencyCount] of histogram) {
-            // 同数なら短い方を選ぶ。通常経路と長いstallが少数ずつしかない短いtraceでも、
-            // stall側を基準にして見逃すことを避ける。
-            if (latencyCount > typicalCount ||
-                (latencyCount === typicalCount && latency < typicalLatency)) {
-                typicalLatency = latency;
-                typicalCount = latencyCount;
-            }
-        }
-        admissionRows.push({ row: rows[rowIndex], typicalLatency, transitionCount: count });
-    }
-    admissionRows.sort((left, right) =>
-        right.transitionCount - left.transitionCount || left.row.rowIndex - right.row.rowIndex);
+        : Math.min(1, successor.count / allocationStarts);
+    const admissionRows = predecessors
+        .sort((left, right) => right.count - left.count || left.from - right.from)
+        .map((transition) => ({
+            row: rows[transition.from],
+            typicalLatency: getTypicalLatency(transition.latencies),
+        }))
+        .filter((admission) => admission.row !== undefined);
     return {
         allocationRow,
-        executionRow: rows[executionRowIndex],
+        executionRow: rows[successor.to],
         allocationWidth: detection.width,
         transitionCoverage,
         admissionRows,
     };
 }
 
-function addExactInterval(
-    diff: Int32Array,
-    cycleCount: number,
-    startCycle: number,
-    endCycle: number,
-): void {
-    const start = Math.max(0, Math.min(cycleCount, Math.floor(startCycle)));
-    const end = Math.max(0, Math.min(cycleCount, Math.ceil(endCycle)));
-    if (end <= start) {
-        return;
-    }
-    diff[start]++;
-    diff[end]--;
+function isAllocatedSlot(slotClass: TopDownSlotClass): boolean {
+    return slotClass === TopDownSlotClass.RETIRING ||
+        slotClass === TopDownSlotClass.SQUASHED ||
+        slotClass === TopDownSlotClass.UNRESOLVED;
 }
 
 function addAllocatedSlot(
     slots: Uint8Array,
-    usedSlots: Uint16Array,
     allocationWidth: number,
     cycle: number,
     slotClass: TopDownSlotClass,
 ): void {
-    const integerCycle = Math.floor(cycle);
-    if (integerCycle < 0 || integerCycle >= usedSlots.length) {
+    const firstSlot = Math.floor(cycle) * allocationWidth;
+    const endSlot = firstSlot + allocationWidth;
+    if (firstSlot < 0 || endSlot > slots.length) {
         return;
     }
-    const used = usedSlots[integerCycle];
-    if (used < allocationWidth) {
-        slots[integerCycle * allocationWidth + used] = slotClass;
-        usedSlots[integerCycle] = used + 1;
+    for (let index = firstSlot; index < endSlot; index++) {
+        if (!isAllocatedSlot(slots[index] as TopDownSlotClass)) {
+            slots[index] = slotClass;
+            return;
+        }
     }
+}
+
+function markEmptySlots(
+    slots: Uint8Array,
+    allocationWidth: number,
+    startCycle: number,
+    endCycle: number,
+    slotClass: TopDownSlotClass,
+): void {
+    const capacity = Math.floor(slots.length / allocationWidth);
+    const firstCycle = Math.max(0, Math.min(capacity, Math.floor(startCycle)));
+    const lastCycle = Math.max(firstCycle, Math.min(capacity, Math.ceil(endCycle)));
+    for (let cycle = firstCycle; cycle < lastCycle; cycle++) {
+        const firstSlot = cycle * allocationWidth;
+        const endSlot = firstSlot + allocationWidth;
+        for (let index = firstSlot; index < endSlot; index++) {
+            const current = slots[index] as TopDownSlotClass;
+            if (!isAllocatedSlot(current) &&
+                (slotClass !== TopDownSlotClass.BACKEND_BOUND ||
+                    current === TopDownSlotClass.FRONTEND_BOUND)) {
+                slots[index] = slotClass;
+            }
+        }
+    }
+}
+
+function markCycleRange(
+    cycles: Uint8Array,
+    startCycle: number,
+    endCycle: number,
+    slotClass: TopDownSlotClass,
+): void {
+    const start = Math.max(0, Math.min(cycles.length, Math.floor(startCycle)));
+    const end = Math.max(start, Math.min(cycles.length, Math.ceil(endCycle)));
+    cycles.fill(slotClass, start, end);
+}
+
+function getOpSlotClass(op: Readonly<Op>): TopDownSlotClass {
+    return op.retired
+        ? TopDownSlotClass.RETIRING
+        : op.flush
+            ? TopDownSlotClass.SQUASHED
+            : TopDownSlotClass.UNRESOLVED;
 }
 
 interface AllocationStageObservation {
@@ -340,17 +373,16 @@ async function classifyTopDownSlots(
     const { allocationRow, executionRow } = reference;
     const allocationWidth = reference.allocationWidth;
     const slotCount = cycleCount * allocationWidth;
-    const workingBytes = slotCount * Uint8Array.BYTES_PER_ELEMENT +
-        cycleCount * Uint16Array.BYTES_PER_ELEMENT +
-        (cycleCount + 1) * Int32Array.BYTES_PER_ELEMENT * 2;
-    if (!Number.isSafeInteger(slotCount) || allocationWidth > 0xffff ||
+    const workingBytes = slotCount + cycleCount;
+    if (!Number.isSafeInteger(slotCount) ||
         workingBytes > MAX_TOP_DOWN_WORKING_BYTES) {
         return null;
     }
 
     const slots = new Uint8Array(slotCount);
-    const usedSlots = new Uint16Array(cycleCount);
-    const backendAdmissionDiff = new Int32Array(cycleCount + 1);
+    slots.fill(TopDownSlotClass.FRONTEND_BOUND);
+    const emptySlotClasses = new Uint8Array(cycleCount);
+    emptySlotClasses.fill(TopDownSlotClass.FRONTEND_BOUND);
     const previousRecoveryStartByThread = new Map<number, number>();
     const pendingRecoveryStartByThread = new Map<number, number>();
     const recoveryWindows: Array<readonly [startCycle: number, endCycle: number]> = [];
@@ -382,21 +414,19 @@ async function classifyTopDownSlots(
             (startCycle, endCycle) => {
                 // allocation直前のstageに通常より長く留まった区間を入口停滞とする。
                 // 命令が後にflushされても、resolution前の空きslotはrecoveryではない。
-                addExactInterval(
-                    backendAdmissionDiff, cycleCount, startCycle, endCycle,
+                markCycleRange(
+                    emptySlotClasses,
+                    startCycle,
+                    endCycle,
+                    TopDownSlotClass.BACKEND_BOUND,
                 );
             },
         );
         if (firstAllocationCycle !== null) {
             // TMA Level 1のslotはexecution issueではなく、FrontendからBackendへuopを
             // 渡すallocation pointで数える。同じ命令が後段でreplayしても1 slotのままにする。
-            const slotClass = op.retired
-                ? TopDownSlotClass.RETIRING
-                : op.flush
-                    ? TopDownSlotClass.SQUASHED
-                    : TopDownSlotClass.UNRESOLVED;
             addAllocatedSlot(
-                slots, usedSlots, allocationWidth, firstAllocationCycle, slotClass,
+                slots, allocationWidth, firstAllocationCycle, getOpSlotClass(op),
             );
         }
 
@@ -444,7 +474,6 @@ async function classifyTopDownSlots(
         }
     }
     const supportedRecovery = getSupportedMinimum(recoveryLatencyHistogram);
-    const recoveryDiff = new Int32Array(cycleCount + 1);
     if (supportedRecovery !== null) {
         for (const [startCycle, nextCorrectAllocationCycle] of recoveryWindows) {
             // 実際のcorrect allocationより先へは延ばさない。長いI-cache／ITLB待ちは
@@ -453,28 +482,21 @@ async function classifyTopDownSlots(
                 nextCorrectAllocationCycle,
                 startCycle + supportedRecovery.value,
             );
-            addExactInterval(recoveryDiff, cycleCount, startCycle, endCycle);
+            markCycleRange(
+                emptySlotClasses,
+                startCycle,
+                endCycle,
+                TopDownSlotClass.RECOVERY_BUBBLE,
+            );
         }
     }
 
-    let backendAdmissionDepth = 0;
-    let recoveryDepth = 0;
     for (let cycle = 0; cycle < cycleCount; cycle++) {
-        backendAdmissionDepth += backendAdmissionDiff[cycle];
-        recoveryDepth += recoveryDiff[cycle];
-        let emptyClass = TopDownSlotClass.FRONTEND_BOUND;
-        if (recoveryDepth > 0) {
-            // resolution後にcorrect pathがallocate可能になるまでの空きslotは、TMAの
-            // recovery bubbleに相当する。ただし反復観測した最短回復時間を上限とする。
-            emptyClass = TopDownSlotClass.RECOVERY_BUBBLE;
-        } else if (backendAdmissionDepth > 0) {
-            // 後段queueに命令があるだけではBackendにしない。TMA Level 1はexecution
-            // issueではなくallocationを観測するため、入口で実際に止まった場合だけを
-            // Backend backpressureとする。最終的にflushされる命令もresolution前は含む。
-            emptyClass = TopDownSlotClass.BACKEND_BOUND;
+        const emptyClass = emptySlotClasses[cycle] as TopDownSlotClass;
+        if (emptyClass !== TopDownSlotClass.FRONTEND_BOUND) {
+            // recoveryは上のmarkCycleRangeでbackendを上書きするため優先される。
+            markEmptySlots(slots, allocationWidth, cycle, cycle + 1, emptyClass);
         }
-        const firstEmptySlot = cycle * allocationWidth + usedSlots[cycle];
-        slots.fill(emptyClass, firstEmptySlot, (cycle + 1) * allocationWidth);
         workSinceYield++;
         if (workSinceYield >= yieldInterval) {
             await yieldToBrowser();
@@ -541,8 +563,7 @@ export async function buildTopDownData(
 
     const yieldInterval = Math.max(1, options.yieldInterval ?? DEFAULT_YIELD_INTERVAL);
     const stageStructureDetector = new StageStructureDetector();
-    const transitionCounts = new Map<number, Map<number, number>>();
-    const transitionLatencies = new Map<number, Map<number, Map<number, number>>>();
+    const transitions = new Map<number, StageTransition>();
     let workSinceYield = 0;
     for (let id = 0; id <= lastID; id++) {
         if (options.isCanceled?.()) {
@@ -573,18 +594,25 @@ export async function buildTopDownData(
                     // Rendererと同じく0は未close stageの終端を表す。真の0-cycle区間は除外する。
                     const endCycle = stage.endCycle === 0 ? op.retiredCycle : stage.endCycle;
                     if (previousRowIndex !== null && previousRowIndex !== rowIndex) {
-                        const successors = transitionCounts.get(previousRowIndex) ?? new Map();
-                        successors.set(rowIndex, (successors.get(rowIndex) ?? 0) + 1);
-                        transitionCounts.set(previousRowIndex, successors);
+                        const key = previousRowIndex * rows.length + rowIndex;
+                        let transition = transitions.get(key);
+                        if (transition === undefined) {
+                            transition = {
+                                from: previousRowIndex,
+                                to: rowIndex,
+                                count: 0,
+                                latencies: new Map<number, number>(),
+                            };
+                            transitions.set(key, transition);
+                        }
+                        transition.count++;
                         const latency = Math.min(previousStageEnd, stage.startCycle) -
                             previousStageStart;
                         if (Number.isFinite(latency) && latency >= 0) {
-                            const successorLatencies = transitionLatencies.get(previousRowIndex) ??
-                                new Map<number, Map<number, number>>();
-                            const histogram = successorLatencies.get(rowIndex) ?? new Map();
-                            histogram.set(latency, (histogram.get(latency) ?? 0) + 1);
-                            successorLatencies.set(rowIndex, histogram);
-                            transitionLatencies.set(previousRowIndex, successorLatencies);
+                            transition.latencies.set(
+                                latency,
+                                (transition.latencies.get(latency) ?? 0) + 1,
+                            );
                         }
                     }
                     if (previousRowIndex !== rowIndex) {
@@ -625,8 +653,7 @@ export async function buildTopDownData(
             allocationDetection,
             rows,
             rowIndices,
-            transitionCounts,
-            transitionLatencies,
+            transitions,
         );
     const analysis = allocationReference === null
         ? null
@@ -646,12 +673,6 @@ export async function buildTopDownData(
         sourceLastID: lastID,
         analysis,
     };
-}
-
-function isAllocatedSlot(slotClass: TopDownSlotClass): boolean {
-    return slotClass === TopDownSlotClass.RETIRING ||
-        slotClass === TopDownSlotClass.SQUASHED ||
-        slotClass === TopDownSlotClass.UNRESOLVED;
 }
 
 function growLiveSlots(
@@ -677,43 +698,6 @@ function growLiveSlots(
     slots.fill(TopDownSlotClass.FRONTEND_BOUND);
     slots.set(analysis.slots);
     return { ...analysis, slots };
-}
-
-function addLiveAllocatedSlot(
-    analysis: Readonly<TopDownAnalysis>,
-    cycle: number,
-    slotClass: TopDownSlotClass,
-): void {
-    const firstSlot = Math.floor(cycle) * analysis.allocationWidth;
-    const endSlot = firstSlot + analysis.allocationWidth;
-    if (firstSlot < 0 || endSlot > analysis.slots.length) {
-        return;
-    }
-    for (let index = firstSlot; index < endSlot; index++) {
-        if (!isAllocatedSlot(analysis.slots[index] as TopDownSlotClass)) {
-            analysis.slots[index] = slotClass;
-            return;
-        }
-    }
-}
-
-function markLiveBackend(
-    analysis: Readonly<TopDownAnalysis>,
-    startCycle: number,
-    endCycle: number,
-): void {
-    const capacity = Math.floor(analysis.slots.length / analysis.allocationWidth);
-    const firstCycle = Math.max(0, Math.min(capacity, Math.floor(startCycle)));
-    const lastCycle = Math.max(firstCycle, Math.min(capacity, Math.ceil(endCycle)));
-    for (let cycle = firstCycle; cycle < lastCycle; cycle++) {
-        const firstSlot = cycle * analysis.allocationWidth;
-        const endSlot = firstSlot + analysis.allocationWidth;
-        for (let index = firstSlot; index < endSlot; index++) {
-            if (analysis.slots[index] === TopDownSlotClass.FRONTEND_BOUND) {
-                analysis.slots[index] = TopDownSlotClass.BACKEND_BOUND;
-            }
-        }
-    }
 }
 
 /** 確定済みのstage構造を使い、Parserが新たに公開したOpだけをslotへ反映する。 */
@@ -751,18 +735,24 @@ export function updateTopDownData(
             analysis.executionStage.stageName,
             admissionByStage,
             (startCycle, endCycle) => {
-                markLiveBackend(analysis, startCycle, endCycle);
+                markEmptySlots(
+                    analysis.slots,
+                    analysis.allocationWidth,
+                    startCycle,
+                    endCycle,
+                    TopDownSlotClass.BACKEND_BOUND,
+                );
             },
         );
         if (firstAllocationCycle === null) {
             return;
         }
-        const slotClass = op.retired
-            ? TopDownSlotClass.RETIRING
-            : op.flush
-                ? TopDownSlotClass.SQUASHED
-                : TopDownSlotClass.UNRESOLVED;
-        addLiveAllocatedSlot(analysis, firstAllocationCycle, slotClass);
+        addAllocatedSlot(
+            analysis.slots,
+            analysis.allocationWidth,
+            firstAllocationCycle,
+            getOpSlotClass(op),
+        );
     };
 
     let sourceLastID = data.sourceLastID;
@@ -817,37 +807,13 @@ export function getTopDownBreakdown(
         sampleCycle = firstCycle;
     }
 
-    let retiringSlots = 0;
-    let squashedSlots = 0;
-    let recoveryBubbleSlots = 0;
-    let unresolvedSlots = 0;
-    let frontendBound = 0;
-    let backendBound = 0;
+    const counts = [0, 0, 0, 0, 0, 0];
     let sampledCycleCount = 0;
     for (let cycle = sampleCycle; cycle < lastCycle; cycle += samplingStride) {
         const firstSlot = cycle * allocationWidth;
         const lastSlot = firstSlot + allocationWidth;
         for (let slot = firstSlot; slot < lastSlot; slot++) {
-            switch (analysis.slots[slot]) {
-            case TopDownSlotClass.RETIRING:
-                retiringSlots++;
-                break;
-            case TopDownSlotClass.SQUASHED:
-                squashedSlots++;
-                break;
-            case TopDownSlotClass.RECOVERY_BUBBLE:
-                recoveryBubbleSlots++;
-                break;
-            case TopDownSlotClass.FRONTEND_BOUND:
-                frontendBound++;
-                break;
-            case TopDownSlotClass.BACKEND_BOUND:
-                backendBound++;
-                break;
-            case TopDownSlotClass.UNRESOLVED:
-                unresolvedSlots++;
-                break;
-            }
+            counts[analysis.slots[slot]]++;
         }
         sampledCycleCount++;
     }
@@ -857,12 +823,12 @@ export function getTopDownBreakdown(
         startCycle: firstCycle,
         endCycle: lastCycle,
         totalSlots,
-        retiringSlots,
-        squashedSlots,
-        recoveryBubbleSlots,
-        unresolvedSlots,
-        frontendBound,
-        backendBound,
+        retiringSlots: counts[TopDownSlotClass.RETIRING],
+        squashedSlots: counts[TopDownSlotClass.SQUASHED],
+        recoveryBubbleSlots: counts[TopDownSlotClass.RECOVERY_BUBBLE],
+        unresolvedSlots: counts[TopDownSlotClass.UNRESOLVED],
+        frontendBound: counts[TopDownSlotClass.FRONTEND_BOUND],
+        backendBound: counts[TopDownSlotClass.BACKEND_BOUND],
         sampledCycleCount,
         samplingStride,
     };
