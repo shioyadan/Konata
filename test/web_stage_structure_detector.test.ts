@@ -31,7 +31,7 @@ function createOp(id: number, retired = true, flush = false): Op {
     return op;
 }
 
-test("Stage structure detector finds the unique in-order entry with out-of-order exits", () => {
+test("Stage structure detector finds the allocation neighborhood", () => {
     const detector = new StageStructureDetector();
     const timings = [
         { start: 2, end: 8, retired: true, flush: false },
@@ -45,6 +45,7 @@ test("Stage structure detector finds the unique in-order entry with out-of-order
             ["source", Math.max(0, timing.start - 1), timing.start],
             ["queue", timing.start, timing.end],
             ["execution", timing.end, timing.end + 1],
+            ["complete", timing.end + 1, timing.end + 2],
         ]);
         detector.observe(op);
     });
@@ -54,12 +55,26 @@ test("Stage structure detector finds the unique in-order entry with out-of-order
     detector.observe(eof);
 
     assert.deepEqual(detector.finish(), {
-        allocation: {
+        allocationStage: {
             laneID: 0,
             stageName: "queue",
             // flush命令も観測されたallocation幅を消費するが、順序性の証拠には使わない。
             width: 3,
         },
+        executionStage: {
+            laneID: 0,
+            stageName: "execution",
+        },
+        completionStages: [{
+            laneID: 0,
+            stageName: "complete",
+        }],
+        transitionCoverage: 1,
+        admissionStages: [{
+            laneID: 0,
+            stageName: "source",
+            typicalLatency: 1,
+        }],
     });
 });
 
@@ -74,7 +89,7 @@ test("Stage structure detector rejects allocation without exit reordering", () =
         ]);
         detector.observe(op);
     }
-    assert.equal(detector.finish().allocation, null);
+    assert.equal(detector.finish(), null);
 });
 
 test("Stage structure detector rejects ambiguous allocation candidates", () => {
@@ -86,5 +101,5 @@ test("Stage structure detector rejects ambiguous allocation candidates", () => {
         addLane(op, 1, [["queue-b", id, endCycle + 10]]);
         detector.observe(op);
     });
-    assert.equal(detector.finish().allocation, null);
+    assert.equal(detector.finish(), null);
 });

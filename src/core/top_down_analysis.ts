@@ -1,8 +1,17 @@
 /**
  * ParsedTraceからTop-down-likeのslot分類を構築する。UIやCanvasには依存しない。
+ *
+ * 解析は次の順で行う。
+ *
+ * 1. StageStructureDetectorでallocation周辺の構造、観測幅、通常latencyを推定する。
+ * 2. 検出済みの構造を使い、各cycleのslotを6種類へ分類する。
+ * 3. 表示範囲をsamplingし、分類ごとのslot数を集計する。
+ *
+ * 結果は1 byte／slotで保持し、表示範囲のsamplingと集計は最後に行う。
  */
 import {
-    type DetectedAllocationStage,
+    type DetectedStage,
+    type DetectedStageStructure,
     StageStructureDetector,
 } from "./stage_structure_detector";
 import type { Op, ParsedTrace } from "./model";
@@ -18,12 +27,13 @@ const MAX_TOP_DOWN_WORKING_BYTES = 128 * 1024 * 1024;
 const MIN_SUPPORTED_RECOVERY_SAMPLE_COUNT = 10;
 
 const enum TopDownSlotClass {
-    RETIRING,
-    SQUASHED,
-    RECOVERY_BUBBLE,
-    FRONTEND_BOUND,
-    BACKEND_BOUND,
-    UNRESOLVED,
+    // allocation済みのslotは命令の最終状態、空slotは供給されなかった原因を表す。
+    RETIRING,       // allocationされ、正常にretireした命令
+    SQUASHED,       // allocationされたが、後にflushされた命令
+    RECOVERY_BUBBLE, // flush原因の解決後、正しい命令を再供給するまでの空き
+    FRONTEND_BOUND, // allocation入口まで命令が届かなかった空き
+    BACKEND_BOUND,  // allocation入口のbackpressureで生じた空き
+    UNRESOLVED,     // allocation済みだが、retire／flushがまだ未確定の命令
 }
 
 function yieldToBrowser(): Promise<void> {
@@ -47,12 +57,14 @@ export interface TopDownStage {
 export interface TopDownAnalysis {
     readonly allocationStage: TopDownStage;
     readonly executionStage: TopDownStage;
+    readonly completionStages: readonly TopDownStage[];
     readonly allocationWidth: number;
     readonly transitionCoverage: number;
     readonly admissionStages: readonly TopDownAdmission[];
     readonly recoveryWindowCount: number;
     readonly minimumRecoveryCycles: number | null;
     readonly minimumRecoverySampleCount: number;
+    // cycle * allocationWidth + slotをindexとする、全cycleの分類結果。
     readonly slots: Uint8Array;
 }
 
@@ -88,61 +100,74 @@ export interface TopDownBuildOptions {
     readonly live?: boolean;
 }
 
-interface StageRecord extends TopDownStage {
-    readonly rowIndex: number;
-    readonly laneID: number;
-    startCount: number;
+type StageLabels = ReadonlyMap<number, ReadonlyMap<string, string>>;
+
+interface StageAnalysisReference {
+    readonly allocationStage: TopDownStage;
+    readonly executionStage: TopDownStage;
+    readonly completionStages: readonly TopDownStage[];
+    readonly allocationWidth: number;
+    readonly transitionCoverage: number;
+    readonly admissionStages: readonly TopDownAdmission[];
 }
 
-function createRows(trace: ParsedTrace) {
-    const rows: StageRecord[] = [];
-    const rowIndices = new Map<number, Map<string, number>>();
+function createStageLabels(trace: ParsedTrace): StageLabels {
+    // 構造はDetectorが確定済みなので、ここではUIへ渡す表示名だけを作る。
+    const labels = new Map<number, Map<string, string>>();
     const showLaneName = trace.stageLevelMap.laneNum > 1;
-    const laneNames = [...trace.stageLevelMap.laneNames].sort((left, right) => {
-        const leftID = trace.stageLevelMap.getLaneID(left) ?? 0;
-        const rightID = trace.stageLevelMap.getLaneID(right) ?? 0;
-        return trace.stageLevelMap.getLanePosition(leftID) -
-            trace.stageLevelMap.getLanePosition(rightID);
-    });
-    for (const laneName of laneNames) {
+    for (const laneName of trace.stageLevelMap.laneNames) {
         const laneID = trace.stageLevelMap.getLaneID(laneName);
         if (laneID === undefined) {
             continue;
         }
-        const laneRows = new Map<string, number>();
-        rowIndices.set(laneID, laneRows);
+        const laneLabels = new Map<string, string>();
+        labels.set(laneID, laneLabels);
         for (const stageName of trace.stageLevelMap.getStageNames(laneName)) {
-            laneRows.set(stageName, rows.length);
-            rows.push({
-                rowIndex: rows.length,
-                laneID,
-                stageName,
-                label: showLaneName ? `${laneName}/${stageName}` : stageName,
-                startCount: 0,
-            });
+            laneLabels.set(stageName, showLaneName ? `${laneName}/${stageName}` : stageName);
         }
     }
-    return { rows, rowIndices };
+    return labels;
 }
 
-interface StageTransition {
-    readonly from: number;
-    readonly to: number;
-    count: number;
-    readonly latencies: Map<number, number>;
+function resolveStage(
+    stage: Readonly<DetectedStage>,
+    labels: StageLabels,
+): TopDownStage | null {
+    const label = labels.get(stage.laneID)?.get(stage.stageName);
+    return label === undefined ? null : { ...stage, label };
 }
 
-interface StageAllocationReference {
-    readonly allocationRow: StageRecord;
-    readonly executionRow: StageRecord;
-    readonly allocationWidth: number;
-    readonly transitionCoverage: number;
-    readonly admissionRows: readonly StageAdmissionReference[];
-}
-
-interface StageAdmissionReference {
-    readonly row: StageRecord;
-    readonly typicalLatency: number;
+function resolveStageStructure(
+    structure: Readonly<DetectedStageStructure>,
+    labels: StageLabels,
+): StageAnalysisReference | null {
+    const allocationStage = resolveStage(structure.allocationStage, labels);
+    const executionStage = resolveStage(structure.executionStage, labels);
+    if (allocationStage === null || executionStage === null) {
+        return null;
+    }
+    const admissionStages: TopDownAdmission[] = [];
+    for (const admission of structure.admissionStages) {
+        const stage = resolveStage(admission, labels);
+        if (stage !== null) {
+            admissionStages.push({ stage, typicalLatency: admission.typicalLatency });
+        }
+    }
+    const completionStages: TopDownStage[] = [];
+    for (const detected of structure.completionStages) {
+        const stage = resolveStage(detected, labels);
+        if (stage !== null && stage.laneID === executionStage.laneID) {
+            completionStages.push(stage);
+        }
+    }
+    return {
+        allocationStage,
+        executionStage,
+        completionStages,
+        allocationWidth: structure.allocationStage.width,
+        transitionCoverage: structure.transitionCoverage,
+        admissionStages,
+    };
 }
 
 function isLikelyControlFlowLabel(labelName: string): boolean {
@@ -172,64 +197,6 @@ function getSupportedMinimum(
     return supported;
 }
 
-function getTypicalLatency(histogram: ReadonlyMap<number, number>): number {
-    let typicalLatency = 0;
-    let typicalCount = -1;
-    for (const [latency, count] of histogram) {
-        if (count > typicalCount || (count === typicalCount && latency < typicalLatency)) {
-            typicalLatency = latency;
-            typicalCount = count;
-        }
-    }
-    return typicalLatency;
-}
-
-function buildAllocationReference(
-    detection: Readonly<DetectedAllocationStage>,
-    rows: readonly StageRecord[],
-    rowIndices: ReadonlyMap<number, ReadonlyMap<string, number>>,
-    transitions: ReadonlyMap<number, Readonly<StageTransition>>,
-): StageAllocationReference | null {
-    const allocationRowIndex = rowIndices.get(detection.laneID)?.get(detection.stageName);
-    if (allocationRowIndex === undefined) {
-        return null;
-    }
-    let successor: Readonly<StageTransition> | null = null;
-    const predecessors: Readonly<StageTransition>[] = [];
-    for (const transition of transitions.values()) {
-        if (transition.from === allocationRowIndex &&
-            (successor === null || transition.count > successor.count)) {
-            successor = transition;
-        }
-        if (transition.to === allocationRowIndex && transition.latencies.size > 0) {
-            predecessors.push(transition);
-        }
-    }
-    const allocationRow = rows[allocationRowIndex];
-    if (allocationRow === undefined || successor === null || rows[successor.to] === undefined ||
-        detection.width <= 0) {
-        return null;
-    }
-    const allocationStarts = allocationRow.startCount;
-    const transitionCoverage = allocationStarts === 0
-        ? 0
-        : Math.min(1, successor.count / allocationStarts);
-    const admissionRows = predecessors
-        .sort((left, right) => right.count - left.count || left.from - right.from)
-        .map((transition) => ({
-            row: rows[transition.from],
-            typicalLatency: getTypicalLatency(transition.latencies),
-        }))
-        .filter((admission) => admission.row !== undefined);
-    return {
-        allocationRow,
-        executionRow: rows[successor.to],
-        allocationWidth: detection.width,
-        transitionCoverage,
-        admissionRows,
-    };
-}
-
 function isAllocatedSlot(slotClass: TopDownSlotClass): boolean {
     return slotClass === TopDownSlotClass.RETIRING ||
         slotClass === TopDownSlotClass.SQUASHED ||
@@ -242,6 +209,7 @@ function addAllocatedSlot(
     cycle: number,
     slotClass: TopDownSlotClass,
 ): void {
+    // 同じcycleの左から空slotを探す。観測幅を超えた命令は表示枠へ追加できない。
     const firstSlot = Math.floor(cycle) * allocationWidth;
     const endSlot = firstSlot + allocationWidth;
     if (firstSlot < 0 || endSlot > slots.length) {
@@ -262,6 +230,8 @@ function markEmptySlots(
     endCycle: number,
     slotClass: TopDownSlotClass,
 ): void {
+    // 命令が使用済みのslotは上書きしない。BackendはFrontendだけを置換し、先に
+    // 確定したRecovery bubbleをlive更新で壊さない。
     const capacity = Math.floor(slots.length / allocationWidth);
     const firstCycle = Math.max(0, Math.min(capacity, Math.floor(startCycle)));
     const lastCycle = Math.max(firstCycle, Math.min(capacity, Math.ceil(endCycle)));
@@ -285,12 +255,14 @@ function markCycleRange(
     endCycle: number,
     slotClass: TopDownSlotClass,
 ): void {
+    // slot配列とは別に、cycleごとの空slot分類を記録する。
     const start = Math.max(0, Math.min(cycles.length, Math.floor(startCycle)));
     const end = Math.max(start, Math.min(cycles.length, Math.ceil(endCycle)));
     cycles.fill(slotClass, start, end);
 }
 
 function getOpSlotClass(op: Readonly<Op>): TopDownSlotClass {
+    // allocationされた命令は最終状態だけで分類し、後段での待ち時間はslot数へ足さない。
     return op.retired
         ? TopDownSlotClass.RETIRING
         : op.flush
@@ -312,9 +284,12 @@ function observeAllocationStages(
     laneID: number,
     allocationStageName: string,
     executionStageName: string,
+    completionStageNames: ReadonlySet<string>,
     admissions: ReadonlyMap<string, Readonly<AdmissionLatency>>,
     onAdmissionStall: (startCycle: number, endCycle: number) => void,
 ): AllocationStageObservation {
+    // 一命令のstage列からallocation時刻、completion proxy、入口停滞を同時に得る。
+    // 同名stageの連続区間は一つの滞留として扱う。
     const lane = op.lanes[laneID];
     let firstAllocationCycle: number | null = null;
     let completionCycle: number | null = null;
@@ -352,8 +327,9 @@ function observeAllocationStages(
         if (stage.name === executionStageName) {
             executionSeen = true;
         } else if (executionSeen && completionCycle === null) {
-            // executionの直後に始まるstageを、stage名に依存しないComplete proxyにする。
-            completionCycle = stage.startCycle;
+            // Detectorが見つけたexecution直後段だけをComplete proxyとして使う。
+            completionCycle = completionStageNames.has(stage.name) ? stage.startCycle : null;
+            executionSeen = false;
         }
     }
     return { firstAllocationCycle, completionCycle };
@@ -361,16 +337,18 @@ function observeAllocationStages(
 
 async function classifyTopDownSlots(
     trace: ParsedTrace,
-    reference: Readonly<StageAllocationReference>,
+    reference: Readonly<StageAnalysisReference>,
     cycleCount: number,
     lastID: number,
     yieldInterval: number,
     isCanceled?: () => boolean,
 ): Promise<TopDownAnalysis | null> {
+    // 未使用slotの既定値はFrontend。走査中にallocated slotとBackend候補を記録し、
+    // 事後的に支持されたRecovery bubbleを重ねて最終分類へする。
     if (cycleCount > MAX_EXACT_TOP_DOWN_CYCLE_COUNT) {
         return null;
     }
-    const { allocationRow, executionRow } = reference;
+    const { allocationStage, executionStage } = reference;
     const allocationWidth = reference.allocationWidth;
     const slotCount = cycleCount * allocationWidth;
     const workingBytes = slotCount + cycleCount;
@@ -390,13 +368,15 @@ async function classifyTopDownSlots(
     let recoveryWindowCount = 0;
     // O3PipeViewにallocation-side recovery eventはないため、以下はPMU TMAの厳密な
     // 復元ではなく、後にflushと分かった命令列から作る事後的な因果分類である。
-    const admissionRowsByStage = new Map<string, Readonly<StageAdmissionReference>>();
-    for (const admission of reference.admissionRows) {
-        if (admission.row.laneID === allocationRow.laneID) {
-            admissionRowsByStage.set(admission.row.stageName, admission);
+    const admissionByStage = new Map<string, Readonly<TopDownAdmission>>();
+    for (const admission of reference.admissionStages) {
+        if (admission.stage.laneID === allocationStage.laneID) {
+            admissionByStage.set(admission.stage.stageName, admission);
         }
     }
+    const completionStageNames = new Set(reference.completionStages.map((stage) => stage.stageName));
     let workSinceYield = 0;
+    // 二回目のOp走査: allocation済みslot、入口停滞、recovery候補を集める。
     for (let id = 0; id <= lastID; id++) {
         if (isCanceled?.()) {
             return null;
@@ -407,10 +387,11 @@ async function classifyTopDownSlots(
         }
         const { firstAllocationCycle, completionCycle } = observeAllocationStages(
             op,
-            allocationRow.laneID,
-            allocationRow.stageName,
-            executionRow.stageName,
-            admissionRowsByStage,
+            allocationStage.laneID,
+            allocationStage.stageName,
+            executionStage.stageName,
+            completionStageNames,
+            admissionByStage,
             (startCycle, endCycle) => {
                 // allocation直前のstageに通常より長く留まった区間を入口停滞とする。
                 // 命令が後にflushされても、resolution前の空きslotはrecoveryではない。
@@ -475,6 +456,7 @@ async function classifyTopDownSlots(
     }
     const supportedRecovery = getSupportedMinimum(recoveryLatencyHistogram);
     if (supportedRecovery !== null) {
+        // 同じ短い回復時間が十分繰り返された時だけ、空slotをRecoveryへ上書きする。
         for (const [startCycle, nextCorrectAllocationCycle] of recoveryWindows) {
             // 実際のcorrect allocationより先へは延ばさない。長いI-cache／ITLB待ちは
             // supported minimumを超えた時点から従来のFrontend／Backend判定へ戻す。
@@ -492,6 +474,7 @@ async function classifyTopDownSlots(
     }
 
     for (let cycle = 0; cycle < cycleCount; cycle++) {
+        // cycle単位で求めた原因を、そのcycleに残った空slotだけへ反映する。
         const emptyClass = emptySlotClasses[cycle] as TopDownSlotClass;
         if (emptyClass !== TopDownSlotClass.FRONTEND_BOUND) {
             // recoveryは上のmarkCycleRangeでbackendを上書きするため優先される。
@@ -507,28 +490,12 @@ async function classifyTopDownSlots(
         }
     }
     return {
-        allocationStage: {
-            laneID: allocationRow.laneID,
-            stageName: allocationRow.stageName,
-            label: allocationRow.label,
-        },
-        executionStage: {
-            laneID: executionRow.laneID,
-            stageName: executionRow.stageName,
-            label: executionRow.label,
-        },
+        allocationStage,
+        executionStage,
+        completionStages: reference.completionStages,
         allocationWidth,
         transitionCoverage: reference.transitionCoverage,
-        admissionStages: reference.admissionRows.map((admission) => {
-            return {
-                stage: {
-                    laneID: admission.row.laneID,
-                    stageName: admission.row.stageName,
-                    label: admission.row.label,
-                },
-                typicalLatency: admission.typicalLatency,
-            };
-        }),
+        admissionStages: reference.admissionStages,
         recoveryWindowCount,
         minimumRecoveryCycles: supportedRecovery?.value ?? null,
         minimumRecoverySampleCount: supportedRecovery?.sampleCount ?? 0,
@@ -537,7 +504,7 @@ async function classifyTopDownSlots(
 }
 
 /**
- * 集計層: TraceからTop-down-like表示に必要なstage構造とslot分類を作る。
+ * 集計層: Detectorが推定したstage構造からTop-down-likeのslot分類を作る。
  *
  * 全allocation slotをUint8Arrayへ保持し、表示解像度に応じたsamplingはRenderer側で行う。
  * 呼出し側はViewを閉じた時やTraceを破棄する時にisCanceledをtrueへする。
@@ -552,19 +519,11 @@ export async function buildTopDownData(
         options.live ? frontierOp?.fetchedCycle ?? 0 : trace.lastCycle,
     ));
     let lastID = options.live ? (frontierOp?.id ?? 0) - 1 : trace.lastID;
-    const { rows, rowIndices } = createRows(trace);
-    if (rows.length === 0) {
-        return {
-            cycleCount,
-            sourceLastID: lastID,
-            analysis: null,
-        };
-    }
-
+    const stageLabels = createStageLabels(trace);
     const yieldInterval = Math.max(1, options.yieldInterval ?? DEFAULT_YIELD_INTERVAL);
     const stageStructureDetector = new StageStructureDetector();
-    const transitions = new Map<number, StageTransition>();
     let workSinceYield = 0;
+    // 一回目のOp走査はDetectorへ委譲し、Top-down側では構造推定を行わない。
     for (let id = 0; id <= lastID; id++) {
         if (options.isCanceled?.()) {
             return null;
@@ -576,65 +535,6 @@ export async function buildTopDownData(
         }
         if (op !== undefined) {
             stageStructureDetector.observe(op);
-            for (let laneID = 0; laneID < op.lanes.length; laneID++) {
-                const lane = op.lanes[laneID];
-                const laneRows = rowIndices.get(laneID);
-                if (lane === null || laneRows === undefined) {
-                    continue;
-                }
-                let previousRowIndex: number | null = null;
-                let previousStageStart = 0;
-                let previousStageEnd = 0;
-                for (const stage of lane.stages) {
-                    workSinceYield++;
-                    const rowIndex = laneRows.get(stage.name);
-                    if (rowIndex === undefined) {
-                        continue;
-                    }
-                    // Rendererと同じく0は未close stageの終端を表す。真の0-cycle区間は除外する。
-                    const endCycle = stage.endCycle === 0 ? op.retiredCycle : stage.endCycle;
-                    if (previousRowIndex !== null && previousRowIndex !== rowIndex) {
-                        const key = previousRowIndex * rows.length + rowIndex;
-                        let transition = transitions.get(key);
-                        if (transition === undefined) {
-                            transition = {
-                                from: previousRowIndex,
-                                to: rowIndex,
-                                count: 0,
-                                latencies: new Map<number, number>(),
-                            };
-                            transitions.set(key, transition);
-                        }
-                        transition.count++;
-                        const latency = Math.min(previousStageEnd, stage.startCycle) -
-                            previousStageStart;
-                        if (Number.isFinite(latency) && latency >= 0) {
-                            transition.latencies.set(
-                                latency,
-                                (transition.latencies.get(latency) ?? 0) + 1,
-                            );
-                        }
-                    }
-                    if (previousRowIndex !== rowIndex) {
-                        previousStageStart = stage.startCycle;
-                        previousStageEnd = endCycle;
-                    } else {
-                        previousStageEnd = Math.max(previousStageEnd, endCycle);
-                    }
-                    previousRowIndex = rowIndex;
-                    const row = rows[rowIndex];
-                    if (stage.startCycle >= 0 && stage.startCycle < cycleCount) {
-                        row.startCount++;
-                    }
-                    if (workSinceYield >= yieldInterval) {
-                        await yieldToBrowser();
-                        workSinceYield = 0;
-                        if (options.isCanceled?.()) {
-                            return null;
-                        }
-                    }
-                }
-            }
         }
         workSinceYield++;
         if (workSinceYield >= yieldInterval) {
@@ -646,20 +546,15 @@ export async function buildTopDownData(
         return null;
     }
 
-    const allocationDetection = stageStructureDetector.finish().allocation;
-    const allocationReference = allocationDetection === null
+    const detectedStructure = stageStructureDetector.finish();
+    const stageReference = detectedStructure === null
         ? null
-        : buildAllocationReference(
-            allocationDetection,
-            rows,
-            rowIndices,
-            transitions,
-        );
-    const analysis = allocationReference === null
+        : resolveStageStructure(detectedStructure, stageLabels);
+    const analysis = stageReference === null
         ? null
         : await classifyTopDownSlots(
             trace,
-            allocationReference,
+            stageReference,
             cycleCount,
             lastID,
             yieldInterval,
@@ -679,6 +574,7 @@ function growLiveSlots(
     analysis: Readonly<TopDownAnalysis>,
     cycleCount: number,
 ): TopDownAnalysis | null {
+    // 読み込み途中の更新ごとに配列をcopyしないよう、cycle容量を倍増する。
     const width = analysis.allocationWidth;
     let capacity = Math.floor(analysis.slots.length / width);
     if (cycleCount <= capacity) {
@@ -700,7 +596,10 @@ function growLiveSlots(
     return { ...analysis, slots };
 }
 
-/** 確定済みのstage構造を使い、Parserが新たに公開したOpだけをslotへ反映する。 */
+/**
+ * 確定済みのstage構造を使い、Parserが新たに公開したOpだけをslotへ反映する。
+ * recovery統計とallocation幅は再推定せず、読み込み完了時の全体解析で補正する。
+ */
 export function updateTopDownData(
     data: Readonly<TopDownData>,
     trace: ParsedTrace,
@@ -724,6 +623,9 @@ export function updateTopDownData(
             admissionByStage.set(admission.stage.stageName, admission);
         }
     }
+    const completionStageNames = new Set(
+        analysis.completionStages.map((stage) => stage.stageName),
+    );
     const addOp = (op: Readonly<Op>): void => {
         if (op.eof) {
             return;
@@ -733,6 +635,7 @@ export function updateTopDownData(
             analysis.allocationStage.laneID,
             analysis.allocationStage.stageName,
             analysis.executionStage.stageName,
+            completionStageNames,
             admissionByStage,
             (startCycle, endCycle) => {
                 markEmptySlots(
@@ -781,6 +684,8 @@ export function getTopDownBreakdown(
     endCycle: number,
     maxSampleCycles = Number.POSITIVE_INFINITY,
 ): TopDownBreakdown | null {
+    // 縮小表示ではglobal cycleへ揃えた2の冪strideでcycleを選び、選んだcycleの
+    // 全slotを数える。同一cycle内のslotだけが偏って選ばれることを避ける。
     const analysis = data.analysis;
     if (analysis === null || endCycle <= startCycle) {
         return null;
