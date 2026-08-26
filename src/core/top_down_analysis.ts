@@ -57,7 +57,6 @@ export interface TopDownStage {
 export interface TopDownAnalysis {
     readonly allocationStage: TopDownStage;
     readonly executionStage: TopDownStage;
-    readonly completionStages: readonly TopDownStage[];
     readonly allocationWidth: number;
     readonly transitionCoverage: number;
     readonly admissionStages: readonly TopDownAdmission[];
@@ -100,74 +99,14 @@ export interface TopDownBuildOptions {
     readonly live?: boolean;
 }
 
-type StageLabels = ReadonlyMap<number, ReadonlyMap<string, string>>;
-
-interface StageAnalysisReference {
-    readonly allocationStage: TopDownStage;
-    readonly executionStage: TopDownStage;
-    readonly completionStages: readonly TopDownStage[];
-    readonly allocationWidth: number;
-    readonly transitionCoverage: number;
-    readonly admissionStages: readonly TopDownAdmission[];
-}
-
-function createStageLabels(trace: ParsedTrace): StageLabels {
-    // 構造はDetectorが確定済みなので、ここではUIへ渡す表示名だけを作る。
-    const labels = new Map<number, Map<string, string>>();
+function formatStage(trace: ParsedTrace, stage: Readonly<DetectedStage>): TopDownStage {
+    // Detectorの結果は必ずTrace内のstageなので、ここでは表示名だけを補う。
     const showLaneName = trace.stageLevelMap.laneNum > 1;
-    for (const laneName of trace.stageLevelMap.laneNames) {
-        const laneID = trace.stageLevelMap.getLaneID(laneName);
-        if (laneID === undefined) {
-            continue;
-        }
-        const laneLabels = new Map<string, string>();
-        labels.set(laneID, laneLabels);
-        for (const stageName of trace.stageLevelMap.getStageNames(laneName)) {
-            laneLabels.set(stageName, showLaneName ? `${laneName}/${stageName}` : stageName);
-        }
-    }
-    return labels;
-}
-
-function resolveStage(
-    stage: Readonly<DetectedStage>,
-    labels: StageLabels,
-): TopDownStage | null {
-    const label = labels.get(stage.laneID)?.get(stage.stageName);
-    return label === undefined ? null : { ...stage, label };
-}
-
-function resolveStageStructure(
-    structure: Readonly<DetectedStageStructure>,
-    labels: StageLabels,
-): StageAnalysisReference | null {
-    const allocationStage = resolveStage(structure.allocationStage, labels);
-    const executionStage = resolveStage(structure.executionStage, labels);
-    if (allocationStage === null || executionStage === null) {
-        return null;
-    }
-    const admissionStages: TopDownAdmission[] = [];
-    for (const admission of structure.admissionStages) {
-        const stage = resolveStage(admission, labels);
-        if (stage !== null) {
-            admissionStages.push({ stage, typicalLatency: admission.typicalLatency });
-        }
-    }
-    const completionStages: TopDownStage[] = [];
-    for (const detected of structure.completionStages) {
-        const stage = resolveStage(detected, labels);
-        if (stage !== null && stage.laneID === executionStage.laneID) {
-            completionStages.push(stage);
-        }
-    }
-    return {
-        allocationStage,
-        executionStage,
-        completionStages,
-        allocationWidth: structure.allocationStage.width,
-        transitionCoverage: structure.transitionCoverage,
-        admissionStages,
-    };
+    const laneName = trace.stageLevelMap.getLaneName(stage.laneID);
+    const label = showLaneName && laneName !== undefined
+        ? `${laneName}/${stage.stageName}`
+        : stage.stageName;
+    return { ...stage, label };
 }
 
 function isLikelyControlFlowLabel(labelName: string): boolean {
@@ -283,10 +222,10 @@ function observeAllocationStages(
     op: Readonly<Op>,
     laneID: number,
     allocationStageName: string,
-    executionStageName: string,
-    completionStageNames: ReadonlySet<string>,
     admissions: ReadonlyMap<string, Readonly<AdmissionLatency>>,
     onAdmissionStall: (startCycle: number, endCycle: number) => void,
+    executionStageName?: string,
+    completionStageNames?: ReadonlySet<string>,
 ): AllocationStageObservation {
     // 一命令のstage列からallocation時刻、completion proxy、入口停滞を同時に得る。
     // 同名stageの連続区間は一つの滞留として扱う。
@@ -324,11 +263,11 @@ function observeAllocationStages(
                 ? stage.startCycle
                 : Math.min(firstAllocationCycle, stage.startCycle);
         }
-        if (stage.name === executionStageName) {
+        if (executionStageName !== undefined && stage.name === executionStageName) {
             executionSeen = true;
         } else if (executionSeen && completionCycle === null) {
             // Detectorが見つけたexecution直後段だけをComplete proxyとして使う。
-            completionCycle = completionStageNames.has(stage.name) ? stage.startCycle : null;
+            completionCycle = completionStageNames?.has(stage.name) ? stage.startCycle : null;
             executionSeen = false;
         }
     }
@@ -337,7 +276,7 @@ function observeAllocationStages(
 
 async function classifyTopDownSlots(
     trace: ParsedTrace,
-    reference: Readonly<StageAnalysisReference>,
+    structure: Readonly<DetectedStageStructure>,
     cycleCount: number,
     lastID: number,
     yieldInterval: number,
@@ -348,8 +287,8 @@ async function classifyTopDownSlots(
     if (cycleCount > MAX_EXACT_TOP_DOWN_CYCLE_COUNT) {
         return null;
     }
-    const { allocationStage, executionStage } = reference;
-    const allocationWidth = reference.allocationWidth;
+    const { allocationStage, executionStage } = structure;
+    const allocationWidth = allocationStage.width;
     const slotCount = cycleCount * allocationWidth;
     const workingBytes = slotCount + cycleCount;
     if (!Number.isSafeInteger(slotCount) ||
@@ -368,13 +307,13 @@ async function classifyTopDownSlots(
     let recoveryWindowCount = 0;
     // O3PipeViewにallocation-side recovery eventはないため、以下はPMU TMAの厳密な
     // 復元ではなく、後にflushと分かった命令列から作る事後的な因果分類である。
-    const admissionByStage = new Map<string, Readonly<TopDownAdmission>>();
-    for (const admission of reference.admissionStages) {
-        if (admission.stage.laneID === allocationStage.laneID) {
-            admissionByStage.set(admission.stage.stageName, admission);
+    const admissionByStage = new Map<string, Readonly<AdmissionLatency>>();
+    for (const admission of structure.admissionStages) {
+        if (admission.laneID === allocationStage.laneID) {
+            admissionByStage.set(admission.stageName, admission);
         }
     }
-    const completionStageNames = new Set(reference.completionStages.map((stage) => stage.stageName));
+    const completionStageNames = new Set(structure.completionStages.map((stage) => stage.stageName));
     let workSinceYield = 0;
     // 二回目のOp走査: allocation済みslot、入口停滞、recovery候補を集める。
     for (let id = 0; id <= lastID; id++) {
@@ -389,8 +328,6 @@ async function classifyTopDownSlots(
             op,
             allocationStage.laneID,
             allocationStage.stageName,
-            executionStage.stageName,
-            completionStageNames,
             admissionByStage,
             (startCycle, endCycle) => {
                 // allocation直前のstageに通常より長く留まった区間を入口停滞とする。
@@ -402,6 +339,8 @@ async function classifyTopDownSlots(
                     TopDownSlotClass.BACKEND_BOUND,
                 );
             },
+            executionStage.stageName,
+            completionStageNames,
         );
         if (firstAllocationCycle !== null) {
             // TMA Level 1のslotはexecution issueではなく、FrontendからBackendへuopを
@@ -490,12 +429,14 @@ async function classifyTopDownSlots(
         }
     }
     return {
-        allocationStage,
-        executionStage,
-        completionStages: reference.completionStages,
+        allocationStage: formatStage(trace, allocationStage),
+        executionStage: formatStage(trace, executionStage),
         allocationWidth,
-        transitionCoverage: reference.transitionCoverage,
-        admissionStages: reference.admissionStages,
+        transitionCoverage: structure.transitionCoverage,
+        admissionStages: structure.admissionStages.map((admission) => ({
+            stage: formatStage(trace, admission),
+            typicalLatency: admission.typicalLatency,
+        })),
         recoveryWindowCount,
         minimumRecoveryCycles: supportedRecovery?.value ?? null,
         minimumRecoverySampleCount: supportedRecovery?.sampleCount ?? 0,
@@ -519,7 +460,6 @@ export async function buildTopDownData(
         options.live ? frontierOp?.fetchedCycle ?? 0 : trace.lastCycle,
     ));
     let lastID = options.live ? (frontierOp?.id ?? 0) - 1 : trace.lastID;
-    const stageLabels = createStageLabels(trace);
     const yieldInterval = Math.max(1, options.yieldInterval ?? DEFAULT_YIELD_INTERVAL);
     const stageStructureDetector = new StageStructureDetector();
     let workSinceYield = 0;
@@ -546,15 +486,12 @@ export async function buildTopDownData(
         return null;
     }
 
-    const detectedStructure = stageStructureDetector.finish();
-    const stageReference = detectedStructure === null
-        ? null
-        : resolveStageStructure(detectedStructure, stageLabels);
-    const analysis = stageReference === null
+    const structure = stageStructureDetector.finish();
+    const analysis = structure === null
         ? null
         : await classifyTopDownSlots(
             trace,
-            stageReference,
+            structure,
             cycleCount,
             lastID,
             yieldInterval,
@@ -623,9 +560,6 @@ export function updateTopDownData(
             admissionByStage.set(admission.stage.stageName, admission);
         }
     }
-    const completionStageNames = new Set(
-        analysis.completionStages.map((stage) => stage.stageName),
-    );
     const addOp = (op: Readonly<Op>): void => {
         if (op.eof) {
             return;
@@ -634,8 +568,6 @@ export function updateTopDownData(
             op,
             analysis.allocationStage.laneID,
             analysis.allocationStage.stageName,
-            analysis.executionStage.stageName,
-            completionStageNames,
             admissionByStage,
             (startCycle, endCycle) => {
                 markEmptySlots(
