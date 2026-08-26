@@ -433,6 +433,30 @@ export class KonataRenderMetrics {
     }
 }
 
+export function moveSynchronizedRenderSpecs(
+    primary: KonataRenderMetrics,
+    secondary: KonataRenderMetrics,
+    difference: readonly [number, number],
+    adjustHorizontal: boolean,
+    horizontalAnchorPixel = 0,
+): readonly [Readonly<KonataRenderSpec>, Readonly<KonataRenderSpec>] {
+    const nextPrimary = primary.withLogicalDifference(
+        difference,
+        adjustHorizontal,
+        horizontalAnchorPixel,
+    );
+    // primary固有の命令位相から決まった実移動量をsecondaryへそのまま与え、
+    // 重ね合わせ中の相対位置をscrollのたびに変化させない。
+    const appliedDifference = [
+        nextPrimary.position[0] - primary.spec.position[0],
+        nextPrimary.position[1] - primary.spec.position[1],
+    ] as const;
+    return [
+        nextPrimary,
+        secondary.withLogicalDifference(appliedDifference, false),
+    ];
+}
+
 interface CanvasSize {
     width: number;
     height: number;

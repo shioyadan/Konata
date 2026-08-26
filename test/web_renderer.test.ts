@@ -16,6 +16,7 @@ import {
     KONATA_OP_WIDTH,
     KonataRenderMetrics,
     KonataRenderer,
+    moveSynchronizedRenderSpecs,
 } from "../src/core/konata_renderer";
 import {
     KonataViewController,
@@ -469,6 +470,63 @@ test("Web render metrics reversibly follow the visible phase during vertical scr
         horizontalAnchorPixel,
     );
     assert.ok(Math.abs(restored.position[0] - initial.position[0]) < 1e-9);
+});
+
+test("Comparison overlay scrolling preserves the relative position of both traces", () => {
+    const candidateTrace = createLatencyTrace([
+        [100, 1000],
+        [200, 220],
+    ]);
+    const baselineTrace = createLatencyTrace([
+        [10, 20],
+        [300, 900],
+    ]);
+    const horizontalAnchorPixel = 160;
+    const candidateSpec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [495, 0] as const,
+    };
+    const baselineSpec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [395, 0] as const,
+    };
+    const independentlyMovedBaseline = new KonataRenderMetrics(
+        baselineTrace,
+        baselineSpec,
+    ).withLogicalDifference([0, 1], true, horizontalAnchorPixel);
+    const [candidate, baseline] = moveSynchronizedRenderSpecs(
+        new KonataRenderMetrics(candidateTrace, candidateSpec),
+        new KonataRenderMetrics(baselineTrace, baselineSpec),
+        [0, 1],
+        true,
+        horizontalAnchorPixel,
+    );
+    const candidateDifferenceX = candidate.position[0] - candidateSpec.position[0];
+    const baselineDifferenceX = baseline.position[0] - baselineSpec.position[0];
+
+    // 個別補正なら異なるtrace latencyにより横移動量が分かれる入力で、同じ量を維持する。
+    assert.ok(Math.abs(
+        independentlyMovedBaseline.position[0] - baselineSpec.position[0] - candidateDifferenceX,
+    ) > 1);
+    assert.ok(Math.abs(baselineDifferenceX - candidateDifferenceX) < 1e-9);
+    assert.equal(candidate.position[1] - candidateSpec.position[1], 1);
+    assert.equal(baseline.position[1] - baselineSpec.position[1], 1);
+    assert.ok(Math.abs(
+        (candidate.position[0] - baseline.position[0]) -
+        (candidateSpec.position[0] - baselineSpec.position[0]),
+    ) < 1e-9);
+
+    const [restoredCandidate, restoredBaseline] = moveSynchronizedRenderSpecs(
+        new KonataRenderMetrics(candidateTrace, candidate),
+        new KonataRenderMetrics(baselineTrace, baseline),
+        [0, -1],
+        true,
+        horizontalAnchorPixel,
+    );
+    assert.ok(Math.abs(restoredCandidate.position[0] - candidateSpec.position[0]) < 1e-9);
+    assert.ok(Math.abs(restoredBaseline.position[0] - baselineSpec.position[0]) < 1e-9);
+    assert.equal(restoredCandidate.position[1], candidateSpec.position[1]);
+    assert.equal(restoredBaseline.position[1], baselineSpec.position[1]);
 });
 
 test("Web render metrics preserve legacy tooltip contents", () => {

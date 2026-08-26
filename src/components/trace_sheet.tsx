@@ -18,6 +18,7 @@ import {
     getKonataView,
     KonataRenderMetrics,
     KonataRenderer,
+    moveSynchronizedRenderSpecs,
     type KonataRenderSpec,
     type KonataView,
 } from "../core/konata_renderer";
@@ -282,24 +283,38 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         // 縦移動では画面中央に見えている実行位置を基準にする。Canvas寸法は描画Specへ
         // 保存せず、この操作中の座標変換にだけ使用する。
         const horizontalAnchorPixel = (pipelineCanvasRef.current?.clientWidth ?? 0) / 2;
-        const applyCandidate = comparisonMode !== "baseline";
-        const applyBaseline = baselineTarget !== undefined && comparisonMode !== "candidate";
-        const nextCandidate = applyCandidate
-            ? new KonataRenderMetrics(trace, candidateTarget).withLogicalDifference(
+        let nextCandidate: Readonly<KonataRenderSpec> = candidateTarget;
+        let nextBaseline: Readonly<KonataRenderSpec> | undefined = baselineTarget;
+        if (comparisonMode === "overlay" && baselineTarget !== undefined) {
+            // Overlayでは前面のBが算出した補正量をAにも適用し、A/B間の位置差を固定する。
+            [nextCandidate, nextBaseline] = moveSynchronizedRenderSpecs(
+                new KonataRenderMetrics(trace, candidateTarget),
+                new KonataRenderMetrics(baselineTrace, baselineTarget),
                 difference,
                 adjustHorizontal,
                 horizontalAnchorPixel,
-            )
-            : candidateTarget;
-        const nextBaseline = baselineTarget === undefined
-            ? undefined
-            : applyBaseline
-                ? new KonataRenderMetrics(baselineTrace, baselineTarget).withLogicalDifference(
+            );
+        }
+        else {
+            const applyCandidate = comparisonMode !== "baseline";
+            const applyBaseline = baselineTarget !== undefined && comparisonMode !== "candidate";
+            nextCandidate = applyCandidate
+                ? new KonataRenderMetrics(trace, candidateTarget).withLogicalDifference(
                     difference,
                     adjustHorizontal,
                     horizontalAnchorPixel,
                 )
-                : baselineTarget;
+                : candidateTarget;
+            nextBaseline = baselineTarget === undefined
+                ? undefined
+                : applyBaseline
+                    ? new KonataRenderMetrics(baselineTrace, baselineTarget).withLogicalDifference(
+                        difference,
+                        adjustHorizontal,
+                        horizontalAnchorPixel,
+                    )
+                    : baselineTarget;
+        }
         startViewTransition(
             getKonataView(nextCandidate),
             nextBaseline === undefined ? undefined : getKonataView(nextBaseline),
