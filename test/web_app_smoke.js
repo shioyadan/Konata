@@ -2448,9 +2448,9 @@ async function run() {
         };
     })()`);
     if (!navigatorState.checked || !navigatorState.hasClass ||
-        navigatorState.paneHeight < 120 || navigatorState.paneHeight > 128 ||
+        navigatorState.paneHeight < 63 || navigatorState.paneHeight > 64 ||
         !navigatorState.labelAligned ||
-        !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 128 ||
+        !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 64 ||
         navigatorState.mode !== "commit" ||
         navigatorState.modeOptions?.join(",") !== "top-down,fetch,issue,commit,flush,latency" ||
         navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||

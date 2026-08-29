@@ -54,24 +54,19 @@ interface StageColorTone {
 
 const activityInfo = {
     fetch: {
-        title: "Fetch throughput", detail: "Fetched ops/cycle",
-        toolTipTitle: "Fetch throughput", unit: " ops/cycle", color: "frontendBound",
+        title: "Fetch throughput", unit: " ops/cycle", color: "frontendBound",
     },
     issue: {
-        title: "Issue throughput", detail: "starts/cycle",
-        toolTipTitle: "Issue throughput", unit: " ops/cycle", color: "backendBound",
+        title: "Issue throughput", unit: " ops/cycle", color: "backendBound",
     },
     commit: {
-        title: "Commit throughput", detail: "Retired ops/cycle",
-        toolTipTitle: "Commit throughput (retired ops)", unit: " ops/cycle", color: "retiring",
+        title: "Commit throughput (retired ops)", unit: " ops/cycle", color: "retiring",
     },
     flush: {
-        title: "Flushed work", detail: "Flushed ops allocated/cycle",
-        toolTipTitle: "Flushed work (at allocation)", unit: " ops/cycle", color: "flush",
+        title: "Flushed work (at allocation)", unit: " ops/cycle", color: "flush",
     },
     latency: {
-        title: "Issue-to-completion latency", detail: "completion latency/cycle",
-        toolTipTitle: "Issue-to-completion latency", unit: " cycles", color: "latency",
+        title: "Issue-to-completion latency", unit: " cycles", color: "latency",
     },
 } as const;
 
@@ -164,8 +159,8 @@ function drawLabels(
     context.textBaseline = "middle";
     context.fillStyle = style.labelPane.fontColor;
     if (analysis === null) {
-        context.fillText("Top-down-like view unavailable", margin, 18);
-        context.fillText("No allocation boundary was inferred for this trace.", margin, 38);
+        context.fillText("Analysis unavailable", margin, 36);
+        context.fillText("No allocation boundary detected.", margin, 54);
         return;
     }
 
@@ -173,69 +168,69 @@ function drawLabels(
         ? value.toString()
         : value.toFixed(1);
     if (mode !== "top-down") {
-        const activity = analysis.cycleActivity;
-        const series = activity[mode];
+        const series = analysis.cycleActivity[mode];
         const info = activityInfo[mode];
-        const detail = mode === "issue"
-            ? `${analysis.executionStage.label} ${info.detail}`
+        const prefix = mode === "issue"
+            ? `${analysis.executionStage.label} · `
             : mode === "latency"
-                ? `Maximum ${analysis.executionStage.label} → ${info.detail}`
-                : info.detail;
+                ? `${analysis.executionStage.label} → completion · `
+                : "";
         const maximum = series.maximum >= 255 ? "≥255" : format(series.maximum);
-        const unit = mode === "latency" ? " cycles" : "/c";
-        const flushed = mode === "fetch" || mode === "issue"
-            ? " · shaded = later flushed"
-            : "";
-        context.fillText(info.title, margin, 18);
         context.fillText(
-            `${detail} · observed max ${maximum}${unit}${flushed}`,
+            `${prefix}max ${maximum}${info.unit}`,
             margin,
-            42,
+            36,
+            canvas.width - margin * 2,
         );
+        if (mode === "fetch" || mode === "issue") {
+            context.fillStyle = style.traceNavigator.flushedColor;
+            context.fillRect(margin, 50, 8, 8);
+            context.fillStyle = style.labelPane.fontColor;
+            context.font = `${style.fontStyle} 10px ${style.fontFamily}`;
+            context.fillText("Later flushed", margin + 13, 54);
+        }
         return;
     }
 
-    context.fillText("Top-down-like (auto)", margin, 13);
+    context.font = `${style.fontStyle} 10px ${style.fontFamily}`;
+    context.textAlign = "right";
+    context.fillText("AUTO", canvas.width - margin, 15);
+    context.font = `${style.fontStyle} 12px ${style.fontFamily}`;
+    context.textAlign = "left";
     context.fillText(
-        `Allocation ${analysis.allocationStage.label} · width ≥${format(analysis.allocationWidth)}/c`,
+        `${analysis.allocationStage.label} ≥${format(analysis.allocationWidth)}/c → ` +
+            analysis.executionStage.label,
         margin,
-        31,
-    );
-    const admission = analysis.admissionStages.slice(0, 2)
-        .map((entry) => `${entry.stage.label} +${format(entry.typicalLatency)}c`)
-        .join(", ");
-    const entrance = admission === "" ? "" : ` · entrance ${admission}`;
-    const recovery = analysis.recoveryWindowCount === 0
-        ? ""
-        : analysis.minimumRecoveryCycles === null
-            ? ` · recovery ${analysis.recoveryWindowCount}`
-            : ` · recovery ${analysis.recoveryWindowCount}, +${format(analysis.minimumRecoveryCycles)}c min`;
-    context.fillText(
-        `Before ${analysis.executionStage.label}${entrance}${recovery} · ${(analysis.transitionCoverage * 100).toFixed(0)}% links`,
-        margin,
-        49,
+        36,
+        canvas.width - margin * 2,
     );
 
     const legends = [
-        ["Bad speculation", colors.badSpeculation],
-        ["Frontend bound", colors.frontendBound],
-        ["Backend bound", colors.backendBound],
-        ["Unresolved", colors.unresolved],
-        ["Retiring", colors.retiring],
+        ["Bad", colors.badSpeculation],
+        ["Front", colors.frontendBound],
+        ["Back", colors.backendBound],
+        ["Pending", colors.unresolved],
+        ["Retire", colors.retiring],
     ] as const;
-    const columnWidth = Math.max(100, (canvas.width - margin * 2) / 3);
+    const columnWidth = (canvas.width - margin * 2) / legends.length;
+    const center = 54;
+    context.font = `${style.fontStyle} 10px ${style.fontFamily}`;
     legends.forEach(([label, color], index) => {
-        const left = margin + index % 3 * columnWidth;
-        const center = 72 + Math.floor(index / 3) * 22;
+        const left = margin + index * columnWidth;
         context.fillStyle = color;
-        context.fillRect(left, center - 5, 10, 10);
+        context.fillRect(left, center - 4, 8, 8);
         if (color === colors.unresolved) {
             context.strokeStyle = style.labelPane.fontColor;
             context.lineWidth = 1;
-            context.strokeRect(left + 0.5, center - 4.5, 9, 9);
+            context.strokeRect(left + 0.5, center - 3.5, 7, 7);
         }
         context.fillStyle = style.labelPane.fontColor;
-        context.fillText(label, left + 15, center, columnWidth - 18);
+        context.fillText(
+            label,
+            left + 12,
+            center,
+            Math.max(1, columnWidth - 14),
+        );
     });
 }
 
@@ -334,8 +329,8 @@ export function getCycleNavigatorToolTip(
     }
     const info = activityInfo[mode];
     const title = mode === "issue"
-        ? `${info.toolTipTitle} (${analysis.executionStage.label})`
-        : info.toolTipTitle;
+        ? `${info.title} (${analysis.executionStage.label})`
+        : info.title;
     return [
         title,
         `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,

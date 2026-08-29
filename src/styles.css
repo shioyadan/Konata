@@ -983,7 +983,7 @@ button:disabled {
 }
 
 .viewer.has-trace-navigator {
-    --trace-navigator-default-height: 128px;
+    --trace-navigator-default-height: 64px;
     --trace-navigator-effective-height: clamp(
         64px,
         var(--trace-navigator-height, var(--trace-navigator-default-height)),
@@ -1077,14 +1077,24 @@ button:disabled {
     position: absolute;
     z-index: 1;
     top: 6px;
-    right: 6px;
+    left: 6px;
     max-width: 112px;
-    border: 1px solid #697181;
-    border-radius: 3px;
-    background: #303340;
+    padding: 1px 4px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
     color: #f2f3f5;
+    cursor: pointer;
     font: inherit;
     font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.trace-navigator-mode:hover,
+.trace-navigator-mode:focus-visible {
+    border-color: #697181;
+    outline: none;
+    background: #3a3e4b;
 }
 
 .trace-navigator-cycle-status {
@@ -2059,9 +2069,15 @@ button:disabled {
 }
 
 .theme-light .trace-navigator-mode {
-    border-color: #aeb4be;
-    background: #f4f4f4;
+    border-color: transparent;
+    background: transparent;
     color: #20242b;
+}
+
+.theme-light .trace-navigator-mode:hover,
+.theme-light .trace-navigator-mode:focus-visible {
+    border-color: #aeb4be;
+    background: #e7e9ed;
 }
 
 .theme-light .trace-navigator-cycle-status {
@@ -2453,10 +2469,6 @@ button:disabled {
             minmax(0, min(var(--label-pane-width), 40%))
             10px
             minmax(0, 1fr);
-    }
-
-    .viewer.has-trace-navigator {
-        --trace-navigator-default-height: 96px;
     }
 
     .trace-navigator-resizer {

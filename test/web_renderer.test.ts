@@ -505,13 +505,15 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(fullAllocation.unresolvedSlots, 0);
     assert.equal(fullAllocation.frontendBound, 0);
     assert.equal(fullAllocation.backendBound, 0);
-    assert.match(getCycleNavigatorToolTip(
+    const topDownToolTip = getCycleNavigatorToolTip(
         activity,
         "top-down",
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
         0,
         160,
-    ) ?? "", /Retiring: 1 \(50\.0%\)/);
+    ) ?? "";
+    assert.match(topDownToolTip, /Retiring: 1 \(50\.0%\)/);
+    assert.match(topDownToolTip, /Allocation entrance: arbitrary-source/);
 
     const partialAllocation = getTopDownBreakdown(activity, 4, 5);
     assert.ok(partialAllocation !== null);
@@ -546,16 +548,13 @@ test("Top-down-like view classifies allocation slots without stage names", async
         createCanvas(labels.context, 450, 128),
         createCanvas(cycleNavigator.context, 320, 128),
     );
-    assert.ok(labels.fillTexts.some(([text]) => text === "Top-down-like (auto)"));
-    assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-event")));
-    assert.ok(labels.fillTexts.some(([text]) => text.includes("arbitrary-reservoir")));
-    assert.ok(labels.fillTexts.some(([text]) => text.includes("entrance arbitrary-source +1c")));
-    const legendNames = new Set([
-        "Bad speculation", "Frontend bound", "Backend bound", "Unresolved", "Retiring",
-    ]);
+    assert.ok(labels.fillTexts.some(([text]) => text === "AUTO"));
+    assert.ok(labels.fillTexts.some(([text]) =>
+        text === "arbitrary-reservoir ≥2/c → arbitrary-event"));
+    const legendNames = new Set(["Bad", "Front", "Back", "Pending", "Retire"]);
     assert.deepEqual(
         labels.fillTexts.map(([text]) => text).filter((text) => legendNames.has(text)),
-        ["Bad speculation", "Frontend bound", "Backend bound", "Unresolved", "Retiring"],
+        ["Bad", "Front", "Back", "Pending", "Retire"],
     );
     assert.equal(labels.strokeRects.length, 1);
     assert.equal(labels.strokeStyles[0], "#c7c8ca");
@@ -663,14 +662,17 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
     );
     assert.match(toolTip ?? "", /Average: 2\.00 ops\/cycle/);
 
+    const fetchLabels = createRecordedContext();
     const fetchNavigator = createRecordedContext();
     drawCycleNavigator(
         data,
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
-        createCanvas(createRecordedContext().context, 500, 128),
+        createCanvas(fetchLabels.context, 500, 128),
         createCanvas(fetchNavigator.context, 160, 128),
         "fetch",
     );
+    assert.ok(fetchLabels.fillTexts.some(([text]) => text === "max 2 ops/cycle"));
+    assert.ok(fetchLabels.fillTexts.some(([text]) => text === "Later flushed"));
     assert.ok(fetchNavigator.fillStyles.includes("hsl(0,0%,55%)"));
     const lightFetchNavigator = createRecordedContext();
     drawCycleNavigator(
@@ -691,7 +693,8 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
         createCanvas(navigator.context, 160, 128),
         "latency",
     );
-    assert.ok(labels.fillTexts.some(([text]) => text === "Issue-to-completion latency"));
+    assert.ok(labels.fillTexts.some(([text]) =>
+        text === "arbitrary-event → completion · max 4 cycles"));
     assert.ok(navigator.fillStyles.includes("hsl(280,35%,55%)"));
     trace.close();
 });
@@ -823,14 +826,14 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
     assert.equal(cappedOutlier.recoveryBubbleSlots, 0);
     assert.equal(cappedOutlier.frontendBound, 1);
 
-    const labels = createRecordedContext();
-    drawCycleNavigator(
+    const toolTip = getCycleNavigatorToolTip(
         activity,
+        "top-down",
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [10, 0] },
-        createCanvas(labels.context, 500, 128),
-        createCanvas(createRecordedContext().context, 160, 128),
+        0,
+        160,
     );
-    assert.ok(labels.fillTexts.some(([text]) => text.includes("recovery 11, +3c min")));
+    assert.match(toolTip ?? "", /Recovery windows: 11; minimum recovery 3 cycles/);
 
     trace.close();
 });
