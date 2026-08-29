@@ -12,7 +12,9 @@ import {
 } from "../src/core/top_down_analysis";
 import {
     drawCycleNavigator,
+    getCycleNavigatorScrollPosition,
     getCycleNavigatorToolTip,
+    getCycleNavigatorViewport,
 } from "../src/core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -517,6 +519,25 @@ test("Top-down-like view classifies allocation slots without stage names", async
     ) ?? "";
     assert.match(topDownToolTip, /Retiring: 1 \(50\.0%\)/);
     assert.match(topDownToolTip, /Allocation entrance: arbitrary-source/);
+    const overviewSpec = { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] } as const;
+    const overviewWidth = 320;
+    const overviewToolTip = getCycleNavigatorToolTip(
+        activity,
+        "top-down",
+        overviewSpec,
+        (3.5 / activity.cycleCount) * overviewWidth,
+        overviewWidth,
+        "overview",
+    ) ?? "";
+    assert.match(overviewToolTip, /Retiring: 1 \(50\.0%\)/);
+    const viewport = getCycleNavigatorViewport(activity, overviewSpec, overviewWidth);
+    assert.ok(viewport !== null && viewport.width < overviewWidth);
+    assert.ok(Math.abs((getCycleNavigatorScrollPosition(
+        activity,
+        overviewSpec,
+        overviewWidth,
+        viewport.left,
+    ) ?? -1) - 3) < 0.001);
 
     const partialAllocation = getTopDownBreakdown(activity, 4, 5);
     assert.ok(partialAllocation !== null);
@@ -597,6 +618,20 @@ test("Top-down-like view classifies allocation slots without stage names", async
         .map(({ color }) => color);
     assert.deepEqual(colorsAtX(0), ["hsl(0,0%,55%)", "hsl(140,35%,55%)"]);
     assert.deepEqual(colorsAtX(32), ["hsl(240,35%,55%)", "#262930"]);
+
+    const overviewNavigator = createRecordedContext();
+    drawCycleNavigator(
+        activity,
+        overviewSpec,
+        createCanvas(createRecordedContext().context, 450, 128),
+        createCanvas(overviewNavigator.context, overviewWidth, 128),
+        "top-down",
+        false,
+        "overview",
+    );
+    assert.equal(overviewNavigator.strokeRects.length, 1);
+    assert.equal(overviewNavigator.strokeStyles[0], "rgba(255,255,255,0.75)");
+    assert.ok(overviewNavigator.fillStyles.includes("rgba(0,0,0,0.35)"));
 
     const lightNavigator = createRecordedContext();
     drawCycleNavigator(

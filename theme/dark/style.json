@@ -35,6 +35,8 @@
         "flushedRegionColor": "rgba(0,0,0,0.5)"
     },
     "traceNavigator": {
-        "flushedColor": "hsl(0,0%,55%)"
+        "flushedColor": "hsl(0,0%,55%)",
+        "viewportShadeColor": "rgba(0,0,0,0.35)",
+        "viewportBorderColor": "rgba(255,255,255,0.75)"
     }
 }

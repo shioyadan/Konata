@@ -1073,6 +1073,14 @@ button:disabled {
     cursor: crosshair;
 }
 
+.trace-navigator-cycle-pane.is-overview canvas {
+    cursor: grab;
+}
+
+.trace-navigator-cycle-pane.is-overview canvas:active {
+    cursor: grabbing;
+}
+
 .trace-navigator-mode {
     position: absolute;
     z-index: 1;
@@ -1095,6 +1103,43 @@ button:disabled {
     border-color: #697181;
     outline: none;
     background: #3a3e4b;
+}
+
+.trace-navigator-range {
+    position: absolute;
+    z-index: 1;
+    top: 35px;
+    left: 6px;
+    display: flex;
+    overflow: hidden;
+    border: 1px solid #555b68;
+    border-radius: 4px;
+    background: #292c35;
+}
+
+.trace-navigator-range button {
+    padding: 1px 5px;
+    border: 0;
+    background: transparent;
+    color: #aeb5bf;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.65rem;
+    line-height: 17px;
+}
+
+.trace-navigator-range button + button {
+    border-left: 1px solid #555b68;
+}
+
+.trace-navigator-range button[aria-pressed="true"] {
+    background: #4b5160;
+    color: #fff;
+}
+
+.trace-navigator-range button:focus-visible {
+    outline: 1px solid #aeb5bf;
+    outline-offset: -2px;
 }
 
 .trace-navigator-cycle-status {
@@ -2078,6 +2123,28 @@ button:disabled {
 .theme-light .trace-navigator-mode:focus-visible {
     border-color: #aeb4be;
     background: #e7e9ed;
+}
+
+.theme-light .trace-navigator-range {
+    border-color: #b7bcc5;
+    background: #eef0f3;
+}
+
+.theme-light .trace-navigator-range button {
+    color: #596273;
+}
+
+.theme-light .trace-navigator-range button + button {
+    border-left-color: #b7bcc5;
+}
+
+.theme-light .trace-navigator-range button[aria-pressed="true"] {
+    background: #d5d9e0;
+    color: #20242b;
+}
+
+.theme-light .trace-navigator-range button:focus-visible {
+    outline-color: #596273;
 }
 
 .theme-light .trace-navigator-cycle-status {

@@ -21,8 +21,11 @@ import {
 } from "../core/top_down_analysis";
 import {
     drawCycleNavigator,
+    getCycleNavigatorScrollPosition,
     getCycleNavigatorToolTip,
+    getCycleNavigatorViewport,
     type CycleNavigatorMode,
+    type CycleNavigatorRangeMode,
 } from "../core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -182,6 +185,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const cycleNavigatorLabelCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorDetailsVisibleRef = useRef(false);
+    const cycleNavigatorPointerRef = useRef<{
+        readonly pointerID: number;
+        readonly grabOffset: number;
+    } | null>(null);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const findResultRef = useRef<HTMLDivElement>(null);
@@ -247,6 +254,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [traceNavigatorHeight, setTraceNavigatorHeight] = useState<number | null>(null);
     const [cycleNavigatorMode, setCycleNavigatorMode] =
         useState<CycleNavigatorMode>("top-down");
+    const [cycleNavigatorRangeMode, setCycleNavigatorRangeMode] =
+        useState<CycleNavigatorRangeMode>("overview");
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
     // UI／制御層は集計結果の寿命だけを所有する。TopDownDataはTraceから
     // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
@@ -496,6 +505,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 cycleNavigatorCanvas,
                 cycleNavigatorMode,
                 cycleNavigatorDetailsVisibleRef.current,
+                cycleNavigatorRangeMode,
             );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
@@ -566,6 +576,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         comparisonMode,
         comparisonOpacity,
         cycleNavigatorMode,
+        cycleNavigatorRangeMode,
         displayRenderer,
         findResult,
         loadState,
@@ -658,7 +669,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (showTraceNavigator && topDownData !== null) {
             redraw();
         }
-    }, [cycleNavigatorMode, redraw, showTraceNavigator, topDownData]);
+    }, [cycleNavigatorMode, cycleNavigatorRangeMode, redraw, showTraceNavigator, topDownData]);
 
     useLayoutEffect(() => {
         if (traceNavigatorHeight !== null) {
@@ -1059,11 +1070,90 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
     };
 
+    const moveCycleNavigatorViewport = (
+        canvas: HTMLCanvasElement,
+        clientX: number,
+        grabOffset: number,
+    ) => {
+        if (topDownData === null) {
+            return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const x = rect.width === 0 ? 0 : (clientX - rect.left) * width / rect.width;
+        const spec = viewController.currentSpec;
+        const position = getCycleNavigatorScrollPosition(
+            topDownData,
+            spec,
+            width,
+            x - grabOffset,
+        );
+        if (position === null) {
+            return;
+        }
+        setToolTip(null);
+        viewController.setImmediately({
+            position: [position, spec.position[1]],
+            zoomLevel: spec.zoomLevel,
+        });
+    };
+
+    const handleCycleNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
+        if (event.button !== 0 || cycleNavigatorRangeMode !== "overview" ||
+            topDownData === null || cycleNavigatorPointerRef.current !== null) {
+            return;
+        }
+        const canvas = event.currentTarget;
+        const rect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const x = rect.width === 0 ? 0 : (event.clientX - rect.left) * width / rect.width;
+        const viewport = getCycleNavigatorViewport(
+            topDownData,
+            viewController.currentSpec,
+            width,
+        );
+        if (viewport === null) {
+            return;
+        }
+        const insideViewport = x >= viewport.left && x <= viewport.left + viewport.width;
+        const grabOffset = insideViewport ? x - viewport.left : viewport.width / 2;
+        cycleNavigatorPointerRef.current = { pointerID: event.pointerId, grabOffset };
+        canvas.setPointerCapture(event.pointerId);
+        if (!insideViewport) {
+            moveCycleNavigatorViewport(canvas, event.clientX, grabOffset);
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleCycleNavigatorPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
+        const pointer = cycleNavigatorPointerRef.current;
+        if (pointer?.pointerID !== event.pointerId) {
+            return;
+        }
+        moveCycleNavigatorViewport(event.currentTarget, event.clientX, pointer.grabOffset);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleCycleNavigatorPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
+        if (cycleNavigatorPointerRef.current?.pointerID !== event.pointerId) {
+            return;
+        }
+        cycleNavigatorPointerRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
     const updateToolTip = (
         pane: "label" | "pipeline" | "navigator",
         event: ReactMouseEvent<HTMLCanvasElement>,
     ) => {
-        if (trace === null || pointerPositionsRef.current.size > 0) {
+        if (trace === null || pointerPositionsRef.current.size > 0 ||
+            (pane === "navigator" && cycleNavigatorPointerRef.current !== null)) {
             setToolTip(null);
             return;
         }
@@ -1085,6 +1175,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     viewController.currentSpec,
                     x,
                     event.currentTarget.clientWidth,
+                    cycleNavigatorRangeMode,
                 );
         } else {
             text = pane === "label"
@@ -1202,16 +1293,37 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                             <option value="flush">Flush</option>
                             <option value="latency">Latency</option>
                         </select>
+                        <div
+                            className="trace-navigator-range"
+                            role="group"
+                            aria-label="Navigator range"
+                        >
+                            {(["follow", "overview"] as const).map((rangeMode) => (
+                                <button
+                                    key={rangeMode}
+                                    type="button"
+                                    aria-pressed={cycleNavigatorRangeMode === rangeMode}
+                                    onClick={() => setCycleNavigatorRangeMode(rangeMode)}
+                                >
+                                    {rangeMode === "follow" ? "Follow" : "Overview"}
+                                </button>
+                            ))}
+                        </div>
                     </section>
                     <div className="trace-navigator-cycle-divider" aria-hidden="true" />
                     <section
-                        className="viewer-pane trace-navigator-pane trace-navigator-cycle-pane"
+                        className={`viewer-pane trace-navigator-pane trace-navigator-cycle-pane${cycleNavigatorRangeMode === "overview" ? " is-overview" : ""}`}
                         aria-label="Cycle navigator"
                         onPointerDown={(event) => event.stopPropagation()}
                     >
                         <canvas
                             ref={cycleNavigatorCanvasRef}
                             aria-label="Cycle navigator canvas"
+                            onPointerDown={handleCycleNavigatorPointerDown}
+                            onPointerMove={handleCycleNavigatorPointerMove}
+                            onPointerUp={handleCycleNavigatorPointerUp}
+                            onPointerCancel={handleCycleNavigatorPointerUp}
+                            onLostPointerCapture={handleCycleNavigatorPointerUp}
                             onMouseMove={(event) => updateToolTip("navigator", event)}
                             onMouseLeave={() => setToolTip(null)}
                         />

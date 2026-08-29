@@ -19,14 +19,26 @@ import {
 // 縮小表示ではOp描画と同じくglobal cycleへ揃えた代表点だけを見る。各cycle内では
 // 全allocation slotを数えるため、slot位置によるcategory比率の偏りは作らない。
 const MAX_SAMPLED_CYCLES_PER_PIXEL = 64;
+const MIN_VIEWPORT_WIDTH = 8;
 const styles = { light: lightStyle, dark: darkStyle };
 
 export type CycleNavigatorMode = "top-down" | CycleActivityMode;
+export type CycleNavigatorRangeMode = "follow" | "overview";
+
+export interface CycleNavigatorViewport {
+    readonly left: number;
+    readonly width: number;
+}
 
 interface PixelCycleRange {
     readonly startCycle: number;
     readonly endCycle: number;
     readonly maxSampleCycles: number;
+}
+
+interface CycleScale {
+    readonly leftCycle: number;
+    readonly pixelsPerCycle: number;
 }
 
 interface PreparedCanvas {
@@ -143,6 +155,28 @@ function drawBreakdown(
     }
 }
 
+function drawViewport(
+    context: CanvasRenderingContext2D,
+    viewport: Readonly<CycleNavigatorViewport>,
+    width: number,
+    height: number,
+    shadeColor: string,
+    borderColor: string,
+): void {
+    const right = Math.min(width, viewport.left + viewport.width);
+    context.fillStyle = shadeColor;
+    context.fillRect(0, 0, viewport.left, height);
+    context.fillRect(right, 0, Math.max(0, width - right), height);
+    context.strokeStyle = borderColor;
+    context.lineWidth = 1;
+    context.strokeRect(
+        viewport.left + 0.5,
+        0.5,
+        Math.max(0, right - viewport.left - 1),
+        Math.max(0, height - 1),
+    );
+}
+
 function drawLabels(
     data: Readonly<TopDownData>,
     spec: Readonly<KonataRenderSpec>,
@@ -241,21 +275,40 @@ function drawLabels(
     });
 }
 
+function getCycleScale(
+    data: Readonly<TopDownData>,
+    spec: Readonly<KonataRenderSpec>,
+    width: number,
+    rangeMode: CycleNavigatorRangeMode,
+): CycleScale {
+    if (rangeMode === "overview") {
+        return {
+            leftCycle: 0,
+            pixelsPerCycle: width / Math.max(1, data.cycleCount),
+        };
+    }
+    return {
+        leftCycle: spec.position[0],
+        pixelsPerCycle: KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel),
+    };
+}
+
 function getPixelCycleRange(
     data: Readonly<TopDownData>,
     spec: Readonly<KonataRenderSpec>,
     x: number,
     width: number,
+    rangeMode: CycleNavigatorRangeMode,
 ): PixelCycleRange | null {
     if (x < 0 || x >= width) {
         return null;
     }
-    const opWidth = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
-    const cycle = spec.position[0] + x / opWidth;
+    const scale = getCycleScale(data, spec, width, rangeMode);
+    const cycle = scale.leftCycle + x / scale.pixelsPerCycle;
     if (cycle < 0 || cycle >= data.cycleCount) {
         return null;
     }
-    return opWidth >= 1
+    return scale.pixelsPerCycle >= 1
         ? {
             startCycle: Math.floor(cycle),
             endCycle: Math.floor(cycle) + 1,
@@ -263,9 +316,55 @@ function getPixelCycleRange(
         }
         : {
             startCycle: cycle,
-            endCycle: spec.position[0] + (x + 1) / opWidth,
+            endCycle: scale.leftCycle + (x + 1) / scale.pixelsPerCycle,
             maxSampleCycles: MAX_SAMPLED_CYCLES_PER_PIXEL,
         };
+}
+
+/** Overview上で、現在のPipeline表示範囲に対応するscrollbar thumbを返す。 */
+export function getCycleNavigatorViewport(
+    data: Readonly<TopDownData>,
+    spec: Readonly<KonataRenderSpec>,
+    width: number,
+): CycleNavigatorViewport | null {
+    if (width <= 0 || data.cycleCount <= 0) {
+        return null;
+    }
+    const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
+    const visibleCycles = width / pixelsPerCycle;
+    if (visibleCycles >= data.cycleCount) {
+        return { left: 0, width };
+    }
+    const viewportWidth = Math.min(
+        width,
+        Math.max(MIN_VIEWPORT_WIDTH, width * visibleCycles / data.cycleCount),
+    );
+    const maximumCycle = data.cycleCount - visibleCycles;
+    const position = Math.min(Math.max(spec.position[0], 0), maximumCycle);
+    return {
+        left: position / maximumCycle * (width - viewportWidth),
+        width: viewportWidth,
+    };
+}
+
+/** Overviewのthumb左端を、Pipeline左端のcycleへ戻す。 */
+export function getCycleNavigatorScrollPosition(
+    data: Readonly<TopDownData>,
+    spec: Readonly<KonataRenderSpec>,
+    width: number,
+    viewportLeft: number,
+): number | null {
+    const viewport = getCycleNavigatorViewport(data, spec, width);
+    if (viewport === null) {
+        return null;
+    }
+    const trackWidth = width - viewport.width;
+    if (trackWidth <= 0) {
+        return 0;
+    }
+    const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
+    const maximumCycle = data.cycleCount - width / pixelsPerCycle;
+    return Math.min(Math.max(viewportLeft, 0), trackWidth) / trackWidth * maximumCycle;
 }
 
 export function getCycleNavigatorToolTip(
@@ -274,8 +373,9 @@ export function getCycleNavigatorToolTip(
     spec: Readonly<KonataRenderSpec>,
     x: number,
     width: number,
+    rangeMode: CycleNavigatorRangeMode = "follow",
 ): string | null {
-    const range = getPixelCycleRange(data, spec, x, width);
+    const range = getPixelCycleRange(data, spec, x, width, rangeMode);
     if (range === null) {
         return null;
     }
@@ -360,6 +460,7 @@ export function drawCycleNavigator(
     cycleCanvas: HTMLCanvasElement,
     mode: CycleNavigatorMode = "top-down",
     showDetails = false,
+    rangeMode: CycleNavigatorRangeMode = "follow",
 ): void {
     const label = prepareCanvas(labelCanvas);
     const cycleNavigator = prepareCanvas(cycleCanvas);
@@ -378,9 +479,9 @@ export function drawCycleNavigator(
         return;
     }
 
-    const opWidth = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
-    const leftCycle = spec.position[0];
-    const rightCycle = leftCycle + cycleNavigator.width / opWidth;
+    const scale = getCycleScale(data, spec, cycleNavigator.width, rangeMode);
+    const leftCycle = scale.leftCycle;
+    const rightCycle = leftCycle + cycleNavigator.width / scale.pixelsPerCycle;
     const drawRange = (startCycle: number, endCycle: number, left: number, width: number) => {
         if (mode === "top-down") {
             const sample = getTopDownBreakdown(
@@ -426,22 +527,40 @@ export function drawCycleNavigator(
             );
         }
     };
-    if (opWidth >= 1) {
+    if (scale.pixelsPerCycle >= 1) {
         const firstCycle = Math.max(0, Math.floor(leftCycle));
         const lastCycle = Math.min(data.cycleCount, Math.ceil(rightCycle));
         for (let cycle = firstCycle; cycle < lastCycle; cycle++) {
             const startCycle = cycle;
             const endCycle = cycle + 1;
-            const left = Math.max(0, (startCycle - leftCycle) * opWidth);
-            const right = Math.min(cycleNavigator.width, (endCycle - leftCycle) * opWidth);
+            const left = Math.max(0, (startCycle - leftCycle) * scale.pixelsPerCycle);
+            const right = Math.min(
+                cycleNavigator.width,
+                (endCycle - leftCycle) * scale.pixelsPerCycle,
+            );
             drawRange(startCycle, endCycle, left, Math.max(1, right - left));
         }
-        return;
+    } else {
+        for (let x = 0; x < cycleNavigator.width; x++) {
+            const startCycle = Math.max(0, leftCycle + x / scale.pixelsPerCycle);
+            const endCycle = Math.min(
+                data.cycleCount,
+                leftCycle + (x + 1) / scale.pixelsPerCycle,
+            );
+            drawRange(startCycle, endCycle, x, 1);
+        }
     }
-
-    for (let x = 0; x < cycleNavigator.width; x++) {
-        const startCycle = Math.max(0, leftCycle + x / opWidth);
-        const endCycle = Math.min(data.cycleCount, leftCycle + (x + 1) / opWidth);
-        drawRange(startCycle, endCycle, x, 1);
+    if (rangeMode === "overview") {
+        const viewport = getCycleNavigatorViewport(data, spec, cycleNavigator.width);
+        if (viewport !== null) {
+            drawViewport(
+                cycleNavigator.context,
+                viewport,
+                cycleNavigator.width,
+                cycleNavigator.height,
+                style.traceNavigator.viewportShadeColor,
+                style.traceNavigator.viewportBorderColor,
+            );
+        }
     }
 }

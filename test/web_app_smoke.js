@@ -2402,6 +2402,11 @@ async function run() {
         const labelCanvas = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
         const navigatorCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
         const navigatorMode = document.querySelector('select[aria-label="Cycle navigator mode"]');
+        const navigatorRange = document.querySelector('[aria-label="Navigator range"]');
+        const followRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
+            .find((button) => button.textContent?.trim() === "Follow");
+        const overviewRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
+            .find((button) => button.textContent?.trim() === "Overview");
         const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
@@ -2410,9 +2415,17 @@ async function run() {
             !(labelCanvas instanceof HTMLCanvasElement) ||
             !(navigatorCanvas instanceof HTMLCanvasElement) ||
             !(navigatorMode instanceof HTMLSelectElement) || !(resizer instanceof HTMLElement) ||
+            !(followRange instanceof HTMLButtonElement) ||
+            !(overviewRange instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement)) {
             throw new Error("The trace navigator pane was not created.");
         }
+        const defaultRange = overviewRange.getAttribute("aria-pressed");
+        followRange.click();
+        await nextFrame();
+        const followSelected = followRange.getAttribute("aria-pressed");
+        overviewRange.click();
+        await nextFrame();
         navigatorMode.value = "commit";
         navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
         await nextFrame();
@@ -2445,6 +2458,10 @@ async function run() {
             pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height),
             mode: navigatorMode.value,
             modeOptions: [...navigatorMode.options].map((option) => option.value),
+            defaultRange,
+            followSelected,
+            overviewSelected: overviewRange.getAttribute("aria-pressed"),
+            overviewCursor: getComputedStyle(navigatorCanvas).cursor,
             zoomCanceled: zoomDispatched.every((value, index) =>
                 !value && zoomEvents[index].defaultPrevented),
             navigatorZoom
@@ -2499,6 +2516,10 @@ async function run() {
         !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 64 ||
         navigatorState.mode !== "commit" ||
         navigatorState.modeOptions?.join(",") !== "top-down,fetch,issue,commit,flush,latency" ||
+        navigatorState.defaultRange !== "true" ||
+        navigatorState.followSelected !== "true" ||
+        navigatorState.overviewSelected !== "true" ||
+        navigatorState.overviewCursor !== "grab" ||
         !navigatorState.zoomCanceled || navigatorState.navigatorZoom !== "119%" ||
         navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
         navigatorState.resized.pipelineHeightReduction !== 180 ||
