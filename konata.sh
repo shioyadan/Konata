@@ -2,20 +2,65 @@
 
 # リモートやWSL上のtraceを、SSH port forwarding先のbrowserからKonataで開く。
 # PythonでHTMLと指定traceだけを固定URLへ対応付け、元のdirectory全体は公開しない。
+# 配布済みdirectoryでは、Pages上の検証済みlatest archiveから自分自身を更新できる。
 set -eu
 
-# traceは比較用を含め2 fileまでに限定する。
 usage() {
-    echo "Usage: $0 TRACE1 [TRACE2]" >&2
+    echo "Usage:" >&2
+    echo "  $0 TRACE1 [TRACE2]" >&2
+    echo "  $0 --update" >&2
     exit 2
 }
 
+# symlink経由でも配布本体を更新し、起動時にも同じHTMLを参照する。
+script_path="$(realpath -- "$0")"
+script_dir="$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)"
+
+if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
+    index_path="$script_dir/index.html"
+    if [ ! -f "$index_path" ]; then
+        echo "Konata can update only an extracted distribution with index.html next to konata.sh." >&2
+        exit 1
+    fi
+
+    update_dir="$(mktemp -d "$script_dir/.konata-update.XXXXXX")"
+    trap 'rm -rf -- "$update_dir"' EXIT
+    trap 'exit 1' HUP INT TERM
+
+    echo "Downloading the latest Konata development build..."
+    update_url="${KONATA_UPDATE_URL:-https://shioyadan.github.io/Konata/konata-latest.zip}"
+    archive_path="$update_dir/konata-latest.zip"
+    if ! python3 -c \
+        'import socket,sys; from urllib.request import urlretrieve; socket.setdefaulttimeout(30); urlretrieve(*sys.argv[1:])' \
+        "$update_url" "$archive_path" ||
+        ! python3 -m zipfile -e "$archive_path" "$update_dir"; then
+        echo "Could not download and unpack the Konata update." >&2
+        exit 1
+    fi
+
+    payload_dir="$update_dir/konata-latest"
+    if [ "$(head -n 1 "$payload_dir/konata.sh")" != '#!/usr/bin/env bash' ] ||
+        ! bash -n "$payload_dir/konata.sh" ||
+        ! head -c 64 "$payload_dir/index.html" | grep -qi '^<!doctype html>'; then
+        echo "The downloaded Konata update is invalid." >&2
+        exit 1
+    fi
+    chmod 755 "$payload_dir/konata.sh"
+    chmod 644 "$payload_dir/index.html"
+
+    # scriptを先に置換し、2つ目で中断しても--updateを再実行できるようにする。
+    mv -f "$payload_dir/konata.sh" "$script_path"
+    mv -f "$payload_dir/index.html" "$index_path"
+    echo "Konata was updated to the latest development build."
+    exit 0
+fi
+
+# traceは比較用を含め2 fileまでに限定する。
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     usage
 fi
 
 # releaseでは同梱HTML、source treeではproduction buildを探す。
-script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 if [ -f "$script_dir/index.html" ]; then
     index_file="$script_dir/index.html"
 elif [ -f "$script_dir/dist-web/index.html" ]; then

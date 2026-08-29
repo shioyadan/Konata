@@ -42,6 +42,15 @@
   Keep the script running while using Konata, and press Ctrl+C to stop it. Set `KONATA_PORT` before
   running the script to use another port.
 
+  To replace an extracted copy with the latest tested development build from GitHub Pages, run:
+
+  ```bash
+  ./konata.sh --update
+  ```
+
+  This updates `index.html` and `konata.sh` together. It does not modify traces or the other files
+  in the extracted directory.
+
 
 ## Usage
 

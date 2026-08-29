@@ -56,6 +56,7 @@ license-check:
 launcher-check:
 	bash -n konata.sh
 	test -x konata.sh
+	bash test/konata_launcher_test.sh
 
 # 通常checkから分離し、store方式を同じ入力・同じ指標で比較するためにだけ実行する。
 benchmark-op-store:
