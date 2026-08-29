@@ -149,6 +149,7 @@ function drawLabels(
     canvas: Readonly<PreparedCanvas>,
     colors: Readonly<BreakdownColors>,
     mode: CycleNavigatorMode,
+    showDetails: boolean,
 ): void {
     const { analysis } = data;
     const style = styles[spec.theme];
@@ -159,15 +160,20 @@ function drawLabels(
     context.textBaseline = "middle";
     context.fillStyle = style.labelPane.fontColor;
     if (analysis === null) {
-        context.fillText("Analysis unavailable", margin, 36);
-        context.fillText("No allocation boundary detected.", margin, 54);
+        context.fillText("Analysis unavailable", margin, 34);
+        context.fillText("No allocation boundary detected.", margin, 52);
         return;
     }
 
     const format = (value: number) => Number.isInteger(value)
         ? value.toString()
         : value.toFixed(1);
+    const detailLeft = 128;
+    const detailCenter = 16;
     if (mode !== "top-down") {
+        if (!showDetails) {
+            return;
+        }
         const series = analysis.cycleActivity[mode];
         const info = activityInfo[mode];
         const prefix = mode === "issue"
@@ -176,60 +182,61 @@ function drawLabels(
                 ? `${analysis.executionStage.label} → completion · `
                 : "";
         const maximum = series.maximum >= 255 ? "≥255" : format(series.maximum);
+        let detailWidth = canvas.width - detailLeft - margin;
+        if (mode === "fetch" || mode === "issue") {
+            const label = "Later flushed";
+            context.font = `${style.fontStyle} 11px ${style.fontFamily}`;
+            const flushedLeft = Math.max(
+                detailLeft,
+                canvas.width - margin - context.measureText(label).width - 15,
+            );
+            context.fillStyle = style.traceNavigator.flushedColor;
+            context.fillRect(flushedLeft, detailCenter - 5, 10, 10);
+            context.fillStyle = style.labelPane.fontColor;
+            context.fillText(label, flushedLeft + 15, detailCenter);
+            detailWidth = flushedLeft - detailLeft - 10;
+        }
+        context.font = `${style.fontStyle} 11px ${style.fontFamily}`;
+        context.fillStyle = style.labelPane.fontColor;
         context.fillText(
             `${prefix}max ${maximum}${info.unit}`,
-            margin,
-            36,
-            canvas.width - margin * 2,
+            detailLeft,
+            detailCenter,
+            Math.max(1, detailWidth),
         );
-        if (mode === "fetch" || mode === "issue") {
-            context.fillStyle = style.traceNavigator.flushedColor;
-            context.fillRect(margin, 50, 8, 8);
-            context.fillStyle = style.labelPane.fontColor;
-            context.font = `${style.fontStyle} 10px ${style.fontFamily}`;
-            context.fillText("Later flushed", margin + 13, 54);
-        }
         return;
     }
 
-    context.font = `${style.fontStyle} 10px ${style.fontFamily}`;
-    context.textAlign = "right";
-    context.fillText("AUTO", canvas.width - margin, 15);
-    context.font = `${style.fontStyle} 12px ${style.fontFamily}`;
-    context.textAlign = "left";
-    context.fillText(
-        `${analysis.allocationStage.label} ≥${format(analysis.allocationWidth)}/c → ` +
-            analysis.executionStage.label,
-        margin,
-        36,
-        canvas.width - margin * 2,
-    );
+    const legendWidth = 64;
+    const legendLeft = Math.max(margin, canvas.width - margin - legendWidth);
+    if (showDetails) {
+        context.font = `${style.fontStyle} 11px ${style.fontFamily}`;
+        context.fillText(
+            `AUTO · ${analysis.allocationStage.label} ` +
+                `≥${format(analysis.allocationWidth)}/c → ${analysis.executionStage.label}`,
+            detailLeft,
+            detailCenter,
+            Math.max(1, legendLeft - detailLeft - 10),
+        );
+    }
 
     const legends = [
         ["Bad", colors.badSpeculation],
         ["Front", colors.frontendBound],
         ["Back", colors.backendBound],
-        ["Pending", colors.unresolved],
         ["Retire", colors.retiring],
     ] as const;
-    const columnWidth = (canvas.width - margin * 2) / legends.length;
-    const center = 54;
-    context.font = `${style.fontStyle} 10px ${style.fontFamily}`;
+    context.font = `${style.fontStyle} 11px ${style.fontFamily}`;
     legends.forEach(([label, color], index) => {
-        const left = margin + index * columnWidth;
+        const top = 7 + index * 14;
         context.fillStyle = color;
-        context.fillRect(left, center - 4, 8, 8);
-        if (color === colors.unresolved) {
-            context.strokeStyle = style.labelPane.fontColor;
-            context.lineWidth = 1;
-            context.strokeRect(left + 0.5, center - 3.5, 7, 7);
-        }
+        context.fillRect(legendLeft, top, 10, 10);
         context.fillStyle = style.labelPane.fontColor;
         context.fillText(
             label,
-            left + 12,
-            center,
-            Math.max(1, columnWidth - 14),
+            legendLeft + 15,
+            top + 5,
+            Math.max(1, canvas.width - margin - legendLeft - 15),
         );
     });
 }
@@ -352,6 +359,7 @@ export function drawCycleNavigator(
     labelCanvas: HTMLCanvasElement,
     cycleCanvas: HTMLCanvasElement,
     mode: CycleNavigatorMode = "top-down",
+    showDetails = false,
 ): void {
     const label = prepareCanvas(labelCanvas);
     const cycleNavigator = prepareCanvas(cycleCanvas);
@@ -364,7 +372,7 @@ export function drawCycleNavigator(
         style.pipelinePane.stageBackgroundColor,
         style.pipelinePane.backgroundColor,
     );
-    drawLabels(data, spec, label, colors, mode);
+    drawLabels(data, spec, label, colors, mode, showDetails);
     const analysis = data.analysis;
     if (analysis === null) {
         return;

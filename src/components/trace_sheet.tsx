@@ -181,6 +181,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorLabelCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
+    const cycleNavigatorDetailsVisibleRef = useRef(false);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const findResultRef = useRef<HTMLDivElement>(null);
@@ -494,6 +495,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 cycleNavigatorLabelCanvas,
                 cycleNavigatorCanvas,
                 cycleNavigatorMode,
+                cycleNavigatorDetailsVisibleRef.current,
             );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
@@ -587,6 +589,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const redraw = useCallback(() => {
         viewController.redraw();
     }, [viewController]);
+
+    const showCycleNavigatorDetails = (visible: boolean) => {
+        if (cycleNavigatorDetailsVisibleRef.current !== visible) {
+            cycleNavigatorDetailsVisibleRef.current = visible;
+            redraw();
+        }
+    };
 
     // Traceまたはpaneを切り替えた時は、以前のTraceから作った派生dataを外す。
     useEffect(() => {
@@ -1174,6 +1183,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         className="viewer-pane trace-navigator-pane trace-navigator-cycle-label-pane"
                         aria-label="Cycle navigator labels"
                         onPointerDown={(event) => event.stopPropagation()}
+                        onMouseEnter={() => showCycleNavigatorDetails(true)}
+                        onMouseLeave={() => showCycleNavigatorDetails(false)}
                     >
                         <canvas ref={cycleNavigatorLabelCanvasRef} aria-label="Cycle navigator labels canvas" />
                         <select

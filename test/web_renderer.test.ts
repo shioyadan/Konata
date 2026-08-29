@@ -126,6 +126,9 @@ function createRecordedContext(): RecordedContext {
             commands.push(`text:${text}`);
             fillTexts.push([text, x, y]);
         },
+        measureText(text: string) {
+            return { width: text.length * 6 };
+        },
         createLinearGradient(x0: number, y0: number, x1: number, y1: number) {
             const gradient: RecordedGradient = { points: [x0, y0, x1, y1], stops: [] };
             gradients.push(gradient);
@@ -547,17 +550,38 @@ test("Top-down-like view classifies allocation slots without stage names", async
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
         createCanvas(labels.context, 450, 128),
         createCanvas(cycleNavigator.context, 320, 128),
+        "top-down",
+        true,
     );
-    assert.ok(labels.fillTexts.some(([text]) => text === "AUTO"));
-    assert.ok(labels.fillTexts.some(([text]) =>
-        text === "arbitrary-reservoir ≥2/c → arbitrary-event"));
+    assert.ok(labels.fillTexts.some(([text, x, y]) =>
+        text === "AUTO · arbitrary-reservoir ≥2/c → arbitrary-event" &&
+        x === 128 && y === 16));
     const legendNames = new Set(["Bad", "Front", "Back", "Pending", "Retire"]);
     assert.deepEqual(
         labels.fillTexts.map(([text]) => text).filter((text) => legendNames.has(text)),
-        ["Bad", "Front", "Back", "Pending", "Retire"],
+        ["Bad", "Front", "Back", "Retire"],
     );
-    assert.equal(labels.strokeRects.length, 1);
-    assert.equal(labels.strokeStyles[0], "#c7c8ca");
+    const legendRects = labels.fillRects.filter(([, , width, height]) =>
+        width === 10 && height === 10);
+    assert.equal(legendRects.length, 4);
+    assert.deepEqual(legendRects.map(([x, y]) => [x, y]), [
+        [381, 7],
+        [381, 21],
+        [381, 35],
+        [381, 49],
+    ]);
+    assert.equal(labels.strokeRects.length, 0);
+    const compactLabels = createRecordedContext();
+    drawCycleNavigator(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
+        createCanvas(compactLabels.context, 450, 128),
+        createCanvas(createRecordedContext().context, 320, 128),
+    );
+    assert.ok(!compactLabels.fillTexts.some(([text]) => text.startsWith("AUTO")));
+    assert.ok(!compactLabels.fillTexts.some(([text]) =>
+        text === "arbitrary-reservoir ≥2/c → arbitrary-event"));
+    assert.ok(compactLabels.fillTexts.some(([text]) => text === "Retire"));
     assert.ok(cycleNavigator.fillRects.length > 0);
     for (const color of [
         "hsl(0,0%,55%)",
@@ -662,6 +686,16 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
     );
     assert.match(toolTip ?? "", /Average: 2\.00 ops\/cycle/);
 
+    const compactFetchLabels = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+        createCanvas(compactFetchLabels.context, 500, 128),
+        createCanvas(createRecordedContext().context, 160, 128),
+        "fetch",
+    );
+    assert.equal(compactFetchLabels.fillTexts.length, 0);
+
     const fetchLabels = createRecordedContext();
     const fetchNavigator = createRecordedContext();
     drawCycleNavigator(
@@ -670,9 +704,12 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
         createCanvas(fetchLabels.context, 500, 128),
         createCanvas(fetchNavigator.context, 160, 128),
         "fetch",
+        true,
     );
-    assert.ok(fetchLabels.fillTexts.some(([text]) => text === "max 2 ops/cycle"));
-    assert.ok(fetchLabels.fillTexts.some(([text]) => text === "Later flushed"));
+    assert.ok(fetchLabels.fillTexts.some(([text, x, y]) =>
+        text === "max 2 ops/cycle" && x === 128 && y === 16));
+    assert.ok(fetchLabels.fillTexts.some(([text, , y]) =>
+        text === "Later flushed" && y === 16));
     assert.ok(fetchNavigator.fillStyles.includes("hsl(0,0%,55%)"));
     const lightFetchNavigator = createRecordedContext();
     drawCycleNavigator(
@@ -692,6 +729,7 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
         createCanvas(labels.context, 500, 128),
         createCanvas(navigator.context, 160, 128),
         "latency",
+        true,
     );
     assert.ok(labels.fillTexts.some(([text]) =>
         text === "arbitrary-event → completion · max 4 cycles"));
