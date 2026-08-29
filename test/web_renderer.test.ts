@@ -1160,6 +1160,22 @@ test("Web render metrics find an instruction anchor for position adjustment", ()
     );
 });
 
+test("Web render metrics find the instruction row for a cycle", () => {
+    const trace = createLatencyTrace([
+        [100, 130],
+        [100, 140],
+        [200, 230],
+    ]);
+    const metrics = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
+
+    assert.equal(metrics.getPositionYFromCycle(50), 0);
+    assert.equal(metrics.getPositionYFromCycle(100), 0);
+    assert.equal(metrics.getPositionYFromCycle(199), 0);
+    assert.equal(metrics.getPositionYFromCycle(200), 2);
+    assert.equal(metrics.getPositionYFromCycle(300), 2);
+    trace.close();
+});
+
 test("Web render metrics reversibly follow the visible phase during vertical scrolling", () => {
     const trace = createLatencyTrace([
         [100, 1000],

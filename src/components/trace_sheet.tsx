@@ -1091,9 +1091,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (position === null) {
             return;
         }
+        const positionY = new KonataRenderMetrics(trace, spec).getPositionYFromCycle(position);
         setToolTip(null);
         viewController.setImmediately({
-            position: [position, spec.position[1]],
+            position: [position, positionY ?? spec.position[1]],
             zoomLevel: spec.zoomLevel,
         });
     };
