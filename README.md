@@ -30,13 +30,15 @@
 - **Latest development version:** [Konata Web](https://shioyadan.github.io/Konata/) and
   [konata-latest.zip](https://shioyadan.github.io/Konata/konata-latest.zip) are built from `master`.
 
-- **Remote server or WSL:** Run the helper included in the downloaded version:
+- **Remote server or WSL:** Download the latest development bundle and run its helper:
 
   ```bash
-  ./konata.sh trace1.log.zst
-  ./konata.sh trace1.log.zst trace2.log.zst
+  curl -fLO https://shioyadan.github.io/Konata/konata-latest.zip
+  unzip -q konata-latest.zip
+  ./konata-latest/konata.sh trace1.log.zst
   ```
 
+  Pass a second trace to compare it: `./konata-latest/konata.sh trace1.log.zst trace2.log.zst`.
   The script prints the Konata URL and an SSH tunnel command. When running it on a remote server,
   run the printed SSH command on the local computer, then open the Konata URL in the local browser.
   Keep the script running while using Konata, and press Ctrl+C to stop it. Set `KONATA_PORT` before
@@ -45,7 +47,7 @@
   To replace an extracted copy with the latest tested development build from GitHub Pages, run:
 
   ```bash
-  ./konata.sh --update
+  ./konata-latest/konata.sh --update
   ```
 
   The script reports whether these files differ and asks before updating `index.html` and
