@@ -792,18 +792,29 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     };
 
     const handleWheel = useCallback((event: WheelEvent) => {
-        if (trace === null) {
-            return;
-        }
-        const target = event.target as HTMLElement | null;
-        if (target?.closest(".trace-navigator-pane, .trace-navigator-resizer")) {
+        const zoomRequested = event.ctrlKey || event.metaKey;
+        const target = event.target instanceof Element ? event.target : null;
+        const viewer = viewerRef.current;
+        const insideViewer = target !== null && viewer?.contains(target) === true;
+        // 通常wheelはPipelineだけで扱う。Ctrl／Command+wheelはtoolbarやNavigatorでも
+        // browser zoomへ渡さず、表示中Traceのzoomとして扱う。
+        if (!zoomRequested && (!insideViewer ||
+            target?.closest(".trace-navigator-pane, .trace-navigator-resizer"))) {
             return;
         }
         event.preventDefault();
-        if (event.ctrlKey || event.metaKey) {
+        if (trace === null) {
+            return;
+        }
+        if (zoomRequested) {
             const rect = pipelineCanvasRef.current?.getBoundingClientRect();
-            const x = rect === undefined ? 0 : Math.max(0, event.clientX - rect.left);
-            const y = rect === undefined ? 0 : Math.max(0, event.clientY - rect.top);
+            const x = rect === undefined
+                ? 0
+                : Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+            const localY = rect === undefined ? 0 : event.clientY - rect.top;
+            const y = rect === undefined
+                ? 0
+                : localY < 0 || localY > rect.height ? rect.height / 2 : localY;
             const delta = normalizeWheelDelta(event);
             if (delta === 0) {
                 return;
@@ -885,13 +896,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const clearModifierKey = () => {
             wheelZoomRef.current.modifierDown = false;
         };
-        // Reactのpassiveなwheel委譲ではCtrl+wheelのbrowser zoomを止められないため、ここだけ直接購読する。
-        viewer.addEventListener("wheel", handleWheel, { passive: false });
+        // Reactのpassiveなwheel委譲ではCtrl+wheelのbrowser zoomを止められない。
+        // toolbarを含む文書全体で捕捉し、handleWheel側で通常wheelをviewer内へ限定する。
+        document.addEventListener("wheel", handleWheel, { passive: false });
         document.addEventListener("keydown", handleModifierKey);
         document.addEventListener("keyup", handleModifierKey);
         window.addEventListener("blur", clearModifierKey);
         return () => {
-            viewer.removeEventListener("wheel", handleWheel);
+            document.removeEventListener("wheel", handleWheel);
             document.removeEventListener("keydown", handleModifierKey);
             document.removeEventListener("keyup", handleModifierKey);
             window.removeEventListener("blur", clearModifierKey);

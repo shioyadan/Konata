@@ -1414,10 +1414,12 @@ async function run() {
     // trackpad pinchは小数倍率へ、物理Ctrl+wheelは40 msの回転量に応じた最大2段へ畳む。
     const wheelZoomState = await window.webContents.executeJavaScript(`(async () => {
         const viewer = document.querySelector(".viewer");
+        const toolbar = document.querySelector(".app-toolbar");
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         const output = document.querySelector(".zoom-controls output");
-        if (!(viewer instanceof HTMLElement) || !(reset instanceof HTMLButtonElement)) {
+        if (!(viewer instanceof HTMLElement) || !(toolbar instanceof HTMLElement) ||
+            !(reset instanceof HTMLButtonElement)) {
             throw new Error("The viewer zoom controls were not found.");
         }
         const rect = viewer.getBoundingClientRect();
@@ -1480,6 +1482,21 @@ async function run() {
         const resetImmediatelyAfter = output?.textContent ?? null;
         await new Promise((resolve) => setTimeout(resolve, 300));
         await new Promise((resolve) => requestAnimationFrame(resolve));
+        const toolbarEvents = Array.from({length: 20}, () => new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: -10,
+            clientX: rect.left + 400,
+            clientY: rect.top - 20
+        }));
+        const toolbarDispatched = toolbarEvents.map((event) => toolbar.dispatchEvent(event));
+        await new Promise((resolve) => requestAnimationFrame(() =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const toolbarZoom = output?.textContent ?? null;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
             trackpadCanceled: trackpadDispatched.every((value, index) =>
                 !value && trackpadEvents[index].defaultPrevented),
@@ -1494,10 +1511,14 @@ async function run() {
             cooledWheelTarget,
             wheelZoom,
             resetImmediatelyAfter,
+            toolbarCanceled: toolbarDispatched.every((value, index) =>
+                !value && toolbarEvents[index].defaultPrevented),
+            toolbarZoom,
             resetZoom: output?.textContent ?? null
         };
     })()`);
     if (!wheelZoomState.trackpadCanceled || !wheelZoomState.wheelCanceled ||
+        !wheelZoomState.toolbarCanceled ||
         wheelZoomState.before !== "100%" ||
         wheelZoomState.trackpadImmediatelyAfter !== "100%" ||
         wheelZoomState.trackpadZoom !== "119%" ||
@@ -1506,6 +1527,7 @@ async function run() {
         wheelZoomState.cooledWheelTarget !== "35.4%" ||
         wheelZoomState.wheelZoom !== "35.4%" ||
         wheelZoomState.resetImmediatelyAfter !== "35.4%" ||
+        wheelZoomState.toolbarZoom !== "119%" ||
         wheelZoomState.resetZoom !== "100%") {
         throw new Error(`Wheel zoom handling is incomplete: ${JSON.stringify(wheelZoomState)}`);
     }
@@ -2381,16 +2403,37 @@ async function run() {
         const navigatorCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
         const navigatorMode = document.querySelector('select[aria-label="Cycle navigator mode"]');
         const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
+        const reset = [...document.querySelectorAll(".zoom-controls button")]
+            .find((button) => button.textContent?.trim() === "Reset");
+        const zoomOutput = document.querySelector(".zoom-controls output");
         if (!(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
             !(labelCanvas instanceof HTMLCanvasElement) ||
             !(navigatorCanvas instanceof HTMLCanvasElement) ||
-            !(navigatorMode instanceof HTMLSelectElement) || !(resizer instanceof HTMLElement)) {
+            !(navigatorMode instanceof HTMLSelectElement) || !(resizer instanceof HTMLElement) ||
+            !(reset instanceof HTMLButtonElement)) {
             throw new Error("The trace navigator pane was not created.");
         }
         navigatorMode.value = "commit";
         navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
         await nextFrame();
         await nextFrame();
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const navigatorRect = navigatorCanvas.getBoundingClientRect();
+        const zoomEvents = Array.from({length: 20}, () => new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: -10,
+            clientX: navigatorRect.left + navigatorRect.width / 2,
+            clientY: navigatorRect.top + navigatorRect.height / 2
+        }));
+        const zoomDispatched = zoomEvents.map((event) => navigatorCanvas.dispatchEvent(event));
+        await new Promise((resolve) => requestAnimationFrame(() =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const navigatorZoom = zoomOutput?.textContent ?? null;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
         const result = {
             checked: toggle.checked,
             hasClass: viewer.classList.contains("has-trace-navigator"),
@@ -2401,7 +2444,10 @@ async function run() {
                 Math.round(pipeline.getBoundingClientRect().width),
             pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height),
             mode: navigatorMode.value,
-            modeOptions: [...navigatorMode.options].map((option) => option.value)
+            modeOptions: [...navigatorMode.options].map((option) => option.value),
+            zoomCanceled: zoomDispatched.every((value, index) =>
+                !value && zoomEvents[index].defaultPrevented),
+            navigatorZoom
         };
         // 境界へ重ねたseparatorをdragし、上下Canvasのlayoutとbacking storeが追従することを確認する。
         const captured = new Set();
@@ -2453,6 +2499,7 @@ async function run() {
         !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 64 ||
         navigatorState.mode !== "commit" ||
         navigatorState.modeOptions?.join(",") !== "top-down,fetch,issue,commit,flush,latency" ||
+        !navigatorState.zoomCanceled || navigatorState.navigatorZoom !== "119%" ||
         navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
         navigatorState.resized.pipelineHeightReduction !== 180 ||
         navigatorState.resized.canvasHeight < 179 ||
