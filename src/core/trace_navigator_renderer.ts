@@ -4,7 +4,6 @@ import lightStyle from "../../theme/light/style.json";
 import {
     getCycleActivity,
     type CycleActivityMode,
-    type CycleActivitySample,
 } from "./cycle_activity_analysis";
 import {
     getTopDownBreakdown,
@@ -53,6 +52,29 @@ interface StageColorTone {
     readonly lEnd: string;
 }
 
+const activityInfo = {
+    fetch: {
+        title: "Fetch throughput", detail: "Fetched ops/cycle",
+        toolTipTitle: "Fetch throughput", unit: " ops/cycle", color: "frontendBound",
+    },
+    issue: {
+        title: "Issue throughput", detail: "starts/cycle",
+        toolTipTitle: "Issue throughput", unit: " ops/cycle", color: "backendBound",
+    },
+    commit: {
+        title: "Commit throughput", detail: "Retired ops/cycle",
+        toolTipTitle: "Commit throughput (retired ops)", unit: " ops/cycle", color: "retiring",
+    },
+    flush: {
+        title: "Flushed work", detail: "Flushed ops allocated/cycle",
+        toolTipTitle: "Flushed work (at allocation)", unit: " ops/cycle", color: "flush",
+    },
+    latency: {
+        title: "Issue-to-completion latency", detail: "completion latency/cycle",
+        toolTipTitle: "Issue-to-completion latency", unit: " cycles", color: "latency",
+    },
+} as const;
+
 function prepareCanvas(canvas: HTMLCanvasElement): PreparedCanvas {
     const width = Math.max(1, canvas.clientWidth);
     const height = Math.max(1, canvas.clientHeight);
@@ -95,21 +117,6 @@ function createBreakdownColors(
         latency: create(280),
         unresolved: backgroundColor,
     };
-}
-
-function getActivityColor(
-    mode: CycleActivityMode,
-    colors: Readonly<BreakdownColors>,
-): string {
-    return mode === "fetch"
-        ? colors.frontendBound
-        : mode === "issue"
-            ? colors.backendBound
-            : mode === "commit"
-                ? colors.retiring
-                : mode === "flush"
-                    ? colors.flush
-                    : colors.latency;
 }
 
 function drawBreakdown(
@@ -168,23 +175,18 @@ function drawLabels(
     if (mode !== "top-down") {
         const activity = analysis.cycleActivity;
         const series = activity[mode];
-        const labels: Record<CycleActivityMode, readonly [string, string]> = {
-            fetch: ["Fetch throughput", "Fetched ops/cycle"],
-            issue: ["Issue throughput", `${analysis.executionStage.label} starts/cycle`],
-            commit: ["Commit throughput", "Retired ops/cycle"],
-            flush: ["Flushed work", "Flushed ops allocated/cycle"],
-            latency: [
-                "Issue-to-completion latency",
-                `Maximum ${analysis.executionStage.label} → completion latency/cycle`,
-            ],
-        };
-        const [title, detail] = labels[mode];
+        const info = activityInfo[mode];
+        const detail = mode === "issue"
+            ? `${analysis.executionStage.label} ${info.detail}`
+            : mode === "latency"
+                ? `Maximum ${analysis.executionStage.label} → ${info.detail}`
+                : info.detail;
         const maximum = series.maximum >= 255 ? "≥255" : format(series.maximum);
         const unit = mode === "latency" ? " cycles" : "/c";
         const flushed = mode === "fetch" || mode === "issue"
             ? " · shaded = later flushed"
             : "";
-        context.fillText(title, margin, 18);
+        context.fillText(info.title, margin, 18);
         context.fillText(
             `${detail} · observed max ${maximum}${unit}${flushed}`,
             margin,
@@ -264,31 +266,62 @@ function getPixelCycleRange(
         };
 }
 
-export function getTopDownBreakdownAtPixel(
+export function getCycleNavigatorToolTip(
     data: Readonly<TopDownData>,
+    mode: CycleNavigatorMode,
     spec: Readonly<KonataRenderSpec>,
     x: number,
     width: number,
-): TopDownBreakdown | null {
+): string | null {
     const range = getPixelCycleRange(data, spec, x, width);
-    return range === null ? null : getTopDownBreakdown(
-        data, range.startCycle, range.endCycle, range.maxSampleCycles,
-    );
-}
-
-export function getCycleActivityAtPixel(
-    data: Readonly<TopDownData>,
-    mode: CycleActivityMode,
-    spec: Readonly<KonataRenderSpec>,
-    x: number,
-    width: number,
-): CycleActivitySample | null {
-    const range = getPixelCycleRange(data, spec, x, width);
-    const analysis = data.analysis;
-    if (range === null || analysis === null) {
+    if (range === null) {
         return null;
     }
-    return getCycleActivity(
+    if (mode === "top-down") {
+        const sample = getTopDownBreakdown(
+            data, range.startCycle, range.endCycle, range.maxSampleCycles,
+        );
+        if (sample === null) {
+            return null;
+        }
+        const format = (value: number) => value.toFixed(0);
+        const percent = (value: number) => sample.totalSlots === 0
+            ? "0.0"
+            : (value / sample.totalSlots * 100).toFixed(1);
+        const admissionRows = sample.analysis.admissionStages.map((admission) =>
+            `${admission.stage.label} → ${sample.analysis.allocationStage.label}: ` +
+            `${format(admission.typicalLatency)} cycles usual`);
+        const recovery = sample.analysis.minimumRecoveryCycles === null
+            ? "minimum recovery unavailable"
+            : `minimum recovery ${format(sample.analysis.minimumRecoveryCycles)} cycles ` +
+                `(${sample.analysis.minimumRecoverySampleCount} samples)`;
+        const representedSlots = (sample.endCycle - sample.startCycle) *
+            sample.analysis.allocationWidth;
+        const observedSlots = sample.samplingStride === 1
+            ? `Observed slots: ${format(sample.totalSlots)}`
+            : `Sampled slots: ${format(sample.totalSlots)} of ` +
+                `${format(representedSlots)} (every ${sample.samplingStride} cycles)`;
+        return [
+            `Top-down-like (auto allocation: ${sample.analysis.allocationStage.label}, before ${sample.analysis.executionStage.label})`,
+            ...admissionRows.map((label) => `Allocation entrance: ${label}`),
+            `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
+            `${observedSlots} (allocation width ≥${format(sample.analysis.allocationWidth)}/cycle)`,
+            `Retiring: ${format(sample.retiringSlots)} (${percent(sample.retiringSlots)}%)`,
+            `Bad speculation (allocated & squashed): ${format(sample.squashedSlots)} (${percent(sample.squashedSlots)}%)`,
+            `Bad speculation (recovery bubbles): ${format(sample.recoveryBubbleSlots)} (${percent(sample.recoveryBubbleSlots)}%)`,
+            `Recovery windows: ${sample.analysis.recoveryWindowCount}; ${recovery}`,
+            `Frontend bound: ${format(sample.frontendBound)} (${percent(sample.frontendBound)}%)`,
+            `Backend bound: ${format(sample.backendBound)} (${percent(sample.backendBound)}%)`,
+            `Unresolved allocation: ${format(sample.unresolvedSlots)} (${percent(sample.unresolvedSlots)}%)`,
+            "All ops are analyzed; zoomed-out values are sampled.",
+        ].join("\n");
+    }
+
+    const analysis = data.analysis;
+    if (analysis === null) {
+        return null;
+    }
+    const sample = getCycleActivity(
         analysis.cycleActivity,
         data.cycleCount,
         mode,
@@ -296,31 +329,26 @@ export function getCycleActivityAtPixel(
         range.endCycle,
         range.maxSampleCycles,
     );
-}
-
-function drawCycleActivity(
-    context: CanvasRenderingContext2D,
-    sample: Readonly<CycleActivitySample>,
-    colors: Readonly<BreakdownColors>,
-    flushedColor: string,
-    left: number,
-    width: number,
-    height: number,
-): void {
-    const color = getActivityColor(sample.mode, colors);
-    const barHeight = sample.maximum === 0
-        ? 0
-        : height * sample.average / sample.maximum;
-    if (barHeight > 0) {
-        context.fillStyle = color;
-        context.fillRect(left, height - barHeight, width, barHeight);
-        const flushedHeight = height * sample.flushedAverage / sample.maximum;
-        if (flushedHeight > 0) {
-            // Dark／Lightの見え方の差はtheme側の色だけで吸収する。
-            context.fillStyle = flushedColor;
-            context.fillRect(left, height - barHeight, width, flushedHeight);
-        }
+    if (sample === null) {
+        return null;
     }
+    const info = activityInfo[mode];
+    const title = mode === "issue"
+        ? `${info.toolTipTitle} (${analysis.executionStage.label})`
+        : info.toolTipTitle;
+    return [
+        title,
+        `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
+        `Average: ${sample.average.toFixed(2)}${info.unit}`,
+        ...(sample.flushedAverage === 0
+            ? []
+            : [`Later flushed: ${sample.flushedAverage.toFixed(2)} ops/cycle`]),
+        `Observed trace maximum: ${sample.maximum}${info.unit}`,
+        ...(sample.samplingStride === 1
+            ? []
+            : [`Sampled every ${sample.samplingStride} cycles`]),
+        ...(mode === "latency" ? [] : ["Ops/cycle is not necessarily architectural IPC."]),
+    ].join("\n");
 }
 
 export function drawCycleNavigator(
@@ -378,15 +406,20 @@ export function drawCycleNavigator(
             endCycle,
             MAX_SAMPLED_CYCLES_PER_PIXEL,
         );
-        if (sample !== null) {
-            drawCycleActivity(
-                cycleNavigator.context,
-                sample,
-                colors,
-                style.traceNavigator.flushedColor,
-                left,
-                width,
-                cycleNavigator.height,
+        if (sample === null || sample.maximum === 0) {
+            return;
+        }
+        const height = cycleNavigator.height * sample.average / sample.maximum;
+        cycleNavigator.context.fillStyle = colors[activityInfo[mode].color];
+        cycleNavigator.context.fillRect(
+            left, cycleNavigator.height - height, width, height,
+        );
+        const flushedHeight = cycleNavigator.height * sample.flushedAverage / sample.maximum;
+        if (flushedHeight > 0) {
+            // Dark／Lightの差はtheme側の色だけで吸収する。
+            cycleNavigator.context.fillStyle = style.traceNavigator.flushedColor;
+            cycleNavigator.context.fillRect(
+                left, cycleNavigator.height - height, width, flushedHeight,
             );
         }
     };

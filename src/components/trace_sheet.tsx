@@ -21,8 +21,7 @@ import {
 } from "../core/top_down_analysis";
 import {
     drawCycleNavigator,
-    getCycleActivityAtPixel,
-    getTopDownBreakdownAtPixel,
+    getCycleNavigatorToolTip,
     type CycleNavigatorMode,
 } from "../core/trace_navigator_renderer";
 import {
@@ -1057,86 +1056,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const currentMetrics = displayMetricsRef.current;
         let text: string | null;
         if (pane === "navigator") {
-            const data = topDownData;
-            if (data !== null && cycleNavigatorMode === "top-down") {
-                const sample = getTopDownBreakdownAtPixel(
-                    data,
-                    viewController.currentSpec,
-                    x,
-                    event.currentTarget.clientWidth,
-                );
-                if (sample === null) {
-                    text = null;
-                } else {
-                    const format = (value: number) => value.toFixed(0);
-                    const percent = (value: number) => sample.totalSlots === 0
-                        ? "0.0"
-                        : (value / sample.totalSlots * 100).toFixed(1);
-                    const admissionRows = sample.analysis.admissionStages.map((admission) =>
-                        `${admission.stage.label} → ${sample.analysis.allocationStage.label}: ` +
-                        `${format(admission.typicalLatency)} cycles usual`);
-                    const recovery = sample.analysis.minimumRecoveryCycles === null
-                        ? "minimum recovery unavailable"
-                        : `minimum recovery ${format(sample.analysis.minimumRecoveryCycles)} cycles ` +
-                            `(${sample.analysis.minimumRecoverySampleCount} samples)`;
-                    const representedSlots = (sample.endCycle - sample.startCycle) *
-                        sample.analysis.allocationWidth;
-                    const observedSlots = sample.samplingStride === 1
-                        ? `Observed slots: ${format(sample.totalSlots)}`
-                        : `Sampled slots: ${format(sample.totalSlots)} of ` +
-                            `${format(representedSlots)} (every ${sample.samplingStride} cycles)`;
-                    text = [
-                        `Top-down-like (auto allocation: ${sample.analysis.allocationStage.label}, before ${sample.analysis.executionStage.label})`,
-                        ...admissionRows.map((label) => `Allocation entrance: ${label}`),
-                        `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
-                        `${observedSlots} (allocation width ≥${format(sample.analysis.allocationWidth)}/cycle)`,
-                        `Retiring: ${format(sample.retiringSlots)} (${percent(sample.retiringSlots)}%)`,
-                        `Bad speculation (allocated & squashed): ${format(sample.squashedSlots)} (${percent(sample.squashedSlots)}%)`,
-                        `Bad speculation (recovery bubbles): ${format(sample.recoveryBubbleSlots)} (${percent(sample.recoveryBubbleSlots)}%)`,
-                        `Recovery windows: ${sample.analysis.recoveryWindowCount}; ${recovery}`,
-                        `Frontend bound: ${format(sample.frontendBound)} (${percent(sample.frontendBound)}%)`,
-                        `Backend bound: ${format(sample.backendBound)} (${percent(sample.backendBound)}%)`,
-                        `Unresolved allocation: ${format(sample.unresolvedSlots)} (${percent(sample.unresolvedSlots)}%)`,
-                        "All ops are analyzed; zoomed-out values are sampled.",
-                    ].join("\n");
-                }
-            } else if (data !== null && cycleNavigatorMode !== "top-down") {
-                const sample = getCycleActivityAtPixel(
-                    data,
+            text = topDownData === null
+                ? null
+                : getCycleNavigatorToolTip(
+                    topDownData,
                     cycleNavigatorMode,
                     viewController.currentSpec,
                     x,
                     event.currentTarget.clientWidth,
                 );
-                if (sample === null) {
-                    text = null;
-                } else {
-                    const titles = {
-                        fetch: "Fetch throughput",
-                        issue: `Issue throughput (${data.analysis?.executionStage.label ?? "Issue"})`,
-                        commit: "Commit throughput (retired ops)",
-                        flush: "Flushed work (at allocation)",
-                        latency: "Issue-to-completion latency",
-                    } as const;
-                    const latency = cycleNavigatorMode === "latency";
-                    const unit = latency ? " cycles" : " ops/cycle";
-                    text = [
-                        titles[cycleNavigatorMode],
-                        `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
-                        `Average: ${sample.average.toFixed(2)}${unit}`,
-                        ...(sample.flushedAverage === 0
-                            ? []
-                            : [`Later flushed: ${sample.flushedAverage.toFixed(2)} ops/cycle`]),
-                        `Sampled peak: ${sample.peak}${unit}; observed trace maximum: ${sample.maximum}${unit}`,
-                        sample.samplingStride === 1
-                            ? `Observed cycles: ${sample.sampledCycleCount}`
-                            : `Sampled cycles: ${sample.sampledCycleCount} (every ${sample.samplingStride} cycles)`,
-                        ...(latency ? [] : ["Ops/cycle is not necessarily architectural IPC."]),
-                    ].join("\n");
-                }
-            } else {
-                text = null;
-            }
         } else {
             text = pane === "label"
                 ? currentMetrics.getLabelToolTipText(y)

@@ -18,8 +18,8 @@ import {
     createCycleActivity,
     getCycleSampleRange,
     growCycleActivity,
-    incrementCycle,
-    setCycleMaximum,
+    incrementCycleActivity,
+    setCycleLatency,
     type CycleActivity,
 } from "./cycle_activity_analysis";
 import type { Op, ParsedTrace } from "./model";
@@ -220,39 +220,35 @@ function getOpSlotClass(op: Readonly<Op>): TopDownSlotClass {
 
 interface AllocationStageObservation {
     readonly firstAllocationCycle: number | null;
-    readonly firstExecutionCycle: number | null;
     readonly completionCycle: number | null;
-    readonly completionLatency: number | null;
 }
 
 interface AdmissionLatency {
     readonly typicalLatency: number;
 }
 
-function observeAllocationStages(
+function observeOpStages(
     op: Readonly<Op>,
     laneID: number,
     allocationStageName: string,
     admissions: ReadonlyMap<string, Readonly<AdmissionLatency>>,
     onAdmissionStall: (startCycle: number, endCycle: number) => void,
-    executionStageName?: string,
-    onExecutionStart?: (cycle: number) => void,
+    executionStageName: string,
+    activity: CycleActivity,
     completionStageNames?: ReadonlySet<string>,
 ): AllocationStageObservation {
-    // 一命令のstage列からallocation時刻、completion proxy、入口停滞を同時に得る。
+    // 一命令のstage列からallocation時刻、completion proxy、入口停滞、activityを得る。
     // 同名stageの連続区間は一つの滞留として扱う。
+    incrementCycleActivity(activity, "fetch", op.fetchedCycle, op.flush);
+    if (op.retired) {
+        incrementCycleActivity(activity, "commit", op.retiredCycle);
+    }
     const lane = op.lanes[laneID];
     let firstAllocationCycle: number | null = null;
     let firstExecutionCycle: number | null = null;
     let completionCycle: number | null = null;
-    let completionLatency: number | null = null;
     if (lane === null || lane === undefined) {
-        return {
-            firstAllocationCycle,
-            firstExecutionCycle,
-            completionCycle,
-            completionLatency,
-        };
+        return { firstAllocationCycle, completionCycle };
     }
 
     let previousStageName: string | null = null;
@@ -284,9 +280,9 @@ function observeAllocationStages(
                 ? stage.startCycle
                 : Math.min(firstAllocationCycle, stage.startCycle);
         }
-        if (executionStageName !== undefined && stage.name === executionStageName) {
+        if (stage.name === executionStageName) {
             if (stageChanged) {
-                onExecutionStart?.(stage.startCycle);
+                incrementCycleActivity(activity, "issue", stage.startCycle, op.flush);
             }
             firstExecutionCycle ??= stage.startCycle;
             executionEnd = Math.max(executionEnd, endCycle);
@@ -302,14 +298,16 @@ function observeAllocationStages(
     if (firstExecutionCycle !== null) {
         // execution stageの終了をcompletionとして扱う。stage途中でtraceが切れた命令は
         // retiredCycleまでの観測値になる。
-        completionLatency = Math.max(0, executionEnd - firstExecutionCycle);
+        setCycleLatency(
+            activity,
+            firstExecutionCycle,
+            Math.max(0, executionEnd - firstExecutionCycle),
+        );
     }
-    return {
-        firstAllocationCycle,
-        firstExecutionCycle,
-        completionCycle,
-        completionLatency,
-    };
+    if (op.flush && firstAllocationCycle !== null) {
+        incrementCycleActivity(activity, "flush", firstAllocationCycle);
+    }
+    return { firstAllocationCycle, completionCycle };
 }
 
 async function classifyTopDownSlots(
@@ -368,19 +366,7 @@ async function classifyTopDownSlots(
         if (op === undefined || op.eof) {
             continue;
         }
-        incrementCycle(cycleActivity.fetch, op.fetchedCycle);
-        if (op.flush) {
-            incrementCycle(cycleActivity.flushed.fetch, op.fetchedCycle);
-        }
-        if (op.retired) {
-            incrementCycle(cycleActivity.commit, op.retiredCycle);
-        }
-        const {
-            firstAllocationCycle,
-            firstExecutionCycle,
-            completionCycle,
-            completionLatency,
-        } = observeAllocationStages(
+        const { firstAllocationCycle, completionCycle } = observeOpStages(
             op,
             allocationStage.laneID,
             allocationStage.stageName,
@@ -396,27 +382,15 @@ async function classifyTopDownSlots(
                 );
             },
             executionStage.stageName,
-            (cycle) => {
-                incrementCycle(cycleActivity.issue, cycle);
-                if (op.flush) {
-                    incrementCycle(cycleActivity.flushed.issue, cycle);
-                }
-            },
+            cycleActivity,
             completionStageNames,
         );
-        if (firstExecutionCycle !== null && completionLatency !== null) {
-            // Issueしたcycleには、そのcycleで観測した最大completion latencyを置く。
-            setCycleMaximum(cycleActivity.latency, firstExecutionCycle, completionLatency);
-        }
         if (firstAllocationCycle !== null) {
             // TMA Level 1のslotはexecution issueではなく、FrontendからBackendへuopを
             // 渡すallocation pointで数える。同じ命令が後段でreplayしても1 slotのままにする。
             addAllocatedSlot(
                 slots, allocationWidth, firstAllocationCycle, getOpSlotClass(op),
             );
-            if (op.flush) {
-                incrementCycle(cycleActivity.flush, firstAllocationCycle);
-            }
         }
 
         const tid = op.tid;
@@ -639,18 +613,7 @@ export function updateTopDownData(
         if (op.eof) {
             return;
         }
-        incrementCycle(analysis.cycleActivity.fetch, op.fetchedCycle);
-        if (op.flush) {
-            incrementCycle(analysis.cycleActivity.flushed.fetch, op.fetchedCycle);
-        }
-        if (op.retired) {
-            incrementCycle(analysis.cycleActivity.commit, op.retiredCycle);
-        }
-        const {
-            firstAllocationCycle,
-            firstExecutionCycle,
-            completionLatency,
-        } = observeAllocationStages(
+        const { firstAllocationCycle } = observeOpStages(
             op,
             analysis.allocationStage.laneID,
             analysis.allocationStage.stageName,
@@ -665,20 +628,8 @@ export function updateTopDownData(
                 );
             },
             analysis.executionStage.stageName,
-            (cycle) => {
-                incrementCycle(analysis.cycleActivity.issue, cycle);
-                if (op.flush) {
-                    incrementCycle(analysis.cycleActivity.flushed.issue, cycle);
-                }
-            },
+            analysis.cycleActivity,
         );
-        if (firstExecutionCycle !== null && completionLatency !== null) {
-            setCycleMaximum(
-                analysis.cycleActivity.latency,
-                firstExecutionCycle,
-                completionLatency,
-            );
-        }
         if (firstAllocationCycle === null) {
             return;
         }
@@ -688,9 +639,6 @@ export function updateTopDownData(
             firstAllocationCycle,
             getOpSlotClass(op),
         );
-        if (op.flush) {
-            incrementCycle(analysis.cycleActivity.flush, firstAllocationCycle);
-        }
     };
 
     let sourceLastID = data.sourceLastID;

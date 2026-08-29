@@ -4,6 +4,7 @@ export type CycleActivityMode = "fetch" | "issue" | "commit" | "flush" | "latenc
 
 export interface CycleSeries {
     readonly values: Uint8Array;
+    readonly flushedValues?: Uint8Array;
     maximum: number;
 }
 
@@ -13,21 +14,14 @@ export interface CycleActivity {
     readonly commit: CycleSeries;
     readonly flush: CycleSeries;
     readonly latency: CycleSeries;
-    readonly flushed: {
-        readonly fetch: CycleSeries;
-        readonly issue: CycleSeries;
-    };
 }
 
 export interface CycleActivitySample {
-    readonly mode: CycleActivityMode;
     readonly startCycle: number;
     readonly endCycle: number;
     readonly average: number;
-    readonly peak: number;
     readonly maximum: number;
     readonly flushedAverage: number;
-    readonly sampledCycleCount: number;
     readonly samplingStride: number;
 }
 
@@ -38,35 +32,53 @@ export interface CycleSampleRange {
     readonly samplingStride: number;
 }
 
-function createSeries(cycleCount: number): CycleSeries {
-    return { values: new Uint8Array(cycleCount), maximum: 0 };
+function createSeries(cycleCount: number, withFlushed = false): CycleSeries {
+    return {
+        values: new Uint8Array(cycleCount),
+        flushedValues: withFlushed ? new Uint8Array(cycleCount) : undefined,
+        maximum: 0,
+    };
 }
 
 export function createCycleActivity(cycleCount: number): CycleActivity {
     return {
-        fetch: createSeries(cycleCount),
-        issue: createSeries(cycleCount),
+        fetch: createSeries(cycleCount, true),
+        issue: createSeries(cycleCount, true),
         commit: createSeries(cycleCount),
         flush: createSeries(cycleCount),
         latency: createSeries(cycleCount),
-        flushed: {
-            fetch: createSeries(cycleCount),
-            issue: createSeries(cycleCount),
-        },
     };
 }
 
-export function incrementCycle(series: CycleSeries, cycle: number): void {
+function incrementValues(values: Uint8Array, cycle: number): number {
     const index = Math.floor(cycle);
-    if (!Number.isFinite(index) || index < 0 || index >= series.values.length) {
-        return;
+    if (!Number.isFinite(index) || index < 0 || index >= values.length) {
+        return 0;
     }
-    const value = Math.min(255, series.values[index] + 1);
-    series.values[index] = value;
-    series.maximum = Math.max(series.maximum, value);
+    const value = Math.min(255, values[index] + 1);
+    values[index] = value;
+    return value;
 }
 
-export function setCycleMaximum(series: CycleSeries, cycle: number, value: number): void {
+export function incrementCycleActivity(
+    activity: CycleActivity,
+    mode: CycleActivityMode,
+    cycle: number,
+    flushed = false,
+): void {
+    const series = activity[mode];
+    series.maximum = Math.max(series.maximum, incrementValues(series.values, cycle));
+    if (flushed && series.flushedValues !== undefined) {
+        incrementValues(series.flushedValues, cycle);
+    }
+}
+
+export function setCycleLatency(
+    activity: CycleActivity,
+    cycle: number,
+    value: number,
+): void {
+    const series = activity.latency;
     const index = Math.floor(cycle);
     if (!Number.isFinite(index) || index < 0 || index >= series.values.length) {
         return;
@@ -83,19 +95,19 @@ export function growCycleActivity(
     const grow = (source: Readonly<CycleSeries>): CycleSeries => {
         const values = new Uint8Array(capacity);
         values.set(source.values);
-        return { values, maximum: source.maximum };
+        let flushedValues: Uint8Array | undefined;
+        if (source.flushedValues !== undefined) {
+            flushedValues = new Uint8Array(capacity);
+            flushedValues.set(source.flushedValues);
+        }
+        return { values, flushedValues, maximum: source.maximum };
     };
     return {
-        ...activity,
         fetch: grow(activity.fetch),
         issue: grow(activity.issue),
         commit: grow(activity.commit),
         flush: grow(activity.flush),
         latency: grow(activity.latency),
-        flushed: {
-            fetch: grow(activity.flushed.fetch),
-            issue: grow(activity.flushed.issue),
-        },
     };
 }
 
@@ -145,33 +157,23 @@ export function getCycleActivity(
         return null;
     }
     const series = activity[mode];
-    const flushedSeries = mode === "fetch"
-        ? activity.flushed.fetch
-        : mode === "issue"
-            ? activity.flushed.issue
-            : null;
     let sum = 0;
     let flushedSum = 0;
-    let peak = 0;
-    let sampledCycleCount = 0;
+    const sampledCycleCount = Math.ceil(
+        (range.lastCycle - range.firstSampleCycle) / range.samplingStride,
+    );
     for (let cycle = range.firstSampleCycle;
         cycle < range.lastCycle;
         cycle += range.samplingStride) {
-        const value = series.values[cycle];
-        sum += value;
-        flushedSum += flushedSeries?.values[cycle] ?? 0;
-        peak = Math.max(peak, value);
-        sampledCycleCount++;
+        sum += series.values[cycle];
+        flushedSum += series.flushedValues?.[cycle] ?? 0;
     }
     return {
-        mode,
         startCycle: range.firstCycle,
         endCycle: range.lastCycle,
-        average: sampledCycleCount === 0 ? 0 : sum / sampledCycleCount,
-        peak,
+        average: sum / sampledCycleCount,
         maximum: series.maximum,
-        flushedAverage: sampledCycleCount === 0 ? 0 : flushedSum / sampledCycleCount,
-        sampledCycleCount,
+        flushedAverage: flushedSum / sampledCycleCount,
         samplingStride: range.samplingStride,
     };
 }

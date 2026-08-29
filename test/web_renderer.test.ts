@@ -12,8 +12,7 @@ import {
 } from "../src/core/top_down_analysis";
 import {
     drawCycleNavigator,
-    getCycleActivityAtPixel,
-    getTopDownBreakdownAtPixel,
+    getCycleNavigatorToolTip,
 } from "../src/core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -498,12 +497,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(analysis.admissionStages[0].stage.stageName, "arbitrary-source");
     assert.equal(analysis.admissionStages[0].typicalLatency, 1);
 
-    const fullAllocation = getTopDownBreakdownAtPixel(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
-        0,
-        160,
-    );
+    const fullAllocation = getTopDownBreakdown(activity, 3, 4);
     assert.ok(fullAllocation !== null);
     assert.equal(fullAllocation.totalSlots, 2);
     assert.equal(fullAllocation.retiringSlots, 1);
@@ -511,13 +505,15 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(fullAllocation.unresolvedSlots, 0);
     assert.equal(fullAllocation.frontendBound, 0);
     assert.equal(fullAllocation.backendBound, 0);
-
-    const partialAllocation = getTopDownBreakdownAtPixel(
+    assert.match(getCycleNavigatorToolTip(
         activity,
+        "top-down",
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
-        32,
+        0,
         160,
-    );
+    ) ?? "", /Retiring: 1 \(50\.0%\)/);
+
+    const partialAllocation = getTopDownBreakdown(activity, 4, 5);
     assert.ok(partialAllocation !== null);
     assert.equal(partialAllocation.totalSlots, 2);
     assert.equal(partialAllocation.retiringSlots, 0);
@@ -527,12 +523,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(partialAllocation.frontendBound, 1);
     assert.equal(partialAllocation.backendBound, 0);
 
-    const postSquashGap = getTopDownBreakdownAtPixel(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
-        96,
-        160,
-    );
+    const postSquashGap = getTopDownBreakdown(activity, 6, 7);
     assert.ok(postSquashGap !== null);
     assert.equal(postSquashGap.totalSlots, 2);
     // squash後の空白だけからrecoveryを推定せず、入口backpressureがなければFrontend。
@@ -540,12 +531,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(postSquashGap.frontendBound, 2);
     assert.equal(postSquashGap.backendBound, 0);
 
-    const frontend = getTopDownBreakdownAtPixel(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [9, 0] },
-        0,
-        160,
-    );
+    const frontend = getTopDownBreakdown(activity, 9, 10);
     assert.ok(frontend !== null);
     assert.equal(frontend.totalSlots, 2);
     assert.equal(frontend.retiringSlots, 1);
@@ -668,15 +654,14 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
     assert.equal(latency.average, 4);
     assert.equal(latency.maximum, 4);
 
-    const pixel = getCycleActivityAtPixel(
+    const toolTip = getCycleNavigatorToolTip(
         data,
         "fetch",
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
         0,
         160,
     );
-    assert.ok(pixel !== null);
-    assert.equal(pixel.average, 2);
+    assert.match(toolTip ?? "", /Average: 2\.00 ops\/cycle/);
 
     const fetchNavigator = createRecordedContext();
     drawCycleNavigator(
@@ -750,6 +735,12 @@ test("Top-down-like live updates stop at gaps and follow the retired fetch front
     assert.ok(filledGap !== null);
     assert.equal(filledGap.retiringSlots, 1);
     assert.equal(filledGap.backendBound, 1);
+    assert.equal(getCycleActivity(
+        filled.analysis.cycleActivity, filled.cycleCount, "fetch", 12, 13,
+    )?.average, 2);
+    assert.equal(getCycleActivity(
+        filled.analysis.cycleActivity, filled.cycleCount, "issue", 15, 16,
+    )?.average, 1);
     assert.equal(updateTopDownData(filled, trace), filled);
     trace.close();
 });
@@ -767,23 +758,13 @@ test("Top-down-like view distinguishes allocated dependencies from allocation ba
     assert.equal(analysis.admissionStages[0].stage.stageName, "entry-a");
     assert.equal(analysis.admissionStages[0].typicalLatency, 1);
 
-    const allocatedDependencies = getTopDownBreakdownAtPixel(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [4, 0] },
-        0,
-        160,
-    );
+    const allocatedDependencies = getTopDownBreakdown(activity, 4, 5);
     assert.ok(allocatedDependencies !== null);
     assert.equal(allocatedDependencies.retiringSlots, 4);
     assert.equal(allocatedDependencies.frontendBound, 0);
     assert.equal(allocatedDependencies.backendBound, 0);
 
-    const blocked = getTopDownBreakdownAtPixel(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [6, 0] },
-        0,
-        160,
-    );
+    const blocked = getTopDownBreakdown(activity, 6, 7);
     assert.ok(blocked !== null);
     assert.equal(blocked.frontendBound, 0);
     assert.equal(blocked.backendBound, 4);
@@ -821,11 +802,8 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
     assert.ok(sampled.sampledCycleCount <= 4);
     assert.equal(sampled.totalSlots, sampled.sampledCycleCount * analysis.allocationWidth);
 
-    const sampleCycle = (cycle: number) => getTopDownBreakdownAtPixel(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [cycle, 0] },
-        0,
-        160,
+    const sampleCycle = (cycle: number) => getTopDownBreakdown(
+        activity, cycle, cycle + 1,
     );
     const blocked = sampleCycle(12);
     assert.ok(blocked !== null);
@@ -867,21 +845,11 @@ test("Top-down-like view does not learn recovery from an unsupported sample", as
     assert.equal(analysis.minimumRecoveryCycles, null);
     assert.equal(analysis.minimumRecoverySampleCount, 0);
 
-    const beforeComplete = getTopDownBreakdownAtPixel(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [14, 0] },
-        0,
-        160,
-    );
+    const beforeComplete = getTopDownBreakdown(activity, 14, 15);
     assert.ok(beforeComplete !== null);
     assert.equal(beforeComplete.recoveryBubbleSlots, 0);
     assert.equal(beforeComplete.frontendBound, 1);
-    const afterComplete = getTopDownBreakdownAtPixel(
-        activity,
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [16, 0] },
-        0,
-        160,
-    );
+    const afterComplete = getTopDownBreakdown(activity, 16, 17);
     assert.ok(afterComplete !== null);
     assert.equal(afterComplete.recoveryBubbleSlots, 0);
     assert.equal(afterComplete.frontendBound, 1);
