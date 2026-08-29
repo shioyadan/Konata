@@ -25,7 +25,6 @@ import {
     getCycleNavigatorToolTip,
     getCycleNavigatorViewport,
     type CycleNavigatorMode,
-    type CycleNavigatorRangeMode,
 } from "../core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -42,10 +41,12 @@ import {
     type KonataViewFrame,
     type KonataViewMotion,
 } from "../core/konata_view_controller";
-import type {
-    ComparisonMode,
-    FindResult,
-    LoadState,
+import {
+    MIN_TRACE_NAVIGATOR_HEIGHT,
+    type ComparisonMode,
+    type FindResult,
+    type LoadState,
+    type TraceNavigatorSettings,
 } from "../store";
 
 declare const __KONATA_VERSION__: string;
@@ -81,7 +82,6 @@ const WHEEL_DELTA_PER_ZOOM_LEVEL = 120;
 const MAX_WHEEL_ZOOM_LEVELS = 2;
 const TRACKPAD_DELTA_PER_ZOOM_LEVEL = 100;
 const MAX_TRACKPAD_ZOOM_PER_FRAME = 0.25;
-const MIN_TRACE_NAVIGATOR_HEIGHT = 64;
 const MIN_PIPELINE_HEIGHT = 96;
 
 function normalizeWheelDelta(event: WheelEvent): number {
@@ -122,7 +122,7 @@ interface TraceSheetProps {
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
-    readonly traceNavigatorVisible: boolean;
+    readonly traceNavigator: Readonly<TraceNavigatorSettings>;
     readonly zoomStep: number;
     readonly findResult: FindResult | null;
     readonly comparison: {
@@ -133,6 +133,7 @@ interface TraceSheetProps {
     } | null;
     readonly splitterPosition: number;
     readonly onMoveSplitter: (position: number) => void;
+    readonly onSetTraceNavigator: (settings: Readonly<TraceNavigatorSettings>) => void;
     readonly onSetView: (view: KonataView, baselineView?: KonataView) => void;
     readonly onCloseFindResult: () => void;
     readonly onOpenTrace: () => void;
@@ -169,12 +170,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderVersion,
     webGLEnabled,
     tiledRenderingEnabled,
-    traceNavigatorVisible,
+    traceNavigator,
     zoomStep,
     findResult,
     comparison,
     splitterPosition,
     onMoveSplitter,
+    onSetTraceNavigator,
     onSetView,
     onCloseFindResult,
     onOpenTrace,
@@ -251,11 +253,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
     const [isTraceNavigatorResizing, setIsTraceNavigatorResizing] = useState(false);
-    const [traceNavigatorHeight, setTraceNavigatorHeight] = useState<number | null>(null);
-    const [cycleNavigatorMode, setCycleNavigatorMode] =
-        useState<CycleNavigatorMode>("top-down");
-    const [cycleNavigatorRangeMode, setCycleNavigatorRangeMode] =
-        useState<CycleNavigatorRangeMode>("overview");
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
     // UI／制御層は集計結果の寿命だけを所有する。TopDownDataはTraceから
     // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
@@ -267,7 +264,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [topDownError, setTopDownError] = useState(false);
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
-    const showTraceNavigator = traceNavigatorVisible && comparison === null &&
+    const showTraceNavigator = traceNavigator.visible && comparison === null &&
         trace !== null;
     const topDownSampleReady = trace !== null && (loadState === "ready" ||
         trace.opCount >= TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT);
@@ -503,9 +500,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 candidateSpec,
                 cycleNavigatorLabelCanvas,
                 cycleNavigatorCanvas,
-                cycleNavigatorMode,
+                traceNavigator.mode,
                 cycleNavigatorDetailsVisibleRef.current,
-                cycleNavigatorRangeMode,
+                traceNavigator.rangeMode,
             );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
@@ -575,8 +572,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         baselineTrace,
         comparisonMode,
         comparisonOpacity,
-        cycleNavigatorMode,
-        cycleNavigatorRangeMode,
         displayRenderer,
         findResult,
         loadState,
@@ -587,6 +582,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         baselineTiledRenderer,
         tiledRenderingEnabled,
         trace,
+        traceNavigator,
         webGLEnabled,
     ]);
 
@@ -669,14 +665,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (showTraceNavigator && topDownData !== null) {
             redraw();
         }
-    }, [cycleNavigatorMode, cycleNavigatorRangeMode, redraw, showTraceNavigator, topDownData]);
+    }, [redraw, showTraceNavigator, topDownData, traceNavigator]);
 
     useLayoutEffect(() => {
-        if (traceNavigatorHeight !== null) {
-            // viewer外形は変わらないため、子paneのrow変更後は明示的にCanvasを再描画する。
-            redraw();
-        }
-    }, [redraw, traceNavigatorHeight]);
+        // viewer外形は変わらないため、子paneのrow変更後は明示的にCanvasを再描画する。
+        redraw();
+    }, [redraw, traceNavigator.height]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
@@ -772,10 +766,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const rect = viewer.getBoundingClientRect();
         const maxHeight = Math.max(0, rect.height - MIN_PIPELINE_HEIGHT);
         const minHeight = Math.min(MIN_TRACE_NAVIGATOR_HEIGHT, maxHeight);
-        setTraceNavigatorHeight(Math.round(Math.min(
-            Math.max(rect.bottom - clientY, minHeight),
-            maxHeight,
-        )));
+        onSetTraceNavigator({
+            ...traceNavigator,
+            height: Math.round(Math.min(
+                Math.max(rect.bottom - clientY, minHeight),
+                maxHeight,
+            )),
+        });
     };
 
     const handleTraceNavigatorResizerPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -1100,7 +1097,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     };
 
     const handleCycleNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
-        if (event.button !== 0 || cycleNavigatorRangeMode !== "overview" ||
+        if (event.button !== 0 || traceNavigator.rangeMode !== "overview" ||
             topDownData === null || cycleNavigatorPointerRef.current !== null) {
             return;
         }
@@ -1172,11 +1169,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 ? null
                 : getCycleNavigatorToolTip(
                     topDownData,
-                    cycleNavigatorMode,
+                    traceNavigator.mode,
                     viewController.currentSpec,
                     x,
                     event.currentTarget.clientWidth,
-                    cycleNavigatorRangeMode,
+                    traceNavigator.rangeMode,
                 );
         } else {
             text = pane === "label"
@@ -1207,9 +1204,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             // 保存したdesktop幅を維持したまま、狭い画面ではCSS側だけで表示幅を制限する。
             style={{
                 "--label-pane-width": `${splitterPosition}px`,
-                ...(traceNavigatorHeight === null
-                    ? {}
-                    : { "--trace-navigator-height": `${traceNavigatorHeight}px` }),
+                "--trace-navigator-height": `${traceNavigator.height}px`,
             } as CSSProperties}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -1263,7 +1258,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         aria-label="Resize trace navigator"
                         aria-orientation="horizontal"
                         aria-valuemin={MIN_TRACE_NAVIGATOR_HEIGHT}
-                        aria-valuenow={traceNavigatorHeight ?? undefined}
+                        aria-valuenow={traceNavigator.height}
                         onClick={(event) => event.stopPropagation()}
                         onPointerDown={handleTraceNavigatorResizerPointerDown}
                         onPointerMove={handleTraceNavigatorResizerPointerMove}
@@ -1282,10 +1277,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         <select
                             className="trace-navigator-mode"
                             aria-label="Cycle navigator mode"
-                            value={cycleNavigatorMode}
-                            onChange={(event) => setCycleNavigatorMode(
-                                event.currentTarget.value as CycleNavigatorMode,
-                            )}
+                            value={traceNavigator.mode}
+                            onChange={(event) => onSetTraceNavigator({
+                                ...traceNavigator,
+                                mode: event.currentTarget.value as CycleNavigatorMode,
+                            })}
                         >
                             <option value="top-down">Top-down</option>
                             <option value="fetch">Fetch</option>
@@ -1303,8 +1299,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                                 <button
                                     key={rangeMode}
                                     type="button"
-                                    aria-pressed={cycleNavigatorRangeMode === rangeMode}
-                                    onClick={() => setCycleNavigatorRangeMode(rangeMode)}
+                                    aria-pressed={traceNavigator.rangeMode === rangeMode}
+                                    onClick={() => onSetTraceNavigator({
+                                        ...traceNavigator,
+                                        rangeMode,
+                                    })}
                                 >
                                     {rangeMode === "follow" ? "Follow" : "Overview"}
                                 </button>
@@ -1313,7 +1312,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     </section>
                     <div className="trace-navigator-cycle-divider" aria-hidden="true" />
                     <section
-                        className={`viewer-pane trace-navigator-pane trace-navigator-cycle-pane${cycleNavigatorRangeMode === "overview" ? " is-overview" : ""}`}
+                        className={`viewer-pane trace-navigator-pane trace-navigator-cycle-pane${traceNavigator.rangeMode === "overview" ? " is-overview" : ""}`}
                         aria-label="Cycle navigator"
                         onPointerDown={(event) => event.stopPropagation()}
                     >

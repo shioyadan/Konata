@@ -2499,6 +2499,9 @@ async function run() {
             cursor: getComputedStyle(resizer).cursor,
             capturedPointers: captured.size
         };
+        const storedNavigator = JSON.parse(
+            localStorage.getItem("konata.viewSettings") ?? "null"
+        )?.traceNavigator ?? null;
         delete resizer.setPointerCapture;
         delete resizer.hasPointerCapture;
         delete resizer.releasePointerCapture;
@@ -2507,6 +2510,7 @@ async function run() {
         return {
             ...result,
             resized,
+            storedNavigator,
             removed: document.querySelector(".trace-navigator-pane") === null
         };
     })()`);
@@ -2528,6 +2532,10 @@ async function run() {
         navigatorState.resized.position !== "180" ||
         navigatorState.resized.cursor !== "row-resize" ||
         navigatorState.resized.capturedPointers !== 0 ||
+        navigatorState.storedNavigator?.visible !== true ||
+        navigatorState.storedNavigator?.mode !== "commit" ||
+        navigatorState.storedNavigator?.rangeMode !== "overview" ||
+        navigatorState.storedNavigator?.height !== 180 ||
         !navigatorState.removed) {
         throw new Error(`Trace navigator is incomplete: ${JSON.stringify(navigatorState)}`);
     }
@@ -4125,11 +4133,13 @@ async function run() {
         const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        const navigator = document.querySelector('input[aria-label="Trace navigator"]');
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
             !(zoomSpeed instanceof HTMLSelectElement) ||
             !(webGL instanceof HTMLInputElement) ||
-            !(tiledRendering instanceof HTMLInputElement)) {
+            !(tiledRendering instanceof HTMLInputElement) ||
+            !(navigator instanceof HTMLInputElement)) {
             throw new Error("The view settings controls were not found.");
         }
         theme.value = "light";
@@ -4139,6 +4149,7 @@ async function run() {
         zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         webGL.click();
         tiledRendering.click();
+        navigator.click();
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
             resolve({
@@ -4147,6 +4158,7 @@ async function run() {
                 zoomSpeed: zoomSpeed.value,
                 webGL: webGL.checked,
                 tiledRendering: tiledRendering.checked,
+                navigator: navigator.checked,
                 stored,
                 storesSplitLanes: stored !== null && "splitLanes" in stored,
                 storesLegacyLaneHeight: stored !== null && "drawTextThreshold" in stored
@@ -4158,10 +4170,15 @@ async function run() {
         viewSettingsSetupState.zoomSpeed !== "normal" ||
         viewSettingsSetupState.webGL ||
         viewSettingsSetupState.tiledRendering ||
+        !viewSettingsSetupState.navigator ||
         viewSettingsSetupState.stored?.theme !== "light" ||
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
         viewSettingsSetupState.stored?.webGLEnabled !== false ||
         viewSettingsSetupState.stored?.tiledRenderingEnabled !== false ||
+        viewSettingsSetupState.stored?.traceNavigator?.visible !== true ||
+        viewSettingsSetupState.stored?.traceNavigator?.mode !== "commit" ||
+        viewSettingsSetupState.stored?.traceNavigator?.rangeMode !== "overview" ||
+        viewSettingsSetupState.stored?.traceNavigator?.height !== 180 ||
         viewSettingsSetupState.storesSplitLanes ||
         viewSettingsSetupState.storesLegacyLaneHeight) {
         throw new Error(`View settings setup is incomplete: ${JSON.stringify(viewSettingsSetupState)}`);
@@ -4183,6 +4200,14 @@ async function run() {
             split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
+            navigator: document.querySelector('input[aria-label="Trace navigator"]')?.checked ?? null,
+            navigatorMode: document.querySelector('select[aria-label="Cycle navigator mode"]')?.value ?? null,
+            navigatorOverview: document.querySelector(
+                '[aria-label="Navigator range"] button[aria-pressed="true"]'
+            )?.textContent?.trim() ?? null,
+            navigatorHeight: Number(document.querySelector(
+                '[aria-label="Resize trace navigator"]'
+            )?.getAttribute("aria-valuenow") ?? -1),
             textVisibility: document.querySelector('input[aria-label="Text labels visibility level"]')?.value ?? null,
             zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
@@ -4192,6 +4217,10 @@ async function run() {
         persistedViewSettingsState.split ||
         persistedViewSettingsState.webGL ||
         persistedViewSettingsState.tiledRendering ||
+        !persistedViewSettingsState.navigator ||
+        persistedViewSettingsState.navigatorMode !== "commit" ||
+        persistedViewSettingsState.navigatorOverview !== "Overview" ||
+        persistedViewSettingsState.navigatorHeight !== 180 ||
         persistedViewSettingsState.textVisibility !== "6" ||
         persistedViewSettingsState.zoomSpeed !== "normal" ||
         persistedViewSettingsState.zoom !== "141%") {
@@ -4206,6 +4235,7 @@ async function run() {
         delete stored.drawZoomFactor;
         delete stored.webGLEnabled;
         delete stored.tiledRenderingEnabled;
+        delete stored.traceNavigator;
         stored.colorScheme = "Auto";
         stored.customColorScheme.defaultColor.h = 999;
         localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
@@ -4240,8 +4270,10 @@ async function run() {
             zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
+            navigator: document.querySelector('input[aria-label="Trace navigator"]')?.checked ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
             migratedLaneHeight: migrated?.textLabelMinimumLaneHeight ?? null,
+            migratedNavigator: migrated?.traceNavigator ?? null,
             removedLegacyLaneHeight: migrated !== null && !("drawTextThreshold" in migrated)
         };
         document.querySelector('.custom-color-dialog button[aria-label="Close custom colors"]')?.click();
@@ -4254,8 +4286,13 @@ async function run() {
         recoveredCustomColorState.zoomSpeed !== "normal" ||
         !recoveredCustomColorState.webGL ||
         !recoveredCustomColorState.tiledRendering ||
+        recoveredCustomColorState.navigator ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.migratedLaneHeight !== 3 ||
+        recoveredCustomColorState.migratedNavigator?.visible !== false ||
+        recoveredCustomColorState.migratedNavigator?.mode !== "top-down" ||
+        recoveredCustomColorState.migratedNavigator?.rangeMode !== "overview" ||
+        recoveredCustomColorState.migratedNavigator?.height !== 64 ||
         !recoveredCustomColorState.removedLegacyLaneHeight) {
         throw new Error(`Custom color recovery is incomplete: ${JSON.stringify(recoveredCustomColorState)}`);
     }
