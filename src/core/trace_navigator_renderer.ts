@@ -1,6 +1,11 @@
-/** Top-down-likeの集計結果をtrace navigatorのcycle方向Canvasへ描画する。 */
+/** Top-down-like分類またはcycle activityをNavigatorのcycle方向Canvasへ描画する。 */
 import darkStyle from "../../theme/dark/style.json";
 import lightStyle from "../../theme/light/style.json";
+import {
+    getCycleActivity,
+    type CycleActivityMode,
+    type CycleActivitySample,
+} from "./cycle_activity_analysis";
 import {
     getTopDownBreakdown,
     type TopDownBreakdown,
@@ -17,6 +22,14 @@ import {
 const MAX_SAMPLED_CYCLES_PER_PIXEL = 64;
 const styles = { light: lightStyle, dark: darkStyle };
 
+export type CycleNavigatorMode = "top-down" | CycleActivityMode;
+
+interface PixelCycleRange {
+    readonly startCycle: number;
+    readonly endCycle: number;
+    readonly maxSampleCycles: number;
+}
+
 interface PreparedCanvas {
     readonly context: CanvasRenderingContext2D;
     readonly width: number;
@@ -29,6 +42,8 @@ interface BreakdownColors {
     readonly unresolved: string;
     readonly frontendBound: string;
     readonly backendBound: string;
+    readonly flush: string;
+    readonly latency: string;
 }
 
 interface StageColorTone {
@@ -76,8 +91,25 @@ function createBreakdownColors(
         badSpeculation: create(0, true),
         frontendBound: create(240),
         backendBound: create(30),
+        flush: create(0),
+        latency: create(280),
         unresolved: backgroundColor,
     };
+}
+
+function getActivityColor(
+    mode: CycleActivityMode,
+    colors: Readonly<BreakdownColors>,
+): string {
+    return mode === "fetch"
+        ? colors.frontendBound
+        : mode === "issue"
+            ? colors.backendBound
+            : mode === "commit"
+                ? colors.retiring
+                : mode === "flush"
+                    ? colors.flush
+                    : colors.latency;
 }
 
 function drawBreakdown(
@@ -114,6 +146,7 @@ function drawLabels(
     spec: Readonly<KonataRenderSpec>,
     canvas: Readonly<PreparedCanvas>,
     colors: Readonly<BreakdownColors>,
+    mode: CycleNavigatorMode,
 ): void {
     const { analysis } = data;
     const style = styles[spec.theme];
@@ -132,6 +165,34 @@ function drawLabels(
     const format = (value: number) => Number.isInteger(value)
         ? value.toString()
         : value.toFixed(1);
+    if (mode !== "top-down") {
+        const activity = analysis.cycleActivity;
+        const series = activity[mode];
+        const labels: Record<CycleActivityMode, readonly [string, string]> = {
+            fetch: ["Fetch throughput", "Fetched ops/cycle"],
+            issue: ["Issue throughput", `${analysis.executionStage.label} starts/cycle`],
+            commit: ["Commit throughput", "Retired ops/cycle"],
+            flush: ["Flushed work", "Flushed ops allocated/cycle"],
+            latency: [
+                "Issue-to-completion latency",
+                `Maximum ${analysis.executionStage.label} → completion latency/cycle`,
+            ],
+        };
+        const [title, detail] = labels[mode];
+        const maximum = series.maximum >= 255 ? "≥255" : format(series.maximum);
+        const unit = mode === "latency" ? " cycles" : "/c";
+        const flushed = mode === "fetch" || mode === "issue"
+            ? " · shaded = later flushed"
+            : "";
+        context.fillText(title, margin, 18);
+        context.fillText(
+            `${detail} · observed max ${maximum}${unit}${flushed}`,
+            margin,
+            42,
+        );
+        return;
+    }
+
     context.fillText("Top-down-like (auto)", margin, 13);
     context.fillText(
         `Allocation ${analysis.allocationStage.label} · width ≥${format(analysis.allocationWidth)}/c`,
@@ -176,31 +237,90 @@ function drawLabels(
     });
 }
 
+function getPixelCycleRange(
+    data: Readonly<TopDownData>,
+    spec: Readonly<KonataRenderSpec>,
+    x: number,
+    width: number,
+): PixelCycleRange | null {
+    if (x < 0 || x >= width) {
+        return null;
+    }
+    const opWidth = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
+    const cycle = spec.position[0] + x / opWidth;
+    if (cycle < 0 || cycle >= data.cycleCount) {
+        return null;
+    }
+    return opWidth >= 1
+        ? {
+            startCycle: Math.floor(cycle),
+            endCycle: Math.floor(cycle) + 1,
+            maxSampleCycles: Number.POSITIVE_INFINITY,
+        }
+        : {
+            startCycle: cycle,
+            endCycle: spec.position[0] + (x + 1) / opWidth,
+            maxSampleCycles: MAX_SAMPLED_CYCLES_PER_PIXEL,
+        };
+}
+
 export function getTopDownBreakdownAtPixel(
     data: Readonly<TopDownData>,
     spec: Readonly<KonataRenderSpec>,
     x: number,
     width: number,
 ): TopDownBreakdown | null {
-    if (x < 0 || x >= width) {
-        return null;
-    }
-    const cycle = spec.position[0] + x /
-        (KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel));
-    if (cycle < 0 || cycle >= data.cycleCount) {
-        return null;
-    }
-    const opWidth = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
-    if (opWidth >= 1) {
-        const startCycle = Math.floor(cycle);
-        return getTopDownBreakdown(data, startCycle, startCycle + 1);
-    }
-    return getTopDownBreakdown(
-        data,
-        cycle,
-        spec.position[0] + (x + 1) / opWidth,
-        MAX_SAMPLED_CYCLES_PER_PIXEL,
+    const range = getPixelCycleRange(data, spec, x, width);
+    return range === null ? null : getTopDownBreakdown(
+        data, range.startCycle, range.endCycle, range.maxSampleCycles,
     );
+}
+
+export function getCycleActivityAtPixel(
+    data: Readonly<TopDownData>,
+    mode: CycleActivityMode,
+    spec: Readonly<KonataRenderSpec>,
+    x: number,
+    width: number,
+): CycleActivitySample | null {
+    const range = getPixelCycleRange(data, spec, x, width);
+    const analysis = data.analysis;
+    if (range === null || analysis === null) {
+        return null;
+    }
+    return getCycleActivity(
+        analysis.cycleActivity,
+        data.cycleCount,
+        mode,
+        range.startCycle,
+        range.endCycle,
+        range.maxSampleCycles,
+    );
+}
+
+function drawCycleActivity(
+    context: CanvasRenderingContext2D,
+    sample: Readonly<CycleActivitySample>,
+    colors: Readonly<BreakdownColors>,
+    flushedColor: string,
+    left: number,
+    width: number,
+    height: number,
+): void {
+    const color = getActivityColor(sample.mode, colors);
+    const barHeight = sample.maximum === 0
+        ? 0
+        : height * sample.average / sample.maximum;
+    if (barHeight > 0) {
+        context.fillStyle = color;
+        context.fillRect(left, height - barHeight, width, barHeight);
+        const flushedHeight = height * sample.flushedAverage / sample.maximum;
+        if (flushedHeight > 0) {
+            // Dark／Lightの見え方の差はtheme側の色だけで吸収する。
+            context.fillStyle = flushedColor;
+            context.fillRect(left, height - barHeight, width, flushedHeight);
+        }
+    }
 }
 
 export function drawCycleNavigator(
@@ -208,6 +328,7 @@ export function drawCycleNavigator(
     spec: Readonly<KonataRenderSpec>,
     labelCanvas: HTMLCanvasElement,
     cycleCanvas: HTMLCanvasElement,
+    mode: CycleNavigatorMode = "top-down",
 ): void {
     const label = prepareCanvas(labelCanvas);
     const cycleNavigator = prepareCanvas(cycleCanvas);
@@ -220,27 +341,64 @@ export function drawCycleNavigator(
         style.pipelinePane.stageBackgroundColor,
         style.pipelinePane.backgroundColor,
     );
-    drawLabels(data, spec, label, colors);
-    if (data.analysis === null) {
+    drawLabels(data, spec, label, colors, mode);
+    const analysis = data.analysis;
+    if (analysis === null) {
         return;
     }
 
     const opWidth = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
     const leftCycle = spec.position[0];
     const rightCycle = leftCycle + cycleNavigator.width / opWidth;
+    const drawRange = (startCycle: number, endCycle: number, left: number, width: number) => {
+        if (mode === "top-down") {
+            const sample = getTopDownBreakdown(
+                data,
+                startCycle,
+                endCycle,
+                MAX_SAMPLED_CYCLES_PER_PIXEL,
+            );
+            if (sample !== null) {
+                drawBreakdown(
+                    cycleNavigator.context,
+                    sample,
+                    colors,
+                    left,
+                    width,
+                    cycleNavigator.height,
+                );
+            }
+            return;
+        }
+        const sample = getCycleActivity(
+            analysis.cycleActivity,
+            data.cycleCount,
+            mode,
+            startCycle,
+            endCycle,
+            MAX_SAMPLED_CYCLES_PER_PIXEL,
+        );
+        if (sample !== null) {
+            drawCycleActivity(
+                cycleNavigator.context,
+                sample,
+                colors,
+                style.traceNavigator.flushedColor,
+                left,
+                width,
+                cycleNavigator.height,
+            );
+        }
+    };
     if (opWidth >= 1) {
         const firstCycle = Math.max(0, Math.floor(leftCycle));
         const lastCycle = Math.min(data.cycleCount, Math.ceil(rightCycle));
         for (let cycle = firstCycle; cycle < lastCycle; cycle++) {
             const startCycle = cycle;
             const endCycle = cycle + 1;
-            const sample = getTopDownBreakdown(data, startCycle, endCycle);
-            if (sample !== null) {
-                const left = Math.max(0, (startCycle - leftCycle) * opWidth);
-                const right = Math.min(cycleNavigator.width, (endCycle - leftCycle) * opWidth);
-                drawBreakdown(cycleNavigator.context, sample, colors, left,
-                    Math.max(1, right - left), cycleNavigator.height);
-            }
+            const left = Math.max(0, (startCycle - leftCycle) * opWidth);
+            const right = Math.min(cycleNavigator.width, (endCycle - leftCycle) * opWidth);
+            drawRange(startCycle, endCycle, left, Math.max(1, right - left));
         }
         return;
     }
@@ -248,13 +406,6 @@ export function drawCycleNavigator(
     for (let x = 0; x < cycleNavigator.width; x++) {
         const startCycle = Math.max(0, leftCycle + x / opWidth);
         const endCycle = Math.min(data.cycleCount, leftCycle + (x + 1) / opWidth);
-        const sample = getTopDownBreakdown(
-            data, startCycle, endCycle, MAX_SAMPLED_CYCLES_PER_PIXEL,
-        );
-        if (sample !== null) {
-            drawBreakdown(
-                cycleNavigator.context, sample, colors, x, 1, cycleNavigator.height,
-            );
-        }
+        drawRange(startCycle, endCycle, x, 1);
     }
 }

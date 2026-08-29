@@ -2379,12 +2379,18 @@ async function run() {
         const pipeline = document.querySelector(".pipeline-pane");
         const labelCanvas = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
         const navigatorCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+        const navigatorMode = document.querySelector('select[aria-label="Cycle navigator mode"]');
         const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
         if (!(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
             !(labelCanvas instanceof HTMLCanvasElement) ||
-            !(navigatorCanvas instanceof HTMLCanvasElement) || !(resizer instanceof HTMLElement)) {
+            !(navigatorCanvas instanceof HTMLCanvasElement) ||
+            !(navigatorMode instanceof HTMLSelectElement) || !(resizer instanceof HTMLElement)) {
             throw new Error("The trace navigator pane was not created.");
         }
+        navigatorMode.value = "commit";
+        navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        await nextFrame();
         const result = {
             checked: toggle.checked,
             hasClass: viewer.classList.contains("has-trace-navigator"),
@@ -2393,7 +2399,9 @@ async function run() {
                 Math.round(document.querySelector(".label-pane")?.getBoundingClientRect().width ?? -1),
             navigatorAligned: Math.round(navigatorCanvas.getBoundingClientRect().width) ===
                 Math.round(pipeline.getBoundingClientRect().width),
-            pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height)
+            pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height),
+            mode: navigatorMode.value,
+            modeOptions: [...navigatorMode.options].map((option) => option.value)
         };
         // 境界へ重ねたseparatorをdragし、上下Canvasのlayoutとbacking storeが追従することを確認する。
         const captured = new Set();
@@ -2443,6 +2451,8 @@ async function run() {
         navigatorState.paneHeight < 120 || navigatorState.paneHeight > 128 ||
         !navigatorState.labelAligned ||
         !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 128 ||
+        navigatorState.mode !== "commit" ||
+        navigatorState.modeOptions?.join(",") !== "top-down,fetch,issue,commit,flush,latency" ||
         navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
         navigatorState.resized.pipelineHeightReduction !== 180 ||
         navigatorState.resized.canvasHeight < 179 ||

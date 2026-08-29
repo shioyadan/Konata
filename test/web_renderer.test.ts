@@ -4,6 +4,7 @@ import test from "node:test";
 import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
+import { getCycleActivity } from "../src/core/cycle_activity_analysis";
 import {
     buildTopDownData,
     getTopDownBreakdown,
@@ -11,6 +12,7 @@ import {
 } from "../src/core/top_down_analysis";
 import {
     drawCycleNavigator,
+    getCycleActivityAtPixel,
     getTopDownBreakdownAtPixel,
 } from "../src/core/trace_navigator_renderer";
 import {
@@ -322,6 +324,19 @@ function appendTopDownBreakdownOp(
     trace.updateLastCycle(Math.max(trace.lastCycle, op.retiredCycle));
 }
 
+function createCycleActivityTrace(): ParsedTrace {
+    const trace = createTopDownBreakdownTrace();
+    // 追加命令のIssue→Completion latencyを4 cycleとして観測する。
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 10, 11],
+        ["arbitrary-reservoir", 11, 12],
+        ["arbitrary-event", 12, 16],
+        ["arbitrary-tail", 16, 17],
+    ]);
+    trace.updateLastCycle(18);
+    return trace;
+}
+
 function createAllocationBlockedTrace(): ParsedTrace {
     const store = new ArrayOpStore();
     const levelMap = new StageLevelMap();
@@ -611,6 +626,91 @@ test("Top-down-like analysis fixes its trace range while a live trace grows", as
     trace.close();
 });
 
+test("Cycle navigator counts throughput, flushed work, and latency", async () => {
+    const trace = createCycleActivityTrace();
+    const data = await buildTopDownData(trace);
+    assert.ok(data !== null && data.analysis !== null);
+    const analysis = data.analysis;
+    const sample = (
+        mode: "fetch" | "issue" | "commit" | "flush" | "latency",
+        startCycle: number,
+        endCycle: number,
+    ) => getCycleActivity(
+        analysis.cycleActivity,
+        data.cycleCount,
+        mode,
+        startCycle,
+        endCycle,
+    );
+
+    const fetch = sample("fetch", 2, 3);
+    assert.ok(fetch !== null);
+    assert.equal(fetch.average, 2);
+    assert.equal(fetch.flushedAverage, 1);
+    assert.equal(fetch.maximum, 2);
+    const flushedIssue = sample("issue", 5, 6);
+    assert.ok(flushedIssue !== null);
+    assert.equal(flushedIssue.average, 1);
+    assert.equal(flushedIssue.flushedAverage, 1);
+    const issue = sample("issue", 12, 13);
+    assert.ok(issue !== null);
+    assert.equal(issue.average, 1);
+    const commit = sample("commit", 17, 18);
+    assert.ok(commit !== null);
+    assert.equal(commit.average, 1);
+    assert.equal(commit.flushedAverage, 0);
+
+    const flush = sample("flush", 3, 4);
+    assert.ok(flush !== null);
+    assert.equal(flush.average, 1);
+    const latency = sample("latency", 12, 13);
+    assert.ok(latency !== null);
+    assert.equal(latency.average, 4);
+    assert.equal(latency.maximum, 4);
+
+    const pixel = getCycleActivityAtPixel(
+        data,
+        "fetch",
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+        0,
+        160,
+    );
+    assert.ok(pixel !== null);
+    assert.equal(pixel.average, 2);
+
+    const fetchNavigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+        createCanvas(createRecordedContext().context, 500, 128),
+        createCanvas(fetchNavigator.context, 160, 128),
+        "fetch",
+    );
+    assert.ok(fetchNavigator.fillStyles.includes("hsl(0,0%,55%)"));
+    const lightFetchNavigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0], theme: "light" },
+        createCanvas(createRecordedContext().context, 500, 128),
+        createCanvas(lightFetchNavigator.context, 160, 128),
+        "fetch",
+    );
+    assert.ok(lightFetchNavigator.fillStyles.includes("rgba(0,0,0,0.35)"));
+
+    const labels = createRecordedContext();
+    const navigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [12, 0] },
+        createCanvas(labels.context, 500, 128),
+        createCanvas(navigator.context, 160, 128),
+        "latency",
+    );
+    assert.ok(labels.fillTexts.some(([text]) => text === "Issue-to-completion latency"));
+    assert.ok(navigator.fillStyles.includes("hsl(280,35%,55%)"));
+    trace.close();
+});
+
 test("Top-down-like live updates stop at gaps and follow the retired fetch frontier", async () => {
     const trace = createTopDownBreakdownTrace();
     const data = await buildTopDownData(trace);
@@ -753,6 +853,7 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
         createCanvas(createRecordedContext().context, 160, 128),
     );
     assert.ok(labels.fillTexts.some(([text]) => text.includes("recovery 11, +3c min")));
+
     trace.close();
 });
 

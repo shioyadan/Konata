@@ -35,6 +35,10 @@
 
     },
 
+    "traceNavigator": {
+        "flushedColor": "rgba(0,0,0,0.35)"
+    },
+
     "colorScheme": {
         "Onikiri": {
             "defaultColor": "#aaffaa",

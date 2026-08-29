@@ -21,7 +21,9 @@ import {
 } from "../core/top_down_analysis";
 import {
     drawCycleNavigator,
+    getCycleActivityAtPixel,
     getTopDownBreakdownAtPixel,
+    type CycleNavigatorMode,
 } from "../core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -243,6 +245,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [isResizing, setIsResizing] = useState(false);
     const [isTraceNavigatorResizing, setIsTraceNavigatorResizing] = useState(false);
     const [traceNavigatorHeight, setTraceNavigatorHeight] = useState<number | null>(null);
+    const [cycleNavigatorMode, setCycleNavigatorMode] =
+        useState<CycleNavigatorMode>("top-down");
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
     // UI／制御層は集計結果の寿命だけを所有する。TopDownDataはTraceから
     // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
@@ -259,10 +263,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const topDownSampleReady = trace !== null && (loadState === "ready" ||
         trace.opCount >= TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT);
     const topDownStatusMessage = topDownError
-        ? "Top-down-like analysis unavailable"
+        ? "Trace navigator analysis unavailable"
         : !topDownSampleReady
             ? `Collecting pipeline sample… ${(trace?.opCount ?? 0).toLocaleString()} / ${TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT.toLocaleString()} ops`
-            : "Building top-down-like analysis…";
+            : "Building trace navigator analysis…";
     // A単独表示だけはラベルとマウス参照もAへ切り替え、それ以外はBを前面の情報源にする。
     const displayRenderer = comparisonMode === "baseline" && baselineRenderer !== null
         ? baselineRenderer
@@ -490,6 +494,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 candidateSpec,
                 cycleNavigatorLabelCanvas,
                 cycleNavigatorCanvas,
+                cycleNavigatorMode,
             );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
@@ -559,6 +564,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         baselineTrace,
         comparisonMode,
         comparisonOpacity,
+        cycleNavigatorMode,
         displayRenderer,
         findResult,
         loadState,
@@ -620,7 +626,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             })
             .catch((error: unknown) => {
                 if (!canceled) {
-                    console.warn("Could not build top-down analysis.", error);
+                    console.warn("Could not build trace navigator analysis.", error);
                     setTopDownError(true);
                 }
             });
@@ -644,7 +650,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (showTraceNavigator && topDownData !== null) {
             redraw();
         }
-    }, [redraw, showTraceNavigator, topDownData]);
+    }, [cycleNavigatorMode, redraw, showTraceNavigator, topDownData]);
 
     useLayoutEffect(() => {
         if (traceNavigatorHeight !== null) {
@@ -1034,7 +1040,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     };
 
     const updateToolTip = (
-        pane: "label" | "pipeline" | "top-down",
+        pane: "label" | "pipeline" | "navigator",
         event: ReactMouseEvent<HTMLCanvasElement>,
     ) => {
         if (trace === null || pointerPositionsRef.current.size > 0) {
@@ -1050,9 +1056,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const y = event.clientY - canvasRect.top;
         const currentMetrics = displayMetricsRef.current;
         let text: string | null;
-        if (pane === "top-down") {
+        if (pane === "navigator") {
             const data = topDownData;
-            if (data !== null) {
+            if (data !== null && cycleNavigatorMode === "top-down") {
                 const sample = getTopDownBreakdownAtPixel(
                     data,
                     viewController.currentSpec,
@@ -1094,6 +1100,40 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         "All ops are analyzed; zoomed-out values are sampled.",
                     ].join("\n");
                 }
+            } else if (data !== null && cycleNavigatorMode !== "top-down") {
+                const sample = getCycleActivityAtPixel(
+                    data,
+                    cycleNavigatorMode,
+                    viewController.currentSpec,
+                    x,
+                    event.currentTarget.clientWidth,
+                );
+                if (sample === null) {
+                    text = null;
+                } else {
+                    const titles = {
+                        fetch: "Fetch throughput",
+                        issue: `Issue throughput (${data.analysis?.executionStage.label ?? "Issue"})`,
+                        commit: "Commit throughput (retired ops)",
+                        flush: "Flushed work (at allocation)",
+                        latency: "Issue-to-completion latency",
+                    } as const;
+                    const latency = cycleNavigatorMode === "latency";
+                    const unit = latency ? " cycles" : " ops/cycle";
+                    text = [
+                        titles[cycleNavigatorMode],
+                        `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
+                        `Average: ${sample.average.toFixed(2)}${unit}`,
+                        ...(sample.flushedAverage === 0
+                            ? []
+                            : [`Later flushed: ${sample.flushedAverage.toFixed(2)} ops/cycle`]),
+                        `Sampled peak: ${sample.peak}${unit}; observed trace maximum: ${sample.maximum}${unit}`,
+                        sample.samplingStride === 1
+                            ? `Observed cycles: ${sample.sampledCycleCount}`
+                            : `Sampled cycles: ${sample.sampledCycleCount} (every ${sample.samplingStride} cycles)`,
+                        ...(latency ? [] : ["Ops/cycle is not necessarily architectural IPC."]),
+                    ].join("\n");
+                }
             } else {
                 text = null;
             }
@@ -1104,7 +1144,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         setToolTip(text === null ? null : {
             left: event.clientX - viewerRect.left,
-            top: pane === "top-down"
+            top: pane === "navigator"
                 ? Math.max(0, event.clientY - viewerRect.top - 215)
                 : event.clientY - viewerRect.top + 20,
             text,
@@ -1196,6 +1236,21 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         onPointerDown={(event) => event.stopPropagation()}
                     >
                         <canvas ref={cycleNavigatorLabelCanvasRef} aria-label="Cycle navigator labels canvas" />
+                        <select
+                            className="trace-navigator-mode"
+                            aria-label="Cycle navigator mode"
+                            value={cycleNavigatorMode}
+                            onChange={(event) => setCycleNavigatorMode(
+                                event.currentTarget.value as CycleNavigatorMode,
+                            )}
+                        >
+                            <option value="top-down">Top-down</option>
+                            <option value="fetch">Fetch</option>
+                            <option value="issue">Issue</option>
+                            <option value="commit">Commit</option>
+                            <option value="flush">Flush</option>
+                            <option value="latency">Latency</option>
+                        </select>
                     </section>
                     <div className="trace-navigator-cycle-divider" aria-hidden="true" />
                     <section
@@ -1206,7 +1261,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         <canvas
                             ref={cycleNavigatorCanvasRef}
                             aria-label="Cycle navigator canvas"
-                            onMouseMove={(event) => updateToolTip("top-down", event)}
+                            onMouseMove={(event) => updateToolTip("navigator", event)}
                             onMouseLeave={() => setToolTip(null)}
                         />
                         {topDownData === null && (

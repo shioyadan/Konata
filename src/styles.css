@@ -1073,6 +1073,20 @@ button:disabled {
     cursor: crosshair;
 }
 
+.trace-navigator-mode {
+    position: absolute;
+    z-index: 1;
+    top: 6px;
+    right: 6px;
+    max-width: 112px;
+    border: 1px solid #697181;
+    border-radius: 3px;
+    background: #303340;
+    color: #f2f3f5;
+    font: inherit;
+    font-size: 0.7rem;
+}
+
 .trace-navigator-cycle-status {
     position: absolute;
     inset: 0;
@@ -2042,6 +2056,12 @@ button:disabled {
 
 .theme-light .trace-navigator-cycle-pane {
     background: #fff;
+}
+
+.theme-light .trace-navigator-mode {
+    border-color: #aeb4be;
+    background: #f4f4f4;
+    color: #20242b;
 }
 
 .theme-light .trace-navigator-cycle-status {
