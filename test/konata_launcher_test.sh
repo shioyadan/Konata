@@ -42,21 +42,48 @@ install_dir="$test_dir/installed copy"
 payload_dir="$test_dir/payload"
 mkdir -p "$install_dir" "$payload_dir"
 cp "$repo_dir/konata.sh" "$install_dir/konata.sh"
+printf '%s\n' '# installed launcher marker' >> "$install_dir/konata.sh"
 printf '%s\n' '<!doctype html><title>old</title>' > "$install_dir/index.html"
 printf '%s\n' '<!doctype html><title>updated</title>' > "$payload_dir/index.html"
-printf '%s\n' '#!/usr/bin/env bash' '# updated launcher' 'exit 0' > "$payload_dir/konata.sh"
+cp "$repo_dir/konata.sh" "$payload_dir/konata.sh"
 archive_path="$test_dir/konata-latest.zip"
 make_update_archive "$payload_dir" "$archive_path"
-update_output="$(KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
-    "$install_dir/konata.sh" --update)"
+
+# 更新を拒否した場合は、差分を表示するだけで既存配布物を変更しない。
+cancel_dir="$test_dir/cancelled copy"
+mkdir -p "$cancel_dir"
+cp "$install_dir/index.html" "$install_dir/konata.sh" "$cancel_dir/"
+printf 'n\n' | env KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
+    "$cancel_dir/konata.sh" --update > "$test_dir/cancel.out" 2> "$test_dir/cancel.err"
+grep -q 'A Konata update is available' "$test_dir/cancel.out"
+grep -q 'Install this update' "$test_dir/cancel.err"
+grep -q 'Update cancelled' "$test_dir/cancel.out"
+cmp "$install_dir/index.html" "$cancel_dir/index.html"
+cmp "$install_dir/konata.sh" "$cancel_dir/konata.sh"
+
+update_output="$(printf 'y\n' | env KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
+    "$install_dir/konata.sh" --update 2> "$test_dir/update.err")"
 if [ "$update_output" != "Downloading the latest Konata development build...
+A Konata update is available:
+  konata.sh
+  index.html
 Konata was updated to the latest development build." ]; then
     echo "Unexpected updater output: $update_output" >&2
     exit 1
 fi
+grep -q 'Install this update' "$test_dir/update.err"
 cmp "$payload_dir/index.html" "$install_dir/index.html"
 cmp "$payload_dir/konata.sh" "$install_dir/konata.sh"
 test -x "$install_dir/konata.sh"
+
+# 同じarchiveを再確認した場合は、確認を求めず最新であることを表示する。
+current_output="$(KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
+    "$install_dir/konata.sh" --update)"
+if [ "$current_output" != "Downloading the latest Konata development build...
+Konata is already up to date." ]; then
+    echo "Unexpected current-version output: $current_output" >&2
+    exit 1
+fi
 
 # 不完全なarchiveは既存配布物を一切置換しない。
 broken_install="$test_dir/broken install"

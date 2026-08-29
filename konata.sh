@@ -45,6 +45,28 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
         echo "The downloaded Konata update is invalid." >&2
         exit 1
     fi
+
+    if cmp -s "$payload_dir/konata.sh" "$script_path" &&
+        cmp -s "$payload_dir/index.html" "$index_path"; then
+        echo "Konata is already up to date."
+        exit 0
+    fi
+    echo "A Konata update is available:"
+    cmp -s "$payload_dir/konata.sh" "$script_path" || echo "  konata.sh"
+    cmp -s "$payload_dir/index.html" "$index_path" || echo "  index.html"
+    printf 'Install this update? [y/N] ' >&2
+    if ! read -r answer; then
+        echo >&2
+        answer=
+    fi
+    case "$answer" in
+        y|Y|yes|Yes|YES) ;;
+        *)
+            echo "Update cancelled."
+            exit 0
+            ;;
+    esac
+
     chmod 755 "$payload_dir/konata.sh"
     chmod 644 "$payload_dir/index.html"
 

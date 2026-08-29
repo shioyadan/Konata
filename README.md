@@ -48,8 +48,8 @@
   ./konata.sh --update
   ```
 
-  This updates `index.html` and `konata.sh` together. It does not modify traces or the other files
-  in the extracted directory.
+  The script reports whether these files differ and asks before updating `index.html` and
+  `konata.sh` together. It does not modify traces or the other files in the extracted directory.
 
 
 ## Usage
