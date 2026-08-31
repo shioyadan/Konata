@@ -1,58 +1,38 @@
 # Konata
 
-* Konata is an instruction pipeline visualizer for traces in the Onikiri2-Kanata and gem5
-  O3PipeView formats.
-    * [Open the live demo](https://shioyadan.github.io/Konata/#name=kanata-sample-2.log.gz).
-* Starting with v1.0.0, Konata runs in the browser instead of as an Electron desktop application.
-    * All trace processing remains local to the browser.
-    * Local traces are never uploaded, and Konata makes no background network requests unless
-      remote loading is explicitly requested.
-    * Nearly all features from the desktop version are retained.
-        * Like the desktop version, Konata can load trace files several gigabytes in size.
-* The [ASPLOS 2018 gem5 tutorial presentation](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf)
-  provides an introduction to Konata.
-* The [Onikiri2-Kanata format](docs/kanata-log-format.md) represents pipeline behavior in greater
-  detail than the gem5 O3PipeView format.
+Konata is an instruction pipeline visualizer for traces in the Onikiri2-Kanata and gem5 O3PipeView
+formats. [Open the live demo](https://shioyadan.github.io/Konata/#name=kanata-sample-2.log.gz).
+
+Since v1.0.0, Konata runs in the browser instead of as an Electron desktop application. Local
+traces remain in the browser and are never uploaded. Konata makes no background network requests
+unless remote loading is explicitly requested, and it can load trace files several gigabytes in
+size.
 
 ![demo](https://github.com/shioyadan/Konata/wiki/images/konata.gif)
 
-
 ## Quick start
 
-- **Stable Web version:** Open [Konata Web stable](https://shioyadan.github.io/Konata/stable/), then
-  select or drag and drop a plain-text, gzip-compressed, or Zstandard-compressed Kanata/O3PipeView
-  trace.
+* No installation is required to use the hosted version. Simply open
+[Konata Web](https://shioyadan.github.io/Konata/) in a Web browser.
+* On a remote server or WSL, use the built-in Web server as follows:
+    ```bash
+    # Download and extract the latest development build.
+    curl -fLO https://shioyadan.github.io/Konata/konata-latest.zip
+    unzip -q konata-latest.zip
+    cd konata-latest
 
-- **Downloaded version:** Download the latest `konata-v*.zip` from
-  [GitHub Releases](https://github.com/shioyadan/Konata/releases), extract it, and open `index.html`
-  in a browser.
+    # On a remote host or WSL, start the launcher.
+    # It starts a local Web server and keeps running until you press Ctrl+C.
+    ./konata.sh trace1.log.zst
+    ```
 
-- **Latest development version:** [Konata Web](https://shioyadan.github.io/Konata/) and
-  [konata-latest.zip](https://shioyadan.github.io/Konata/konata-latest.zip) are built from `master`.
+    The launcher displays:
 
-- **Remote server or WSL:** Download the latest development bundle and run its helper:
-
-  ```bash
-  curl -fLO https://shioyadan.github.io/Konata/konata-latest.zip
-  unzip -q konata-latest.zip
-  ./konata-latest/konata.sh trace1.log.zst
-  ```
-
-  Pass a second trace to compare it: `./konata-latest/konata.sh trace1.log.zst trace2.log.zst`.
-  The script prints the Konata URL and an SSH tunnel command. When running it on a remote server,
-  run the printed SSH command on the local computer, then open the Konata URL in the local browser.
-  Keep the script running while using Konata, and press Ctrl+C to stop it. Set `KONATA_PORT` before
-  running the script to use another port.
-
-  To replace an extracted copy with the latest tested development build from GitHub Pages, run:
-
-  ```bash
-  ./konata-latest/konata.sh --update
-  ```
-
-  The script reports whether these files differ and asks before updating `index.html` and
-  `konata.sh` together. It does not modify traces or the other files in the extracted directory.
-
+    ```text
+    Konata URL: http://127.0.0.1:30080/#name=trace1.log.zst
+    SSH tunnel: ssh -L 30080:127.0.0.1:30080 <host>
+    Press Ctrl+C to stop the server.
+    ```
 
 ## Usage
 
@@ -132,6 +112,30 @@ compatible Chromium-based browsers. Other browsers still support file selection 
 Remote traces opened with `konata.sh` can be reloaded manually. Automatic external-change detection
 is not available for them. Loading arbitrary URLs or paths is intentionally disabled.
 
+## Distribution and updates
+
+### Update a downloaded copy
+
+```bash
+./konata-latest/konata.sh --update
+```
+
+The script reports whether `index.html` or `konata.sh` differs from the latest tested development
+build and asks before replacing them. It does not modify traces or other extracted files.
+
+### Other ways to run
+
+- **Stable Web version:** Open [Konata Web stable](https://shioyadan.github.io/Konata/stable/).
+- **Latest development Web version:** Open [Konata Web](https://shioyadan.github.io/Konata/).
+- **Versioned releases:** Download a `konata-v*.zip` archive from
+  [GitHub Releases](https://github.com/shioyadan/Konata/releases).
+
+## References
+
+- The [ASPLOS 2018 gem5 tutorial presentation](https://github.com/shioyadan/Konata/wiki/gem5-konata.pdf)
+  provides an introduction to Konata.
+- The [Onikiri2-Kanata format](docs/kanata-log-format.md) represents pipeline behavior in greater
+  detail than the gem5 O3PipeView format.
 
 ## Development
 
