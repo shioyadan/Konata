@@ -5,6 +5,9 @@
 # 配布済みdirectoryでは、Pages上の検証済みlatest archiveから自分自身を更新できる。
 set -eu
 
+# archive生成時にcommit時刻へ置換し、updateの新旧判定に使う。
+build_time=0
+
 usage() {
     echo "Usage:" >&2
     echo "  $0 TRACE1 [TRACE2]" >&2
@@ -39,7 +42,9 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
     fi
 
     payload_dir="$update_dir/konata-latest"
-    if [ "$(head -n 1 "$payload_dir/konata.sh")" != '#!/usr/bin/env bash' ] ||
+    payload_time="$(sed -n 's/^build_time=//p' "$payload_dir/konata.sh" 2>/dev/null || true)"
+    if [[ ! "$payload_time" =~ ^[0-9]+$ ]] ||
+        [ "$(head -n 1 "$payload_dir/konata.sh")" != '#!/usr/bin/env bash' ] ||
         ! bash -n "$payload_dir/konata.sh" ||
         ! head -c 64 "$payload_dir/index.html" | grep -qi '^<!doctype html>'; then
         echo "The downloaded Konata update is invalid." >&2
@@ -51,7 +56,13 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
         echo "Konata is already up to date."
         exit 0
     fi
-    echo "A Konata update is available:"
+    if [ "$payload_time" -gt "$build_time" ]; then
+        echo "A newer Konata build is available:"
+    elif [ "$payload_time" -lt "$build_time" ]; then
+        echo "The available Konata build is older than this copy:"
+    else
+        echo "The available Konata build differs from this copy:"
+    fi
     cmp -s "$payload_dir/konata.sh" "$script_path" || echo "  konata.sh"
     cmp -s "$payload_dir/index.html" "$index_path" || echo "  index.html"
     printf 'Install this update? [y/N] ' >&2

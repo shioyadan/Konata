@@ -11,8 +11,8 @@ trap cleanup_test EXIT
 trap 'exit 1' HUP INT TERM
 
 make_update_archive() {
-    payload_dir="$1"
-    archive_path="$2"
+    local payload_dir="$1"
+    local archive_path="$2"
     python3 - "$payload_dir" "$archive_path" <<'PY'
 import os
 import sys
@@ -37,15 +37,21 @@ print(pathlib.Path(sys.argv[1]).resolve().as_uri())
 PY
 }
 
+set_build() {
+    sed -i "s/^build_time=0$/build_time=$2/" "$1"
+}
+
 # 空白を含む配布先でも、同じarchiveのHTMLとscriptを一度に更新できる。
 install_dir="$test_dir/installed copy"
 payload_dir="$test_dir/payload"
 mkdir -p "$install_dir" "$payload_dir"
 cp "$repo_dir/konata.sh" "$install_dir/konata.sh"
+set_build "$install_dir/konata.sh" "100"
 printf '%s\n' '# installed launcher marker' >> "$install_dir/konata.sh"
 printf '%s\n' '<!doctype html><title>old</title>' > "$install_dir/index.html"
 printf '%s\n' '<!doctype html><title>updated</title>' > "$payload_dir/index.html"
 cp "$repo_dir/konata.sh" "$payload_dir/konata.sh"
+set_build "$payload_dir/konata.sh" "200"
 archive_path="$test_dir/konata-latest.zip"
 make_update_archive "$payload_dir" "$archive_path"
 
@@ -55,7 +61,7 @@ mkdir -p "$cancel_dir"
 cp "$install_dir/index.html" "$install_dir/konata.sh" "$cancel_dir/"
 printf 'n\n' | env KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
     "$cancel_dir/konata.sh" --update > "$test_dir/cancel.out" 2> "$test_dir/cancel.err"
-grep -q 'A Konata update is available' "$test_dir/cancel.out"
+grep -q 'A newer Konata build is available' "$test_dir/cancel.out"
 grep -q 'Install this update' "$test_dir/cancel.err"
 grep -q 'Update cancelled' "$test_dir/cancel.out"
 cmp "$install_dir/index.html" "$cancel_dir/index.html"
@@ -64,13 +70,28 @@ cmp "$install_dir/konata.sh" "$cancel_dir/konata.sh"
 update_output="$(printf 'y\n' | env KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
     "$install_dir/konata.sh" --update 2> "$test_dir/update.err")"
 if [ "$update_output" != "Downloading the latest Konata development build...
-A Konata update is available:
+A newer Konata build is available:
   konata.sh
   index.html
 Konata was updated to the latest development build." ]; then
     echo "Unexpected updater output: $update_output" >&2
     exit 1
 fi
+
+# 新しいcopyに古いarchiveを指定した場合も、downgradeであることを明示して確認を求める。
+older_payload="$test_dir/older payload"
+mkdir -p "$older_payload"
+printf '%s\n' '<!doctype html><title>older</title>' > "$older_payload/index.html"
+cp "$repo_dir/konata.sh" "$older_payload/konata.sh"
+set_build "$older_payload/konata.sh" "50"
+older_archive="$test_dir/older.zip"
+make_update_archive "$older_payload" "$older_archive"
+printf 'n\n' | env KONATA_UPDATE_URL="$(archive_url "$older_archive")" \
+    "$install_dir/konata.sh" --update > "$test_dir/older.out" 2> "$test_dir/older.err"
+grep -q 'available Konata build is older than this copy' "$test_dir/older.out"
+grep -q 'Update cancelled' "$test_dir/older.out"
+cmp "$payload_dir/index.html" "$install_dir/index.html"
+cmp "$payload_dir/konata.sh" "$install_dir/konata.sh"
 grep -q 'Install this update' "$test_dir/update.err"
 cmp "$payload_dir/index.html" "$install_dir/index.html"
 cmp "$payload_dir/konata.sh" "$install_dir/konata.sh"

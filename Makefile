@@ -8,6 +8,7 @@ TSX := ./node_modules/.bin/tsx
 BENCHMARK_OPS ?= 100000
 BENCHMARK_TRACE ?=
 PACKAGE_VERSION := $(shell node -p 'require("./package.json").version')
+BUILD_TIME := $(shell git show -s --format=%ct HEAD)
 ARCHIVE_NAME := konata-v$(PACKAGE_VERSION)
 ARCHIVE_ROOT := dist-release
 ARCHIVE_DIR := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME)
@@ -90,6 +91,8 @@ archive:
 	rm -rf "$(ARCHIVE_DIR)" "$(ARCHIVE_PATH)"
 	mkdir -p "$(ARCHIVE_DIR)"
 	cp dist-web/index.html konata.sh README.md LICENSE.md THIRD_PARTY_LICENSES.md "$(ARCHIVE_DIR)/"
+	sed -i 's/^build_time=0$$/build_time=$(BUILD_TIME)/' "$(ARCHIVE_DIR)/konata.sh"
+	grep -qx 'build_time=$(BUILD_TIME)' "$(ARCHIVE_DIR)/konata.sh"
 	cd "$(ARCHIVE_ROOT)" && zip -q -r "$(ARCHIVE_NAME).zip" "$(ARCHIVE_NAME)"
 	zip -T "$(ARCHIVE_PATH)"
 	@echo "Archive created: $(ARCHIVE_PATH)"

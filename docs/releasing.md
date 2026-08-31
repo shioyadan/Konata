@@ -16,7 +16,9 @@ site. The `stable` branch should only move to a tested release commit.
 The workflow also runs `make latest-archive` for `master` and publishes the result as
 `https://shioyadan.github.io/Konata/konata-latest.zip`. This fixed name always represents the latest
 tested development version. An extracted distribution uses this archive for `konata.sh --update`
-and asks before replacing only its adjacent `index.html` and `konata.sh` when they differ.
+and asks before replacing only its adjacent `index.html` and `konata.sh` when they differ. The
+archive embeds the source commit time in `konata.sh`, allowing the updater to report
+whether the available build is newer or older than the installed copy.
 Versioned archives remain attached to GitHub Releases.
 
 The bundled `docs/kanata-sample-2.log.gz` is published as the fixed `trace1` input for the latest
