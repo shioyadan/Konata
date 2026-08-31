@@ -10,7 +10,7 @@ import {
     useRef,
     useState,
 } from "react";
-import { BsX } from "react-icons/bs";
+import { BsChevronBarDown, BsChevronBarUp, BsX } from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
 import {
@@ -264,8 +264,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [topDownError, setTopDownError] = useState(false);
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
-    const showTraceNavigator = traceNavigator.visible && comparison === null &&
-        trace !== null;
+    const traceNavigatorAvailable = comparison === null && trace !== null;
+    const traceNavigatorExpanded = traceNavigator.visible && traceNavigatorAvailable;
+    // 簡易表示は常に全体を示し、詳細表示だけが保存済みのFollow／Overviewを使う。
+    const cycleNavigatorRangeMode = traceNavigatorExpanded
+        ? traceNavigator.rangeMode
+        : "overview";
     const topDownSampleReady = trace !== null && (loadState === "ready" ||
         trace.opCount >= TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT);
     const topDownStatusMessage = topDownError
@@ -493,7 +497,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ...tileOptions,
             prefetchSpec: baselinePrefetchSpec,
         } as const;
-        if (showTraceNavigator && topDownData !== null &&
+        if (traceNavigatorAvailable && topDownData !== null &&
             cycleNavigatorLabelCanvas !== null && cycleNavigatorCanvas !== null) {
             drawCycleNavigator(
                 topDownData,
@@ -502,7 +506,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 cycleNavigatorCanvas,
                 traceNavigator.mode,
                 cycleNavigatorDetailsVisibleRef.current,
-                traceNavigator.rangeMode,
+                cycleNavigatorRangeMode,
             );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
@@ -576,12 +580,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         findResult,
         loadState,
         renderer,
-        showTraceNavigator,
+        cycleNavigatorRangeMode,
         topDownData,
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
         trace,
+        traceNavigatorAvailable,
         traceNavigator,
         webGLEnabled,
     ]);
@@ -609,13 +614,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         topDownLiveDataRef.current = null;
         setTopDownData(null);
         setTopDownError(false);
-    }, [showTraceNavigator, trace]);
+    }, [trace, traceNavigatorAvailable]);
 
     // 読み込み中は最初の50k命令で構造を決め、完了時だけ末尾まで再解析する。
     // zoomやthemeの変更は下のuseLayoutEffectから同じTopDownDataを再描画する。
     useEffect(() => {
         let canceled = false;
-        if (!showTraceNavigator || trace === null || !topDownSampleReady) {
+        if (!traceNavigatorAvailable || trace === null || !topDownSampleReady) {
             return () => {
                 canceled = true;
             };
@@ -648,29 +653,29 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         return () => {
             canceled = true;
         };
-    }, [loadState, showTraceNavigator, topDownSampleReady, trace]);
+    }, [loadState, topDownSampleReady, trace, traceNavigatorAvailable]);
 
     // Pipelineと同じ途中Traceの公開通知ごとに、節目間の差分だけをNavigatorへ反映する。
     useEffect(() => {
         const live = topDownLiveDataRef.current;
-        if (!showTraceNavigator || trace === null || live?.trace !== trace) {
+        if (!traceNavigatorAvailable || trace === null || live?.trace !== trace) {
             return;
         }
         const data = updateTopDownData(live.data, trace);
         live.data = data;
         setTopDownData((current) => current === data ? current : data);
-    }, [renderVersion, showTraceNavigator, trace]);
+    }, [renderVersion, trace, traceNavigatorAvailable]);
 
     useLayoutEffect(() => {
-        if (showTraceNavigator && topDownData !== null) {
+        if (traceNavigatorAvailable && topDownData !== null) {
             redraw();
         }
-    }, [redraw, showTraceNavigator, topDownData, traceNavigator]);
+    }, [redraw, topDownData, traceNavigator, traceNavigatorAvailable]);
 
     useLayoutEffect(() => {
         // viewer外形は変わらないため、子paneのrow変更後は明示的にCanvasを再描画する。
         redraw();
-    }, [redraw, traceNavigator.height]);
+    }, [redraw, traceNavigator.height, traceNavigator.visible, traceNavigatorAvailable]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
@@ -1097,7 +1102,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     };
 
     const handleCycleNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
-        if (event.button !== 0 || traceNavigator.rangeMode !== "overview" ||
+        if (event.button !== 0 || cycleNavigatorRangeMode !== "overview" ||
             topDownData === null || cycleNavigatorPointerRef.current !== null) {
             return;
         }
@@ -1151,7 +1156,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         event: ReactMouseEvent<HTMLCanvasElement>,
     ) => {
         if (trace === null || pointerPositionsRef.current.size > 0 ||
-            (pane === "navigator" && cycleNavigatorPointerRef.current !== null)) {
+            (pane === "navigator" && (!traceNavigatorExpanded ||
+                cycleNavigatorPointerRef.current !== null))) {
             setToolTip(null);
             return;
         }
@@ -1173,18 +1179,27 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     viewController.currentSpec,
                     x,
                     event.currentTarget.clientWidth,
-                    traceNavigator.rangeMode,
+                    cycleNavigatorRangeMode,
                 );
         } else {
             text = pane === "label"
                 ? currentMetrics.getLabelToolTipText(y)
                 : currentMetrics.getPipelineToolTipText(x, y);
         }
-        setToolTip(text === null ? null : {
+        if (text === null) {
+            setToolTip(null);
+            return;
+        }
+        const pointerTop = event.clientY - viewerRect.top;
+        // Tooltip CSSの行高と上下余白に合わせ、下端をpointerの直上へ置く。
+        const navigatorToolTipOffset = pane === "navigator"
+            ? text.split("\n").length * 17 + 24
+            : 0;
+        setToolTip({
             left: event.clientX - viewerRect.left,
             top: pane === "navigator"
-                ? Math.max(0, event.clientY - viewerRect.top - 215)
-                : event.clientY - viewerRect.top + 20,
+                ? Math.max(0, pointerTop - navigatorToolTipOffset)
+                : pointerTop + 20,
             text,
         });
     };
@@ -1200,7 +1215,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     return (
         <div
             ref={viewerRef}
-            className={`viewer${trace === null ? " is-empty" : ""}${showTraceNavigator ? " has-trace-navigator" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}${isTraceNavigatorResizing ? " is-resizing-trace-navigator" : ""}`}
+            className={`viewer${trace === null ? " is-empty" : ""}${traceNavigatorAvailable ? " has-trace-navigator" : ""}${traceNavigatorExpanded ? " is-trace-navigator-expanded" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}${isTraceNavigatorResizing ? " is-resizing-trace-navigator" : ""}`}
             // 保存したdesktop幅を維持したまま、狭い画面ではCSS側だけで表示幅を制限する。
             style={{
                 "--label-pane-width": `${splitterPosition}px`,
@@ -1250,22 +1265,51 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     The pipeline chart requires canvas support.
                 </canvas>
             </section>
-            {showTraceNavigator && (
+            {traceNavigatorAvailable && (
+                <button
+                    type="button"
+                    className="trace-navigator-toggle"
+                    aria-label={traceNavigatorExpanded
+                        ? "Hide trace navigator"
+                        : "Show trace navigator"}
+                    aria-controls="cycle-trace-navigator"
+                    aria-expanded={traceNavigatorExpanded}
+                    title={traceNavigatorExpanded
+                        ? "Hide trace navigator"
+                        : "Show trace navigator"}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        setToolTip(null);
+                        onSetTraceNavigator({
+                            ...traceNavigator,
+                            visible: !traceNavigatorExpanded,
+                        });
+                    }}
+                >
+                    {traceNavigatorExpanded
+                        ? <BsChevronBarDown aria-hidden="true" />
+                        : <BsChevronBarUp aria-hidden="true" />}
+                </button>
+            )}
+            {traceNavigatorAvailable && (
                 <>
-                    <div
-                        className="trace-navigator-resizer"
-                        role="separator"
-                        aria-label="Resize trace navigator"
-                        aria-orientation="horizontal"
-                        aria-valuemin={MIN_TRACE_NAVIGATOR_HEIGHT}
-                        aria-valuenow={traceNavigator.height}
-                        onClick={(event) => event.stopPropagation()}
-                        onPointerDown={handleTraceNavigatorResizerPointerDown}
-                        onPointerMove={handleTraceNavigatorResizerPointerMove}
-                        onPointerUp={handleTraceNavigatorResizerPointerUp}
-                        onPointerCancel={handleTraceNavigatorResizerPointerUp}
-                        onLostPointerCapture={handleTraceNavigatorResizerPointerUp}
-                    />
+                    {traceNavigatorExpanded && (
+                        <div
+                            className="trace-navigator-resizer"
+                            role="separator"
+                            aria-label="Resize trace navigator"
+                            aria-orientation="horizontal"
+                            aria-valuemin={MIN_TRACE_NAVIGATOR_HEIGHT}
+                            aria-valuenow={traceNavigator.height}
+                            onClick={(event) => event.stopPropagation()}
+                            onPointerDown={handleTraceNavigatorResizerPointerDown}
+                            onPointerMove={handleTraceNavigatorResizerPointerMove}
+                            onPointerUp={handleTraceNavigatorResizerPointerUp}
+                            onPointerCancel={handleTraceNavigatorResizerPointerUp}
+                            onLostPointerCapture={handleTraceNavigatorResizerPointerUp}
+                        />
+                    )}
                     <section
                         className="viewer-pane trace-navigator-pane trace-navigator-cycle-label-pane"
                         aria-label="Cycle navigator labels"
@@ -1312,7 +1356,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     </section>
                     <div className="trace-navigator-cycle-divider" aria-hidden="true" />
                     <section
-                        className={`viewer-pane trace-navigator-pane trace-navigator-cycle-pane${traceNavigator.rangeMode === "overview" ? " is-overview" : ""}`}
+                        id="cycle-trace-navigator"
+                        className={`viewer-pane trace-navigator-pane trace-navigator-cycle-pane${cycleNavigatorRangeMode === "overview" ? " is-overview" : ""}`}
                         aria-label="Cycle navigator"
                         onPointerDown={(event) => event.stopPropagation()}
                     >

@@ -984,11 +984,16 @@ button:disabled {
 
 .viewer.has-trace-navigator {
     --trace-navigator-default-height: 64px;
+    --trace-navigator-collapsed-height: 22px;
     --trace-navigator-effective-height: clamp(
         64px,
         var(--trace-navigator-height, var(--trace-navigator-default-height)),
         calc(100% - 96px)
     );
+    grid-template-rows: minmax(0, 1fr) var(--trace-navigator-collapsed-height);
+}
+
+.viewer.is-trace-navigator-expanded {
     grid-template-rows: minmax(0, 1fr) var(--trace-navigator-effective-height);
 }
 
@@ -1031,7 +1036,26 @@ button:disabled {
 .trace-navigator-cycle-label-pane,
 .trace-navigator-cycle-divider,
 .trace-navigator-cycle-pane {
+    grid-row: 2;
     border-top: 1px solid #555b68;
+}
+
+.trace-navigator-cycle-label-pane {
+    grid-column: 1;
+}
+
+.trace-navigator-cycle-divider {
+    grid-column: 2;
+}
+
+.trace-navigator-cycle-pane {
+    grid-column: 3;
+}
+
+/* 簡易表示では左側をlabel背景のままにし、OverviewだけをPipeline列へ残す。 */
+.viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-label-pane > *,
+.viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-status {
+    display: none;
 }
 
 /* rowを増やさず境界へ重ね、既定のNavigator高さとpipeline領域を変えない。 */
@@ -1053,6 +1077,38 @@ button:disabled {
     width: 40px;
     border-top: 2px solid #697181;
     content: "";
+}
+
+/* 閉じた時は下端のpull tab、開いた時は境界上のdrawer handleとして同じ操作を示す。 */
+.trace-navigator-toggle {
+    position: absolute;
+    z-index: 2;
+    right: 8px;
+    bottom: 1px;
+    display: grid;
+    width: 28px;
+    height: 20px;
+    padding: 0;
+    border-color: #555b68;
+    background: rgb(38 41 48 / 88%);
+    color: #aeb5bf;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
+    place-items: center;
+}
+
+.viewer.is-trace-navigator-expanded .trace-navigator-toggle {
+    bottom: calc(var(--trace-navigator-effective-height) - 10px);
+}
+
+.trace-navigator-toggle svg {
+    width: 14px;
+    height: 14px;
+}
+
+.trace-navigator-toggle:hover:not(:disabled) {
+    border-color: #697181;
+    background: #3a3e4b;
+    color: #fff;
 }
 
 .viewer.is-resizing-trace-navigator,
@@ -2102,6 +2158,19 @@ button:disabled {
 
 .theme-light .trace-navigator-resizer::after {
     border-top-color: #8c929c;
+}
+
+.theme-light .trace-navigator-toggle {
+    border-color: #aeb4be;
+    background: rgb(244 244 244 / 92%);
+    color: #596273;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 16%);
+}
+
+.theme-light .trace-navigator-toggle:hover:not(:disabled) {
+    border-color: #8c929c;
+    background: #e7e9ed;
+    color: #20242b;
 }
 
 .theme-light .trace-navigator-cycle-label-pane,

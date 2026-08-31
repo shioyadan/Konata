@@ -386,36 +386,22 @@ export function getCycleNavigatorToolTip(
         if (sample === null) {
             return null;
         }
-        const format = (value: number) => value.toFixed(0);
         const percent = (value: number) => sample.totalSlots === 0
             ? "0.0"
             : (value / sample.totalSlots * 100).toFixed(1);
-        const admissionRows = sample.analysis.admissionStages.map((admission) =>
-            `${admission.stage.label} → ${sample.analysis.allocationStage.label}: ` +
-            `${format(admission.typicalLatency)} cycles usual`);
-        const recovery = sample.analysis.minimumRecoveryCycles === null
-            ? "minimum recovery unavailable"
-            : `minimum recovery ${format(sample.analysis.minimumRecoveryCycles)} cycles ` +
-                `(${sample.analysis.minimumRecoverySampleCount} samples)`;
-        const representedSlots = (sample.endCycle - sample.startCycle) *
-            sample.analysis.allocationWidth;
-        const observedSlots = sample.samplingStride === 1
-            ? `Observed slots: ${format(sample.totalSlots)}`
-            : `Sampled slots: ${format(sample.totalSlots)} of ` +
-                `${format(representedSlots)} (every ${sample.samplingStride} cycles)`;
+        const badSpeculation = sample.squashedSlots + sample.recoveryBubbleSlots;
         return [
-            `Top-down-like (auto allocation: ${sample.analysis.allocationStage.label}, before ${sample.analysis.executionStage.label})`,
-            ...admissionRows.map((label) => `Allocation entrance: ${label}`),
-            `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
-            `${observedSlots} (allocation width ≥${format(sample.analysis.allocationWidth)}/cycle)`,
-            `Retiring: ${format(sample.retiringSlots)} (${percent(sample.retiringSlots)}%)`,
-            `Bad speculation (allocated & squashed): ${format(sample.squashedSlots)} (${percent(sample.squashedSlots)}%)`,
-            `Bad speculation (recovery bubbles): ${format(sample.recoveryBubbleSlots)} (${percent(sample.recoveryBubbleSlots)}%)`,
-            `Recovery windows: ${sample.analysis.recoveryWindowCount}; ${recovery}`,
-            `Frontend bound: ${format(sample.frontendBound)} (${percent(sample.frontendBound)}%)`,
-            `Backend bound: ${format(sample.backendBound)} (${percent(sample.backendBound)}%)`,
-            `Unresolved allocation: ${format(sample.unresolvedSlots)} (${percent(sample.unresolvedSlots)}%)`,
-            "All ops are analyzed; zoomed-out values are sampled.",
+            `Cycles: ${sample.startCycle}–${sample.endCycle - 1} · ${sample.totalSlots} slots`,
+            `Retiring: ${percent(sample.retiringSlots)}%`,
+            `Bad speculation: ${percent(badSpeculation)}%`,
+            `Frontend bound: ${percent(sample.frontendBound)}%`,
+            `Backend bound: ${percent(sample.backendBound)}%`,
+            ...(sample.unresolvedSlots === 0
+                ? []
+                : [`Unresolved: ${percent(sample.unresolvedSlots)}%`]),
+            ...(sample.samplingStride === 1
+                ? []
+                : [`Sampled every ${sample.samplingStride} cycles`]),
         ].join("\n");
     }
 
@@ -435,21 +421,15 @@ export function getCycleNavigatorToolTip(
         return null;
     }
     const info = activityInfo[mode];
-    const title = mode === "issue"
-        ? `${info.title} (${analysis.executionStage.label})`
-        : info.title;
     return [
-        title,
         `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
         `Average: ${sample.average.toFixed(2)}${info.unit}`,
         ...(sample.flushedAverage === 0
             ? []
             : [`Later flushed: ${sample.flushedAverage.toFixed(2)} ops/cycle`]),
-        `Observed trace maximum: ${sample.maximum}${info.unit}`,
         ...(sample.samplingStride === 1
             ? []
             : [`Sampled every ${sample.samplingStride} cycles`]),
-        ...(mode === "latency" ? [] : ["Ops/cycle is not necessarily architectural IPC."]),
     ].join("\n");
 }
 

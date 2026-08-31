@@ -517,8 +517,13 @@ test("Top-down-like view classifies allocation slots without stage names", async
         0,
         160,
     ) ?? "";
-    assert.match(topDownToolTip, /Retiring: 1 \(50\.0%\)/);
-    assert.match(topDownToolTip, /Allocation entrance: arbitrary-source/);
+    assert.equal(topDownToolTip, [
+        "Cycles: 3–3 · 2 slots",
+        "Retiring: 50.0%",
+        "Bad speculation: 50.0%",
+        "Frontend bound: 0.0%",
+        "Backend bound: 0.0%",
+    ].join("\n"));
     const overviewSpec = { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] } as const;
     const overviewWidth = 320;
     const overviewToolTip = getCycleNavigatorToolTip(
@@ -529,7 +534,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
         overviewWidth,
         "overview",
     ) ?? "";
-    assert.match(overviewToolTip, /Retiring: 1 \(50\.0%\)/);
+    assert.match(overviewToolTip, /Retiring: 50\.0%/);
     const viewport = getCycleNavigatorViewport(activity, overviewSpec, overviewWidth);
     assert.ok(viewport !== null && viewport.width < overviewWidth);
     assert.ok(Math.abs((getCycleNavigatorScrollPosition(
@@ -719,7 +724,11 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
         0,
         160,
     );
-    assert.match(toolTip ?? "", /Average: 2\.00 ops\/cycle/);
+    assert.equal(toolTip, [
+        "Cycles: 2–2",
+        "Average: 2.00 ops/cycle",
+        "Later flushed: 1.00 ops/cycle",
+    ].join("\n"));
 
     const compactFetchLabels = createRecordedContext();
     drawCycleNavigator(
@@ -898,15 +907,6 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
     // 単発の長いcorrect-path待ちは、反復観測した最短回復を越えればFrontendへ戻す。
     assert.equal(cappedOutlier.recoveryBubbleSlots, 0);
     assert.equal(cappedOutlier.frontendBound, 1);
-
-    const toolTip = getCycleNavigatorToolTip(
-        activity,
-        "top-down",
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [10, 0] },
-        0,
-        160,
-    );
-    assert.match(toolTip ?? "", /Recovery windows: 11; minimum recovery 3 cycles/);
 
     trace.close();
 });

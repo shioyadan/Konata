@@ -1409,23 +1409,6 @@ export function App() {
                                 })}
                             />
                         </label>
-                        {/* ここは表示設定のみをStoreへ渡す。Traceの集計とCanvas描画はTraceSheetが起動する。 */}
-                        <label title="Show a visual trace navigator below the pipeline.">
-                            Trace navigator
-                            <input
-                                type="checkbox"
-                                aria-label="Trace navigator"
-                                checked={settings.traceNavigator.visible}
-                                disabled={trace === null || comparisonTab !== null}
-                                onChange={(event) => store.dispatch({
-                                    type: "KONATA_SET_TRACE_NAVIGATOR",
-                                    settings: {
-                                        ...settings.traceNavigator,
-                                        visible: event.target.checked,
-                                    },
-                                })}
-                            />
-                        </label>
                         <div className="custom-color-control">
                             <label title={comparisonTab === null
                                 ? "Choose how pipeline stages are colored."

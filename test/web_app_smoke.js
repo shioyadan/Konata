@@ -404,15 +404,15 @@ async function verifyIncrementalRendering(window) {
             const state = root?.dataset.loadState;
             const opCount = Number(root?.dataset.opCount ?? -1);
             if (state === "loading" && opCount === 1) {
-                const navigatorToggle = document.querySelector('input[aria-label="Trace navigator"]');
-                if (!navigatorRequested && navigatorToggle instanceof HTMLInputElement &&
-                    !navigatorToggle.disabled) {
+                const navigatorToggle = document.querySelector(".trace-navigator-toggle");
+                if (!navigatorRequested && navigatorToggle instanceof HTMLButtonElement) {
                     navigatorRequested = true;
                     navigatorToggle.click();
                 }
                 const navigatorPane = document.querySelector(".trace-navigator-cycle-pane");
                 const navigatorStatus = navigatorPane?.querySelector(".trace-navigator-cycle-status");
-                if (navigatorToggle instanceof HTMLInputElement && navigatorToggle.checked &&
+                if (navigatorToggle instanceof HTMLButtonElement &&
+                    navigatorToggle.getAttribute("aria-expanded") === "true" &&
                     navigatorPane instanceof HTMLElement && navigatorStatus instanceof HTMLElement) {
                     partialNavigator = {
                         visible: true,
@@ -463,8 +463,9 @@ async function verifyIncrementalRendering(window) {
             }
             if (!finishing && state === "ready" && opCount === 2 && partialNavigator !== null) {
                 finishing = true;
-                const navigatorToggle = document.querySelector('input[aria-label="Trace navigator"]');
-                if (navigatorToggle instanceof HTMLInputElement && navigatorToggle.checked) {
+                const navigatorToggle = document.querySelector(".trace-navigator-toggle");
+                if (navigatorToggle instanceof HTMLButtonElement &&
+                    navigatorToggle.getAttribute("aria-expanded") === "true") {
                     navigatorToggle.click();
                 }
                 requestAnimationFrame(() => resolve({
@@ -2378,14 +2379,44 @@ async function run() {
         throw new Error(`Desktop pane width was not restored: ${JSON.stringify(restoredPaneState)}`);
     }
 
-    // 明示的に有効化した時だけ下部へTop-down-like表示を作り、上のcycle幅と揃える。
+    // 閉時はPipeline直下に簡易Overviewを残し、展開時だけ詳細controlと高さ変更を有効にする。
     const navigatorState = await window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-        const toggle = document.querySelector('input[aria-label="Trace navigator"]');
-        const initialPipelineHeight = document.querySelector(".pipeline-pane")?.getBoundingClientRect().height ?? -1;
-        if (!(toggle instanceof HTMLInputElement) || toggle.disabled || toggle.checked) {
+        const toggle = document.querySelector(".trace-navigator-toggle");
+        const viewer = document.querySelector(".viewer");
+        const pipeline = document.querySelector(".pipeline-pane");
+        const collapsedCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+        const collapsedLabels = document.querySelector(".trace-navigator-cycle-label-pane");
+        if (!(toggle instanceof HTMLButtonElement) ||
+            !(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
+            !(collapsedCanvas instanceof HTMLCanvasElement) ||
+            !(collapsedLabels instanceof HTMLElement) ||
+            toggle.getAttribute("aria-expanded") !== "false" ||
+            toggle.getAttribute("aria-label") !== "Show trace navigator") {
             throw new Error("The trace navigator control was not ready.");
         }
+        const viewerRectBeforeOpen = viewer.getBoundingClientRect();
+        const pipelineRectBeforeOpen = pipeline.getBoundingClientRect();
+        const collapsedCanvasRect = collapsedCanvas.getBoundingClientRect();
+        collapsedCanvas.dispatchEvent(new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: collapsedCanvasRect.left + collapsedCanvasRect.width / 2,
+            clientY: collapsedCanvasRect.top + collapsedCanvasRect.height / 2
+        }));
+        await nextFrame();
+        const collapsedState = {
+            paneHeight: Math.round(collapsedCanvasRect.height),
+            pipelineAligned: Math.round(collapsedCanvasRect.width) ===
+                Math.round(pipelineRectBeforeOpen.width),
+            labelsVisible: getComputedStyle(collapsedLabels).display !== "none",
+            labelContentsHidden: [...collapsedLabels.children].every((child) =>
+                getComputedStyle(child).display === "none"),
+            tooltipHidden: document.querySelector(".canvas-tooltip") === null,
+            resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
+            cursor: getComputedStyle(collapsedCanvas).cursor,
+            toggleBottom: Math.round(viewerRectBeforeOpen.bottom - toggle.getBoundingClientRect().bottom)
+        };
+        const initialPipelineHeight = pipeline.getBoundingClientRect().height;
         toggle.click();
         const deadline = performance.now() + 2000;
         while (performance.now() < deadline) {
@@ -2397,8 +2428,6 @@ async function run() {
             await new Promise((resolve) => setTimeout(resolve, 5));
         }
         await nextFrame();
-        const viewer = document.querySelector(".viewer");
-        const pipeline = document.querySelector(".pipeline-pane");
         const labelCanvas = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
         const navigatorCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
         const navigatorMode = document.querySelector('select[aria-label="Cycle navigator mode"]');
@@ -2411,8 +2440,7 @@ async function run() {
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         const zoomOutput = document.querySelector(".zoom-controls output");
-        if (!(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
-            !(labelCanvas instanceof HTMLCanvasElement) ||
+        if (!(labelCanvas instanceof HTMLCanvasElement) ||
             !(navigatorCanvas instanceof HTMLCanvasElement) ||
             !(navigatorMode instanceof HTMLSelectElement) || !(resizer instanceof HTMLElement) ||
             !(followRange instanceof HTMLButtonElement) ||
@@ -2448,8 +2476,18 @@ async function run() {
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         const result = {
-            checked: toggle.checked,
+            expanded: toggle.getAttribute("aria-expanded"),
+            openLabel: toggle.getAttribute("aria-label"),
+            controls: toggle.getAttribute("aria-controls"),
+            toggleWidth: Math.round(toggle.getBoundingClientRect().width),
+            toggleHeight: Math.round(toggle.getBoundingClientRect().height),
+            collapsedState,
+            openAtBoundary: Math.abs(
+                toggle.getBoundingClientRect().top + toggle.getBoundingClientRect().height / 2 -
+                navigatorCanvas.getBoundingClientRect().top
+            ) < 2,
             hasClass: viewer.classList.contains("has-trace-navigator"),
+            hasExpandedClass: viewer.classList.contains("is-trace-navigator-expanded"),
             paneHeight: Math.round(navigatorCanvas.getBoundingClientRect().height),
             labelAligned: Math.round(labelCanvas.getBoundingClientRect().width) ===
                 Math.round(document.querySelector(".label-pane")?.getBoundingClientRect().width ?? -1),
@@ -2507,17 +2545,46 @@ async function run() {
         delete resizer.releasePointerCapture;
         toggle.click();
         await nextFrame();
+        const collapsedAgainRect = navigatorCanvas.getBoundingClientRect();
+        const collapsedLabelPane = labelCanvas.parentElement;
         return {
             ...result,
             resized,
             storedNavigator,
-            removed: document.querySelector(".trace-navigator-pane") === null
+            collapsed: toggle.getAttribute("aria-expanded"),
+            closedLabel: toggle.getAttribute("aria-label"),
+            collapsedAgain: {
+                paneHeight: Math.round(collapsedAgainRect.height),
+                pipelineAligned: Math.round(collapsedAgainRect.width) ===
+                    Math.round(pipeline.getBoundingClientRect().width),
+                labelsVisible: collapsedLabelPane !== null &&
+                    getComputedStyle(collapsedLabelPane).display !== "none",
+                labelContentsHidden: collapsedLabelPane !== null &&
+                    [...collapsedLabelPane.children].every((child) =>
+                        getComputedStyle(child).display === "none"),
+                resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
+                paneRetained: document.querySelector(".trace-navigator-cycle-pane") !== null
+            }
         };
     })()`);
-    if (!navigatorState.checked || !navigatorState.hasClass ||
+    if (navigatorState.expanded !== "true" ||
+        navigatorState.openLabel !== "Hide trace navigator" ||
+        navigatorState.controls !== "cycle-trace-navigator" ||
+        navigatorState.toggleWidth !== 28 || navigatorState.toggleHeight !== 20 ||
+        navigatorState.collapsedState?.paneHeight < 21 ||
+        navigatorState.collapsedState.paneHeight > 22 ||
+        !navigatorState.collapsedState.pipelineAligned ||
+        !navigatorState.collapsedState.labelsVisible ||
+        !navigatorState.collapsedState.labelContentsHidden ||
+        !navigatorState.collapsedState.tooltipHidden ||
+        !navigatorState.collapsedState.resizerHidden ||
+        navigatorState.collapsedState.cursor !== "grab" ||
+        navigatorState.collapsedState.toggleBottom !== 1 ||
+        !navigatorState.openAtBoundary || !navigatorState.hasClass ||
+        !navigatorState.hasExpandedClass ||
         navigatorState.paneHeight < 63 || navigatorState.paneHeight > 64 ||
         !navigatorState.labelAligned ||
-        !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 64 ||
+        !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 42 ||
         navigatorState.mode !== "commit" ||
         navigatorState.modeOptions?.join(",") !== "top-down,fetch,issue,commit,flush,latency" ||
         navigatorState.defaultRange !== "true" ||
@@ -2526,7 +2593,7 @@ async function run() {
         navigatorState.overviewCursor !== "grab" ||
         !navigatorState.zoomCanceled || navigatorState.navigatorZoom !== "119%" ||
         navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
-        navigatorState.resized.pipelineHeightReduction !== 180 ||
+        navigatorState.resized.pipelineHeightReduction !== 158 ||
         navigatorState.resized.canvasHeight < 179 ||
         navigatorState.resized.separatorHeight !== 10 ||
         navigatorState.resized.position !== "180" ||
@@ -2536,7 +2603,15 @@ async function run() {
         navigatorState.storedNavigator?.mode !== "commit" ||
         navigatorState.storedNavigator?.rangeMode !== "overview" ||
         navigatorState.storedNavigator?.height !== 180 ||
-        !navigatorState.removed) {
+        navigatorState.collapsed !== "false" ||
+        navigatorState.closedLabel !== "Show trace navigator" ||
+        navigatorState.collapsedAgain?.paneHeight < 21 ||
+        navigatorState.collapsedAgain.paneHeight > 22 ||
+        !navigatorState.collapsedAgain.pipelineAligned ||
+        !navigatorState.collapsedAgain.labelsVisible ||
+        !navigatorState.collapsedAgain.labelContentsHidden ||
+        !navigatorState.collapsedAgain.resizerHidden ||
+        !navigatorState.collapsedAgain.paneRetained) {
         throw new Error(`Trace navigator is incomplete: ${JSON.stringify(navigatorState)}`);
     }
 
@@ -2547,7 +2622,6 @@ async function run() {
         const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
         const split = document.querySelector('input[aria-label="Split lanes"]');
         const fixed = document.querySelector('input[aria-label="Fix op height"]');
-        const navigator = document.querySelector('input[aria-label="Trace navigator"]');
         const arrows = document.querySelector('select[aria-label="Dependency arrow type"]');
         const theme = document.querySelector('select[aria-label="UI color theme"]');
         const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
@@ -2561,7 +2635,6 @@ async function run() {
             !(hideFlushed instanceof HTMLInputElement) ||
             !(split instanceof HTMLInputElement) ||
             !(fixed instanceof HTMLInputElement) ||
-            !(navigator instanceof HTMLInputElement) ||
             !(arrows instanceof HTMLSelectElement) ||
             !(theme instanceof HTMLSelectElement) ||
             !(color instanceof HTMLSelectElement) ||
@@ -2600,7 +2673,10 @@ async function run() {
             tiledRendering: tiledRendering.checked,
             compatibilityOpen: compatibility.open,
             textVisibility: textVisibility.value,
-            checkboxesOnRight: [hideFlushed, split, fixed, navigator, webGL, tiledRendering]
+            navigatorSettingRemoved: document.querySelector(
+                'input[aria-label="Trace navigator"]'
+            ) === null,
+            checkboxesOnRight: [hideFlushed, split, fixed, webGL, tiledRendering]
                 .every((control) => control.closest("label")?.lastElementChild === control)
         })));
     })`);
@@ -2613,6 +2689,7 @@ async function run() {
         !viewControlState.tiledRendering ||
         viewControlState.compatibilityOpen ||
         viewControlState.textVisibility !== "4" ||
+        !viewControlState.navigatorSettingRemoved ||
         !viewControlState.checkboxesOnRight ||
         !viewControlState.staysOpenAfterInsideClick ||
         !viewControlState.closesAfterOutsideClick) {
@@ -4133,13 +4210,13 @@ async function run() {
         const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
-        const navigator = document.querySelector('input[aria-label="Trace navigator"]');
+        const navigator = document.querySelector(".trace-navigator-toggle");
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
             !(zoomSpeed instanceof HTMLSelectElement) ||
             !(webGL instanceof HTMLInputElement) ||
             !(tiledRendering instanceof HTMLInputElement) ||
-            !(navigator instanceof HTMLInputElement)) {
+            !(navigator instanceof HTMLButtonElement)) {
             throw new Error("The view settings controls were not found.");
         }
         theme.value = "light";
@@ -4158,7 +4235,7 @@ async function run() {
                 zoomSpeed: zoomSpeed.value,
                 webGL: webGL.checked,
                 tiledRendering: tiledRendering.checked,
-                navigator: navigator.checked,
+                navigator: navigator.getAttribute("aria-expanded"),
                 stored,
                 storesSplitLanes: stored !== null && "splitLanes" in stored,
                 storesLegacyLaneHeight: stored !== null && "drawTextThreshold" in stored
@@ -4170,7 +4247,7 @@ async function run() {
         viewSettingsSetupState.zoomSpeed !== "normal" ||
         viewSettingsSetupState.webGL ||
         viewSettingsSetupState.tiledRendering ||
-        !viewSettingsSetupState.navigator ||
+        viewSettingsSetupState.navigator !== "true" ||
         viewSettingsSetupState.stored?.theme !== "light" ||
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
         viewSettingsSetupState.stored?.webGLEnabled !== false ||
@@ -4200,7 +4277,9 @@ async function run() {
             split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
-            navigator: document.querySelector('input[aria-label="Trace navigator"]')?.checked ?? null,
+            navigator: document.querySelector(".trace-navigator-toggle")?.getAttribute(
+                "aria-expanded"
+            ) ?? null,
             navigatorMode: document.querySelector('select[aria-label="Cycle navigator mode"]')?.value ?? null,
             navigatorOverview: document.querySelector(
                 '[aria-label="Navigator range"] button[aria-pressed="true"]'
@@ -4217,7 +4296,7 @@ async function run() {
         persistedViewSettingsState.split ||
         persistedViewSettingsState.webGL ||
         persistedViewSettingsState.tiledRendering ||
-        !persistedViewSettingsState.navigator ||
+        persistedViewSettingsState.navigator !== "true" ||
         persistedViewSettingsState.navigatorMode !== "commit" ||
         persistedViewSettingsState.navigatorOverview !== "Overview" ||
         persistedViewSettingsState.navigatorHeight !== 180 ||
@@ -4270,7 +4349,9 @@ async function run() {
             zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
-            navigator: document.querySelector('input[aria-label="Trace navigator"]')?.checked ?? null,
+            navigator: document.querySelector(".trace-navigator-toggle")?.getAttribute(
+                "aria-expanded"
+            ) ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
             migratedLaneHeight: migrated?.textLabelMinimumLaneHeight ?? null,
             migratedNavigator: migrated?.traceNavigator ?? null,
@@ -4286,7 +4367,7 @@ async function run() {
         recoveredCustomColorState.zoomSpeed !== "normal" ||
         !recoveredCustomColorState.webGL ||
         !recoveredCustomColorState.tiledRendering ||
-        recoveredCustomColorState.navigator ||
+        recoveredCustomColorState.navigator !== "false" ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.migratedLaneHeight !== 3 ||
         recoveredCustomColorState.migratedNavigator?.visible !== false ||
