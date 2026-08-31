@@ -2481,12 +2481,19 @@ async function run() {
         const navigatorTooltipHidden = document.querySelector(".canvas-tooltip") === null;
         const fallbackMode = navigatorMode.value;
         const fallbackDisabled = navigatorMode.disabled;
+        const fallbackDisabledModes = [...navigatorMode.options]
+            .filter((option) => option.disabled)
+            .map((option) => option.value);
         const defaultRange = overviewRange.getAttribute("aria-pressed");
         followRange.click();
         await nextFrame();
         const followSelected = followRange.getAttribute("aria-pressed");
         overviewRange.click();
         await nextFrame();
+        navigatorMode.value = "fetch";
+        navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        const fallbackFetchMode = navigatorMode.value;
         navigatorMode.value = "commit";
         navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
         await nextFrame();
@@ -2533,6 +2540,8 @@ async function run() {
             mode: navigatorMode.value,
             fallbackMode,
             fallbackDisabled,
+            fallbackDisabledModes,
+            fallbackFetchMode,
             modeOptions: [...navigatorMode.options].map((option) => option.value),
             defaultRange,
             followSelected,
@@ -2627,7 +2636,9 @@ async function run() {
         !navigatorState.labelAligned ||
         !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 42 ||
         navigatorState.mode !== "commit" ||
-        navigatorState.fallbackMode !== "commit" || !navigatorState.fallbackDisabled ||
+        navigatorState.fallbackMode !== "commit" || navigatorState.fallbackDisabled ||
+        navigatorState.fallbackDisabledModes?.join(",") !== "top-down,issue,flush,latency" ||
+        navigatorState.fallbackFetchMode !== "fetch" ||
         navigatorState.modeOptions?.join(",") !== "top-down,fetch,issue,commit,flush,latency" ||
         navigatorState.defaultRange !== "true" ||
         navigatorState.followSelected !== "true" ||
@@ -3050,7 +3061,7 @@ async function run() {
         comparisonState.initial.navigator.paneHeight < 21 ||
         comparisonState.initial.navigator.paneHeight > 22 ||
         comparisonState.initial.navigator.mode !== "commit" ||
-        !comparisonState.initial.navigator.modeDisabled ||
+        comparisonState.initial.navigator.modeDisabled ||
         !comparisonState.initial.navigator.ready ||
         JSON.stringify(comparisonState.initial.overlayLayerCompositions) !== JSON.stringify([
             {opacity: 1, operation: "source-over", filter: "none"},

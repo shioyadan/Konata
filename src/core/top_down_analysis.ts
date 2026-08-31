@@ -600,14 +600,40 @@ export function updateTopDownData(
     data: Readonly<TopDownData>,
     trace: ParsedTrace,
 ): TopDownData {
-    if (data.analysis === null) {
-        return data;
-    }
     const frontierOp = trace.getOpFromRID(trace.lastRID);
     if (frontierOp === undefined) {
         return data;
     }
     const cycleCount = Math.max(data.cycleCount, Math.ceil(frontierOp.fetchedCycle), 1);
+    if (data.analysis === null) {
+        // stage推定に失敗しても、構造に依存しないFetch／Commitは読み込みに追従させる。
+        let capacity = data.cycleActivity.fetch.values.length;
+        while (capacity < cycleCount) {
+            capacity = Math.min(MAX_EXACT_TOP_DOWN_CYCLE_COUNT, Math.max(1, capacity * 2));
+            if (capacity === MAX_EXACT_TOP_DOWN_CYCLE_COUNT && capacity < cycleCount) {
+                return data;
+            }
+        }
+        if (capacity * 7 > MAX_TOP_DOWN_WORKING_BYTES) {
+            return data;
+        }
+        const cycleActivity = capacity === data.cycleActivity.fetch.values.length
+            ? data.cycleActivity
+            : growCycleActivity(data.cycleActivity, capacity);
+        let sourceLastID = data.sourceLastID;
+        for (let id = data.sourceLastID + 1; id < frontierOp.id; id++) {
+            const op = trace.getOpForScan(id);
+            if (op === undefined) {
+                break;
+            }
+            observeOpLifecycle(op, cycleActivity);
+            sourceLastID = id;
+        }
+        if (cycleCount === data.cycleCount && sourceLastID === data.sourceLastID) {
+            return data;
+        }
+        return { ...data, cycleCount, sourceLastID, cycleActivity };
+    }
     const grown = growLiveAnalysis(data.analysis, data.cycleActivity, cycleCount);
     if (grown === null) {
         return data;

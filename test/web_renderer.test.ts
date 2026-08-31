@@ -527,21 +527,41 @@ test("Top-down-like view classifies allocation slots without stage names", async
         baseline: { data: activity, spec: baselineSpec },
         candidate: { data: activity, spec: overviewSpec },
     } as const;
-    const comparisonViewport = getComparisonCycleNavigatorViewport(
+    const baselineViewport = getComparisonCycleNavigatorViewport(
         comparison,
         "overlay",
+        "baseline",
         overviewWidth,
     );
-    assert.ok(comparisonViewport !== null && comparisonViewport.width < overviewWidth);
-    const comparisonPosition = getComparisonCycleNavigatorScrollPosition(
+    const candidateViewport = getComparisonCycleNavigatorViewport(
         comparison,
         "overlay",
+        "candidate",
         overviewWidth,
-        comparisonViewport.left,
     );
-    assert.ok(comparisonPosition !== null);
-    assert.ok(Math.abs(comparisonPosition.candidate - 3) < 0.001);
-    assert.ok(Math.abs(comparisonPosition.baseline - 2) < 0.001);
+    assert.ok(baselineViewport !== null && baselineViewport.width < overviewWidth);
+    assert.ok(candidateViewport !== null && candidateViewport.width < overviewWidth);
+    assert.ok(baselineViewport.left < candidateViewport.left);
+    const baselinePosition = getComparisonCycleNavigatorScrollPosition(
+        comparison,
+        "overlay",
+        "baseline",
+        overviewWidth,
+        baselineViewport.left,
+    );
+    assert.ok(baselinePosition !== null);
+    assert.ok(Math.abs(baselinePosition.baseline - 2) < 0.001);
+    assert.ok(Math.abs(baselinePosition.candidate - 3) < 0.001);
+    const candidatePosition = getComparisonCycleNavigatorScrollPosition(
+        comparison,
+        "overlay",
+        "candidate",
+        overviewWidth,
+        candidateViewport.left,
+    );
+    assert.ok(candidatePosition !== null);
+    assert.ok(Math.abs(candidatePosition.baseline - 2) < 0.001);
+    assert.ok(Math.abs(candidatePosition.candidate - 3) < 0.001);
 
     const partialAllocation = getTopDownBreakdown(activity, 4, 5);
     assert.ok(partialAllocation !== null);
@@ -674,7 +694,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
         text === "B" && x === 4 && y === 96));
     assert.ok(comparisonNavigator.fillRects.some(([x, y, width, height]) =>
         x === 0 && y === 64 && width === overviewWidth && height === 1));
-    assert.equal(comparisonNavigator.strokeRects.length, 1);
+    assert.equal(comparisonNavigator.strokeRects.length, 2);
     trace.close();
 });
 
@@ -697,7 +717,7 @@ test("Top-down-like analysis fixes its trace range while a live trace grows", as
     trace.close();
 });
 
-test("Cycle navigator keeps commit activity when stage structure is unavailable", async () => {
+test("Cycle navigator keeps stage-independent activity when stage structure is unavailable", async () => {
     const trace = createLatencyTrace([[2, 9], [3, 9]]);
     const data = await buildTopDownData(trace);
     assert.ok(data !== null);
@@ -714,11 +734,39 @@ test("Cycle navigator keeps commit activity when stage structure is unavailable"
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [9, 0] },
         createCanvas(labels.context, 500, 128),
         createCanvas(navigator.context, 160, 128),
-        "commit",
+        "top-down",
         true,
     );
     assert.ok(labels.fillTexts.some(([text]) => text === "max 2 ops/cycle"));
     assert.ok(navigator.fillStyles.includes("hsl(140,35%,55%)"));
+
+    const fetchLabels = createRecordedContext();
+    const fetchNavigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+        createCanvas(fetchLabels.context, 500, 128),
+        createCanvas(fetchNavigator.context, 160, 128),
+        "fetch",
+        true,
+    );
+    assert.ok(fetchLabels.fillTexts.some(([text]) => text === "max 1 ops/cycle"));
+    assert.ok(fetchNavigator.fillStyles.includes("hsl(240,35%,55%)"));
+
+    const comparisonNavigator = createRecordedContext();
+    const source = {
+        data,
+        spec: { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+    };
+    drawComparisonCycleNavigator(
+        { baseline: source, candidate: source },
+        createCanvas(createRecordedContext().context, 500, 128),
+        createCanvas(comparisonNavigator.context, 160, 128),
+        "overlay",
+        "fetch",
+        true,
+    );
+    assert.ok(comparisonNavigator.fillStyles.includes("hsl(240,35%,55%)"));
     trace.close();
 });
 
@@ -861,6 +909,37 @@ test("Top-down-like live updates stop at gaps and follow the retired fetch front
         filled.cycleActivity, filled.cycleCount, "issue", 15, 16,
     )?.average, 1);
     assert.equal(updateTopDownData(filled, trace), filled);
+    trace.close();
+});
+
+test("Stage-independent live activity updates without a detected structure", async () => {
+    const trace = createLatencyTrace([[2, 9], [3, 9]]);
+    const data = await buildTopDownData(trace);
+    assert.ok(data !== null && data.analysis === null);
+    const store = trace.opStore as ArrayOpStore;
+    for (const [id, fetchedCycle, retiredCycle] of [
+        [2, 10, 15],
+        [3, 20, 25],
+    ] as const) {
+        const op = new Op();
+        op.id = id;
+        op.rid = id;
+        op.retired = true;
+        op.fetchedCycle = fetchedCycle;
+        op.retiredCycle = retiredCycle;
+        store.setOp(id, op);
+        store.setRetiredOp(id, op);
+    }
+    trace.updateLastCycle(25);
+
+    const updated = updateTopDownData(data, trace);
+    assert.equal(updated.sourceLastID, 2);
+    assert.equal(getCycleActivity(
+        updated.cycleActivity, updated.cycleCount, "fetch", 10, 11,
+    )?.average, 1);
+    assert.equal(getCycleActivity(
+        updated.cycleActivity, updated.cycleCount, "commit", 15, 16,
+    )?.average, 1);
     trace.close();
 });
 

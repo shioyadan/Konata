@@ -20,6 +20,7 @@ import {
     updateTopDownData,
 } from "../core/top_down_analysis";
 import {
+    cycleNavigatorModeRequiresStageStructure,
     drawComparisonCycleNavigator,
     drawCycleNavigator,
     getComparisonCycleNavigatorScrollPosition,
@@ -28,6 +29,7 @@ import {
     getCycleNavigatorViewport,
     type CycleNavigatorComparison,
     type CycleNavigatorMode,
+    type CycleNavigatorComparisonTrack,
 } from "../core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -210,6 +212,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const cycleNavigatorPointerRef = useRef<{
         readonly pointerID: number;
         readonly grabOffset: number;
+        readonly comparisonTrack: CycleNavigatorComparisonTrack | null;
     } | null>(null);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -294,11 +297,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const cycleNavigatorRangeMode = traceNavigatorExpanded
         ? traceNavigator.rangeMode
         : "overview";
-    const cycleNavigatorFallback = (comparisonMode === "baseline"
+    const cycleNavigatorStageStructureUnavailable = (comparisonMode === "baseline"
         ? baselineTopDownData
         : topDownData)?.analysis === null ||
         (comparisonMode === "overlay" && baselineTopDownData?.analysis === null);
-    const cycleNavigatorMode = cycleNavigatorFallback
+    const cycleNavigatorMode = cycleNavigatorStageStructureUnavailable &&
+        cycleNavigatorModeRequiresStageStructure(traceNavigator.mode)
         ? "commit"
         : traceNavigator.mode;
     const traceNavigatorDataReady = topDownData !== null &&
@@ -1177,6 +1181,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         canvas: HTMLCanvasElement,
         clientX: number,
         grabOffset: number,
+        comparisonTrack: CycleNavigatorComparisonTrack | null,
     ) => {
         if (topDownData === null) {
             return;
@@ -1196,7 +1201,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             : navigatorComparison === null
                 ? null
                 : getComparisonCycleNavigatorScrollPosition(
-                    navigatorComparison, comparisonMode, width, x - grabOffset,
+                    navigatorComparison,
+                    comparisonMode,
+                    comparisonTrack ?? "candidate",
+                    width,
+                    x - grabOffset,
                 );
         if (position === null) {
             return;
@@ -1207,12 +1216,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const baselineCycle = typeof position === "number"
             ? baselineSpec?.position[0]
             : position.baseline;
-        const candidateY = comparisonMode === "baseline"
+        const candidateY = comparisonTrack === "baseline"
             ? candidateSpec.position[1]
             : new KonataRenderMetrics(trace, candidateSpec)
                 .getPositionYFromCycle(candidateCycle) ?? candidateSpec.position[1];
         const baselineY = baselineSpec === undefined || baselineCycle === undefined ||
-            comparisonMode === "candidate"
+            comparisonTrack !== "baseline"
             ? baselineSpec?.position[1]
             : new KonataRenderMetrics(baselineTrace, baselineSpec)
                 .getPositionYFromCycle(baselineCycle) ?? baselineSpec.position[1];
@@ -1240,27 +1249,44 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const rect = canvas.getBoundingClientRect();
         const width = canvas.clientWidth;
         const x = rect.width === 0 ? 0 : (event.clientX - rect.left) * width / rect.width;
+        const y = rect.height === 0
+            ? 0
+            : (event.clientY - rect.top) * canvas.clientHeight / rect.height;
         const candidateSpec = viewController.currentSpec;
         const baselineSpec = viewController.currentBaselineSpec;
         const navigatorComparison = createCycleNavigatorComparison(
             baselineTopDownData, topDownData, baselineSpec, candidateSpec,
         );
+        const comparisonTrack: CycleNavigatorComparisonTrack | null = comparisonMode === null
+            ? null
+            : comparisonMode === "overlay"
+                ? y < canvas.clientHeight / 2 ? "baseline" : "candidate"
+                : comparisonMode;
         const viewport = comparisonMode === null
             ? getCycleNavigatorViewport(topDownData, candidateSpec, width)
             : navigatorComparison === null
                 ? null
                 : getComparisonCycleNavigatorViewport(
-                    navigatorComparison, comparisonMode, width,
+                    navigatorComparison,
+                    comparisonMode,
+                    comparisonTrack ?? "candidate",
+                    width,
                 );
         if (viewport === null) {
             return;
         }
         const insideViewport = x >= viewport.left && x <= viewport.left + viewport.width;
         const grabOffset = insideViewport ? x - viewport.left : viewport.width / 2;
-        cycleNavigatorPointerRef.current = { pointerID: event.pointerId, grabOffset };
+        cycleNavigatorPointerRef.current = {
+            pointerID: event.pointerId,
+            grabOffset,
+            comparisonTrack,
+        };
         canvas.setPointerCapture(event.pointerId);
         if (!insideViewport) {
-            moveCycleNavigatorViewport(canvas, event.clientX, grabOffset);
+            moveCycleNavigatorViewport(
+                canvas, event.clientX, grabOffset, comparisonTrack,
+            );
         }
         event.preventDefault();
         event.stopPropagation();
@@ -1271,7 +1297,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (pointer?.pointerID !== event.pointerId) {
             return;
         }
-        moveCycleNavigatorViewport(event.currentTarget, event.clientX, pointer.grabOffset);
+        moveCycleNavigatorViewport(
+            event.currentTarget,
+            event.clientX,
+            pointer.grabOffset,
+            pointer.comparisonTrack,
+        );
         event.preventDefault();
         event.stopPropagation();
     };
@@ -1440,18 +1471,29 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                             className="trace-navigator-mode"
                             aria-label="Cycle navigator mode"
                             value={cycleNavigatorMode}
-                            disabled={cycleNavigatorFallback}
                             onChange={(event) => onSetTraceNavigator({
                                 ...traceNavigator,
                                 mode: event.currentTarget.value as CycleNavigatorMode,
                             })}
                         >
-                            <option value="top-down">Top-down</option>
+                            <option
+                                value="top-down"
+                                disabled={cycleNavigatorStageStructureUnavailable}
+                            >Top-down</option>
                             <option value="fetch">Fetch</option>
-                            <option value="issue">Issue</option>
+                            <option
+                                value="issue"
+                                disabled={cycleNavigatorStageStructureUnavailable}
+                            >Issue</option>
                             <option value="commit">Commit</option>
-                            <option value="flush">Flush</option>
-                            <option value="latency">Latency</option>
+                            <option
+                                value="flush"
+                                disabled={cycleNavigatorStageStructureUnavailable}
+                            >Flush</option>
+                            <option
+                                value="latency"
+                                disabled={cycleNavigatorStageStructureUnavailable}
+                            >Latency</option>
                         </select>
                         <div
                             className="trace-navigator-range"
