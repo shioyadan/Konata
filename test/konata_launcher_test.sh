@@ -117,4 +117,17 @@ fi
 grep -q 'only an extracted distribution' "$test_dir/source.err"
 test ! -e "$source_install/index.html"
 
-echo "Konata launcher update test passed."
+# 未指定時は空きportを選び、実際のURLとSSH tunnelへ反映する。
+server_dir="$test_dir/server install"
+trace_path="$test_dir/parent trace.log"
+mkdir -p "$server_dir"
+cp "$repo_dir/konata.sh" "$server_dir/konata.sh"
+printf '%s\n' '<!doctype html><title>server</title>' > "$server_dir/index.html"
+printf '%s\n' 'trace' > "$trace_path"
+timeout --preserve-status --signal=INT 1 \
+    "$server_dir/konata.sh" "$trace_path" > "$test_dir/server.out"
+port="$(sed -n 's|^Konata URL: http://127\.0\.0\.1:\([0-9][0-9]*\)/.*|\1|p' "$test_dir/server.out")"
+test -n "$port"
+grep -q "^SSH tunnel: ssh -L $port:127.0.0.1:$port <host>$" "$test_dir/server.out"
+
+echo "Konata launcher test passed."

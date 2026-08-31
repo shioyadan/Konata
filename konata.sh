@@ -111,8 +111,13 @@ for trace_file in "$@"; do
     trace_paths+=("$trace_path")
 done
 
-# localhostの待受portだけを環境変数で変更できる。
-port="${KONATA_PORT:-30080}"
+# 未指定時は短い事前探索で空きportを選ぶ。serverのbindまでに稀な競合はあり得る。
+port="${KONATA_PORT:-$(python3 -c '
+import socket
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+')}"
 case "$port" in
     ''|*[!0-9]*)
         echo "KONATA_PORT must be an integer from 1 to 65535." >&2

@@ -22,7 +22,7 @@ size.
     cd konata-latest
 
     # On a remote host or WSL, start the launcher.
-    # It starts a local Web server and keeps running until you press Ctrl+C.
+    # It starts a local Web server on an available port and runs until Ctrl+C.
     ./konata.sh trace1.log.zst
     ```
 
