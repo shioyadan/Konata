@@ -38,7 +38,7 @@ PY
 }
 
 set_build() {
-    sed -i "s/^build_time=0$/build_time=$2/" "$1"
+    sed -i "s/^build=0-source-unknown$/build=$2/" "$1"
 }
 
 # 空白を含む配布先でも、同じarchiveのHTMLとscriptを一度に更新できる。
@@ -46,12 +46,12 @@ install_dir="$test_dir/installed copy"
 payload_dir="$test_dir/payload"
 mkdir -p "$install_dir" "$payload_dir"
 cp "$repo_dir/konata.sh" "$install_dir/konata.sh"
-set_build "$install_dir/konata.sh" "100"
+set_build "$install_dir/konata.sh" "100-aaaaaaa-2026-01-01"
 printf '%s\n' '# installed launcher marker' >> "$install_dir/konata.sh"
 printf '%s\n' '<!doctype html><title>old</title>' > "$install_dir/index.html"
 printf '%s\n' '<!doctype html><title>updated</title>' > "$payload_dir/index.html"
 cp "$repo_dir/konata.sh" "$payload_dir/konata.sh"
-set_build "$payload_dir/konata.sh" "200"
+set_build "$payload_dir/konata.sh" "200-bbbbbbb-2026-02-02"
 archive_path="$test_dir/konata-latest.zip"
 make_update_archive "$payload_dir" "$archive_path"
 
@@ -62,6 +62,8 @@ cp "$install_dir/index.html" "$install_dir/konata.sh" "$cancel_dir/"
 printf 'n\n' | env KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
     "$cancel_dir/konata.sh" --update > "$test_dir/cancel.out" 2> "$test_dir/cancel.err"
 grep -q 'A newer Konata build is available' "$test_dir/cancel.out"
+grep -q 'Installed build: aaaaaaa (2026-01-01)' "$test_dir/cancel.out"
+grep -q 'Available build: bbbbbbb (2026-02-02)' "$test_dir/cancel.out"
 grep -q 'Install this update' "$test_dir/cancel.err"
 grep -q 'Update cancelled' "$test_dir/cancel.out"
 cmp "$install_dir/index.html" "$cancel_dir/index.html"
@@ -70,6 +72,8 @@ cmp "$install_dir/konata.sh" "$cancel_dir/konata.sh"
 update_output="$(printf 'y\n' | env KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
     "$install_dir/konata.sh" --update 2> "$test_dir/update.err")"
 if [ "$update_output" != "Downloading the latest Konata development build...
+Installed build: aaaaaaa (2026-01-01)
+Available build: bbbbbbb (2026-02-02)
 A newer Konata build is available:
   konata.sh
   index.html
@@ -83,12 +87,14 @@ older_payload="$test_dir/older payload"
 mkdir -p "$older_payload"
 printf '%s\n' '<!doctype html><title>older</title>' > "$older_payload/index.html"
 cp "$repo_dir/konata.sh" "$older_payload/konata.sh"
-set_build "$older_payload/konata.sh" "50"
+set_build "$older_payload/konata.sh" "50-ccccccc-2025-12-31"
 older_archive="$test_dir/older.zip"
 make_update_archive "$older_payload" "$older_archive"
 printf 'n\n' | env KONATA_UPDATE_URL="$(archive_url "$older_archive")" \
     "$install_dir/konata.sh" --update > "$test_dir/older.out" 2> "$test_dir/older.err"
 grep -q 'available Konata build is older than this copy' "$test_dir/older.out"
+grep -q 'Installed build: bbbbbbb (2026-02-02)' "$test_dir/older.out"
+grep -q 'Available build: ccccccc (2025-12-31)' "$test_dir/older.out"
 grep -q 'Update cancelled' "$test_dir/older.out"
 cmp "$payload_dir/index.html" "$install_dir/index.html"
 cmp "$payload_dir/konata.sh" "$install_dir/konata.sh"
@@ -101,6 +107,8 @@ test -x "$install_dir/konata.sh"
 current_output="$(KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
     "$install_dir/konata.sh" --update)"
 if [ "$current_output" != "Downloading the latest Konata development build...
+Installed build: bbbbbbb (2026-02-02)
+Available build: bbbbbbb (2026-02-02)
 Konata is already up to date." ]; then
     echo "Unexpected current-version output: $current_output" >&2
     exit 1

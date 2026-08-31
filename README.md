@@ -120,9 +120,8 @@ is not available for them. Loading arbitrary URLs or paths is intentionally disa
 ./konata-latest/konata.sh --update
 ```
 
-The script reports whether the available tested development build is newer and whether `index.html`
-or `konata.sh` differs, then asks before replacing them. It does not modify traces or other extracted
-files.
+The script downloads the latest tested development build from Konata Web and updates the extracted
+copy after confirmation.
 
 ### Other ways to run
 

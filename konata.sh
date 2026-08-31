@@ -5,8 +5,8 @@
 # 配布済みdirectoryでは、Pages上の検証済みlatest archiveから自分自身を更新できる。
 set -eu
 
-# archive生成時にcommit時刻へ置換し、updateの新旧判定に使う。
-build_time=0
+# archive生成時にcommit時刻、hash、日付へ置換し、updateの表示と新旧判定に使う。
+build=0-source-unknown
 
 usage() {
     echo "Usage:" >&2
@@ -42,8 +42,8 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
     fi
 
     payload_dir="$update_dir/konata-latest"
-    payload_time="$(sed -n 's/^build_time=//p' "$payload_dir/konata.sh" 2>/dev/null || true)"
-    if [[ ! "$payload_time" =~ ^[0-9]+$ ]] ||
+    payload_build="$(sed -n 's/^build=//p' "$payload_dir/konata.sh" 2>/dev/null || true)"
+    if [[ ! "$payload_build" =~ ^[0-9]+-[0-9a-f]+-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] ||
         [ "$(head -n 1 "$payload_dir/konata.sh")" != '#!/usr/bin/env bash' ] ||
         ! bash -n "$payload_dir/konata.sh" ||
         ! head -c 64 "$payload_dir/index.html" | grep -qi '^<!doctype html>'; then
@@ -51,14 +51,18 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
         exit 1
     fi
 
+    IFS=- read -r current_time current_hash current_date <<< "$build"
+    IFS=- read -r payload_time payload_hash payload_date <<< "$payload_build"
+    printf 'Installed build: %s (%s)\n' "$current_hash" "$current_date"
+    printf 'Available build: %s (%s)\n' "$payload_hash" "$payload_date"
     if cmp -s "$payload_dir/konata.sh" "$script_path" &&
         cmp -s "$payload_dir/index.html" "$index_path"; then
         echo "Konata is already up to date."
         exit 0
     fi
-    if [ "$payload_time" -gt "$build_time" ]; then
+    if [ "$payload_time" -gt "$current_time" ]; then
         echo "A newer Konata build is available:"
-    elif [ "$payload_time" -lt "$build_time" ]; then
+    elif [ "$payload_time" -lt "$current_time" ]; then
         echo "The available Konata build is older than this copy:"
     else
         echo "The available Konata build differs from this copy:"

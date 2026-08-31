@@ -17,8 +17,9 @@ The workflow also runs `make latest-archive` for `master` and publishes the resu
 `https://shioyadan.github.io/Konata/konata-latest.zip`. This fixed name always represents the latest
 tested development version. An extracted distribution uses this archive for `konata.sh --update`
 and asks before replacing only its adjacent `index.html` and `konata.sh` when they differ. The
-archive embeds the source commit time in `konata.sh`, allowing the updater to report
-whether the available build is newer or older than the installed copy.
+archive embeds the source commit time, abbreviated hash, and date in `konata.sh`, allowing the
+updater to identify both builds and report whether the available build is newer or older than the
+installed copy.
 Versioned archives remain attached to GitHub Releases.
 
 The bundled `docs/kanata-sample-2.log.gz` is published as the fixed `trace1` input for the latest
