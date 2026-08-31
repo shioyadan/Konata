@@ -11,9 +11,11 @@ import {
     updateTopDownData,
 } from "../src/core/top_down_analysis";
 import {
+    drawComparisonCycleNavigator,
     drawCycleNavigator,
+    getComparisonCycleNavigatorScrollPosition,
+    getComparisonCycleNavigatorViewport,
     getCycleNavigatorScrollPosition,
-    getCycleNavigatorToolTip,
     getCycleNavigatorViewport,
 } from "../src/core/trace_navigator_renderer";
 import {
@@ -510,31 +512,8 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(fullAllocation.unresolvedSlots, 0);
     assert.equal(fullAllocation.frontendBound, 0);
     assert.equal(fullAllocation.backendBound, 0);
-    const topDownToolTip = getCycleNavigatorToolTip(
-        activity,
-        "top-down",
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
-        0,
-        160,
-    ) ?? "";
-    assert.equal(topDownToolTip, [
-        "Cycles: 3–3 · 2 slots",
-        "Retiring: 50.0%",
-        "Bad speculation: 50.0%",
-        "Frontend bound: 0.0%",
-        "Backend bound: 0.0%",
-    ].join("\n"));
     const overviewSpec = { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] } as const;
     const overviewWidth = 320;
-    const overviewToolTip = getCycleNavigatorToolTip(
-        activity,
-        "top-down",
-        overviewSpec,
-        (3.5 / activity.cycleCount) * overviewWidth,
-        overviewWidth,
-        "overview",
-    ) ?? "";
-    assert.match(overviewToolTip, /Retiring: 50\.0%/);
     const viewport = getCycleNavigatorViewport(activity, overviewSpec, overviewWidth);
     assert.ok(viewport !== null && viewport.width < overviewWidth);
     assert.ok(Math.abs((getCycleNavigatorScrollPosition(
@@ -543,6 +522,26 @@ test("Top-down-like view classifies allocation slots without stage names", async
         overviewWidth,
         viewport.left,
     ) ?? -1) - 3) < 0.001);
+    const baselineSpec = { ...overviewSpec, position: [2, 0] } as const;
+    const comparison = {
+        baseline: { data: activity, spec: baselineSpec },
+        candidate: { data: activity, spec: overviewSpec },
+    } as const;
+    const comparisonViewport = getComparisonCycleNavigatorViewport(
+        comparison,
+        "overlay",
+        overviewWidth,
+    );
+    assert.ok(comparisonViewport !== null && comparisonViewport.width < overviewWidth);
+    const comparisonPosition = getComparisonCycleNavigatorScrollPosition(
+        comparison,
+        "overlay",
+        overviewWidth,
+        comparisonViewport.left,
+    );
+    assert.ok(comparisonPosition !== null);
+    assert.ok(Math.abs(comparisonPosition.candidate - 3) < 0.001);
+    assert.ok(Math.abs(comparisonPosition.baseline - 2) < 0.001);
 
     const partialAllocation = getTopDownBreakdown(activity, 4, 5);
     assert.ok(partialAllocation !== null);
@@ -644,6 +643,9 @@ test("Top-down-like view classifies allocation slots without stage names", async
         { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0], theme: "light" },
         createCanvas(createRecordedContext().context, 450, 128),
         createCanvas(lightNavigator.context, 320, 128),
+        "top-down",
+        false,
+        "overview",
     );
     for (const color of [
         "hsl(0,0%,73%)",
@@ -653,6 +655,26 @@ test("Top-down-like view classifies allocation slots without stage names", async
     ]) {
         assert.ok(lightNavigator.fillStyles.includes(color));
     }
+    assert.equal(lightNavigator.strokeStyles[0], "rgba(0,0,0,0.55)");
+    assert.ok(lightNavigator.fillStyles.includes("rgba(255,255,255,0.25)"));
+
+    const comparisonNavigator = createRecordedContext();
+    drawComparisonCycleNavigator(
+        comparison,
+        createCanvas(createRecordedContext().context, 450, 128),
+        createCanvas(comparisonNavigator.context, overviewWidth, 128),
+        "overlay",
+        "top-down",
+        false,
+        "overview",
+    );
+    assert.ok(comparisonNavigator.fillTexts.some(([text, x, y]) =>
+        text === "A" && x === 4 && y === 32));
+    assert.ok(comparisonNavigator.fillTexts.some(([text, x, y]) =>
+        text === "B" && x === 4 && y === 96));
+    assert.ok(comparisonNavigator.fillRects.some(([x, y, width, height]) =>
+        x === 0 && y === 64 && width === overviewWidth && height === 1));
+    assert.equal(comparisonNavigator.strokeRects.length, 1);
     trace.close();
 });
 
@@ -675,6 +697,31 @@ test("Top-down-like analysis fixes its trace range while a live trace grows", as
     trace.close();
 });
 
+test("Cycle navigator keeps commit activity when stage structure is unavailable", async () => {
+    const trace = createLatencyTrace([[2, 9], [3, 9]]);
+    const data = await buildTopDownData(trace);
+    assert.ok(data !== null);
+    assert.equal(data.analysis, null);
+    const commit = getCycleActivity(data.cycleActivity, data.cycleCount, "commit", 9, 10);
+    assert.ok(commit !== null);
+    assert.equal(commit.average, 2);
+    assert.equal(commit.maximum, 2);
+
+    const labels = createRecordedContext();
+    const navigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [9, 0] },
+        createCanvas(labels.context, 500, 128),
+        createCanvas(navigator.context, 160, 128),
+        "commit",
+        true,
+    );
+    assert.ok(labels.fillTexts.some(([text]) => text === "max 2 ops/cycle"));
+    assert.ok(navigator.fillStyles.includes("hsl(140,35%,55%)"));
+    trace.close();
+});
+
 test("Cycle navigator counts throughput, flushed work, and latency", async () => {
     const trace = createCycleActivityTrace();
     const data = await buildTopDownData(trace);
@@ -685,7 +732,7 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
         startCycle: number,
         endCycle: number,
     ) => getCycleActivity(
-        analysis.cycleActivity,
+        data.cycleActivity,
         data.cycleCount,
         mode,
         startCycle,
@@ -716,19 +763,6 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
     assert.ok(latency !== null);
     assert.equal(latency.average, 4);
     assert.equal(latency.maximum, 4);
-
-    const toolTip = getCycleNavigatorToolTip(
-        data,
-        "fetch",
-        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
-        0,
-        160,
-    );
-    assert.equal(toolTip, [
-        "Cycles: 2–2",
-        "Average: 2.00 ops/cycle",
-        "Later flushed: 1.00 ops/cycle",
-    ].join("\n"));
 
     const compactFetchLabels = createRecordedContext();
     drawCycleNavigator(
@@ -821,10 +855,10 @@ test("Top-down-like live updates stop at gaps and follow the retired fetch front
     assert.equal(filledGap.retiringSlots, 1);
     assert.equal(filledGap.backendBound, 1);
     assert.equal(getCycleActivity(
-        filled.analysis.cycleActivity, filled.cycleCount, "fetch", 12, 13,
+        filled.cycleActivity, filled.cycleCount, "fetch", 12, 13,
     )?.average, 2);
     assert.equal(getCycleActivity(
-        filled.analysis.cycleActivity, filled.cycleCount, "issue", 15, 16,
+        filled.cycleActivity, filled.cycleCount, "issue", 15, 16,
     )?.average, 1);
     assert.equal(updateTopDownData(filled, trace), filled);
     trace.close();

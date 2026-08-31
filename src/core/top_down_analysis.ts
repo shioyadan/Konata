@@ -3,8 +3,8 @@
  *
  * 解析は次の順で行う。
  *
- * 1. StageStructureDetectorでallocation周辺の構造と観測幅を推定する。
- * 2. 検出済みの構造を使い、各cycleのslot分類とactivity系列を構築する。
+ * 1. Fetch／Commit activityを数えながら、allocation周辺の構造と観測幅を推定する。
+ * 2. 構造を検出できた場合だけ、各cycleのslot分類と残りのactivity系列を構築する。
  * 3. 表示範囲をsamplingし、分類またはactivityの値を集計する。
  *
  * Top-down分類は1 byte／slot、activityは各1 byte／cycleで保持する。
@@ -71,7 +71,6 @@ export interface TopDownAnalysis {
     readonly recoveryWindowCount: number;
     readonly minimumRecoveryCycles: number | null;
     readonly minimumRecoverySampleCount: number;
-    readonly cycleActivity: CycleActivity;
     // cycle * allocationWidth + slotをindexとする、全cycleの分類結果。
     readonly slots: Uint8Array;
 }
@@ -84,6 +83,7 @@ export interface TopDownAdmission {
 export interface TopDownData {
     readonly cycleCount: number;
     readonly sourceLastID: number;
+    readonly cycleActivity: CycleActivity;
     readonly analysis: TopDownAnalysis | null;
 }
 
@@ -227,6 +227,17 @@ interface AdmissionLatency {
     readonly typicalLatency: number;
 }
 
+function observeOpLifecycle(op: Readonly<Op>, activity: CycleActivity): void {
+    if (op.eof) {
+        return;
+    }
+    // Fetch／Commitはstage構造に依存しないため、Detectorと同じ走査で常に集計する。
+    incrementCycleActivity(activity, "fetch", op.fetchedCycle, op.flush);
+    if (op.retired) {
+        incrementCycleActivity(activity, "commit", op.retiredCycle);
+    }
+}
+
 function observeOpStages(
     op: Readonly<Op>,
     laneID: number,
@@ -239,10 +250,6 @@ function observeOpStages(
 ): AllocationStageObservation {
     // 一命令のstage列からallocation時刻、completion proxy、入口停滞、activityを得る。
     // 同名stageの連続区間は一つの滞留として扱う。
-    incrementCycleActivity(activity, "fetch", op.fetchedCycle, op.flush);
-    if (op.retired) {
-        incrementCycleActivity(activity, "commit", op.retiredCycle);
-    }
     const lane = op.lanes[laneID];
     let firstAllocationCycle: number | null = null;
     let firstExecutionCycle: number | null = null;
@@ -313,6 +320,7 @@ function observeOpStages(
 async function classifyTopDownSlots(
     trace: ParsedTrace,
     structure: Readonly<DetectedStageStructure>,
+    cycleActivity: CycleActivity,
     cycleCount: number,
     lastID: number,
     yieldInterval: number,
@@ -337,7 +345,6 @@ async function classifyTopDownSlots(
     slots.fill(TopDownSlotClass.FRONTEND_BOUND);
     const emptySlotClasses = new Uint8Array(cycleCount);
     emptySlotClasses.fill(TopDownSlotClass.FRONTEND_BOUND);
-    const cycleActivity = createCycleActivity(cycleCount);
     const previousRecoveryStartByThread = new Map<number, number>();
     const pendingRecoveryStartByThread = new Map<number, number>();
     const recoveryWindows: Array<readonly [startCycle: number, endCycle: number]> = [];
@@ -483,13 +490,12 @@ async function classifyTopDownSlots(
         recoveryWindowCount,
         minimumRecoveryCycles: supportedRecovery?.value ?? null,
         minimumRecoverySampleCount: supportedRecovery?.sampleCount ?? 0,
-        cycleActivity,
         slots,
     };
 }
 
 /**
- * 集計層: Detectorが推定したstage構造からTop-down-like分類とcycle activityを作る。
+ * 集計層: stage非依存activityを集計し、Detectorが推定できた場合はslot分類も作る。
  *
  * 全allocation slotと5系列をUint8Arrayへ保持し、samplingは表示時に行う。
  * 呼出し側はViewを閉じた時やTraceを破棄する時にisCanceledをtrueへする。
@@ -506,8 +512,9 @@ export async function buildTopDownData(
     let lastID = options.live ? (frontierOp?.id ?? 0) - 1 : trace.lastID;
     const yieldInterval = Math.max(1, options.yieldInterval ?? DEFAULT_YIELD_INTERVAL);
     const stageStructureDetector = new StageStructureDetector();
+    const cycleActivity = createCycleActivity(cycleCount);
     let workSinceYield = 0;
-    // 一回目のOp走査はDetectorへ委譲し、Top-down側では構造推定を行わない。
+    // 一回目のOp走査で構造推定と、構造に依存しないactivityを同時に集める。
     for (let id = 0; id <= lastID; id++) {
         if (options.isCanceled?.()) {
             return null;
@@ -519,6 +526,7 @@ export async function buildTopDownData(
         }
         if (op !== undefined) {
             stageStructureDetector.observe(op);
+            observeOpLifecycle(op, cycleActivity);
         }
         workSinceYield++;
         if (workSinceYield >= yieldInterval) {
@@ -536,6 +544,7 @@ export async function buildTopDownData(
         : await classifyTopDownSlots(
             trace,
             structure,
+            cycleActivity,
             cycleCount,
             lastID,
             yieldInterval,
@@ -547,19 +556,21 @@ export async function buildTopDownData(
     return {
         cycleCount,
         sourceLastID: lastID,
+        cycleActivity,
         analysis,
     };
 }
 
 function growLiveAnalysis(
     analysis: Readonly<TopDownAnalysis>,
+    cycleActivity: CycleActivity,
     cycleCount: number,
-): TopDownAnalysis | null {
+): { readonly analysis: TopDownAnalysis; readonly cycleActivity: CycleActivity } | null {
     // 読み込み途中の更新ごとに配列をcopyしないよう、cycle容量を倍増する。
     const width = analysis.allocationWidth;
     let capacity = Math.floor(analysis.slots.length / width);
     if (cycleCount <= capacity) {
-        return analysis;
+        return { analysis, cycleActivity };
     }
     while (capacity < cycleCount) {
         capacity = Math.min(MAX_EXACT_TOP_DOWN_CYCLE_COUNT, Math.max(1, capacity * 2));
@@ -576,9 +587,8 @@ function growLiveAnalysis(
     slots.fill(TopDownSlotClass.FRONTEND_BOUND);
     slots.set(analysis.slots);
     return {
-        ...analysis,
-        cycleActivity: growCycleActivity(analysis.cycleActivity, capacity),
-        slots,
+        analysis: { ...analysis, slots },
+        cycleActivity: growCycleActivity(cycleActivity, capacity),
     };
 }
 
@@ -598,10 +608,11 @@ export function updateTopDownData(
         return data;
     }
     const cycleCount = Math.max(data.cycleCount, Math.ceil(frontierOp.fetchedCycle), 1);
-    const analysis = growLiveAnalysis(data.analysis, cycleCount);
-    if (analysis === null) {
+    const grown = growLiveAnalysis(data.analysis, data.cycleActivity, cycleCount);
+    if (grown === null) {
         return data;
     }
+    const { analysis, cycleActivity } = grown;
 
     const admissionByStage = new Map<string, Readonly<TopDownAdmission>>();
     for (const admission of analysis.admissionStages) {
@@ -613,6 +624,7 @@ export function updateTopDownData(
         if (op.eof) {
             return;
         }
+        observeOpLifecycle(op, cycleActivity);
         const { firstAllocationCycle } = observeOpStages(
             op,
             analysis.allocationStage.laneID,
@@ -628,7 +640,7 @@ export function updateTopDownData(
                 );
             },
             analysis.executionStage.stageName,
-            analysis.cycleActivity,
+            cycleActivity,
         );
         if (firstAllocationCycle === null) {
             return;
@@ -657,6 +669,7 @@ export function updateTopDownData(
     return {
         cycleCount,
         sourceLastID,
+        cycleActivity,
         analysis,
     };
 }

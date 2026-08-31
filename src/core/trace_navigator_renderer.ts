@@ -24,16 +24,21 @@ const styles = { light: lightStyle, dark: darkStyle };
 
 export type CycleNavigatorMode = "top-down" | CycleActivityMode;
 export type CycleNavigatorRangeMode = "follow" | "overview";
+export type CycleNavigatorComparisonMode = "baseline" | "overlay" | "candidate";
 
 export interface CycleNavigatorViewport {
     readonly left: number;
     readonly width: number;
 }
 
-interface PixelCycleRange {
-    readonly startCycle: number;
-    readonly endCycle: number;
-    readonly maxSampleCycles: number;
+export interface CycleNavigatorSource {
+    readonly data: Readonly<TopDownData>;
+    readonly spec: Readonly<KonataRenderSpec>;
+}
+
+export interface CycleNavigatorComparison {
+    readonly baseline: Readonly<CycleNavigatorSource>;
+    readonly candidate: Readonly<CycleNavigatorSource>;
 }
 
 interface CycleScale {
@@ -132,6 +137,7 @@ function drawBreakdown(
     colors: Readonly<BreakdownColors>,
     left: number,
     width: number,
+    top: number,
     height: number,
 ): void {
     if (sample.totalSlots <= 0) {
@@ -144,14 +150,14 @@ function drawBreakdown(
         [sample.unresolvedSlots, colors.unresolved],
         [sample.retiringSlots, colors.retiring],
     ] as const;
-    let top = 0;
+    let segmentTop = top;
     for (const [value, color] of segments) {
         const segmentHeight = height * value / sample.totalSlots;
         if (segmentHeight > 0) {
             context.fillStyle = color;
-            context.fillRect(left, top, width, segmentHeight);
+            context.fillRect(left, segmentTop, width, segmentHeight);
         }
-        top += segmentHeight;
+        segmentTop += segmentHeight;
     }
 }
 
@@ -159,19 +165,20 @@ function drawViewport(
     context: CanvasRenderingContext2D,
     viewport: Readonly<CycleNavigatorViewport>,
     width: number,
+    top: number,
     height: number,
     shadeColor: string,
     borderColor: string,
 ): void {
     const right = Math.min(width, viewport.left + viewport.width);
     context.fillStyle = shadeColor;
-    context.fillRect(0, 0, viewport.left, height);
-    context.fillRect(right, 0, Math.max(0, width - right), height);
+    context.fillRect(0, top, viewport.left, height);
+    context.fillRect(right, top, Math.max(0, width - right), height);
     context.strokeStyle = borderColor;
     context.lineWidth = 1;
     context.strokeRect(
         viewport.left + 0.5,
-        0.5,
+        top + 0.5,
         Math.max(0, right - viewport.left - 1),
         Math.max(0, height - 1),
     );
@@ -184,6 +191,7 @@ function drawLabels(
     colors: Readonly<BreakdownColors>,
     mode: CycleNavigatorMode,
     showDetails: boolean,
+    activityMaximum?: number,
 ): void {
     const { analysis } = data;
     const style = styles[spec.theme];
@@ -193,7 +201,7 @@ function drawLabels(
     context.textAlign = "left";
     context.textBaseline = "middle";
     context.fillStyle = style.labelPane.fontColor;
-    if (analysis === null) {
+    if (analysis === null && mode !== "commit") {
         context.fillText("Analysis unavailable", margin, 34);
         context.fillText("No allocation boundary detected.", margin, 52);
         return;
@@ -208,14 +216,15 @@ function drawLabels(
         if (!showDetails) {
             return;
         }
-        const series = analysis.cycleActivity[mode];
+        const series = data.cycleActivity[mode];
         const info = activityInfo[mode];
-        const prefix = mode === "issue"
+        const prefix = mode === "issue" && analysis !== null
             ? `${analysis.executionStage.label} · `
-            : mode === "latency"
+            : mode === "latency" && analysis !== null
                 ? `${analysis.executionStage.label} → completion · `
                 : "";
-        const maximum = series.maximum >= 255 ? "≥255" : format(series.maximum);
+        const maximumValue = activityMaximum ?? series.maximum;
+        const maximum = maximumValue >= 255 ? "≥255" : format(maximumValue);
         let detailWidth = canvas.width - detailLeft - margin;
         if (mode === "fetch" || mode === "issue") {
             const label = "Later flushed";
@@ -238,6 +247,9 @@ function drawLabels(
             detailCenter,
             Math.max(1, detailWidth),
         );
+        return;
+    }
+    if (analysis === null) {
         return;
     }
 
@@ -293,32 +305,64 @@ function getCycleScale(
     };
 }
 
-function getPixelCycleRange(
-    data: Readonly<TopDownData>,
-    spec: Readonly<KonataRenderSpec>,
-    x: number,
+function getComparisonCycleRange(
+    comparison: Readonly<CycleNavigatorComparison>,
+) {
+    // Pipeline上で同じxに描かれるcycleをcandidate側の座標へ揃える。
+    const { baseline, candidate } = comparison;
+    const baselineOffset = candidate.spec.position[0] - baseline.spec.position[0];
+    return {
+        leftCycle: Math.min(0, baselineOffset),
+        rightCycle: Math.max(
+            candidate.data.cycleCount,
+            baselineOffset + baseline.data.cycleCount,
+        ),
+        baselineOffset,
+    };
+}
+
+function getViewport(
+    leftCycle: number,
+    rightCycle: number,
+    position: number,
+    visibleCycles: number,
     width: number,
-    rangeMode: CycleNavigatorRangeMode,
-): PixelCycleRange | null {
-    if (x < 0 || x >= width) {
+): CycleNavigatorViewport | null {
+    const cycleCount = rightCycle - leftCycle;
+    if (width <= 0 || cycleCount <= 0) {
         return null;
     }
-    const scale = getCycleScale(data, spec, width, rangeMode);
-    const cycle = scale.leftCycle + x / scale.pixelsPerCycle;
-    if (cycle < 0 || cycle >= data.cycleCount) {
-        return null;
+    if (visibleCycles >= cycleCount) {
+        return { left: 0, width };
     }
-    return scale.pixelsPerCycle >= 1
-        ? {
-            startCycle: Math.floor(cycle),
-            endCycle: Math.floor(cycle) + 1,
-            maxSampleCycles: Number.POSITIVE_INFINITY,
-        }
-        : {
-            startCycle: cycle,
-            endCycle: scale.leftCycle + (x + 1) / scale.pixelsPerCycle,
-            maxSampleCycles: MAX_SAMPLED_CYCLES_PER_PIXEL,
-        };
+    const viewportWidth = Math.min(
+        width,
+        Math.max(MIN_VIEWPORT_WIDTH, width * visibleCycles / cycleCount),
+    );
+    const maximumPosition = rightCycle - visibleCycles;
+    const clampedPosition = Math.min(Math.max(position, leftCycle), maximumPosition);
+    return {
+        left: (clampedPosition - leftCycle) / (maximumPosition - leftCycle) *
+            (width - viewportWidth),
+        width: viewportWidth,
+    };
+}
+
+function getScrollPosition(
+    leftCycle: number,
+    rightCycle: number,
+    visibleCycles: number,
+    width: number,
+    viewportLeft: number,
+    viewport: Readonly<CycleNavigatorViewport>,
+): number {
+    const trackWidth = width - viewport.width;
+    if (trackWidth <= 0) {
+        return leftCycle;
+    }
+    const maximumPosition = rightCycle - visibleCycles;
+    return leftCycle + Math.min(Math.max(viewportLeft, 0), trackWidth) / trackWidth *
+        (maximumPosition - leftCycle);
 }
 
 /** Overview上で、現在のPipeline表示範囲に対応するscrollbar thumbを返す。 */
@@ -327,24 +371,9 @@ export function getCycleNavigatorViewport(
     spec: Readonly<KonataRenderSpec>,
     width: number,
 ): CycleNavigatorViewport | null {
-    if (width <= 0 || data.cycleCount <= 0) {
-        return null;
-    }
     const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
     const visibleCycles = width / pixelsPerCycle;
-    if (visibleCycles >= data.cycleCount) {
-        return { left: 0, width };
-    }
-    const viewportWidth = Math.min(
-        width,
-        Math.max(MIN_VIEWPORT_WIDTH, width * visibleCycles / data.cycleCount),
-    );
-    const maximumCycle = data.cycleCount - visibleCycles;
-    const position = Math.min(Math.max(spec.position[0], 0), maximumCycle);
-    return {
-        left: position / maximumCycle * (width - viewportWidth),
-        width: viewportWidth,
-    };
+    return getViewport(0, data.cycleCount, spec.position[0], visibleCycles, width);
 }
 
 /** Overviewのthumb左端を、Pipeline左端のcycleへ戻す。 */
@@ -358,109 +387,110 @@ export function getCycleNavigatorScrollPosition(
     if (viewport === null) {
         return null;
     }
-    const trackWidth = width - viewport.width;
-    if (trackWidth <= 0) {
-        return 0;
-    }
     const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
-    const maximumCycle = data.cycleCount - width / pixelsPerCycle;
-    return Math.min(Math.max(viewportLeft, 0), trackWidth) / trackWidth * maximumCycle;
+    return getScrollPosition(
+        0,
+        data.cycleCount,
+        width / pixelsPerCycle,
+        width,
+        viewportLeft,
+        viewport,
+    );
 }
 
-export function getCycleNavigatorToolTip(
-    data: Readonly<TopDownData>,
-    mode: CycleNavigatorMode,
-    spec: Readonly<KonataRenderSpec>,
-    x: number,
+/** 比較Overview上で、A/Bに共通するPipeline表示範囲のthumbを返す。 */
+export function getComparisonCycleNavigatorViewport(
+    comparison: Readonly<CycleNavigatorComparison>,
+    mode: CycleNavigatorComparisonMode,
     width: number,
-    rangeMode: CycleNavigatorRangeMode = "follow",
-): string | null {
-    const range = getPixelCycleRange(data, spec, x, width, rangeMode);
-    if (range === null) {
-        return null;
+): CycleNavigatorViewport | null {
+    if (mode !== "overlay") {
+        const source = mode === "baseline" ? comparison.baseline : comparison.candidate;
+        return getCycleNavigatorViewport(source.data, source.spec, width);
     }
-    if (mode === "top-down") {
-        const sample = getTopDownBreakdown(
-            data, range.startCycle, range.endCycle, range.maxSampleCycles,
+    const range = getComparisonCycleRange(comparison);
+    const { spec } = comparison.candidate;
+    const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
+    return getViewport(
+        range.leftCycle,
+        range.rightCycle,
+        spec.position[0],
+        width / pixelsPerCycle,
+        width,
+    );
+}
+
+/** 比較Overviewのthumb左端を、位置関係を保ったA/Bのcycleへ戻す。 */
+export function getComparisonCycleNavigatorScrollPosition(
+    comparison: Readonly<CycleNavigatorComparison>,
+    mode: CycleNavigatorComparisonMode,
+    width: number,
+    viewportLeft: number,
+) {
+    if (mode !== "overlay") {
+        const source = mode === "baseline" ? comparison.baseline : comparison.candidate;
+        const position = getCycleNavigatorScrollPosition(
+            source.data, source.spec, width, viewportLeft,
         );
-        if (sample === null) {
+        if (position === null) {
             return null;
         }
-        const percent = (value: number) => sample.totalSlots === 0
-            ? "0.0"
-            : (value / sample.totalSlots * 100).toFixed(1);
-        const badSpeculation = sample.squashedSlots + sample.recoveryBubbleSlots;
-        return [
-            `Cycles: ${sample.startCycle}–${sample.endCycle - 1} · ${sample.totalSlots} slots`,
-            `Retiring: ${percent(sample.retiringSlots)}%`,
-            `Bad speculation: ${percent(badSpeculation)}%`,
-            `Frontend bound: ${percent(sample.frontendBound)}%`,
-            `Backend bound: ${percent(sample.backendBound)}%`,
-            ...(sample.unresolvedSlots === 0
-                ? []
-                : [`Unresolved: ${percent(sample.unresolvedSlots)}%`]),
-            ...(sample.samplingStride === 1
-                ? []
-                : [`Sampled every ${sample.samplingStride} cycles`]),
-        ].join("\n");
+        return {
+            baseline: mode === "baseline"
+                ? position
+                : comparison.baseline.spec.position[0],
+            candidate: mode === "candidate"
+                ? position
+                : comparison.candidate.spec.position[0],
+        };
     }
-
-    const analysis = data.analysis;
-    if (analysis === null) {
+    const range = getComparisonCycleRange(comparison);
+    const viewport = getComparisonCycleNavigatorViewport(comparison, mode, width);
+    if (viewport === null) {
         return null;
     }
-    const sample = getCycleActivity(
-        analysis.cycleActivity,
-        data.cycleCount,
-        mode,
-        range.startCycle,
-        range.endCycle,
-        range.maxSampleCycles,
+    const pixelsPerCycle = KONATA_OP_WIDTH *
+        getKonataZoomScale(comparison.candidate.spec.zoomLevel);
+    const candidate = getScrollPosition(
+        range.leftCycle,
+        range.rightCycle,
+        width / pixelsPerCycle,
+        width,
+        viewportLeft,
+        viewport,
     );
-    if (sample === null) {
-        return null;
-    }
-    const info = activityInfo[mode];
-    return [
-        `Cycles: ${sample.startCycle}–${sample.endCycle - 1}`,
-        `Average: ${sample.average.toFixed(2)}${info.unit}`,
-        ...(sample.flushedAverage === 0
-            ? []
-            : [`Later flushed: ${sample.flushedAverage.toFixed(2)} ops/cycle`]),
-        ...(sample.samplingStride === 1
-            ? []
-            : [`Sampled every ${sample.samplingStride} cycles`]),
-    ].join("\n");
+    return { candidate, baseline: candidate - range.baselineOffset };
 }
 
-export function drawCycleNavigator(
-    data: Readonly<TopDownData>,
+function clearNavigator(
+    label: Readonly<PreparedCanvas>,
+    cycleNavigator: Readonly<PreparedCanvas>,
     spec: Readonly<KonataRenderSpec>,
-    labelCanvas: HTMLCanvasElement,
-    cycleCanvas: HTMLCanvasElement,
-    mode: CycleNavigatorMode = "top-down",
-    showDetails = false,
-    rangeMode: CycleNavigatorRangeMode = "follow",
-): void {
-    const label = prepareCanvas(labelCanvas);
-    const cycleNavigator = prepareCanvas(cycleCanvas);
+): BreakdownColors {
     const style = styles[spec.theme];
     label.context.fillStyle = style.labelPane.backgroundColor;
     label.context.fillRect(0, 0, label.width, label.height);
     cycleNavigator.context.fillStyle = style.pipelinePane.backgroundColor;
     cycleNavigator.context.fillRect(0, 0, cycleNavigator.width, cycleNavigator.height);
-    const colors = createBreakdownColors(
+    return createBreakdownColors(
         style.pipelinePane.stageBackgroundColor,
         style.pipelinePane.backgroundColor,
     );
-    drawLabels(data, spec, label, colors, mode, showDetails);
-    const analysis = data.analysis;
-    if (analysis === null) {
-        return;
-    }
+}
 
-    const scale = getCycleScale(data, spec, cycleNavigator.width, rangeMode);
-    const leftCycle = scale.leftCycle;
+function drawCycleTrack(
+    data: Readonly<TopDownData>,
+    cycleNavigator: Readonly<PreparedCanvas>,
+    scale: Readonly<CycleScale>,
+    cycleOffset: number,
+    top: number,
+    height: number,
+    mode: CycleNavigatorMode,
+    colors: Readonly<BreakdownColors>,
+    flushedColor: string,
+    activityMaximum?: number,
+): void {
+    const leftCycle = scale.leftCycle - cycleOffset;
     const rightCycle = leftCycle + cycleNavigator.width / scale.pixelsPerCycle;
     const drawRange = (startCycle: number, endCycle: number, left: number, width: number) => {
         if (mode === "top-down") {
@@ -477,33 +507,35 @@ export function drawCycleNavigator(
                     colors,
                     left,
                     width,
-                    cycleNavigator.height,
+                    top,
+                    height,
                 );
             }
             return;
         }
         const sample = getCycleActivity(
-            analysis.cycleActivity,
+            data.cycleActivity,
             data.cycleCount,
             mode,
             startCycle,
             endCycle,
             MAX_SAMPLED_CYCLES_PER_PIXEL,
         );
-        if (sample === null || sample.maximum === 0) {
+        const maximum = activityMaximum ?? sample?.maximum ?? 0;
+        if (sample === null || maximum === 0) {
             return;
         }
-        const height = cycleNavigator.height * sample.average / sample.maximum;
+        const barHeight = height * sample.average / maximum;
         cycleNavigator.context.fillStyle = colors[activityInfo[mode].color];
         cycleNavigator.context.fillRect(
-            left, cycleNavigator.height - height, width, height,
+            left, top + height - barHeight, width, barHeight,
         );
-        const flushedHeight = cycleNavigator.height * sample.flushedAverage / sample.maximum;
+        const flushedHeight = height * sample.flushedAverage / maximum;
         if (flushedHeight > 0) {
             // Dark／Lightの差はtheme側の色だけで吸収する。
-            cycleNavigator.context.fillStyle = style.traceNavigator.flushedColor;
+            cycleNavigator.context.fillStyle = flushedColor;
             cycleNavigator.context.fillRect(
-                left, cycleNavigator.height - height, width, flushedHeight,
+                left, top + height - barHeight, width, flushedHeight,
             );
         }
     };
@@ -513,10 +545,13 @@ export function drawCycleNavigator(
         for (let cycle = firstCycle; cycle < lastCycle; cycle++) {
             const startCycle = cycle;
             const endCycle = cycle + 1;
-            const left = Math.max(0, (startCycle - leftCycle) * scale.pixelsPerCycle);
+            const left = Math.max(
+                0,
+                (startCycle + cycleOffset - scale.leftCycle) * scale.pixelsPerCycle,
+            );
             const right = Math.min(
                 cycleNavigator.width,
-                (endCycle - leftCycle) * scale.pixelsPerCycle,
+                (endCycle + cycleOffset - scale.leftCycle) * scale.pixelsPerCycle,
             );
             drawRange(startCycle, endCycle, left, Math.max(1, right - left));
         }
@@ -527,19 +562,155 @@ export function drawCycleNavigator(
                 data.cycleCount,
                 leftCycle + (x + 1) / scale.pixelsPerCycle,
             );
-            drawRange(startCycle, endCycle, x, 1);
+            if (startCycle < endCycle) {
+                drawRange(startCycle, endCycle, x, 1);
+            }
         }
     }
+}
+
+function drawNavigatorViewport(
+    canvas: Readonly<PreparedCanvas>,
+    viewport: Readonly<CycleNavigatorViewport> | null,
+    shadeColor: string,
+    borderColor: string,
+): void {
+    if (viewport !== null) {
+        drawViewport(
+            canvas.context,
+            viewport,
+            canvas.width,
+            0,
+            canvas.height,
+            shadeColor,
+            borderColor,
+        );
+    }
+}
+
+export function drawCycleNavigator(
+    data: Readonly<TopDownData>,
+    spec: Readonly<KonataRenderSpec>,
+    labelCanvas: HTMLCanvasElement,
+    cycleCanvas: HTMLCanvasElement,
+    mode: CycleNavigatorMode = "top-down",
+    showDetails = false,
+    rangeMode: CycleNavigatorRangeMode = "follow",
+): void {
+    const source = { data, spec };
+    drawComparisonCycleNavigator(
+        { baseline: source, candidate: source },
+        labelCanvas,
+        cycleCanvas,
+        "candidate",
+        mode,
+        showDetails,
+        rangeMode,
+    );
+}
+
+/** 比較時はA/B単独を全高、Overlayを共通cycle軸の上下2段で描く。 */
+export function drawComparisonCycleNavigator(
+    comparison: Readonly<CycleNavigatorComparison>,
+    labelCanvas: HTMLCanvasElement,
+    cycleCanvas: HTMLCanvasElement,
+    comparisonMode: CycleNavigatorComparisonMode,
+    mode: CycleNavigatorMode = "top-down",
+    showDetails = false,
+    rangeMode: CycleNavigatorRangeMode = "follow",
+): void {
+    const { baseline, candidate } = comparison;
+    const overlay = comparisonMode === "overlay";
+    const selected = comparisonMode === "baseline" ? baseline : candidate;
+    // 一方で構造を推定できない場合、異なる指標を上下へ混在させずCommitへ揃える。
+    const effectiveMode = overlay && mode !== "commit" &&
+        (baseline.data.analysis === null || candidate.data.analysis === null)
+        ? "commit"
+        : mode;
+    const labelSource = overlay ? candidate : selected;
+    const label = prepareCanvas(labelCanvas);
+    const cycleNavigator = prepareCanvas(cycleCanvas);
+    const style = styles[labelSource.spec.theme];
+    const colors = clearNavigator(label, cycleNavigator, labelSource.spec);
+    const activityMaximum = overlay && effectiveMode !== "top-down"
+        ? Math.max(
+            baseline.data.cycleActivity[effectiveMode].maximum,
+            candidate.data.cycleActivity[effectiveMode].maximum,
+        )
+        : undefined;
+    drawLabels(
+        labelSource.data,
+        labelSource.spec,
+        label,
+        colors,
+        effectiveMode,
+        showDetails,
+        activityMaximum,
+    );
+    if (!overlay && selected.data.analysis === null && effectiveMode !== "commit") {
+        return;
+    }
+
+    const range = overlay
+        ? getComparisonCycleRange(comparison)
+        : { leftCycle: 0, rightCycle: selected.data.cycleCount, baselineOffset: 0 };
+    const scale = overlay && rangeMode === "overview"
+        ? {
+            leftCycle: range.leftCycle,
+            pixelsPerCycle: cycleNavigator.width /
+                Math.max(1, range.rightCycle - range.leftCycle),
+        }
+        : getCycleScale(selected.data, selected.spec, cycleNavigator.width, rangeMode);
+    const baselineHeight = Math.floor(cycleNavigator.height / 2);
+    const tracks = overlay ? [
+        {
+            source: baseline, offset: range.baselineOffset,
+            top: 0, height: baselineHeight, label: "A",
+        },
+        {
+            source: candidate, offset: 0,
+            top: baselineHeight, height: cycleNavigator.height - baselineHeight, label: "B",
+        },
+    ] as const : [
+        {
+            source: selected, offset: 0,
+            top: 0, height: cycleNavigator.height, label: "",
+        },
+    ] as const;
+    for (const track of tracks) {
+        drawCycleTrack(
+            track.source.data,
+            cycleNavigator,
+            scale,
+            track.offset,
+            track.top,
+            track.height,
+            effectiveMode,
+            colors,
+            style.traceNavigator.flushedColor,
+            activityMaximum,
+        );
+    }
     if (rangeMode === "overview") {
-        const viewport = getCycleNavigatorViewport(data, spec, cycleNavigator.width);
-        if (viewport !== null) {
-            drawViewport(
-                cycleNavigator.context,
-                viewport,
-                cycleNavigator.width,
-                cycleNavigator.height,
-                style.traceNavigator.viewportShadeColor,
-                style.traceNavigator.viewportBorderColor,
+        drawNavigatorViewport(
+            cycleNavigator,
+            getComparisonCycleNavigatorViewport(
+                comparison, comparisonMode, cycleNavigator.width,
+            ),
+            style.traceNavigator.viewportShadeColor,
+            style.traceNavigator.viewportBorderColor,
+        );
+    }
+    if (overlay) {
+        cycleNavigator.context.fillStyle = style.pipelinePane.borderColor;
+        cycleNavigator.context.fillRect(0, baselineHeight, cycleNavigator.width, 1);
+        cycleNavigator.context.font = `bold 10px ${style.fontFamily}`;
+        cycleNavigator.context.textAlign = "left";
+        cycleNavigator.context.textBaseline = "middle";
+        cycleNavigator.context.fillStyle = style.pipelinePane.fontColor;
+        for (const track of tracks) {
+            cycleNavigator.context.fillText(
+                track.label, 4, track.top + track.height / 2,
             );
         }
     }

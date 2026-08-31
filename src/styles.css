@@ -1079,12 +1079,12 @@ button:disabled {
     content: "";
 }
 
-/* 閉じた時は下端のpull tab、開いた時は境界上のdrawer handleとして同じ操作を示す。 */
+/* buttonはlabel側の右端へ置き、開閉後もNavigatorのすぐ左で横位置を保つ。 */
 .trace-navigator-toggle {
     position: absolute;
     z-index: 2;
-    right: 8px;
     bottom: 1px;
+    left: max(2px, calc(min(var(--label-pane-width), calc(100% - 10px)) - 30px));
     display: grid;
     width: 28px;
     height: 20px;

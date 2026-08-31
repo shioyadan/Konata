@@ -20,10 +20,13 @@ import {
     updateTopDownData,
 } from "../core/top_down_analysis";
 import {
+    drawComparisonCycleNavigator,
     drawCycleNavigator,
+    getComparisonCycleNavigatorScrollPosition,
+    getComparisonCycleNavigatorViewport,
     getCycleNavigatorScrollPosition,
-    getCycleNavigatorToolTip,
     getCycleNavigatorViewport,
+    type CycleNavigatorComparison,
     type CycleNavigatorMode,
 } from "../core/trace_navigator_renderer";
 import {
@@ -67,6 +70,7 @@ interface CanvasToolTip {
     readonly left: number;
     readonly top: number;
     readonly text: string;
+    readonly bottomBoundary?: number;
 }
 
 // A/B単独表示では、位置合わせ用の反対側だけを控えめに重ねる。
@@ -83,6 +87,8 @@ const MAX_WHEEL_ZOOM_LEVELS = 2;
 const TRACKPAD_DELTA_PER_ZOOM_LEVEL = 100;
 const MAX_TRACKPAD_ZOOM_PER_FRAME = 0.25;
 const MIN_PIPELINE_HEIGHT = 96;
+const TOOLTIP_BELOW_POINTER_OFFSET = 20;
+const TOOLTIP_ABOVE_POINTER_GAP = 8;
 
 function normalizeWheelDelta(event: WheelEvent): number {
     // deltaの単位はdevice／OS依存なので、主要map rendererと同じ尺度へ先に揃える。
@@ -93,6 +99,20 @@ function normalizeWheelDelta(event: WheelEvent): number {
         return event.deltaY * WHEEL_PAGE_DELTA;
     }
     return event.deltaY;
+}
+
+function createCycleNavigatorComparison(
+    baselineData: Readonly<TopDownData> | null,
+    candidateData: Readonly<TopDownData>,
+    baselineSpec: Readonly<KonataRenderSpec> | undefined,
+    candidateSpec: Readonly<KonataRenderSpec>,
+): CycleNavigatorComparison | null {
+    return baselineData === null || baselineSpec === undefined
+        ? null
+        : {
+            baseline: { data: baselineData, spec: baselineSpec },
+            candidate: { data: candidateData, spec: candidateSpec },
+        };
 }
 
 export interface TraceSheetHandle {
@@ -254,22 +274,35 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [isResizing, setIsResizing] = useState(false);
     const [isTraceNavigatorResizing, setIsTraceNavigatorResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
+    const toolTipRef = useRef<HTMLPreElement>(null);
     // UI／制御層は集計結果の寿命だけを所有する。TopDownDataはTraceから
     // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
     const [topDownData, setTopDownData] = useState<TopDownData | null>(null);
+    const [baselineTopDownData, setBaselineTopDownData] = useState<TopDownData | null>(null);
     const topDownLiveDataRef = useRef<{
         readonly trace: ParsedTrace;
         data: TopDownData;
     } | null>(null);
     const [topDownError, setTopDownError] = useState(false);
+    const comparisonActive = comparison !== null;
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
-    const traceNavigatorAvailable = comparison === null && trace !== null;
+    const traceNavigatorAvailable = trace !== null &&
+        (!comparisonActive || baselineTrace !== null);
     const traceNavigatorExpanded = traceNavigator.visible && traceNavigatorAvailable;
-    // 簡易表示は常に全体を示し、詳細表示だけが保存済みのFollow／Overviewを使う。
+    // 簡易表示は常に全体を示し、詳細表示だけが保存済みのViewport／Full traceを使う。
     const cycleNavigatorRangeMode = traceNavigatorExpanded
         ? traceNavigator.rangeMode
         : "overview";
+    const cycleNavigatorFallback = (comparisonMode === "baseline"
+        ? baselineTopDownData
+        : topDownData)?.analysis === null ||
+        (comparisonMode === "overlay" && baselineTopDownData?.analysis === null);
+    const cycleNavigatorMode = cycleNavigatorFallback
+        ? "commit"
+        : traceNavigator.mode;
+    const traceNavigatorDataReady = topDownData !== null &&
+        (comparisonMode === null || baselineTopDownData !== null);
     const topDownSampleReady = trace !== null && (loadState === "ready" ||
         trace.opCount >= TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT);
     const topDownStatusMessage = topDownError
@@ -497,17 +530,33 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ...tileOptions,
             prefetchSpec: baselinePrefetchSpec,
         } as const;
-        if (traceNavigatorAvailable && topDownData !== null &&
+        if (traceNavigatorAvailable && traceNavigatorDataReady && topDownData !== null &&
             cycleNavigatorLabelCanvas !== null && cycleNavigatorCanvas !== null) {
-            drawCycleNavigator(
-                topDownData,
-                candidateSpec,
-                cycleNavigatorLabelCanvas,
-                cycleNavigatorCanvas,
-                traceNavigator.mode,
-                cycleNavigatorDetailsVisibleRef.current,
-                cycleNavigatorRangeMode,
+            const navigatorComparison = createCycleNavigatorComparison(
+                baselineTopDownData, topDownData, currentBaselineSpec, candidateSpec,
             );
+            if (comparisonMode !== null && navigatorComparison !== null) {
+                drawComparisonCycleNavigator(
+                    navigatorComparison,
+                    cycleNavigatorLabelCanvas,
+                    cycleNavigatorCanvas,
+                    comparisonMode,
+                    cycleNavigatorMode,
+                    cycleNavigatorDetailsVisibleRef.current,
+                    cycleNavigatorRangeMode,
+                );
+            }
+            else {
+                drawCycleNavigator(
+                    topDownData,
+                    candidateSpec,
+                    cycleNavigatorLabelCanvas,
+                    cycleNavigatorCanvas,
+                    cycleNavigatorMode,
+                    cycleNavigatorDetailsVisibleRef.current,
+                    cycleNavigatorRangeMode,
+                );
+            }
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
             if (baselineRenderer === null || comparisonMode === null || currentBaselineSpec === undefined) {
@@ -581,12 +630,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         loadState,
         renderer,
         cycleNavigatorRangeMode,
+        cycleNavigatorMode,
+        baselineTopDownData,
         topDownData,
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
         trace,
         traceNavigatorAvailable,
+        traceNavigatorDataReady,
         traceNavigator,
         webGLEnabled,
     ]);
@@ -655,6 +707,32 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         };
     }, [loadState, topDownSampleReady, trace, traceNavigatorAvailable]);
 
+    // 比較元Aは比較Tabを作る時点で読み込み済みなので、live追記を持たず一度だけ集計する。
+    useEffect(() => {
+        let canceled = false;
+        setBaselineTopDownData(null);
+        if (!traceNavigatorAvailable || !comparisonActive || baselineTrace === null) {
+            return () => {
+                canceled = true;
+            };
+        }
+        void buildTopDownData(baselineTrace, { isCanceled: () => canceled })
+            .then((data) => {
+                if (!canceled && data !== null) {
+                    setBaselineTopDownData(data);
+                }
+            })
+            .catch((error: unknown) => {
+                if (!canceled) {
+                    console.warn("Could not build baseline trace navigator analysis.", error);
+                    setTopDownError(true);
+                }
+            });
+        return () => {
+            canceled = true;
+        };
+    }, [baselineTrace, comparisonActive, traceNavigatorAvailable]);
+
     // Pipelineと同じ途中Traceの公開通知ごとに、節目間の差分だけをNavigatorへ反映する。
     useEffect(() => {
         const live = topDownLiveDataRef.current;
@@ -667,10 +745,33 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     }, [renderVersion, trace, traceNavigatorAvailable]);
 
     useLayoutEffect(() => {
-        if (traceNavigatorAvailable && topDownData !== null) {
+        if (traceNavigatorAvailable && traceNavigatorDataReady) {
             redraw();
         }
-    }, [redraw, topDownData, traceNavigator, traceNavigatorAvailable]);
+    }, [
+        baselineTopDownData,
+        redraw,
+        topDownData,
+        traceNavigator,
+        traceNavigatorAvailable,
+        traceNavigatorDataReady,
+    ]);
+
+    useLayoutEffect(() => {
+        const element = toolTipRef.current;
+        if (element === null || toolTip?.bottomBoundary === undefined) {
+            return;
+        }
+        // Pipeline下端を越える場合だけpointer上へ返し、Navigatorを覆わない。
+        element.style.top = `${toolTip.top}px`;
+        if (toolTip.top + element.offsetHeight > toolTip.bottomBoundary) {
+            element.style.top = `${Math.max(
+                0,
+                toolTip.top - element.offsetHeight -
+                    TOOLTIP_BELOW_POINTER_OFFSET - TOOLTIP_ABOVE_POINTER_GAP,
+            )}px`;
+        }
+    }, [toolTip]);
 
     useLayoutEffect(() => {
         // viewer外形は変わらないため、子paneのrow変更後は明示的にCanvasを再描画する。
@@ -1083,22 +1184,51 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const rect = canvas.getBoundingClientRect();
         const width = canvas.clientWidth;
         const x = rect.width === 0 ? 0 : (clientX - rect.left) * width / rect.width;
-        const spec = viewController.currentSpec;
-        const position = getCycleNavigatorScrollPosition(
-            topDownData,
-            spec,
-            width,
-            x - grabOffset,
+        const candidateSpec = viewController.currentSpec;
+        const baselineSpec = viewController.currentBaselineSpec;
+        const navigatorComparison = createCycleNavigatorComparison(
+            baselineTopDownData, topDownData, baselineSpec, candidateSpec,
         );
+        const position = comparisonMode === null
+            ? getCycleNavigatorScrollPosition(
+                topDownData, candidateSpec, width, x - grabOffset,
+            )
+            : navigatorComparison === null
+                ? null
+                : getComparisonCycleNavigatorScrollPosition(
+                    navigatorComparison, comparisonMode, width, x - grabOffset,
+                );
         if (position === null) {
             return;
         }
-        const positionY = new KonataRenderMetrics(trace, spec).getPositionYFromCycle(position);
+        const candidateCycle = typeof position === "number"
+            ? position
+            : position.candidate;
+        const baselineCycle = typeof position === "number"
+            ? baselineSpec?.position[0]
+            : position.baseline;
+        const candidateY = comparisonMode === "baseline"
+            ? candidateSpec.position[1]
+            : new KonataRenderMetrics(trace, candidateSpec)
+                .getPositionYFromCycle(candidateCycle) ?? candidateSpec.position[1];
+        const baselineY = baselineSpec === undefined || baselineCycle === undefined ||
+            comparisonMode === "candidate"
+            ? baselineSpec?.position[1]
+            : new KonataRenderMetrics(baselineTrace, baselineSpec)
+                .getPositionYFromCycle(baselineCycle) ?? baselineSpec.position[1];
         setToolTip(null);
-        viewController.setImmediately({
-            position: [position, positionY ?? spec.position[1]],
-            zoomLevel: spec.zoomLevel,
-        });
+        viewController.setImmediately(
+            {
+                position: [candidateCycle, candidateY],
+                zoomLevel: candidateSpec.zoomLevel,
+            },
+            baselineSpec === undefined || baselineCycle === undefined
+                ? undefined
+                : {
+                    position: [baselineCycle, baselineY ?? baselineSpec.position[1]],
+                    zoomLevel: baselineSpec.zoomLevel,
+                },
+        );
     };
 
     const handleCycleNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -1110,11 +1240,18 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const rect = canvas.getBoundingClientRect();
         const width = canvas.clientWidth;
         const x = rect.width === 0 ? 0 : (event.clientX - rect.left) * width / rect.width;
-        const viewport = getCycleNavigatorViewport(
-            topDownData,
-            viewController.currentSpec,
-            width,
+        const candidateSpec = viewController.currentSpec;
+        const baselineSpec = viewController.currentBaselineSpec;
+        const navigatorComparison = createCycleNavigatorComparison(
+            baselineTopDownData, topDownData, baselineSpec, candidateSpec,
         );
+        const viewport = comparisonMode === null
+            ? getCycleNavigatorViewport(topDownData, candidateSpec, width)
+            : navigatorComparison === null
+                ? null
+                : getComparisonCycleNavigatorViewport(
+                    navigatorComparison, comparisonMode, width,
+                );
         if (viewport === null) {
             return;
         }
@@ -1152,12 +1289,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     };
 
     const updateToolTip = (
-        pane: "label" | "pipeline" | "navigator",
+        pane: "label" | "pipeline",
         event: ReactMouseEvent<HTMLCanvasElement>,
     ) => {
-        if (trace === null || pointerPositionsRef.current.size > 0 ||
-            (pane === "navigator" && (!traceNavigatorExpanded ||
-                cycleNavigatorPointerRef.current !== null))) {
+        if (trace === null || pointerPositionsRef.current.size > 0) {
             setToolTip(null);
             return;
         }
@@ -1169,38 +1304,21 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const x = event.clientX - canvasRect.left;
         const y = event.clientY - canvasRect.top;
         const currentMetrics = displayMetricsRef.current;
-        let text: string | null;
-        if (pane === "navigator") {
-            text = topDownData === null
-                ? null
-                : getCycleNavigatorToolTip(
-                    topDownData,
-                    traceNavigator.mode,
-                    viewController.currentSpec,
-                    x,
-                    event.currentTarget.clientWidth,
-                    cycleNavigatorRangeMode,
-                );
-        } else {
-            text = pane === "label"
-                ? currentMetrics.getLabelToolTipText(y)
-                : currentMetrics.getPipelineToolTipText(x, y);
-        }
+        const text = pane === "label"
+            ? currentMetrics.getLabelToolTipText(y)
+            : currentMetrics.getPipelineToolTipText(x, y);
         if (text === null) {
             setToolTip(null);
             return;
         }
         const pointerTop = event.clientY - viewerRect.top;
-        // Tooltip CSSの行高と上下余白に合わせ、下端をpointerの直上へ置く。
-        const navigatorToolTipOffset = pane === "navigator"
-            ? text.split("\n").length * 17 + 24
-            : 0;
         setToolTip({
             left: event.clientX - viewerRect.left,
-            top: pane === "navigator"
-                ? Math.max(0, pointerTop - navigatorToolTipOffset)
-                : pointerTop + 20,
+            top: pointerTop + TOOLTIP_BELOW_POINTER_OFFSET,
             text,
+            bottomBoundary: pane === "pipeline"
+                ? canvasRect.bottom - viewerRect.top
+                : undefined,
         });
     };
 
@@ -1321,7 +1439,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         <select
                             className="trace-navigator-mode"
                             aria-label="Cycle navigator mode"
-                            value={traceNavigator.mode}
+                            value={cycleNavigatorMode}
+                            disabled={cycleNavigatorFallback}
                             onChange={(event) => onSetTraceNavigator({
                                 ...traceNavigator,
                                 mode: event.currentTarget.value as CycleNavigatorMode,
@@ -1349,7 +1468,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                                         rangeMode,
                                     })}
                                 >
-                                    {rangeMode === "follow" ? "Follow" : "Overview"}
+                                    {rangeMode === "follow" ? "Viewport" : "Full trace"}
                                 </button>
                             ))}
                         </div>
@@ -1360,6 +1479,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         className={`viewer-pane trace-navigator-pane trace-navigator-cycle-pane${cycleNavigatorRangeMode === "overview" ? " is-overview" : ""}`}
                         aria-label="Cycle navigator"
                         onPointerDown={(event) => event.stopPropagation()}
+                        onMouseEnter={() => setToolTip(null)}
                     >
                         <canvas
                             ref={cycleNavigatorCanvasRef}
@@ -1369,10 +1489,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                             onPointerUp={handleCycleNavigatorPointerUp}
                             onPointerCancel={handleCycleNavigatorPointerUp}
                             onLostPointerCapture={handleCycleNavigatorPointerUp}
-                            onMouseMove={(event) => updateToolTip("navigator", event)}
-                            onMouseLeave={() => setToolTip(null)}
                         />
-                        {topDownData === null && (
+                        {!traceNavigatorDataReady && (
                             <span className="trace-navigator-cycle-status">
                                 {topDownStatusMessage}
                             </span>
@@ -1399,9 +1517,16 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             )}
             {toolTip !== null && (
                 <pre
+                    ref={toolTipRef}
                     className="canvas-tooltip"
                     role="tooltip"
-                    style={{ left: toolTip.left, top: toolTip.top }}
+                    style={{
+                        left: toolTip.left,
+                        top: toolTip.top,
+                        maxHeight: toolTip.bottomBoundary === undefined
+                            ? undefined
+                            : `min(18rem, ${toolTip.bottomBoundary}px)`,
+                    }}
                 >
                     {toolTip.text}
                 </pre>

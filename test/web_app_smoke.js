@@ -1952,21 +1952,41 @@ async function run() {
     }
 
     // 実Canvas上のpointer位置をRendererへ渡し、旧版と同じcycle/op/stage tooltipを表示する。
-    const toolTipText = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+    const toolTipState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const canvas = document.querySelector(".pipeline-pane canvas");
-        if (!(canvas instanceof HTMLCanvasElement)) {
+        const viewer = document.querySelector(".viewer");
+        if (!(canvas instanceof HTMLCanvasElement) || !(viewer instanceof HTMLElement)) {
             throw new Error("The pipeline canvas was not found.");
         }
         const rect = canvas.getBoundingClientRect();
+        const boundaryHeight = 48;
+        Object.defineProperty(canvas, "getBoundingClientRect", {
+            configurable: true,
+            value: () => new DOMRect(rect.x, rect.y, rect.width, boundaryHeight)
+        });
         canvas.dispatchEvent(new MouseEvent("mousemove", {
             bubbles: true,
             clientX: rect.left + 8,
             clientY: rect.top + 8
         }));
-        requestAnimationFrame(() => resolve(document.querySelector('[role="tooltip"]')?.textContent ?? null));
+        requestAnimationFrame(() => {
+            const tooltip = document.querySelector('[role="tooltip"]');
+            const viewerRect = viewer.getBoundingClientRect();
+            const tooltipRect = tooltip?.getBoundingClientRect();
+            delete canvas.getBoundingClientRect;
+            resolve({
+                text: tooltip?.textContent ?? null,
+                bottom: tooltipRect === undefined
+                    ? null
+                    : Math.round(tooltipRect.bottom - viewerRect.top),
+                pipelineBottom: Math.round(rect.top + boundaryHeight - viewerRect.top)
+            });
+        });
     })`);
-    if (typeof toolTipText !== "string" || !toolTipText.startsWith("[0, 0]")) {
-        throw new Error(`Pipeline tooltip is incomplete: ${JSON.stringify(toolTipText)}`);
+    if (typeof toolTipState.text !== "string" || !toolTipState.text.startsWith("[0, 0]") ||
+        typeof toolTipState.bottom !== "number" ||
+        toolTipState.bottom > toolTipState.pipelineBottom) {
+        throw new Error(`Pipeline tooltip is incomplete: ${JSON.stringify(toolTipState)}`);
     }
 
     // 旧label paneと同じく、2命令目のlabelをクリックするとそのfetch cycleを左端へ合わせる。
@@ -2398,7 +2418,8 @@ async function run() {
         const viewerRectBeforeOpen = viewer.getBoundingClientRect();
         const pipelineRectBeforeOpen = pipeline.getBoundingClientRect();
         const collapsedCanvasRect = collapsedCanvas.getBoundingClientRect();
-        collapsedCanvas.dispatchEvent(new MouseEvent("mousemove", {
+        const collapsedToggleRect = toggle.getBoundingClientRect();
+        collapsedCanvas.dispatchEvent(new MouseEvent("mouseover", {
             bubbles: true,
             clientX: collapsedCanvasRect.left + collapsedCanvasRect.width / 2,
             clientY: collapsedCanvasRect.top + collapsedCanvasRect.height / 2
@@ -2414,7 +2435,9 @@ async function run() {
             tooltipHidden: document.querySelector(".canvas-tooltip") === null,
             resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
             cursor: getComputedStyle(collapsedCanvas).cursor,
-            toggleBottom: Math.round(viewerRectBeforeOpen.bottom - toggle.getBoundingClientRect().bottom)
+            toggleBottom: Math.round(viewerRectBeforeOpen.bottom - collapsedToggleRect.bottom),
+            toggleLeft: Math.round(collapsedToggleRect.left - viewerRectBeforeOpen.left),
+            toggleRightGap: Math.round(pipelineRectBeforeOpen.left - collapsedToggleRect.right)
         };
         const initialPipelineHeight = pipeline.getBoundingClientRect().height;
         toggle.click();
@@ -2433,9 +2456,9 @@ async function run() {
         const navigatorMode = document.querySelector('select[aria-label="Cycle navigator mode"]');
         const navigatorRange = document.querySelector('[aria-label="Navigator range"]');
         const followRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
-            .find((button) => button.textContent?.trim() === "Follow");
+            .find((button) => button.textContent?.trim() === "Viewport");
         const overviewRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
-            .find((button) => button.textContent?.trim() === "Overview");
+            .find((button) => button.textContent?.trim() === "Full trace");
         const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
@@ -2448,6 +2471,16 @@ async function run() {
             !(reset instanceof HTMLButtonElement)) {
             throw new Error("The trace navigator pane was not created.");
         }
+        const navigatorRectBeforeInteraction = navigatorCanvas.getBoundingClientRect();
+        navigatorCanvas.dispatchEvent(new MouseEvent("mouseover", {
+            bubbles: true,
+            clientX: navigatorRectBeforeInteraction.left + navigatorRectBeforeInteraction.width / 2,
+            clientY: navigatorRectBeforeInteraction.top + navigatorRectBeforeInteraction.height / 2
+        }));
+        await nextFrame();
+        const navigatorTooltipHidden = document.querySelector(".canvas-tooltip") === null;
+        const fallbackMode = navigatorMode.value;
+        const fallbackDisabled = navigatorMode.disabled;
         const defaultRange = overviewRange.getAttribute("aria-pressed");
         followRange.click();
         await nextFrame();
@@ -2481,6 +2514,9 @@ async function run() {
             controls: toggle.getAttribute("aria-controls"),
             toggleWidth: Math.round(toggle.getBoundingClientRect().width),
             toggleHeight: Math.round(toggle.getBoundingClientRect().height),
+            openToggleLeft: Math.round(
+                toggle.getBoundingClientRect().left - viewer.getBoundingClientRect().left
+            ),
             collapsedState,
             openAtBoundary: Math.abs(
                 toggle.getBoundingClientRect().top + toggle.getBoundingClientRect().height / 2 -
@@ -2495,11 +2531,14 @@ async function run() {
                 Math.round(pipeline.getBoundingClientRect().width),
             pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height),
             mode: navigatorMode.value,
+            fallbackMode,
+            fallbackDisabled,
             modeOptions: [...navigatorMode.options].map((option) => option.value),
             defaultRange,
             followSelected,
             overviewSelected: overviewRange.getAttribute("aria-pressed"),
             overviewCursor: getComputedStyle(navigatorCanvas).cursor,
+            navigatorTooltipHidden,
             zoomCanceled: zoomDispatched.every((value, index) =>
                 !value && zoomEvents[index].defaultPrevented),
             navigatorZoom
@@ -2580,17 +2619,21 @@ async function run() {
         !navigatorState.collapsedState.resizerHidden ||
         navigatorState.collapsedState.cursor !== "grab" ||
         navigatorState.collapsedState.toggleBottom !== 1 ||
+        navigatorState.collapsedState.toggleRightGap !== 12 ||
+        navigatorState.openToggleLeft !== navigatorState.collapsedState.toggleLeft ||
         !navigatorState.openAtBoundary || !navigatorState.hasClass ||
         !navigatorState.hasExpandedClass ||
         navigatorState.paneHeight < 63 || navigatorState.paneHeight > 64 ||
         !navigatorState.labelAligned ||
         !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 42 ||
         navigatorState.mode !== "commit" ||
+        navigatorState.fallbackMode !== "commit" || !navigatorState.fallbackDisabled ||
         navigatorState.modeOptions?.join(",") !== "top-down,fetch,issue,commit,flush,latency" ||
         navigatorState.defaultRange !== "true" ||
         navigatorState.followSelected !== "true" ||
         navigatorState.overviewSelected !== "true" ||
         navigatorState.overviewCursor !== "grab" ||
+        !navigatorState.navigatorTooltipHidden ||
         !navigatorState.zoomCanceled || navigatorState.navigatorZoom !== "119%" ||
         navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
         navigatorState.resized.pipelineHeightReduction !== 158 ||
@@ -2840,6 +2883,12 @@ async function run() {
         const selectedCandidate = candidate.selectedOptions[0]?.textContent?.trim() ?? null;
         open.click();
         await nextFrame();
+        const navigatorDeadline = performance.now() + 2000;
+        while (performance.now() < navigatorDeadline &&
+            document.querySelector('.trace-navigator-cycle-status') !== null) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        await nextFrame();
         const comparisonTab = document.querySelector('.trace-tab.is-active');
         const modeButtons = [...document.querySelectorAll('.comparison-mode-controls button')];
         const baselineMode = modeButtons.find((button) => button.textContent?.trim() === "A");
@@ -2876,6 +2925,21 @@ async function run() {
                 const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
                 return color instanceof HTMLSelectElement
                     ? {value: color.value, disabled: color.disabled}
+                    : null;
+            })(),
+            navigator: (() => {
+                const toggle = document.querySelector('.trace-navigator-toggle');
+                const canvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+                const mode = document.querySelector('select[aria-label="Cycle navigator mode"]');
+                return toggle instanceof HTMLButtonElement &&
+                    canvas instanceof HTMLCanvasElement && mode instanceof HTMLSelectElement
+                    ? {
+                        expanded: toggle.getAttribute('aria-expanded'),
+                        paneHeight: Math.round(canvas.getBoundingClientRect().height),
+                        mode: mode.value,
+                        modeDisabled: mode.disabled,
+                        ready: document.querySelector('.trace-navigator-cycle-status') === null
+                    }
                     : null;
             })(),
             overlayLayerCompositions: comparisonLayerCompositions.slice(-2)
@@ -2982,6 +3046,12 @@ async function run() {
             value: "Comparison",
             disabled: true
         }) ||
+        comparisonState.initial.navigator?.expanded !== "false" ||
+        comparisonState.initial.navigator.paneHeight < 21 ||
+        comparisonState.initial.navigator.paneHeight > 22 ||
+        comparisonState.initial.navigator.mode !== "commit" ||
+        !comparisonState.initial.navigator.modeDisabled ||
+        !comparisonState.initial.navigator.ready ||
         JSON.stringify(comparisonState.initial.overlayLayerCompositions) !== JSON.stringify([
             {opacity: 1, operation: "source-over", filter: "none"},
             {opacity: 0.5, operation: "source-over", filter: "none"}
@@ -4298,7 +4368,7 @@ async function run() {
         persistedViewSettingsState.tiledRendering ||
         persistedViewSettingsState.navigator !== "true" ||
         persistedViewSettingsState.navigatorMode !== "commit" ||
-        persistedViewSettingsState.navigatorOverview !== "Overview" ||
+        persistedViewSettingsState.navigatorOverview !== "Full trace" ||
         persistedViewSettingsState.navigatorHeight !== 180 ||
         persistedViewSettingsState.textVisibility !== "6" ||
         persistedViewSettingsState.zoomSpeed !== "normal" ||
