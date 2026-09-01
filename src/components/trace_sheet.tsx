@@ -689,12 +689,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         })
             .then((data) => {
                 if (!canceled && data !== null) {
-                    if (data.analysis === null) {
-                        topDownLiveDataRef.current = null;
-                        setTopDownData(data);
-                        return;
-                    }
                     // 全体解析中にParserが公開した分も、最初の表示へまとめて追記する。
+                    // stage構造が不明でもFetch／Commitのlive更新には同じ参照を使う。
                     const currentData = updateTopDownData(data, trace);
                     topDownLiveDataRef.current = { trace, data: currentData };
                     setTopDownData(currentData);

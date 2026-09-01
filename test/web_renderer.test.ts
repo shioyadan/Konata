@@ -490,15 +490,15 @@ function createRecoveryBubbleTrace(
 
 test("Top-down-like view classifies allocation slots without stage names", async () => {
     const trace = createTopDownBreakdownTrace();
-    const activity = await buildTopDownData(trace);
+    const activity = await buildTopDownData(trace, { binCycleCount: 1 });
     assert.ok(activity !== null);
     const analysis = activity.analysis;
     assert.ok(analysis !== null);
     assert.equal(analysis.allocationStage.stageName, "arbitrary-reservoir");
     assert.equal(analysis.executionStage.stageName, "arbitrary-event");
     assert.equal(analysis.allocationWidth, 2);
-    assert.ok(analysis.slots instanceof Uint8Array);
-    assert.equal(analysis.slots.length, activity.cycleCount * analysis.allocationWidth);
+    assert.ok(analysis.slotCounts instanceof Uint16Array);
+    assert.equal(analysis.slotCounts.length, activity.cycleCount * 6);
     assert.equal(analysis.transitionCoverage, 1);
     assert.equal(analysis.admissionStages.length, 1);
     assert.equal(analysis.admissionStages[0].stage.stageName, "arbitrary-source");
@@ -698,6 +698,99 @@ test("Top-down-like view classifies allocation slots without stage names", async
     trace.close();
 });
 
+test("Trace navigator retains completed data in 32-cycle bins", async () => {
+    const trace = createTopDownBreakdownTrace();
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 40, 41],
+        ["arbitrary-reservoir", 41, 43],
+        ["arbitrary-event", 43, 44],
+        ["arbitrary-tail", 44, 45],
+    ]);
+    appendTopDownBreakdownOp(trace, 5, [
+        ["arbitrary-source", 70, 71],
+        ["arbitrary-reservoir", 71, 73],
+        ["arbitrary-event", 73, 74],
+        ["arbitrary-tail", 74, 75],
+    ]);
+    const data = await buildTopDownData(trace);
+    assert.ok(data !== null && data.analysis !== null);
+    const binCount = Math.floor(data.cycleCount / 32);
+    assert.equal(data.cycleActivity.binCycleCount, 32);
+    assert.equal(data.analysis.slotCounts.length, binCount * 6);
+    assert.equal(data.analysis.tailSlots.length,
+        (data.observedCycleCount - data.cycleActivity.sealedCycle) *
+            data.analysis.allocationWidth);
+    assert.equal(data.cycleActivity.sealedCycle, binCount * 32);
+    assert.equal(data.cycleActivity.fetch.bins.length, binCount);
+    assert.ok(data.cycleActivity.fetch.bins instanceof Uint16Array);
+    assert.ok(data.cycleActivity.fetch.tailValues instanceof Uint8Array);
+    const full = getTopDownBreakdown(data, 0, data.cycleCount);
+    assert.ok(full !== null);
+    assert.equal(full.totalSlots, data.cycleCount * data.analysis.allocationWidth);
+    assert.equal(full.samplingStride, 32);
+    const exact = await buildTopDownData(trace, { binCycleCount: 1 });
+    const exactFull = exact === null ? null : getTopDownBreakdown(exact, 0, exact.cycleCount);
+    assert.ok(exactFull !== null);
+    for (const category of [
+        "retiringSlots",
+        "squashedSlots",
+        "recoveryBubbleSlots",
+        "unresolvedSlots",
+        "frontendBound",
+        "backendBound",
+    ] as const) {
+        assert.equal(full[category], exactFull[category]);
+    }
+    for (const mode of ["fetch", "issue", "commit", "flush"] as const) {
+        const binned = getCycleActivity(
+            data.cycleActivity, data.cycleCount, mode, 0, data.cycleCount,
+        );
+        const unbinned = getCycleActivity(
+            exact.cycleActivity, exact.cycleCount, mode, 0, exact.cycleCount,
+        );
+        assert.ok(binned !== null && unbinned !== null);
+        assert.equal(binned.average, unbinned.average);
+        assert.equal(binned.flushedAverage, unbinned.flushedAverage);
+    }
+    trace.close();
+});
+
+test("Live navigator keeps the unconfirmed tail at one-cycle resolution", async () => {
+    const trace = createTopDownBreakdownTrace();
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 40, 41],
+        ["arbitrary-reservoir", 41, 43],
+        ["arbitrary-event", 43, 44],
+        ["arbitrary-tail", 44, 45],
+    ]);
+    const data = await buildTopDownData(trace, { live: true });
+    assert.ok(data !== null && data.analysis !== null);
+    assert.equal(data.confirmedCycle, 40);
+    assert.equal(data.cycleActivity.sealedCycle, 32);
+    assert.equal(data.cycleActivity.fetch.tailValues[40 - 32], 1);
+    assert.equal(data.cycleActivity.fetch.tailValues[39 - 32], 0);
+    const completedPrefix = getCycleActivity(
+        data.cycleActivity, data.cycleCount, "fetch", 0, 32,
+    );
+    assert.ok(completedPrefix !== null);
+
+    appendTopDownBreakdownOp(trace, 5, [
+        ["arbitrary-source", 70, 71],
+        ["arbitrary-reservoir", 71, 73],
+        ["arbitrary-event", 73, 74],
+        ["arbitrary-tail", 74, 75],
+    ]);
+    const advanced = updateTopDownData(data, trace);
+    assert.equal(advanced.confirmedCycle, 70);
+    assert.equal(advanced.cycleActivity.sealedCycle, 64);
+    assert.equal(getCycleActivity(
+        advanced.cycleActivity, advanced.cycleCount, "fetch", 0, 32,
+    )?.average, completedPrefix.average);
+    assert.equal(advanced.cycleActivity.fetch.maximum,
+        data.cycleActivity.fetch.maximum);
+    trace.close();
+});
+
 test("Top-down-like analysis fixes its trace range while a live trace grows", async () => {
     const trace = createTopDownBreakdownTrace();
     const building = buildTopDownData(trace, { yieldInterval: 1 });
@@ -719,7 +812,7 @@ test("Top-down-like analysis fixes its trace range while a live trace grows", as
 
 test("Cycle navigator keeps stage-independent activity when stage structure is unavailable", async () => {
     const trace = createLatencyTrace([[2, 9], [3, 9]]);
-    const data = await buildTopDownData(trace);
+    const data = await buildTopDownData(trace, { binCycleCount: 1 });
     assert.ok(data !== null);
     assert.equal(data.analysis, null);
     const commit = getCycleActivity(data.cycleActivity, data.cycleCount, "commit", 9, 10);
@@ -772,7 +865,7 @@ test("Cycle navigator keeps stage-independent activity when stage structure is u
 
 test("Cycle navigator counts throughput, flushed work, and latency", async () => {
     const trace = createCycleActivityTrace();
-    const data = await buildTopDownData(trace);
+    const data = await buildTopDownData(trace, { binCycleCount: 1 });
     assert.ok(data !== null && data.analysis !== null);
     const analysis = data.analysis;
     const sample = (
@@ -865,15 +958,6 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
 
 test("Top-down-like live updates stop at gaps and follow the retired fetch frontier", async () => {
     const trace = createTopDownBreakdownTrace();
-    const data = await buildTopDownData(trace);
-    assert.ok(data !== null && data.analysis !== null);
-
-    appendTopDownBreakdownOp(trace, 5, [
-        ["arbitrary-source", 12, 14],
-        ["arbitrary-reservoir", 14, 16],
-        ["arbitrary-event", 16, 17],
-        ["arbitrary-tail", 17, 18],
-    ]);
     // ID 6の正常リタイアでfetch cycle 20より前を確定させるが、ID 4の穴では停止する。
     appendTopDownBreakdownOp(trace, 6, [
         ["arbitrary-source", 20, 21],
@@ -881,14 +965,21 @@ test("Top-down-like live updates stop at gaps and follow the retired fetch front
         ["arbitrary-event", 22, 23],
         ["arbitrary-tail", 23, 24],
     ]);
+    const data = await buildTopDownData(trace, { binCycleCount: 1, live: true });
+    assert.ok(data !== null && data.analysis !== null);
+    appendTopDownBreakdownOp(trace, 5, [
+        ["arbitrary-source", 12, 14],
+        ["arbitrary-reservoir", 14, 16],
+        ["arbitrary-event", 16, 17],
+        ["arbitrary-tail", 17, 18],
+    ]);
     const withGap = updateTopDownData(data, trace);
     assert.equal(withGap.sourceLastID, 3);
     assert.ok(withGap.analysis !== null);
-    assert.ok(withGap.analysis.slots.length >=
-        withGap.cycleCount * withGap.analysis.allocationWidth);
+    assert.ok(withGap.analysis.tailSlots.length >=
+        (withGap.observedCycleCount - withGap.cycleActivity.sealedCycle) * 2);
     const backend = getTopDownBreakdown(withGap, 13, 14);
-    assert.ok(backend !== null);
-    assert.equal(backend.backendBound, 0);
+    assert.equal(backend, null);
 
     appendTopDownBreakdownOp(trace, 4, [
         ["arbitrary-source", 12, 13],
@@ -897,7 +988,7 @@ test("Top-down-like live updates stop at gaps and follow the retired fetch front
         ["arbitrary-tail", 16, 17],
     ]);
     const filled = updateTopDownData(withGap, trace);
-    assert.equal(filled.sourceLastID, 5);
+    assert.equal(filled.sourceLastID, 6);
     const filledGap = getTopDownBreakdown(filled, 13, 14);
     assert.ok(filledGap !== null);
     assert.equal(filledGap.retiringSlots, 1);
@@ -914,7 +1005,7 @@ test("Top-down-like live updates stop at gaps and follow the retired fetch front
 
 test("Stage-independent live activity updates without a detected structure", async () => {
     const trace = createLatencyTrace([[2, 9], [3, 9]]);
-    const data = await buildTopDownData(trace);
+    const data = await buildTopDownData(trace, { binCycleCount: 1, live: true });
     assert.ok(data !== null && data.analysis === null);
     const store = trace.opStore as ArrayOpStore;
     for (const [id, fetchedCycle, retiredCycle] of [
@@ -933,19 +1024,35 @@ test("Stage-independent live activity updates without a detected structure", asy
     trace.updateLastCycle(25);
 
     const updated = updateTopDownData(data, trace);
-    assert.equal(updated.sourceLastID, 2);
+    assert.equal(updated.sourceLastID, 3);
     assert.equal(getCycleActivity(
         updated.cycleActivity, updated.cycleCount, "fetch", 10, 11,
     )?.average, 1);
     assert.equal(getCycleActivity(
         updated.cycleActivity, updated.cycleCount, "commit", 15, 16,
     )?.average, 1);
+
+    // cycle 25のcommitは表示境界20より後でもexact tailに残り、次の確定境界で現れる。
+    const next = new Op();
+    next.id = 4;
+    next.rid = 4;
+    next.retired = true;
+    next.fetchedCycle = 30;
+    next.retiredCycle = 35;
+    store.setOp(4, next);
+    store.setRetiredOp(4, next);
+    trace.updateLastCycle(35);
+    const advanced = updateTopDownData(updated, trace);
+    assert.equal(advanced.cycleCount, 30);
+    assert.equal(getCycleActivity(
+        advanced.cycleActivity, advanced.cycleCount, "commit", 25, 26,
+    )?.average, 1);
     trace.close();
 });
 
 test("Top-down-like view distinguishes allocated dependencies from allocation backpressure", async () => {
     const trace = createAllocationBlockedTrace();
-    const activity = await buildTopDownData(trace);
+    const activity = await buildTopDownData(trace, { binCycleCount: 1 });
     assert.ok(activity !== null);
     const analysis = activity.analysis;
     assert.ok(analysis !== null);
@@ -984,7 +1091,7 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
         [...Array<number>(10).fill(3), 30],
         true,
     );
-    const activity = await buildTopDownData(trace);
+    const activity = await buildTopDownData(trace, { binCycleCount: 1 });
     assert.ok(activity !== null);
     const analysis = activity.analysis;
     assert.ok(analysis !== null);
@@ -996,8 +1103,8 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
 
     const sampled = getTopDownBreakdown(activity, 0, activity.cycleCount, 4);
     assert.ok(sampled !== null);
-    assert.ok(sampled.samplingStride > 1);
-    assert.ok(sampled.sampledCycleCount <= 4);
+    assert.equal(sampled.samplingStride, 1);
+    assert.equal(sampled.sampledCycleCount, activity.cycleCount);
     assert.equal(sampled.totalSlots, sampled.sampledCycleCount * analysis.allocationWidth);
 
     const sampleCycle = (cycle: number) => getTopDownBreakdown(
@@ -1026,7 +1133,7 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
 
 test("Top-down-like view does not learn recovery from an unsupported sample", async () => {
     const trace = createRecoveryBubbleTrace([30]);
-    const activity = await buildTopDownData(trace);
+    const activity = await buildTopDownData(trace, { binCycleCount: 1 });
     assert.ok(activity !== null);
     const analysis = activity.analysis;
     assert.ok(analysis !== null);

@@ -5,9 +5,9 @@
  *
  * 1. Fetch／Commit activityを数えながら、allocation周辺の構造と観測幅を推定する。
  * 2. 構造を検出できた場合だけ、各cycleのslot分類と残りのactivity系列を構築する。
- * 3. 表示範囲をsamplingし、分類またはactivityの値を集計する。
+ * 3. 確定済みprefixを32-cycle binへ移し、未確定の末尾だけ1-cycle精度で残す。
  *
- * Top-down分類は1 byte／slot、activityは各1 byte／cycleで保持する。
+ * Rendererには保持形式を見せず、範囲集計時にbinとexact tailを合成する。
  */
 import {
     type DetectedStage,
@@ -16,20 +16,21 @@ import {
 } from "./stage_structure_detector";
 import {
     createCycleActivity,
-    getCycleSampleRange,
+    getCycleActivityByteLength,
     growCycleActivity,
     incrementCycleActivity,
+    sealCycleActivity,
     setCycleLatency,
+    TRACE_NAVIGATOR_BIN_CYCLE_COUNT,
     type CycleActivity,
 } from "./cycle_activity_analysis";
 import type { Op, ParsedTrace } from "./model";
 
 const DEFAULT_YIELD_INTERVAL = 50_000;
 export const TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT = 50_000;
-// 全slotを保持しても解析中のTypedArrayが大きくなり過ぎないよう、従来のcycle上限に
-// 加えてallocation幅を含むworking setにも上限を設ける。
 const MAX_EXACT_TOP_DOWN_CYCLE_COUNT = 4 * 1024 * 1024;
 const MAX_TOP_DOWN_WORKING_BYTES = 128 * 1024 * 1024;
+const TOP_DOWN_SLOT_CLASS_COUNT = 6;
 // 1件だけの短い外れ値をpipeline固有の最短回復時間としない。通常の分岐回復なら
 // 同じcycle数が繰り返し現れるため、十分な反復を持つ最小bucketだけを採用する。
 const MIN_SUPPORTED_RECOVERY_SAMPLE_COUNT = 10;
@@ -71,8 +72,9 @@ export interface TopDownAnalysis {
     readonly recoveryWindowCount: number;
     readonly minimumRecoveryCycles: number | null;
     readonly minimumRecoverySampleCount: number;
-    // cycle * allocationWidth + slotをindexとする、全cycleの分類結果。
-    readonly slots: Uint8Array;
+    // 確定済みprefixはbin * categoryのslot数、未確定末尾は1 byte／slotで持つ。
+    readonly slotCounts: Uint16Array;
+    readonly tailSlots: Uint8Array;
 }
 
 export interface TopDownAdmission {
@@ -82,6 +84,10 @@ export interface TopDownAdmission {
 
 export interface TopDownData {
     readonly cycleCount: number;
+    // このcycleより前は、公開済みOpのstage／lifecycle情報が揃っている。
+    readonly confirmedCycle: number;
+    // exact tailには表示境界より後のcommit等も保持するため、別に観測終端を持つ。
+    readonly observedCycleCount: number;
     readonly sourceLastID: number;
     readonly cycleActivity: CycleActivity;
     readonly analysis: TopDownAnalysis | null;
@@ -106,6 +112,7 @@ export interface TopDownBuildOptions {
     readonly yieldInterval?: number;
     readonly isCanceled?: () => boolean;
     readonly live?: boolean;
+    readonly binCycleCount?: number;
 }
 
 function formatStage(trace: ParsedTrace, stage: Readonly<DetectedStage>): TopDownStage {
@@ -153,14 +160,15 @@ function isAllocatedSlot(slotClass: TopDownSlotClass): boolean {
 
 function addAllocatedSlot(
     slots: Uint8Array,
+    sealedCycle: number,
     allocationWidth: number,
     cycle: number,
     slotClass: TopDownSlotClass,
 ): void {
-    // 同じcycleの左から空slotを探す。観測幅を超えた命令は表示枠へ追加できない。
-    const firstSlot = Math.floor(cycle) * allocationWidth;
+    const localCycle = Math.floor(cycle) - sealedCycle;
+    const firstSlot = localCycle * allocationWidth;
     const endSlot = firstSlot + allocationWidth;
-    if (firstSlot < 0 || endSlot > slots.length) {
+    if (!Number.isFinite(firstSlot) || firstSlot < 0 || endSlot > slots.length) {
         return;
     }
     for (let index = firstSlot; index < endSlot; index++) {
@@ -173,16 +181,21 @@ function addAllocatedSlot(
 
 function markEmptySlots(
     slots: Uint8Array,
+    sealedCycle: number,
     allocationWidth: number,
     startCycle: number,
     endCycle: number,
     slotClass: TopDownSlotClass,
 ): void {
-    // 命令が使用済みのslotは上書きしない。BackendはFrontendだけを置換し、先に
-    // 確定したRecovery bubbleをlive更新で壊さない。
     const capacity = Math.floor(slots.length / allocationWidth);
-    const firstCycle = Math.max(0, Math.min(capacity, Math.floor(startCycle)));
-    const lastCycle = Math.max(firstCycle, Math.min(capacity, Math.ceil(endCycle)));
+    const firstCycle = Math.max(0, Math.min(
+        capacity,
+        Math.floor(startCycle) - sealedCycle,
+    ));
+    const lastCycle = Math.max(firstCycle, Math.min(
+        capacity,
+        Math.ceil(endCycle) - sealedCycle,
+    ));
     for (let cycle = firstCycle; cycle < lastCycle; cycle++) {
         const firstSlot = cycle * allocationWidth;
         const endSlot = firstSlot + allocationWidth;
@@ -195,18 +208,6 @@ function markEmptySlots(
             }
         }
     }
-}
-
-function markCycleRange(
-    cycles: Uint8Array,
-    startCycle: number,
-    endCycle: number,
-    slotClass: TopDownSlotClass,
-): void {
-    // slot配列とは別に、cycleごとの空slot分類を記録する。
-    const start = Math.max(0, Math.min(cycles.length, Math.floor(startCycle)));
-    const end = Math.max(start, Math.min(cycles.length, Math.ceil(endCycle)));
-    cycles.fill(slotClass, start, end);
 }
 
 function getOpSlotClass(op: Readonly<Op>): TopDownSlotClass {
@@ -326,25 +327,21 @@ async function classifyTopDownSlots(
     yieldInterval: number,
     isCanceled?: () => boolean,
 ): Promise<TopDownAnalysis | null> {
-    // 未使用slotの既定値はFrontend。走査中にallocated slotとBackend候補を記録し、
-    // 事後的に支持されたRecovery bubbleを重ねて最終分類へする。
+    // 未使用slotの既定値はFrontend。確定境界を決めるまでは従来どおりcycle別に分類する。
     if (cycleCount > MAX_EXACT_TOP_DOWN_CYCLE_COUNT) {
         return null;
     }
     const { allocationStage, executionStage } = structure;
     const allocationWidth = allocationStage.width;
     const slotCount = cycleCount * allocationWidth;
-    // slot分類、空slot原因、5系列とFetch／Issueのflush内訳を同時に持つ。
-    const workingBytes = slotCount + cycleCount * 8;
     if (!Number.isSafeInteger(slotCount) ||
-        workingBytes > MAX_TOP_DOWN_WORKING_BYTES) {
+        allocationWidth * cycleActivity.binCycleCount > 0xffff ||
+        slotCount + getCycleActivityByteLength(cycleActivity) >
+            MAX_TOP_DOWN_WORKING_BYTES) {
         return null;
     }
-
-    const slots = new Uint8Array(slotCount);
-    slots.fill(TopDownSlotClass.FRONTEND_BOUND);
-    const emptySlotClasses = new Uint8Array(cycleCount);
-    emptySlotClasses.fill(TopDownSlotClass.FRONTEND_BOUND);
+    const tailSlots = new Uint8Array(slotCount);
+    tailSlots.fill(TopDownSlotClass.FRONTEND_BOUND);
     const previousRecoveryStartByThread = new Map<number, number>();
     const pendingRecoveryStartByThread = new Map<number, number>();
     const recoveryWindows: Array<readonly [startCycle: number, endCycle: number]> = [];
@@ -381,8 +378,10 @@ async function classifyTopDownSlots(
             (startCycle, endCycle) => {
                 // allocation直前のstageに通常より長く留まった区間を入口停滞とする。
                 // 命令が後にflushされても、resolution前の空きslotはrecoveryではない。
-                markCycleRange(
-                    emptySlotClasses,
+                markEmptySlots(
+                    tailSlots,
+                    0,
+                    allocationWidth,
                     startCycle,
                     endCycle,
                     TopDownSlotClass.BACKEND_BOUND,
@@ -396,7 +395,11 @@ async function classifyTopDownSlots(
             // TMA Level 1のslotはexecution issueではなく、FrontendからBackendへuopを
             // 渡すallocation pointで数える。同じ命令が後段でreplayしても1 slotのままにする。
             addAllocatedSlot(
-                slots, allocationWidth, firstAllocationCycle, getOpSlotClass(op),
+                tailSlots,
+                0,
+                allocationWidth,
+                firstAllocationCycle,
+                getOpSlotClass(op),
             );
         }
 
@@ -453,29 +456,14 @@ async function classifyTopDownSlots(
                 nextCorrectAllocationCycle,
                 startCycle + supportedRecovery.value,
             );
-            markCycleRange(
-                emptySlotClasses,
+            markEmptySlots(
+                tailSlots,
+                0,
+                allocationWidth,
                 startCycle,
                 endCycle,
                 TopDownSlotClass.RECOVERY_BUBBLE,
             );
-        }
-    }
-
-    for (let cycle = 0; cycle < cycleCount; cycle++) {
-        // cycle単位で求めた原因を、そのcycleに残った空slotだけへ反映する。
-        const emptyClass = emptySlotClasses[cycle] as TopDownSlotClass;
-        if (emptyClass !== TopDownSlotClass.FRONTEND_BOUND) {
-            // recoveryは上のmarkCycleRangeでbackendを上書きするため優先される。
-            markEmptySlots(slots, allocationWidth, cycle, cycle + 1, emptyClass);
-        }
-        workSinceYield++;
-        if (workSinceYield >= yieldInterval) {
-            await yieldToBrowser();
-            workSinceYield = 0;
-            if (isCanceled?.()) {
-                return null;
-            }
         }
     }
     return {
@@ -490,31 +478,130 @@ async function classifyTopDownSlots(
         recoveryWindowCount,
         minimumRecoveryCycles: supportedRecovery?.value ?? null,
         minimumRecoverySampleCount: supportedRecovery?.sampleCount ?? 0,
-        slots,
+        slotCounts: new Uint16Array(0),
+        tailSlots,
     };
+}
+
+function growSlotCounts(values: Uint16Array, required: number): Uint16Array {
+    if (values.length >= required) {
+        return values;
+    }
+    const capacity = values.length === 0
+        ? required
+        : Math.max(required, values.length * 2);
+    const grown = new Uint16Array(capacity);
+    grown.set(values);
+    return grown;
+}
+
+function growLiveAnalysis(
+    analysis: Readonly<TopDownAnalysis>,
+    sealedCycle: number,
+    cycleCapacity: number,
+): TopDownAnalysis | null {
+    const width = analysis.allocationWidth;
+    const requiredCycles = Math.max(1, cycleCapacity - sealedCycle);
+    const currentCycles = Math.floor(analysis.tailSlots.length / width);
+    if (requiredCycles <= currentCycles) {
+        return analysis;
+    }
+    const capacity = Math.max(requiredCycles, currentCycles * 2);
+    if (capacity > MAX_EXACT_TOP_DOWN_CYCLE_COUNT) {
+        return null;
+    }
+    const tailSlots = new Uint8Array(capacity * width);
+    tailSlots.fill(TopDownSlotClass.FRONTEND_BOUND);
+    tailSlots.set(analysis.tailSlots);
+    return { ...analysis, tailSlots };
+}
+
+function sealTopDownAnalysis(
+    analysis: Readonly<TopDownAnalysis>,
+    sealedCycle: number,
+    nextSealedCycle: number,
+    cycleCount: number,
+    binCycleCount: number,
+): TopDownAnalysis {
+    if (nextSealedCycle <= sealedCycle) {
+        return analysis;
+    }
+    const width = analysis.allocationWidth;
+    const firstBin = sealedCycle / binCycleCount;
+    const sealedBinCount = nextSealedCycle / binCycleCount;
+    const slotCounts = growSlotCounts(
+        analysis.slotCounts,
+        sealedBinCount * TOP_DOWN_SLOT_CLASS_COUNT,
+    );
+    for (let bin = firstBin; bin < sealedBinCount; bin++) {
+        const firstCycle = (bin - firstBin) * binCycleCount;
+        const lastCycle = firstCycle + binCycleCount;
+        const firstCount = bin * TOP_DOWN_SLOT_CLASS_COUNT;
+        for (let cycle = firstCycle; cycle < lastCycle; cycle++) {
+            const firstSlot = cycle * width;
+            for (let slot = firstSlot; slot < firstSlot + width; slot++) {
+                slotCounts[firstCount + analysis.tailSlots[slot]]++;
+            }
+        }
+    }
+    const removedSlots = (nextSealedCycle - sealedCycle) * width;
+    const tailCycles = Math.max(1, cycleCount - nextSealedCycle);
+    const tailSlots = new Uint8Array(tailCycles * width);
+    tailSlots.fill(TopDownSlotClass.FRONTEND_BOUND);
+    tailSlots.set(analysis.tailSlots.subarray(
+        removedSlots,
+        removedSlots + tailSlots.length,
+    ));
+    return { ...analysis, slotCounts, tailSlots };
+}
+
+function sealTopDownData(data: Readonly<TopDownData>): TopDownData {
+    const oldSealedCycle = data.cycleActivity.sealedCycle;
+    const cycleActivity = sealCycleActivity(
+        data.cycleActivity,
+        data.confirmedCycle,
+        data.observedCycleCount,
+    );
+    const nextSealedCycle = cycleActivity.sealedCycle;
+    if (nextSealedCycle <= oldSealedCycle) {
+        return data;
+    }
+    const analysis = data.analysis === null
+        ? null
+        : sealTopDownAnalysis(
+            data.analysis,
+            oldSealedCycle,
+            nextSealedCycle,
+            data.observedCycleCount,
+            cycleActivity.binCycleCount,
+        );
+    return { ...data, cycleActivity, analysis };
 }
 
 /**
  * 集計層: stage非依存activityを集計し、Detectorが推定できた場合はslot分類も作る。
  *
- * 全allocation slotと5系列をUint8Arrayへ保持し、samplingは表示時に行う。
+ * 32-cycle binを既定とし、局所検証だけbinCycleCountで解像度を変更できる。
  * 呼出し側はViewを閉じた時やTraceを破棄する時にisCanceledをtrueへする。
  */
 export async function buildTopDownData(
     trace: ParsedTrace,
     options: Readonly<TopDownBuildOptions> = {},
 ): Promise<TopDownData | null> {
-    // live解析では最後の正常リタイア命令を、確定したIDとcycleの境界にする。
-    const frontierOp = options.live ? trace.getOpFromRID(trace.lastRID) : undefined;
-    const cycleCount = Math.max(1, Math.ceil(
-        options.live ? frontierOp?.fetchedCycle ?? 0 : trace.lastCycle,
-    ));
-    let lastID = options.live ? (frontierOp?.id ?? 0) - 1 : trace.lastID;
+    const snapshotLastID = trace.lastID;
+    const traceCycleCount = Math.max(1, Math.ceil(trace.lastCycle));
+    // lastCycleと同じcycleにあるretireも、将来表示境界が進んだ時のためtailへ残す。
+    const observedCycleCount = traceCycleCount + 1;
+    let lastID = snapshotLastID;
+    let confirmedCycle = 0;
     const yieldInterval = Math.max(1, options.yieldInterval ?? DEFAULT_YIELD_INTERVAL);
     const stageStructureDetector = new StageStructureDetector();
-    const cycleActivity = createCycleActivity(cycleCount);
+    const cycleActivity = createCycleActivity(
+        observedCycleCount,
+        options.binCycleCount ?? TRACE_NAVIGATOR_BIN_CYCLE_COUNT,
+    );
     let workSinceYield = 0;
-    // 一回目のOp走査で構造推定と、構造に依存しないactivityを同時に集める。
+    // OpStoreへ公開済みの連続IDはretire／flushまで完結している。
     for (let id = 0; id <= lastID; id++) {
         if (options.isCanceled?.()) {
             return null;
@@ -527,6 +614,9 @@ export async function buildTopDownData(
         if (op !== undefined) {
             stageStructureDetector.observe(op);
             observeOpLifecycle(op, cycleActivity);
+            if (!op.eof) {
+                confirmedCycle = op.fetchedCycle;
+            }
         }
         workSinceYield++;
         if (workSinceYield >= yieldInterval) {
@@ -545,7 +635,7 @@ export async function buildTopDownData(
             trace,
             structure,
             cycleActivity,
-            cycleCount,
+            observedCycleCount,
             lastID,
             yieldInterval,
             options.isCanceled,
@@ -553,104 +643,67 @@ export async function buildTopDownData(
     if (options.isCanceled?.()) {
         return null;
     }
-    return {
-        cycleCount,
+    const finalCycle = options.live ? confirmedCycle : traceCycleCount;
+    return sealTopDownData({
+        cycleCount: Math.max(1, Math.ceil(finalCycle)),
+        confirmedCycle: finalCycle,
+        observedCycleCount,
         sourceLastID: lastID,
         cycleActivity,
         analysis,
-    };
+    });
 }
 
-function growLiveAnalysis(
-    analysis: Readonly<TopDownAnalysis>,
-    cycleActivity: CycleActivity,
-    cycleCount: number,
-): { readonly analysis: TopDownAnalysis; readonly cycleActivity: CycleActivity } | null {
-    // 読み込み途中の更新ごとに配列をcopyしないよう、cycle容量を倍増する。
-    const width = analysis.allocationWidth;
-    let capacity = Math.floor(analysis.slots.length / width);
-    if (cycleCount <= capacity) {
-        return { analysis, cycleActivity };
-    }
-    while (capacity < cycleCount) {
-        capacity = Math.min(MAX_EXACT_TOP_DOWN_CYCLE_COUNT, Math.max(1, capacity * 2));
-        if (capacity === MAX_EXACT_TOP_DOWN_CYCLE_COUNT && capacity < cycleCount) {
-            return null;
-        }
-    }
-    const slotCount = capacity * width;
-    if (!Number.isSafeInteger(slotCount) ||
-        slotCount + capacity * 7 > MAX_TOP_DOWN_WORKING_BYTES) {
-        return null;
-    }
-    const slots = new Uint8Array(slotCount);
-    slots.fill(TopDownSlotClass.FRONTEND_BOUND);
-    slots.set(analysis.slots);
-    return {
-        analysis: { ...analysis, slots },
-        cycleActivity: growCycleActivity(cycleActivity, capacity),
-    };
-}
-
-/**
- * 確定済みのstage構造を使い、Parserが新たに公開したOpだけをslotへ反映する。
- * recovery統計とallocation幅は再推定せず、読み込み完了時の全体解析で補正する。
- */
+/** 確定済みstage構造を使い、Parserが公開した連続Opをexact tailへ一度だけ反映する。 */
 export function updateTopDownData(
     data: Readonly<TopDownData>,
     trace: ParsedTrace,
 ): TopDownData {
-    const frontierOp = trace.getOpFromRID(trace.lastRID);
-    if (frontierOp === undefined) {
+    const observedCycleCount = Math.max(
+        data.observedCycleCount,
+        Math.ceil(trace.lastCycle) + 1,
+        1,
+    );
+    let cycleActivity = growCycleActivity(data.cycleActivity, observedCycleCount);
+    const analysis = data.analysis === null
+        ? null
+        : growLiveAnalysis(
+            data.analysis,
+            data.cycleActivity.sealedCycle,
+            observedCycleCount,
+        );
+    if ((analysis?.tailSlots.byteLength ?? 0) +
+        getCycleActivityByteLength(cycleActivity) > MAX_TOP_DOWN_WORKING_BYTES) {
         return data;
     }
-    const cycleCount = Math.max(data.cycleCount, Math.ceil(frontierOp.fetchedCycle), 1);
-    if (data.analysis === null) {
-        // stage推定に失敗しても、構造に依存しないFetch／Commitは読み込みに追従させる。
-        let capacity = data.cycleActivity.fetch.values.length;
-        while (capacity < cycleCount) {
-            capacity = Math.min(MAX_EXACT_TOP_DOWN_CYCLE_COUNT, Math.max(1, capacity * 2));
-            if (capacity === MAX_EXACT_TOP_DOWN_CYCLE_COUNT && capacity < cycleCount) {
-                return data;
-            }
-        }
-        if (capacity * 7 > MAX_TOP_DOWN_WORKING_BYTES) {
-            return data;
-        }
-        const cycleActivity = capacity === data.cycleActivity.fetch.values.length
-            ? data.cycleActivity
-            : growCycleActivity(data.cycleActivity, capacity);
-        let sourceLastID = data.sourceLastID;
-        for (let id = data.sourceLastID + 1; id < frontierOp.id; id++) {
-            const op = trace.getOpForScan(id);
-            if (op === undefined) {
-                break;
-            }
-            observeOpLifecycle(op, cycleActivity);
-            sourceLastID = id;
-        }
-        if (cycleCount === data.cycleCount && sourceLastID === data.sourceLastID) {
-            return data;
-        }
-        return { ...data, cycleCount, sourceLastID, cycleActivity };
-    }
-    const grown = growLiveAnalysis(data.analysis, data.cycleActivity, cycleCount);
-    if (grown === null) {
+    if (data.analysis !== null && analysis === null) {
         return data;
     }
-    const { analysis, cycleActivity } = grown;
 
     const admissionByStage = new Map<string, Readonly<TopDownAdmission>>();
-    for (const admission of analysis.admissionStages) {
-        if (admission.stage.laneID === analysis.allocationStage.laneID) {
-            admissionByStage.set(admission.stage.stageName, admission);
+    if (analysis !== null) {
+        for (const admission of analysis.admissionStages) {
+            if (admission.stage.laneID === analysis.allocationStage.laneID) {
+                admissionByStage.set(admission.stage.stageName, admission);
+            }
         }
     }
-    const addOp = (op: Readonly<Op>): void => {
+    let sourceLastID = data.sourceLastID;
+    let confirmedCycle = data.confirmedCycle;
+    for (let id = data.sourceLastID + 1; id <= trace.lastID; id++) {
+        const op = trace.getOpForScan(id);
+        if (op === undefined) {
+            break;
+        }
+        sourceLastID = id;
         if (op.eof) {
-            return;
+            continue;
         }
         observeOpLifecycle(op, cycleActivity);
+        confirmedCycle = op.fetchedCycle;
+        if (analysis === null) {
+            continue;
+        }
         const { firstAllocationCycle } = observeOpStages(
             op,
             analysis.allocationStage.laneID,
@@ -658,7 +711,8 @@ export function updateTopDownData(
             admissionByStage,
             (startCycle, endCycle) => {
                 markEmptySlots(
-                    analysis.slots,
+                    analysis.tailSlots,
+                    cycleActivity.sealedCycle,
                     analysis.allocationWidth,
                     startCycle,
                     endCycle,
@@ -668,77 +722,80 @@ export function updateTopDownData(
             analysis.executionStage.stageName,
             cycleActivity,
         );
-        if (firstAllocationCycle === null) {
-            return;
+        if (firstAllocationCycle !== null) {
+            addAllocatedSlot(
+                analysis.tailSlots,
+                cycleActivity.sealedCycle,
+                analysis.allocationWidth,
+                firstAllocationCycle,
+                getOpSlotClass(op),
+            );
         }
-        addAllocatedSlot(
-            analysis.slots,
-            analysis.allocationWidth,
-            firstAllocationCycle,
-            getOpSlotClass(op),
-        );
-    };
-
-    let sourceLastID = data.sourceLastID;
-    for (let id = data.sourceLastID + 1; id < frontierOp.id; id++) {
-        const op = trace.getOpForScan(id);
-        if (op === undefined) {
-            break;
-        }
-        addOp(op);
-        sourceLastID = id;
     }
-    if (analysis === data.analysis && cycleCount === data.cycleCount &&
-        sourceLastID === data.sourceLastID) {
+    if (sourceLastID === data.sourceLastID &&
+        observedCycleCount === data.observedCycleCount) {
         return data;
     }
-    return {
-        cycleCount,
+    return sealTopDownData({
+        cycleCount: Math.max(1, Math.ceil(confirmedCycle)),
+        confirmedCycle,
+        observedCycleCount,
         sourceLastID,
         cycleActivity,
         analysis,
-    };
+    });
 }
 
 export function getTopDownBreakdown(
     data: Readonly<TopDownData>,
     startCycle: number,
     endCycle: number,
-    maxSampleCycles = Number.POSITIVE_INFINITY,
+    _maxSampleCycles = Number.POSITIVE_INFINITY,
 ): TopDownBreakdown | null {
-    // 縮小表示ではglobal cycleへ揃えた2の冪strideでcycleを選び、選んだcycleの
-    // 全slotを数える。同一cycle内のslotだけが偏って選ばれることを避ける。
     const analysis = data.analysis;
-    const range = getCycleSampleRange(
-        data.cycleCount,
-        startCycle,
-        endCycle,
-        maxSampleCycles,
-    );
-    if (analysis === null || range === null) {
+    if (analysis === null || endCycle <= startCycle) {
         return null;
     }
     const allocationWidth = analysis.allocationWidth;
     if (allocationWidth <= 0) {
         return null;
     }
-    const counts = [0, 0, 0, 0, 0, 0];
-    let sampledCycleCount = 0;
-    for (let cycle = range.firstSampleCycle;
-        cycle < range.lastCycle;
-        cycle += range.samplingStride) {
-        const firstSlot = cycle * allocationWidth;
-        const lastSlot = firstSlot + allocationWidth;
-        for (let slot = firstSlot; slot < lastSlot; slot++) {
-            counts[analysis.slots[slot]]++;
-        }
-        sampledCycleCount++;
+    const firstCycle = Math.max(0, Math.min(data.cycleCount, Math.floor(startCycle)));
+    const lastCycle = Math.max(firstCycle, Math.min(data.cycleCount, Math.ceil(endCycle)));
+    if (lastCycle === firstCycle) {
+        return null;
     }
+    const { binCycleCount, sealedCycle } = data.cycleActivity;
+    const counts = [0, 0, 0, 0, 0, 0];
+    const binnedEnd = Math.min(lastCycle, sealedCycle);
+    if (firstCycle < binnedEnd) {
+        const firstBin = Math.floor(firstCycle / binCycleCount);
+        const lastBin = Math.ceil(binnedEnd / binCycleCount);
+        for (let bin = firstBin; bin < lastBin; bin++) {
+            const binStart = bin * binCycleCount;
+            const binEnd = binStart + binCycleCount;
+            const overlap = Math.max(0, Math.min(binnedEnd, binEnd) -
+                Math.max(firstCycle, binStart));
+            const fraction = overlap / binCycleCount;
+            const firstCount = bin * TOP_DOWN_SLOT_CLASS_COUNT;
+            for (let slotClass = 0; slotClass < TOP_DOWN_SLOT_CLASS_COUNT; slotClass++) {
+                counts[slotClass] += analysis.slotCounts[firstCount + slotClass] * fraction;
+            }
+        }
+    }
+    const tailStart = Math.max(firstCycle, sealedCycle);
+    for (let cycle = tailStart; cycle < lastCycle; cycle++) {
+        const firstSlot = (cycle - sealedCycle) * allocationWidth;
+        for (let slot = firstSlot; slot < firstSlot + allocationWidth; slot++) {
+            counts[analysis.tailSlots[slot]]++;
+        }
+    }
+    const sampledCycleCount = lastCycle - firstCycle;
     const totalSlots = sampledCycleCount * allocationWidth;
     return {
         analysis,
-        startCycle: range.firstCycle,
-        endCycle: range.lastCycle,
+        startCycle: firstCycle,
+        endCycle: lastCycle,
         totalSlots,
         retiringSlots: counts[TopDownSlotClass.RETIRING],
         squashedSlots: counts[TopDownSlotClass.SQUASHED],
@@ -747,6 +804,6 @@ export function getTopDownBreakdown(
         frontendBound: counts[TopDownSlotClass.FRONTEND_BOUND],
         backendBound: counts[TopDownSlotClass.BACKEND_BOUND],
         sampledCycleCount,
-        samplingStride: range.samplingStride,
+        samplingStride: firstCycle < sealedCycle ? binCycleCount : 1,
     };
 }
