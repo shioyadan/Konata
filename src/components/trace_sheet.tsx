@@ -286,6 +286,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         readonly trace: ParsedTrace;
         data: TopDownData;
     } | null>(null);
+    const loadStateRef = useRef(loadState);
+    loadStateRef.current = loadState;
     const [topDownError, setTopDownError] = useState(false);
     const comparisonActive = comparison !== null;
     const comparisonMode = comparison?.mode ?? null;
@@ -672,7 +674,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         setTopDownError(false);
     }, [trace, traceNavigatorAvailable]);
 
-    // 読み込み中は最初の50k命令で構造を決め、完了時だけ末尾まで再解析する。
+    // 最初の50k命令で構造を固定し、以降はEOFまで同じdataを増分更新する。
     // zoomやthemeの変更は下のuseLayoutEffectから同じTopDownDataを再描画する。
     useEffect(() => {
         let canceled = false;
@@ -685,13 +687,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
         void buildTopDownData(trace, {
             isCanceled: () => canceled,
-            live: loadState !== "ready",
+            live: loadStateRef.current !== "ready",
         })
             .then((data) => {
                 if (!canceled && data !== null) {
-                    // 全体解析中にParserが公開した分も、最初の表示へまとめて追記する。
+                    // 初期解析中にParserが公開した分も、最初の表示へまとめて追記する。
                     // stage構造が不明でもFetch／Commitのlive更新には同じ参照を使う。
-                    const currentData = updateTopDownData(data, trace);
+                    const currentData = updateTopDownData(
+                        data,
+                        trace,
+                        loadStateRef.current === "ready",
+                    );
                     topDownLiveDataRef.current = { trace, data: currentData };
                     setTopDownData(currentData);
                 }
@@ -705,7 +711,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         return () => {
             canceled = true;
         };
-    }, [loadState, topDownSampleReady, trace, traceNavigatorAvailable]);
+    }, [topDownSampleReady, trace, traceNavigatorAvailable]);
 
     // 比較元Aは比較Tabを作る時点で読み込み済みなので、live追記を持たず一度だけ集計する。
     useEffect(() => {
@@ -739,10 +745,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (!traceNavigatorAvailable || trace === null || live?.trace !== trace) {
             return;
         }
-        const data = updateTopDownData(live.data, trace);
+        const data = updateTopDownData(live.data, trace, loadState === "ready");
         live.data = data;
         setTopDownData((current) => current === data ? current : data);
-    }, [renderVersion, trace, traceNavigatorAvailable]);
+    }, [loadState, renderVersion, trace, traceNavigatorAvailable]);
 
     useLayoutEffect(() => {
         if (traceNavigatorAvailable && traceNavigatorDataReady) {

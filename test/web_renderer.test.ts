@@ -788,6 +788,21 @@ test("Live navigator keeps the unconfirmed tail at one-cycle resolution", async 
     )?.average, completedPrefix.average);
     assert.equal(advanced.cycleActivity.fetch.maximum,
         data.cycleActivity.fetch.maximum);
+
+    // EOFでは処理済みOpを走査し直さず、EOF markerを消費して末尾cycleを確定する。
+    const eof = new Op();
+    eof.id = 6;
+    eof.eof = true;
+    eof.fetchedCycle = 97;
+    eof.retiredCycle = 100;
+    const store = trace.opStore as ArrayOpStore;
+    store.setOp(eof.id, eof);
+    trace.updateLastCycle(100);
+    const finished = updateTopDownData(advanced, trace, true);
+    assert.equal(finished.sourceLastID, eof.id);
+    assert.equal(finished.cycleCount, 100);
+    assert.equal(finished.confirmedCycle, 100);
+    assert.equal(finished.cycleActivity.sealedCycle, 96);
     trace.close();
 });
 

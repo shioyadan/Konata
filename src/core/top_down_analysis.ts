@@ -654,10 +654,14 @@ export async function buildTopDownData(
     });
 }
 
-/** 確定済みstage構造を使い、Parserが公開した連続Opをexact tailへ一度だけ反映する。 */
+/**
+ * 初期sampleで確定したstage構造を使い、Parserが公開した連続Opを一度だけ反映する。
+ * finishedでは再走査せず、EOF命令と末尾cycleを反映して残りの完成binを確定する。
+ */
 export function updateTopDownData(
     data: Readonly<TopDownData>,
     trace: ParsedTrace,
+    finished = false,
 ): TopDownData {
     const observedCycleCount = Math.max(
         data.observedCycleCount,
@@ -732,13 +736,18 @@ export function updateTopDownData(
             );
         }
     }
+    // EOFでは既存Opを再走査せず、最後のcycleまでを確定領域へ進める。
+    const confirmedEnd = finished
+        ? Math.max(1, Math.ceil(trace.lastCycle))
+        : confirmedCycle;
     if (sourceLastID === data.sourceLastID &&
-        observedCycleCount === data.observedCycleCount) {
+        observedCycleCount === data.observedCycleCount &&
+        confirmedEnd === data.confirmedCycle) {
         return data;
     }
     return sealTopDownData({
-        cycleCount: Math.max(1, Math.ceil(confirmedCycle)),
-        confirmedCycle,
+        cycleCount: Math.max(1, Math.ceil(confirmedEnd)),
+        confirmedCycle: confirmedEnd,
         observedCycleCount,
         sourceLastID,
         cycleActivity,
