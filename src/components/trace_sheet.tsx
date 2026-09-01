@@ -295,7 +295,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const traceNavigatorAvailable = trace !== null &&
         (!comparisonActive || baselineTrace !== null);
     const traceNavigatorExpanded = traceNavigator.visible && traceNavigatorAvailable;
-    // 簡易表示は常に全体を示し、詳細表示だけが保存済みのViewport／Full traceを使う。
+    // 簡易表示は常にOverviewとし、展開時だけ保存済みのDetail／Overviewを使う。
     const cycleNavigatorRangeMode = traceNavigatorExpanded
         ? traceNavigator.rangeMode
         : "overview";
@@ -1498,7 +1498,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         <div
                             className="trace-navigator-range"
                             role="group"
-                            aria-label="Navigator range"
+                            aria-label="Navigator view"
                         >
                             {(["follow", "overview"] as const).map((rangeMode) => (
                                 <button
@@ -1510,7 +1510,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                                         rangeMode,
                                     })}
                                 >
-                                    {rangeMode === "follow" ? "Viewport" : "Full trace"}
+                                    {rangeMode === "follow" ? "Detail" : "Overview"}
                                 </button>
                             ))}
                         </div>

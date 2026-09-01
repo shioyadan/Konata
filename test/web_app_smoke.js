@@ -2460,11 +2460,11 @@ async function run() {
         const labelCanvas = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
         const navigatorCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
         const navigatorMode = document.querySelector('select[aria-label="Cycle navigator mode"]');
-        const navigatorRange = document.querySelector('[aria-label="Navigator range"]');
+        const navigatorRange = document.querySelector('[aria-label="Navigator view"]');
         const followRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
-            .find((button) => button.textContent?.trim() === "Viewport");
+            .find((button) => button.textContent?.trim() === "Detail");
         const overviewRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
-            .find((button) => button.textContent?.trim() === "Full trace");
+            .find((button) => button.textContent?.trim() === "Overview");
         const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
@@ -4372,7 +4372,7 @@ async function run() {
             ) ?? null,
             navigatorMode: document.querySelector('select[aria-label="Cycle navigator mode"]')?.value ?? null,
             navigatorOverview: document.querySelector(
-                '[aria-label="Navigator range"] button[aria-pressed="true"]'
+                '[aria-label="Navigator view"] button[aria-pressed="true"]'
             )?.textContent?.trim() ?? null,
             navigatorHeight: Number(document.querySelector(
                 '[aria-label="Resize trace navigator"]'
@@ -4388,7 +4388,7 @@ async function run() {
         persistedViewSettingsState.tiledRendering ||
         persistedViewSettingsState.navigator !== "true" ||
         persistedViewSettingsState.navigatorMode !== "commit" ||
-        persistedViewSettingsState.navigatorOverview !== "Full trace" ||
+        persistedViewSettingsState.navigatorOverview !== "Overview" ||
         persistedViewSettingsState.navigatorHeight !== 180 ||
         persistedViewSettingsState.textVisibility !== "6" ||
         persistedViewSettingsState.zoomSpeed !== "normal" ||
