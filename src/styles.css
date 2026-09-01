@@ -1042,6 +1042,7 @@ button:disabled {
 
 .trace-navigator-cycle-label-pane {
     grid-column: 1;
+    overflow: visible;
 }
 
 .trace-navigator-cycle-divider {
@@ -1052,8 +1053,8 @@ button:disabled {
     grid-column: 3;
 }
 
-/* 簡易表示では左側をlabel背景のままにし、OverviewだけをPipeline列へ残す。 */
-.viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-label-pane > *,
+/* 簡易表示では開閉button以外の左側を隠し、OverviewだけをPipeline列へ残す。 */
+.viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-label-pane > :not(.trace-navigator-toggle),
 .viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-status {
     display: none;
 }
@@ -1079,12 +1080,12 @@ button:disabled {
     content: "";
 }
 
-/* buttonはlabel側の右端へ置き、開閉後もNavigatorのすぐ左で横位置を保つ。 */
+/* 左paneの中央をdrawer handleとし、label幅の変更にも横位置を追随させる。 */
 .trace-navigator-toggle {
     position: absolute;
     z-index: 2;
-    bottom: 1px;
-    left: max(2px, calc(min(var(--label-pane-width), calc(100% - 10px)) - 30px));
+    top: 1px;
+    left: 50%;
     display: grid;
     width: 28px;
     height: 20px;
@@ -1094,10 +1095,11 @@ button:disabled {
     color: #aeb5bf;
     box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
     place-items: center;
+    transform: translateX(-50%);
 }
 
 .viewer.is-trace-navigator-expanded .trace-navigator-toggle {
-    bottom: calc(var(--trace-navigator-effective-height) - 10px);
+    top: -10px;
 }
 
 .trace-navigator-toggle svg {

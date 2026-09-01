@@ -2430,14 +2430,20 @@ async function run() {
             pipelineAligned: Math.round(collapsedCanvasRect.width) ===
                 Math.round(pipelineRectBeforeOpen.width),
             labelsVisible: getComputedStyle(collapsedLabels).display !== "none",
-            labelContentsHidden: [...collapsedLabels.children].every((child) =>
-                getComputedStyle(child).display === "none"),
+            labelContentsHidden: [...collapsedLabels.children]
+                .filter((child) => child !== toggle)
+                .every((child) => getComputedStyle(child).display === "none"),
+            toggleVisible: getComputedStyle(toggle).display !== "none",
+            toggleCentered: Math.abs(
+                collapsedToggleRect.left + collapsedToggleRect.width / 2 -
+                (collapsedLabels.getBoundingClientRect().left +
+                    collapsedLabels.getBoundingClientRect().width / 2)
+            ) < 2,
             tooltipHidden: document.querySelector(".canvas-tooltip") === null,
             resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
             cursor: getComputedStyle(collapsedCanvas).cursor,
             toggleBottom: Math.round(viewerRectBeforeOpen.bottom - collapsedToggleRect.bottom),
-            toggleLeft: Math.round(collapsedToggleRect.left - viewerRectBeforeOpen.left),
-            toggleRightGap: Math.round(pipelineRectBeforeOpen.left - collapsedToggleRect.right)
+            toggleLeft: Math.round(collapsedToggleRect.left - viewerRectBeforeOpen.left)
         };
         const initialPipelineHeight = pipeline.getBoundingClientRect().height;
         toggle.click();
@@ -2608,8 +2614,9 @@ async function run() {
                 labelsVisible: collapsedLabelPane !== null &&
                     getComputedStyle(collapsedLabelPane).display !== "none",
                 labelContentsHidden: collapsedLabelPane !== null &&
-                    [...collapsedLabelPane.children].every((child) =>
-                        getComputedStyle(child).display === "none"),
+                    [...collapsedLabelPane.children]
+                        .filter((child) => child !== toggle)
+                        .every((child) => getComputedStyle(child).display === "none"),
                 resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
                 paneRetained: document.querySelector(".trace-navigator-cycle-pane") !== null
             }
@@ -2624,11 +2631,13 @@ async function run() {
         !navigatorState.collapsedState.pipelineAligned ||
         !navigatorState.collapsedState.labelsVisible ||
         !navigatorState.collapsedState.labelContentsHidden ||
+        !navigatorState.collapsedState.toggleVisible ||
+        !navigatorState.collapsedState.toggleCentered ||
         !navigatorState.collapsedState.tooltipHidden ||
         !navigatorState.collapsedState.resizerHidden ||
         navigatorState.collapsedState.cursor !== "grab" ||
-        navigatorState.collapsedState.toggleBottom !== 1 ||
-        navigatorState.collapsedState.toggleRightGap !== 12 ||
+        navigatorState.collapsedState.toggleBottom < 0 ||
+        navigatorState.collapsedState.toggleBottom > 1 ||
         navigatorState.openToggleLeft !== navigatorState.collapsedState.toggleLeft ||
         !navigatorState.openAtBoundary || !navigatorState.hasClass ||
         !navigatorState.hasExpandedClass ||

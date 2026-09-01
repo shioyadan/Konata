@@ -1411,33 +1411,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 </canvas>
             </section>
             {traceNavigatorAvailable && (
-                <button
-                    type="button"
-                    className="trace-navigator-toggle"
-                    aria-label={traceNavigatorExpanded
-                        ? "Hide trace navigator"
-                        : "Show trace navigator"}
-                    aria-controls="cycle-trace-navigator"
-                    aria-expanded={traceNavigatorExpanded}
-                    title={traceNavigatorExpanded
-                        ? "Hide trace navigator"
-                        : "Show trace navigator"}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        setToolTip(null);
-                        onSetTraceNavigator({
-                            ...traceNavigator,
-                            visible: !traceNavigatorExpanded,
-                        });
-                    }}
-                >
-                    {traceNavigatorExpanded
-                        ? <BsChevronBarDown aria-hidden="true" />
-                        : <BsChevronBarUp aria-hidden="true" />}
-                </button>
-            )}
-            {traceNavigatorAvailable && (
                 <>
                     {traceNavigatorExpanded && (
                         <div
@@ -1462,6 +1435,31 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         onMouseEnter={() => showCycleNavigatorDetails(true)}
                         onMouseLeave={() => showCycleNavigatorDetails(false)}
                     >
+                        <button
+                            type="button"
+                            className="trace-navigator-toggle"
+                            aria-label={traceNavigatorExpanded
+                                ? "Hide trace navigator"
+                                : "Show trace navigator"}
+                            aria-controls="cycle-trace-navigator"
+                            aria-expanded={traceNavigatorExpanded}
+                            title={traceNavigatorExpanded
+                                ? "Hide trace navigator"
+                                : "Show trace navigator"}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                setToolTip(null);
+                                onSetTraceNavigator({
+                                    ...traceNavigator,
+                                    visible: !traceNavigatorExpanded,
+                                });
+                            }}
+                        >
+                            {traceNavigatorExpanded
+                                ? <BsChevronBarDown aria-hidden="true" />
+                                : <BsChevronBarUp aria-hidden="true" />}
+                        </button>
                         <canvas ref={cycleNavigatorLabelCanvasRef} aria-label="Cycle navigator labels canvas" />
                         <select
                             className="trace-navigator-mode"
