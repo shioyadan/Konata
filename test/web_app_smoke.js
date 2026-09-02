@@ -396,11 +396,29 @@ async function verifyIncrementalRendering(window) {
         let progressLayers = null;
         let loadingStatus = null;
         let partialToolState = null;
+        let partialNavigator = null;
+        let navigatorRequested = false;
+        let finishing = false;
         const check = () => {
             const root = document.querySelector(".trace-app");
             const state = root?.dataset.loadState;
             const opCount = Number(root?.dataset.opCount ?? -1);
             if (state === "loading" && opCount === 1) {
+                const navigatorToggle = document.querySelector(".trace-navigator-toggle");
+                if (!navigatorRequested && navigatorToggle instanceof HTMLButtonElement) {
+                    navigatorRequested = true;
+                    navigatorToggle.click();
+                }
+                const navigatorPane = document.querySelector(".trace-navigator-cycle-pane");
+                const navigatorStatus = navigatorPane?.querySelector(".trace-navigator-cycle-status");
+                if (navigatorToggle instanceof HTMLButtonElement &&
+                    navigatorToggle.getAttribute("aria-expanded") === "true" &&
+                    navigatorPane instanceof HTMLElement && navigatorStatus instanceof HTMLElement) {
+                    partialNavigator = {
+                        visible: true,
+                        status: navigatorStatus.textContent ?? ""
+                    };
+                }
                 const searchButton = document.querySelector('button[aria-label="Search trace"]');
                 const statsButton = [...document.querySelectorAll(".app-toolbar button")]
                     .find((candidate) => candidate.textContent?.trim() === "Stats");
@@ -443,14 +461,21 @@ async function verifyIncrementalRendering(window) {
                     }
                 }
             }
-            if (state === "ready" && opCount === 2) {
-                resolve({
+            if (!finishing && state === "ready" && opCount === 2 && partialNavigator !== null) {
+                finishing = true;
+                const navigatorToggle = document.querySelector(".trace-navigator-toggle");
+                if (navigatorToggle instanceof HTMLButtonElement &&
+                    navigatorToggle.getAttribute("aria-expanded") === "true") {
+                    navigatorToggle.click();
+                }
+                requestAnimationFrame(() => resolve({
                     partialPixels,
                     finalOpCount: opCount,
                     partialToolState,
+                    partialNavigator,
                     progressLayers,
                     loadingStatus
-                });
+                }));
                 return;
             }
             if (state === "error") {
@@ -1321,6 +1346,8 @@ async function run() {
         incrementalState.finalOpCount !== 2 ||
         !incrementalState.partialToolState?.searchEnabled ||
         !incrementalState.partialToolState?.statsEnabled ||
+        !incrementalState.partialNavigator?.visible ||
+        !incrementalState.partialNavigator?.status?.startsWith("Collecting pipeline sample…") ||
         !incrementalState.loadingStatus?.text?.startsWith("Loading incremental.log…") ||
         !incrementalState.loadingStatus?.hasIndicator ||
         incrementalState.loadingStatus?.role !== "status" ||
@@ -1388,10 +1415,12 @@ async function run() {
     // trackpad pinchは小数倍率へ、物理Ctrl+wheelは40 msの回転量に応じた最大2段へ畳む。
     const wheelZoomState = await window.webContents.executeJavaScript(`(async () => {
         const viewer = document.querySelector(".viewer");
+        const toolbar = document.querySelector(".app-toolbar");
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         const output = document.querySelector(".zoom-controls output");
-        if (!(viewer instanceof HTMLElement) || !(reset instanceof HTMLButtonElement)) {
+        if (!(viewer instanceof HTMLElement) || !(toolbar instanceof HTMLElement) ||
+            !(reset instanceof HTMLButtonElement)) {
             throw new Error("The viewer zoom controls were not found.");
         }
         const rect = viewer.getBoundingClientRect();
@@ -1454,6 +1483,21 @@ async function run() {
         const resetImmediatelyAfter = output?.textContent ?? null;
         await new Promise((resolve) => setTimeout(resolve, 300));
         await new Promise((resolve) => requestAnimationFrame(resolve));
+        const toolbarEvents = Array.from({length: 20}, () => new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: -10,
+            clientX: rect.left + 400,
+            clientY: rect.top - 20
+        }));
+        const toolbarDispatched = toolbarEvents.map((event) => toolbar.dispatchEvent(event));
+        await new Promise((resolve) => requestAnimationFrame(() =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const toolbarZoom = output?.textContent ?? null;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         return {
             trackpadCanceled: trackpadDispatched.every((value, index) =>
                 !value && trackpadEvents[index].defaultPrevented),
@@ -1468,10 +1512,14 @@ async function run() {
             cooledWheelTarget,
             wheelZoom,
             resetImmediatelyAfter,
+            toolbarCanceled: toolbarDispatched.every((value, index) =>
+                !value && toolbarEvents[index].defaultPrevented),
+            toolbarZoom,
             resetZoom: output?.textContent ?? null
         };
     })()`);
     if (!wheelZoomState.trackpadCanceled || !wheelZoomState.wheelCanceled ||
+        !wheelZoomState.toolbarCanceled ||
         wheelZoomState.before !== "100%" ||
         wheelZoomState.trackpadImmediatelyAfter !== "100%" ||
         wheelZoomState.trackpadZoom !== "119%" ||
@@ -1480,6 +1528,7 @@ async function run() {
         wheelZoomState.cooledWheelTarget !== "35.4%" ||
         wheelZoomState.wheelZoom !== "35.4%" ||
         wheelZoomState.resetImmediatelyAfter !== "35.4%" ||
+        wheelZoomState.toolbarZoom !== "119%" ||
         wheelZoomState.resetZoom !== "100%") {
         throw new Error(`Wheel zoom handling is incomplete: ${JSON.stringify(wheelZoomState)}`);
     }
@@ -1903,21 +1952,41 @@ async function run() {
     }
 
     // 実Canvas上のpointer位置をRendererへ渡し、旧版と同じcycle/op/stage tooltipを表示する。
-    const toolTipText = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+    const toolTipState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const canvas = document.querySelector(".pipeline-pane canvas");
-        if (!(canvas instanceof HTMLCanvasElement)) {
+        const viewer = document.querySelector(".viewer");
+        if (!(canvas instanceof HTMLCanvasElement) || !(viewer instanceof HTMLElement)) {
             throw new Error("The pipeline canvas was not found.");
         }
         const rect = canvas.getBoundingClientRect();
+        const boundaryHeight = 48;
+        Object.defineProperty(canvas, "getBoundingClientRect", {
+            configurable: true,
+            value: () => new DOMRect(rect.x, rect.y, rect.width, boundaryHeight)
+        });
         canvas.dispatchEvent(new MouseEvent("mousemove", {
             bubbles: true,
             clientX: rect.left + 8,
             clientY: rect.top + 8
         }));
-        requestAnimationFrame(() => resolve(document.querySelector('[role="tooltip"]')?.textContent ?? null));
+        requestAnimationFrame(() => {
+            const tooltip = document.querySelector('[role="tooltip"]');
+            const viewerRect = viewer.getBoundingClientRect();
+            const tooltipRect = tooltip?.getBoundingClientRect();
+            delete canvas.getBoundingClientRect;
+            resolve({
+                text: tooltip?.textContent ?? null,
+                bottom: tooltipRect === undefined
+                    ? null
+                    : Math.round(tooltipRect.bottom - viewerRect.top),
+                pipelineBottom: Math.round(rect.top + boundaryHeight - viewerRect.top)
+            });
+        });
     })`);
-    if (typeof toolTipText !== "string" || !toolTipText.startsWith("[0, 0]")) {
-        throw new Error(`Pipeline tooltip is incomplete: ${JSON.stringify(toolTipText)}`);
+    if (typeof toolTipState.text !== "string" || !toolTipState.text.startsWith("[0, 0]") ||
+        typeof toolTipState.bottom !== "number" ||
+        toolTipState.bottom > toolTipState.pipelineBottom) {
+        throw new Error(`Pipeline tooltip is incomplete: ${JSON.stringify(toolTipState)}`);
     }
 
     // 旧label paneと同じく、2命令目のlabelをクリックするとそのfetch cycleを左端へ合わせる。
@@ -2330,6 +2399,285 @@ async function run() {
         throw new Error(`Desktop pane width was not restored: ${JSON.stringify(restoredPaneState)}`);
     }
 
+    // 閉時はPipeline直下に簡易Overviewを残し、展開時だけ詳細controlと高さ変更を有効にする。
+    const navigatorState = await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const toggle = document.querySelector(".trace-navigator-toggle");
+        const viewer = document.querySelector(".viewer");
+        const pipeline = document.querySelector(".pipeline-pane");
+        const collapsedCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+        const collapsedLabels = document.querySelector(".trace-navigator-cycle-label-pane");
+        if (!(toggle instanceof HTMLButtonElement) ||
+            !(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
+            !(collapsedCanvas instanceof HTMLCanvasElement) ||
+            !(collapsedLabels instanceof HTMLElement) ||
+            toggle.getAttribute("aria-expanded") !== "false" ||
+            toggle.getAttribute("aria-label") !== "Show trace navigator") {
+            throw new Error("The trace navigator control was not ready.");
+        }
+        const viewerRectBeforeOpen = viewer.getBoundingClientRect();
+        const pipelineRectBeforeOpen = pipeline.getBoundingClientRect();
+        const collapsedCanvasRect = collapsedCanvas.getBoundingClientRect();
+        const collapsedToggleRect = toggle.getBoundingClientRect();
+        collapsedCanvas.dispatchEvent(new MouseEvent("mouseover", {
+            bubbles: true,
+            clientX: collapsedCanvasRect.left + collapsedCanvasRect.width / 2,
+            clientY: collapsedCanvasRect.top + collapsedCanvasRect.height / 2
+        }));
+        await nextFrame();
+        const collapsedState = {
+            paneHeight: Math.round(collapsedCanvasRect.height),
+            pipelineAligned: Math.round(collapsedCanvasRect.width) ===
+                Math.round(pipelineRectBeforeOpen.width),
+            labelsVisible: getComputedStyle(collapsedLabels).display !== "none",
+            labelContentsHidden: [...collapsedLabels.children]
+                .filter((child) => child !== toggle)
+                .every((child) => getComputedStyle(child).display === "none"),
+            toggleVisible: getComputedStyle(toggle).display !== "none",
+            toggleCentered: Math.abs(
+                collapsedToggleRect.left + collapsedToggleRect.width / 2 -
+                (collapsedLabels.getBoundingClientRect().left +
+                    collapsedLabels.getBoundingClientRect().width / 2)
+            ) < 2,
+            tooltipHidden: document.querySelector(".canvas-tooltip") === null,
+            resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
+            cursor: getComputedStyle(collapsedCanvas).cursor,
+            toggleBottom: Math.round(viewerRectBeforeOpen.bottom - collapsedToggleRect.bottom),
+            toggleLeft: Math.round(collapsedToggleRect.left - viewerRectBeforeOpen.left)
+        };
+        const initialPipelineHeight = pipeline.getBoundingClientRect().height;
+        toggle.click();
+        const deadline = performance.now() + 2000;
+        while (performance.now() < deadline) {
+            const canvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+            const status = document.querySelector(".trace-navigator-cycle-status");
+            if (canvas instanceof HTMLCanvasElement && status === null && canvas.width > 1) {
+                break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        await nextFrame();
+        const labelCanvas = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
+        const navigatorCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+        const navigatorMode = document.querySelector('select[aria-label="Cycle navigator mode"]');
+        const navigatorRange = document.querySelector('[aria-label="Navigator view"]');
+        const followRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
+            .find((button) => button.textContent?.trim() === "Detail");
+        const overviewRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
+            .find((button) => button.textContent?.trim() === "Overview");
+        const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
+        const reset = [...document.querySelectorAll(".zoom-controls button")]
+            .find((button) => button.textContent?.trim() === "Reset");
+        const zoomOutput = document.querySelector(".zoom-controls output");
+        if (!(labelCanvas instanceof HTMLCanvasElement) ||
+            !(navigatorCanvas instanceof HTMLCanvasElement) ||
+            !(navigatorMode instanceof HTMLSelectElement) || !(resizer instanceof HTMLElement) ||
+            !(followRange instanceof HTMLButtonElement) ||
+            !(overviewRange instanceof HTMLButtonElement) ||
+            !(reset instanceof HTMLButtonElement)) {
+            throw new Error("The trace navigator pane was not created.");
+        }
+        const navigatorRectBeforeInteraction = navigatorCanvas.getBoundingClientRect();
+        navigatorCanvas.dispatchEvent(new MouseEvent("mouseover", {
+            bubbles: true,
+            clientX: navigatorRectBeforeInteraction.left + navigatorRectBeforeInteraction.width / 2,
+            clientY: navigatorRectBeforeInteraction.top + navigatorRectBeforeInteraction.height / 2
+        }));
+        await nextFrame();
+        const navigatorTooltipHidden = document.querySelector(".canvas-tooltip") === null;
+        const fallbackMode = navigatorMode.value;
+        const fallbackDisabled = navigatorMode.disabled;
+        const fallbackDisabledModes = [...navigatorMode.options]
+            .filter((option) => option.disabled)
+            .map((option) => option.value);
+        const defaultRange = overviewRange.getAttribute("aria-pressed");
+        followRange.click();
+        await nextFrame();
+        const followSelected = followRange.getAttribute("aria-pressed");
+        overviewRange.click();
+        await nextFrame();
+        navigatorMode.value = "fetch";
+        navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        const fallbackFetchMode = navigatorMode.value;
+        navigatorMode.value = "commit";
+        navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        await nextFrame();
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const navigatorRect = navigatorCanvas.getBoundingClientRect();
+        const zoomEvents = Array.from({length: 20}, () => new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: -10,
+            clientX: navigatorRect.left + navigatorRect.width / 2,
+            clientY: navigatorRect.top + navigatorRect.height / 2
+        }));
+        const zoomDispatched = zoomEvents.map((event) => navigatorCanvas.dispatchEvent(event));
+        await new Promise((resolve) => requestAnimationFrame(() =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const navigatorZoom = zoomOutput?.textContent ?? null;
+        reset.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const result = {
+            expanded: toggle.getAttribute("aria-expanded"),
+            openLabel: toggle.getAttribute("aria-label"),
+            controls: toggle.getAttribute("aria-controls"),
+            toggleWidth: Math.round(toggle.getBoundingClientRect().width),
+            toggleHeight: Math.round(toggle.getBoundingClientRect().height),
+            openToggleLeft: Math.round(
+                toggle.getBoundingClientRect().left - viewer.getBoundingClientRect().left
+            ),
+            collapsedState,
+            openAtBoundary: Math.abs(
+                toggle.getBoundingClientRect().top + toggle.getBoundingClientRect().height / 2 -
+                navigatorCanvas.getBoundingClientRect().top
+            ) < 2,
+            hasClass: viewer.classList.contains("has-trace-navigator"),
+            hasExpandedClass: viewer.classList.contains("is-trace-navigator-expanded"),
+            paneHeight: Math.round(navigatorCanvas.getBoundingClientRect().height),
+            labelAligned: Math.round(labelCanvas.getBoundingClientRect().width) ===
+                Math.round(document.querySelector(".label-pane")?.getBoundingClientRect().width ?? -1),
+            navigatorAligned: Math.round(navigatorCanvas.getBoundingClientRect().width) ===
+                Math.round(pipeline.getBoundingClientRect().width),
+            pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height),
+            mode: navigatorMode.value,
+            fallbackMode,
+            fallbackDisabled,
+            fallbackDisabledModes,
+            fallbackFetchMode,
+            modeOptions: [...navigatorMode.options].map((option) => option.value),
+            defaultRange,
+            followSelected,
+            overviewSelected: overviewRange.getAttribute("aria-pressed"),
+            overviewCursor: getComputedStyle(navigatorCanvas).cursor,
+            navigatorTooltipHidden,
+            zoomCanceled: zoomDispatched.every((value, index) =>
+                !value && zoomEvents[index].defaultPrevented),
+            navigatorZoom
+        };
+        // 境界へ重ねたseparatorをdragし、上下Canvasのlayoutとbacking storeが追従することを確認する。
+        const captured = new Set();
+        Object.defineProperties(resizer, {
+            setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => captured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
+        });
+        const viewerRect = viewer.getBoundingClientRect();
+        const resizerRect = resizer.getBoundingClientRect();
+        const dispatchPointer = (type, clientY, buttons) => resizer.dispatchEvent(new PointerEvent(type, {
+            pointerId: 2,
+            pointerType: "mouse",
+            isPrimary: true,
+            bubbles: true,
+            cancelable: true,
+            button: type === "pointerdown" ? 0 : -1,
+            buttons,
+            clientY
+        }));
+        dispatchPointer("pointerdown", resizerRect.top + resizerRect.height / 2, 1);
+        dispatchPointer("pointermove", viewerRect.bottom - 180, 1);
+        dispatchPointer("pointerup", viewerRect.bottom - 180, 0);
+        await nextFrame();
+        await nextFrame();
+        const resized = {
+            paneHeight: Math.round(navigatorCanvas.getBoundingClientRect().height),
+            pipelineHeightReduction: Math.round(initialPipelineHeight - pipeline.getBoundingClientRect().height),
+            canvasHeight: navigatorCanvas.height,
+            separatorHeight: Math.round(resizer.getBoundingClientRect().height),
+            position: resizer.getAttribute("aria-valuenow"),
+            cursor: getComputedStyle(resizer).cursor,
+            capturedPointers: captured.size
+        };
+        const storedNavigator = JSON.parse(
+            localStorage.getItem("konata.viewSettings") ?? "null"
+        )?.traceNavigator ?? null;
+        delete resizer.setPointerCapture;
+        delete resizer.hasPointerCapture;
+        delete resizer.releasePointerCapture;
+        toggle.click();
+        await nextFrame();
+        const collapsedAgainRect = navigatorCanvas.getBoundingClientRect();
+        const collapsedLabelPane = labelCanvas.parentElement;
+        return {
+            ...result,
+            resized,
+            storedNavigator,
+            collapsed: toggle.getAttribute("aria-expanded"),
+            closedLabel: toggle.getAttribute("aria-label"),
+            collapsedAgain: {
+                paneHeight: Math.round(collapsedAgainRect.height),
+                pipelineAligned: Math.round(collapsedAgainRect.width) ===
+                    Math.round(pipeline.getBoundingClientRect().width),
+                labelsVisible: collapsedLabelPane !== null &&
+                    getComputedStyle(collapsedLabelPane).display !== "none",
+                labelContentsHidden: collapsedLabelPane !== null &&
+                    [...collapsedLabelPane.children]
+                        .filter((child) => child !== toggle)
+                        .every((child) => getComputedStyle(child).display === "none"),
+                resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
+                paneRetained: document.querySelector(".trace-navigator-cycle-pane") !== null
+            }
+        };
+    })()`);
+    if (navigatorState.expanded !== "true" ||
+        navigatorState.openLabel !== "Hide trace navigator" ||
+        navigatorState.controls !== "cycle-trace-navigator" ||
+        navigatorState.toggleWidth !== 28 || navigatorState.toggleHeight !== 20 ||
+        navigatorState.collapsedState?.paneHeight < 21 ||
+        navigatorState.collapsedState.paneHeight > 22 ||
+        !navigatorState.collapsedState.pipelineAligned ||
+        !navigatorState.collapsedState.labelsVisible ||
+        !navigatorState.collapsedState.labelContentsHidden ||
+        !navigatorState.collapsedState.toggleVisible ||
+        !navigatorState.collapsedState.toggleCentered ||
+        !navigatorState.collapsedState.tooltipHidden ||
+        !navigatorState.collapsedState.resizerHidden ||
+        navigatorState.collapsedState.cursor !== "grab" ||
+        navigatorState.collapsedState.toggleBottom < 0 ||
+        navigatorState.collapsedState.toggleBottom > 1 ||
+        navigatorState.openToggleLeft !== navigatorState.collapsedState.toggleLeft ||
+        !navigatorState.openAtBoundary || !navigatorState.hasClass ||
+        !navigatorState.hasExpandedClass ||
+        navigatorState.paneHeight < 63 || navigatorState.paneHeight > 64 ||
+        !navigatorState.labelAligned ||
+        !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 42 ||
+        navigatorState.mode !== "commit" ||
+        navigatorState.fallbackMode !== "commit" || navigatorState.fallbackDisabled ||
+        navigatorState.fallbackDisabledModes?.join(",") !== "top-down,issue,flush,latency" ||
+        navigatorState.fallbackFetchMode !== "fetch" ||
+        navigatorState.modeOptions?.join(",") !== "top-down,fetch,issue,commit,flush,latency" ||
+        navigatorState.defaultRange !== "true" ||
+        navigatorState.followSelected !== "true" ||
+        navigatorState.overviewSelected !== "true" ||
+        navigatorState.overviewCursor !== "grab" ||
+        !navigatorState.navigatorTooltipHidden ||
+        !navigatorState.zoomCanceled || navigatorState.navigatorZoom !== "119%" ||
+        navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
+        navigatorState.resized.pipelineHeightReduction !== 158 ||
+        navigatorState.resized.canvasHeight < 179 ||
+        navigatorState.resized.separatorHeight !== 10 ||
+        navigatorState.resized.position !== "180" ||
+        navigatorState.resized.cursor !== "row-resize" ||
+        navigatorState.resized.capturedPointers !== 0 ||
+        navigatorState.storedNavigator?.visible !== true ||
+        navigatorState.storedNavigator?.mode !== "commit" ||
+        navigatorState.storedNavigator?.rangeMode !== "overview" ||
+        navigatorState.storedNavigator?.height !== 180 ||
+        navigatorState.collapsed !== "false" ||
+        navigatorState.closedLabel !== "Show trace navigator" ||
+        navigatorState.collapsedAgain?.paneHeight < 21 ||
+        navigatorState.collapsedAgain.paneHeight > 22 ||
+        !navigatorState.collapsedAgain.pipelineAligned ||
+        !navigatorState.collapsedAgain.labelsVisible ||
+        !navigatorState.collapsedAgain.labelContentsHidden ||
+        !navigatorState.collapsedAgain.resizerHidden ||
+        !navigatorState.collapsedAgain.paneRetained) {
+        throw new Error(`Trace navigator is incomplete: ${JSON.stringify(navigatorState)}`);
+    }
+
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
     const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const viewControls = document.querySelector(".view-controls");
@@ -2388,6 +2736,9 @@ async function run() {
             tiledRendering: tiledRendering.checked,
             compatibilityOpen: compatibility.open,
             textVisibility: textVisibility.value,
+            navigatorSettingRemoved: document.querySelector(
+                'input[aria-label="Trace navigator"]'
+            ) === null,
             checkboxesOnRight: [hideFlushed, split, fixed, webGL, tiledRendering]
                 .every((control) => control.closest("label")?.lastElementChild === control)
         })));
@@ -2401,6 +2752,7 @@ async function run() {
         !viewControlState.tiledRendering ||
         viewControlState.compatibilityOpen ||
         viewControlState.textVisibility !== "4" ||
+        !viewControlState.navigatorSettingRemoved ||
         !viewControlState.checkboxesOnRight ||
         !viewControlState.staysOpenAfterInsideClick ||
         !viewControlState.closesAfterOutsideClick) {
@@ -2551,6 +2903,12 @@ async function run() {
         const selectedCandidate = candidate.selectedOptions[0]?.textContent?.trim() ?? null;
         open.click();
         await nextFrame();
+        const navigatorDeadline = performance.now() + 2000;
+        while (performance.now() < navigatorDeadline &&
+            document.querySelector('.trace-navigator-cycle-status') !== null) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        await nextFrame();
         const comparisonTab = document.querySelector('.trace-tab.is-active');
         const modeButtons = [...document.querySelectorAll('.comparison-mode-controls button')];
         const baselineMode = modeButtons.find((button) => button.textContent?.trim() === "A");
@@ -2587,6 +2945,21 @@ async function run() {
                 const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
                 return color instanceof HTMLSelectElement
                     ? {value: color.value, disabled: color.disabled}
+                    : null;
+            })(),
+            navigator: (() => {
+                const toggle = document.querySelector('.trace-navigator-toggle');
+                const canvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+                const mode = document.querySelector('select[aria-label="Cycle navigator mode"]');
+                return toggle instanceof HTMLButtonElement &&
+                    canvas instanceof HTMLCanvasElement && mode instanceof HTMLSelectElement
+                    ? {
+                        expanded: toggle.getAttribute('aria-expanded'),
+                        paneHeight: Math.round(canvas.getBoundingClientRect().height),
+                        mode: mode.value,
+                        modeDisabled: mode.disabled,
+                        ready: document.querySelector('.trace-navigator-cycle-status') === null
+                    }
                     : null;
             })(),
             overlayLayerCompositions: comparisonLayerCompositions.slice(-2)
@@ -2693,6 +3066,12 @@ async function run() {
             value: "Comparison",
             disabled: true
         }) ||
+        comparisonState.initial.navigator?.expanded !== "false" ||
+        comparisonState.initial.navigator.paneHeight < 21 ||
+        comparisonState.initial.navigator.paneHeight > 22 ||
+        comparisonState.initial.navigator.mode !== "commit" ||
+        comparisonState.initial.navigator.modeDisabled ||
+        !comparisonState.initial.navigator.ready ||
         JSON.stringify(comparisonState.initial.overlayLayerCompositions) !== JSON.stringify([
             {opacity: 1, operation: "source-over", filter: "none"},
             {opacity: 0.5, operation: "source-over", filter: "none"}
@@ -3921,11 +4300,13 @@ async function run() {
         const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        const navigator = document.querySelector(".trace-navigator-toggle");
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
             !(zoomSpeed instanceof HTMLSelectElement) ||
             !(webGL instanceof HTMLInputElement) ||
-            !(tiledRendering instanceof HTMLInputElement)) {
+            !(tiledRendering instanceof HTMLInputElement) ||
+            !(navigator instanceof HTMLButtonElement)) {
             throw new Error("The view settings controls were not found.");
         }
         theme.value = "light";
@@ -3935,6 +4316,7 @@ async function run() {
         zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         webGL.click();
         tiledRendering.click();
+        navigator.click();
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
             resolve({
@@ -3943,6 +4325,7 @@ async function run() {
                 zoomSpeed: zoomSpeed.value,
                 webGL: webGL.checked,
                 tiledRendering: tiledRendering.checked,
+                navigator: navigator.getAttribute("aria-expanded"),
                 stored,
                 storesSplitLanes: stored !== null && "splitLanes" in stored,
                 storesLegacyLaneHeight: stored !== null && "drawTextThreshold" in stored
@@ -3954,10 +4337,15 @@ async function run() {
         viewSettingsSetupState.zoomSpeed !== "normal" ||
         viewSettingsSetupState.webGL ||
         viewSettingsSetupState.tiledRendering ||
+        viewSettingsSetupState.navigator !== "true" ||
         viewSettingsSetupState.stored?.theme !== "light" ||
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
         viewSettingsSetupState.stored?.webGLEnabled !== false ||
         viewSettingsSetupState.stored?.tiledRenderingEnabled !== false ||
+        viewSettingsSetupState.stored?.traceNavigator?.visible !== true ||
+        viewSettingsSetupState.stored?.traceNavigator?.mode !== "commit" ||
+        viewSettingsSetupState.stored?.traceNavigator?.rangeMode !== "overview" ||
+        viewSettingsSetupState.stored?.traceNavigator?.height !== 180 ||
         viewSettingsSetupState.storesSplitLanes ||
         viewSettingsSetupState.storesLegacyLaneHeight) {
         throw new Error(`View settings setup is incomplete: ${JSON.stringify(viewSettingsSetupState)}`);
@@ -3979,6 +4367,16 @@ async function run() {
             split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
+            navigator: document.querySelector(".trace-navigator-toggle")?.getAttribute(
+                "aria-expanded"
+            ) ?? null,
+            navigatorMode: document.querySelector('select[aria-label="Cycle navigator mode"]')?.value ?? null,
+            navigatorOverview: document.querySelector(
+                '[aria-label="Navigator view"] button[aria-pressed="true"]'
+            )?.textContent?.trim() ?? null,
+            navigatorHeight: Number(document.querySelector(
+                '[aria-label="Resize trace navigator"]'
+            )?.getAttribute("aria-valuenow") ?? -1),
             textVisibility: document.querySelector('input[aria-label="Text labels visibility level"]')?.value ?? null,
             zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             zoom: document.querySelector(".zoom-controls output")?.textContent ?? null
@@ -3988,6 +4386,10 @@ async function run() {
         persistedViewSettingsState.split ||
         persistedViewSettingsState.webGL ||
         persistedViewSettingsState.tiledRendering ||
+        persistedViewSettingsState.navigator !== "true" ||
+        persistedViewSettingsState.navigatorMode !== "commit" ||
+        persistedViewSettingsState.navigatorOverview !== "Overview" ||
+        persistedViewSettingsState.navigatorHeight !== 180 ||
         persistedViewSettingsState.textVisibility !== "6" ||
         persistedViewSettingsState.zoomSpeed !== "normal" ||
         persistedViewSettingsState.zoom !== "141%") {
@@ -4002,6 +4404,7 @@ async function run() {
         delete stored.drawZoomFactor;
         delete stored.webGLEnabled;
         delete stored.tiledRenderingEnabled;
+        delete stored.traceNavigator;
         stored.colorScheme = "Auto";
         stored.customColorScheme.defaultColor.h = 999;
         localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
@@ -4036,8 +4439,12 @@ async function run() {
             zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
+            navigator: document.querySelector(".trace-navigator-toggle")?.getAttribute(
+                "aria-expanded"
+            ) ?? null,
             defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
             migratedLaneHeight: migrated?.textLabelMinimumLaneHeight ?? null,
+            migratedNavigator: migrated?.traceNavigator ?? null,
             removedLegacyLaneHeight: migrated !== null && !("drawTextThreshold" in migrated)
         };
         document.querySelector('.custom-color-dialog button[aria-label="Close custom colors"]')?.click();
@@ -4050,8 +4457,13 @@ async function run() {
         recoveredCustomColorState.zoomSpeed !== "normal" ||
         !recoveredCustomColorState.webGL ||
         !recoveredCustomColorState.tiledRendering ||
+        recoveredCustomColorState.navigator !== "false" ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.migratedLaneHeight !== 3 ||
+        recoveredCustomColorState.migratedNavigator?.visible !== false ||
+        recoveredCustomColorState.migratedNavigator?.mode !== "top-down" ||
+        recoveredCustomColorState.migratedNavigator?.rangeMode !== "overview" ||
+        recoveredCustomColorState.migratedNavigator?.height !== 64 ||
         !recoveredCustomColorState.removedLegacyLaneHeight) {
         throw new Error(`Custom color recovery is incomplete: ${JSON.stringify(recoveredCustomColorState)}`);
     }

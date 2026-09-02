@@ -4,14 +4,33 @@ import {
     type MouseEvent as ReactMouseEvent,
     type PointerEvent,
     useCallback,
+    useEffect,
     useImperativeHandle,
     useLayoutEffect,
     useRef,
     useState,
 } from "react";
-import { BsX } from "react-icons/bs";
+import { BsChevronBarDown, BsChevronBarUp, BsX } from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
+import {
+    buildCycleNavigatorData,
+    CYCLE_NAVIGATOR_INITIAL_SNAPSHOT_OP_COUNT,
+    resolveCycleNavigatorMode,
+    type CycleNavigatorData,
+    type CycleNavigatorMode,
+    updateCycleNavigatorData,
+} from "../core/trace_navigator_analysis";
+import {
+    drawComparisonCycleNavigator,
+    drawCycleNavigator,
+    getComparisonCycleNavigatorScrollPosition,
+    getComparisonCycleNavigatorViewport,
+    getCycleNavigatorScrollPosition,
+    getCycleNavigatorViewport,
+    type CycleNavigatorComparison,
+    type CycleNavigatorComparisonTrack,
+} from "../core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
     clampKonataZoomLevel,
@@ -27,10 +46,12 @@ import {
     type KonataViewFrame,
     type KonataViewMotion,
 } from "../core/konata_view_controller";
-import type {
-    ComparisonMode,
-    FindResult,
-    LoadState,
+import {
+    MIN_TRACE_NAVIGATOR_HEIGHT,
+    type ComparisonMode,
+    type FindResult,
+    type LoadState,
+    type TraceNavigatorSettings,
 } from "../store";
 
 declare const __KONATA_VERSION__: string;
@@ -51,6 +72,7 @@ interface CanvasToolTip {
     readonly left: number;
     readonly top: number;
     readonly text: string;
+    readonly bottomBoundary?: number;
 }
 
 // A/B単独表示では、位置合わせ用の反対側だけを控えめに重ねる。
@@ -66,6 +88,9 @@ const WHEEL_DELTA_PER_ZOOM_LEVEL = 120;
 const MAX_WHEEL_ZOOM_LEVELS = 2;
 const TRACKPAD_DELTA_PER_ZOOM_LEVEL = 100;
 const MAX_TRACKPAD_ZOOM_PER_FRAME = 0.25;
+const MIN_PIPELINE_HEIGHT = 96;
+const TOOLTIP_BELOW_POINTER_OFFSET = 20;
+const TOOLTIP_ABOVE_POINTER_GAP = 8;
 
 function normalizeWheelDelta(event: WheelEvent): number {
     // deltaの単位はdevice／OS依存なので、主要map rendererと同じ尺度へ先に揃える。
@@ -76,6 +101,20 @@ function normalizeWheelDelta(event: WheelEvent): number {
         return event.deltaY * WHEEL_PAGE_DELTA;
     }
     return event.deltaY;
+}
+
+function createCycleNavigatorComparison(
+    baselineData: Readonly<CycleNavigatorData> | null,
+    candidateData: Readonly<CycleNavigatorData>,
+    baselineSpec: Readonly<KonataRenderSpec> | undefined,
+    candidateSpec: Readonly<KonataRenderSpec>,
+): CycleNavigatorComparison | null {
+    return baselineData === null || baselineSpec === undefined
+        ? null
+        : {
+            baseline: { data: baselineData, spec: baselineSpec },
+            candidate: { data: candidateData, spec: candidateSpec },
+        };
 }
 
 export interface TraceSheetHandle {
@@ -105,6 +144,7 @@ interface TraceSheetProps {
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    readonly traceNavigator: Readonly<TraceNavigatorSettings>;
     readonly zoomStep: number;
     readonly findResult: FindResult | null;
     readonly comparison: {
@@ -115,6 +155,7 @@ interface TraceSheetProps {
     } | null;
     readonly splitterPosition: number;
     readonly onMoveSplitter: (position: number) => void;
+    readonly onSetTraceNavigator: (settings: Readonly<TraceNavigatorSettings>) => void;
     readonly onSetView: (view: KonataView, baselineView?: KonataView) => void;
     readonly onCloseFindResult: () => void;
     readonly onOpenTrace: () => void;
@@ -151,11 +192,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderVersion,
     webGLEnabled,
     tiledRenderingEnabled,
+    traceNavigator,
     zoomStep,
     findResult,
     comparison,
     splitterPosition,
     onMoveSplitter,
+    onSetTraceNavigator,
     onSetView,
     onCloseFindResult,
     onOpenTrace,
@@ -163,6 +206,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
+    const cycleNavigatorLabelCanvasRef = useRef<HTMLCanvasElement>(null);
+    const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
+    const cycleNavigatorDetailsVisibleRef = useRef(false);
+    const cycleNavigatorPointerRef = useRef<{
+        readonly pointerID: number;
+        readonly grabOffset: number;
+        readonly comparisonTrack: CycleNavigatorComparisonTrack | null;
+    } | null>(null);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const findResultRef = useRef<HTMLDivElement>(null);
@@ -212,6 +263,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         : new KonataRenderMetrics(baselineTrace, baselineRenderSpec);
     const pointerPositionsRef = useRef(new Map<number, PointerPosition>());
     const splitterPointerIDRef = useRef<number | null>(null);
+    const traceNavigatorResizerPointerIDRef = useRef<number | null>(null);
     const wheelZoomRef = useRef({
         modifierDown: false,
         trackpadDelta: 0,
@@ -223,9 +275,53 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     });
     const [isPanning, setIsPanning] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
+    const [isTraceNavigatorResizing, setIsTraceNavigatorResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
+    const toolTipRef = useRef<HTMLPreElement>(null);
+    // UI／制御層は集計結果の寿命だけを所有する。CycleNavigatorDataはTraceから
+    // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
+    const [navigatorData, setNavigatorData] = useState<CycleNavigatorData | null>(null);
+    const [baselineNavigatorData, setBaselineNavigatorData] =
+        useState<CycleNavigatorData | null>(null);
+    const navigatorLiveDataRef = useRef<{
+        readonly trace: ParsedTrace;
+        data: CycleNavigatorData;
+    } | null>(null);
+    const loadStateRef = useRef(loadState);
+    loadStateRef.current = loadState;
+    const [navigatorError, setNavigatorError] = useState(false);
+    const comparisonActive = comparison !== null;
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
+    const traceNavigatorAvailable = trace !== null &&
+        (!comparisonActive || baselineTrace !== null);
+    const traceNavigatorExpanded = traceNavigator.visible && traceNavigatorAvailable;
+    // 簡易表示は常にOverviewとし、展開時だけ保存済みのDetail／Overviewを使う。
+    const cycleNavigatorRangeMode = traceNavigatorExpanded
+        ? traceNavigator.rangeMode
+        : "overview";
+    const modeSources = comparisonMode === "baseline"
+        ? [baselineNavigatorData]
+        : comparisonMode === "overlay"
+            ? [baselineNavigatorData, navigatorData]
+            : [navigatorData];
+    const cycleNavigatorMode = resolveCycleNavigatorMode(
+        traceNavigator.mode,
+        ...modeSources,
+    );
+    const cycleNavigatorAnalysisUnavailable = resolveCycleNavigatorMode(
+        "top-down",
+        ...modeSources,
+    ) !== "top-down";
+    const traceNavigatorDataReady = navigatorData !== null &&
+        (comparisonMode === null || baselineNavigatorData !== null);
+    const navigatorSampleReady = trace !== null && (loadState === "ready" ||
+        trace.opCount >= CYCLE_NAVIGATOR_INITIAL_SNAPSHOT_OP_COUNT);
+    const navigatorStatusMessage = navigatorError
+        ? "Trace navigator analysis unavailable"
+        : !navigatorSampleReady
+            ? `Collecting pipeline sample… ${(trace?.opCount ?? 0).toLocaleString()} / ${CYCLE_NAVIGATOR_INITIAL_SNAPSHOT_OP_COUNT.toLocaleString()} ops`
+            : "Building trace navigator analysis…";
     // A単独表示だけはラベルとマウス参照もAへ切り替え、それ以外はBを前面の情報源にする。
     const displayRenderer = comparisonMode === "baseline" && baselineRenderer !== null
         ? baselineRenderer
@@ -399,6 +495,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             pipelineCanvasRef.current,
             baselineLayerCanvasRef.current,
             candidateLayerCanvasRef.current,
+            cycleNavigatorLabelCanvasRef.current,
+            cycleNavigatorCanvasRef.current,
         ]) {
             if (canvas !== null) {
                 // software Canvasの遅延描画資源を、参照中のTraceより先に切り離す。
@@ -416,6 +514,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     ) => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
+        const cycleNavigatorLabelCanvas = cycleNavigatorLabelCanvasRef.current;
+        const cycleNavigatorCanvas = cycleNavigatorCanvasRef.current;
         const candidateMetrics = new KonataRenderMetrics(trace, candidateSpec);
         const currentBaselineMetrics = currentBaselineSpec === undefined
             ? null
@@ -442,6 +542,34 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ...tileOptions,
             prefetchSpec: baselinePrefetchSpec,
         } as const;
+        if (traceNavigatorAvailable && traceNavigatorDataReady && navigatorData !== null &&
+            cycleNavigatorLabelCanvas !== null && cycleNavigatorCanvas !== null) {
+            const navigatorComparison = createCycleNavigatorComparison(
+                baselineNavigatorData, navigatorData, currentBaselineSpec, candidateSpec,
+            );
+            if (comparisonMode !== null && navigatorComparison !== null) {
+                drawComparisonCycleNavigator(
+                    navigatorComparison,
+                    cycleNavigatorLabelCanvas,
+                    cycleNavigatorCanvas,
+                    comparisonMode,
+                    cycleNavigatorMode,
+                    cycleNavigatorDetailsVisibleRef.current,
+                    cycleNavigatorRangeMode,
+                );
+            }
+            else {
+                drawCycleNavigator(
+                    navigatorData,
+                    candidateSpec,
+                    cycleNavigatorLabelCanvas,
+                    cycleNavigatorCanvas,
+                    cycleNavigatorMode,
+                    cycleNavigatorDetailsVisibleRef.current,
+                    cycleNavigatorRangeMode,
+                );
+            }
+        }
         if (labelCanvas !== null && pipelineCanvas !== null) {
             if (baselineRenderer === null || comparisonMode === null || currentBaselineSpec === undefined) {
                 renderer.drawLabelSpec(trace, candidateSpec, labelCanvas);
@@ -513,10 +641,17 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         findResult,
         loadState,
         renderer,
+        cycleNavigatorRangeMode,
+        cycleNavigatorMode,
+        baselineNavigatorData,
+        navigatorData,
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
         trace,
+        traceNavigatorAvailable,
+        traceNavigatorDataReady,
+        traceNavigator,
         webGLEnabled,
     ]);
 
@@ -530,6 +665,130 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const redraw = useCallback(() => {
         viewController.redraw();
     }, [viewController]);
+
+    const showCycleNavigatorDetails = (visible: boolean) => {
+        if (cycleNavigatorDetailsVisibleRef.current !== visible) {
+            cycleNavigatorDetailsVisibleRef.current = visible;
+            redraw();
+        }
+    };
+
+    // Traceまたはpaneを切り替えた時は、以前のTraceから作った派生dataを外す。
+    useEffect(() => {
+        navigatorLiveDataRef.current = null;
+        setNavigatorData(null);
+        setNavigatorError(false);
+    }, [trace, traceNavigatorAvailable]);
+
+    // 最初の50k命令で構造を固定し、以降はEOFまで同じdataを増分更新する。
+    // zoomやthemeの変更は下のuseLayoutEffectから同じ集計dataを再描画する。
+    useEffect(() => {
+        let canceled = false;
+        if (!traceNavigatorAvailable || trace === null || !navigatorSampleReady) {
+            return () => {
+                canceled = true;
+            };
+        }
+        setNavigatorError(false);
+
+        void buildCycleNavigatorData(trace, {
+            isCanceled: () => canceled,
+            live: loadStateRef.current !== "ready",
+        })
+            .then((data) => {
+                if (!canceled && data !== null) {
+                    // 初期解析中にParserが公開した分も、最初の表示へまとめて追記する。
+                    // stage構造が不明でもFetch／Commitのlive更新には同じ参照を使う。
+                    const currentData = updateCycleNavigatorData(
+                        data,
+                        trace,
+                        loadStateRef.current === "ready",
+                    );
+                    navigatorLiveDataRef.current = { trace, data: currentData };
+                    setNavigatorData(currentData);
+                }
+            })
+            .catch((error: unknown) => {
+                if (!canceled) {
+                    console.warn("Could not build trace navigator analysis.", error);
+                    setNavigatorError(true);
+                }
+            });
+        return () => {
+            canceled = true;
+        };
+    }, [navigatorSampleReady, trace, traceNavigatorAvailable]);
+
+    // 比較元Aは比較Tabを作る時点で読み込み済みなので、live追記を持たず一度だけ集計する。
+    useEffect(() => {
+        let canceled = false;
+        setBaselineNavigatorData(null);
+        if (!traceNavigatorAvailable || !comparisonActive || baselineTrace === null) {
+            return () => {
+                canceled = true;
+            };
+        }
+        void buildCycleNavigatorData(baselineTrace, { isCanceled: () => canceled })
+            .then((data) => {
+                if (!canceled && data !== null) {
+                    setBaselineNavigatorData(data);
+                }
+            })
+            .catch((error: unknown) => {
+                if (!canceled) {
+                    console.warn("Could not build baseline trace navigator analysis.", error);
+                    setNavigatorError(true);
+                }
+            });
+        return () => {
+            canceled = true;
+        };
+    }, [baselineTrace, comparisonActive, traceNavigatorAvailable]);
+
+    // Pipelineと同じ途中Traceの公開通知ごとに、節目間の差分だけをNavigatorへ反映する。
+    useEffect(() => {
+        const live = navigatorLiveDataRef.current;
+        if (!traceNavigatorAvailable || trace === null || live?.trace !== trace) {
+            return;
+        }
+        const data = updateCycleNavigatorData(live.data, trace, loadState === "ready");
+        live.data = data;
+        setNavigatorData((current) => current === data ? current : data);
+    }, [loadState, renderVersion, trace, traceNavigatorAvailable]);
+
+    useLayoutEffect(() => {
+        if (traceNavigatorAvailable && traceNavigatorDataReady) {
+            redraw();
+        }
+    }, [
+        baselineNavigatorData,
+        redraw,
+        navigatorData,
+        traceNavigator,
+        traceNavigatorAvailable,
+        traceNavigatorDataReady,
+    ]);
+
+    useLayoutEffect(() => {
+        const element = toolTipRef.current;
+        if (element === null || toolTip?.bottomBoundary === undefined) {
+            return;
+        }
+        // Pipeline下端を越える場合だけpointer上へ返し、Navigatorを覆わない。
+        element.style.top = `${toolTip.top}px`;
+        if (toolTip.top + element.offsetHeight > toolTip.bottomBoundary) {
+            element.style.top = `${Math.max(
+                0,
+                toolTip.top - element.offsetHeight -
+                    TOOLTIP_BELOW_POINTER_OFFSET - TOOLTIP_ABOVE_POINTER_GAP,
+            )}px`;
+        }
+    }, [toolTip]);
+
+    useLayoutEffect(() => {
+        // viewer外形は変わらないため、子paneのrow変更後は明示的にCanvasを再描画する。
+        redraw();
+    }, [redraw, traceNavigator.height, traceNavigator.visible, traceNavigatorAvailable]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
@@ -617,15 +876,80 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         event.stopPropagation();
     };
 
+    const moveTraceNavigatorResizerFromPointer = (clientY: number) => {
+        const viewer = viewerRef.current;
+        if (viewer === null) {
+            return;
+        }
+        const rect = viewer.getBoundingClientRect();
+        const maxHeight = Math.max(0, rect.height - MIN_PIPELINE_HEIGHT);
+        const minHeight = Math.min(MIN_TRACE_NAVIGATOR_HEIGHT, maxHeight);
+        onSetTraceNavigator({
+            ...traceNavigator,
+            height: Math.round(Math.min(
+                Math.max(rect.bottom - clientY, minHeight),
+                maxHeight,
+            )),
+        });
+    };
+
+    const handleTraceNavigatorResizerPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0 || traceNavigatorResizerPointerIDRef.current !== null) {
+            return;
+        }
+        traceNavigatorResizerPointerIDRef.current = event.pointerId;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setIsTraceNavigatorResizing(true);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleTraceNavigatorResizerPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+        if (traceNavigatorResizerPointerIDRef.current !== event.pointerId) {
+            return;
+        }
+        moveTraceNavigatorResizerFromPointer(event.clientY);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleTraceNavigatorResizerPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+        if (traceNavigatorResizerPointerIDRef.current !== event.pointerId) {
+            return;
+        }
+        traceNavigatorResizerPointerIDRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        setIsTraceNavigatorResizing(false);
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
     const handleWheel = useCallback((event: WheelEvent) => {
-        if (trace === null) {
+        const zoomRequested = event.ctrlKey || event.metaKey;
+        const target = event.target instanceof Element ? event.target : null;
+        const viewer = viewerRef.current;
+        const insideViewer = target !== null && viewer?.contains(target) === true;
+        // 通常wheelはPipelineだけで扱う。Ctrl／Command+wheelはtoolbarやNavigatorでも
+        // browser zoomへ渡さず、表示中Traceのzoomとして扱う。
+        if (!zoomRequested && (!insideViewer ||
+            target?.closest(".trace-navigator-pane, .trace-navigator-resizer"))) {
             return;
         }
         event.preventDefault();
-        if (event.ctrlKey || event.metaKey) {
+        if (trace === null) {
+            return;
+        }
+        if (zoomRequested) {
             const rect = pipelineCanvasRef.current?.getBoundingClientRect();
-            const x = rect === undefined ? 0 : Math.max(0, event.clientX - rect.left);
-            const y = rect === undefined ? 0 : Math.max(0, event.clientY - rect.top);
+            const x = rect === undefined
+                ? 0
+                : Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+            const localY = rect === undefined ? 0 : event.clientY - rect.top;
+            const y = rect === undefined
+                ? 0
+                : localY < 0 || localY > rect.height ? rect.height / 2 : localY;
             const delta = normalizeWheelDelta(event);
             if (delta === 0) {
                 return;
@@ -707,13 +1031,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const clearModifierKey = () => {
             wheelZoomRef.current.modifierDown = false;
         };
-        // Reactのpassiveなwheel委譲ではCtrl+wheelのbrowser zoomを止められないため、ここだけ直接購読する。
-        viewer.addEventListener("wheel", handleWheel, { passive: false });
+        // Reactのpassiveなwheel委譲ではCtrl+wheelのbrowser zoomを止められない。
+        // toolbarを含む文書全体で捕捉し、handleWheel側で通常wheelをviewer内へ限定する。
+        document.addEventListener("wheel", handleWheel, { passive: false });
         document.addEventListener("keydown", handleModifierKey);
         document.addEventListener("keyup", handleModifierKey);
         window.addEventListener("blur", clearModifierKey);
         return () => {
-            viewer.removeEventListener("wheel", handleWheel);
+            document.removeEventListener("wheel", handleWheel);
             document.removeEventListener("keydown", handleModifierKey);
             document.removeEventListener("keyup", handleModifierKey);
             window.removeEventListener("blur", clearModifierKey);
@@ -860,6 +1185,148 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
     };
 
+    const moveCycleNavigatorViewport = (
+        canvas: HTMLCanvasElement,
+        clientX: number,
+        grabOffset: number,
+        comparisonTrack: CycleNavigatorComparisonTrack | null,
+    ) => {
+        if (navigatorData === null) {
+            return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const x = rect.width === 0 ? 0 : (clientX - rect.left) * width / rect.width;
+        const candidateSpec = viewController.currentSpec;
+        const baselineSpec = viewController.currentBaselineSpec;
+        const navigatorComparison = createCycleNavigatorComparison(
+            baselineNavigatorData, navigatorData, baselineSpec, candidateSpec,
+        );
+        const position = comparisonMode === null
+            ? getCycleNavigatorScrollPosition(
+                navigatorData, candidateSpec, width, x - grabOffset,
+            )
+            : navigatorComparison === null
+                ? null
+                : getComparisonCycleNavigatorScrollPosition(
+                    navigatorComparison,
+                    comparisonMode,
+                    comparisonTrack ?? "candidate",
+                    width,
+                    x - grabOffset,
+                );
+        if (position === null) {
+            return;
+        }
+        const candidateCycle = typeof position === "number"
+            ? position
+            : position.candidate;
+        const baselineCycle = typeof position === "number"
+            ? baselineSpec?.position[0]
+            : position.baseline;
+        const candidateY = comparisonTrack === "baseline"
+            ? candidateSpec.position[1]
+            : new KonataRenderMetrics(trace, candidateSpec)
+                .getPositionYFromCycle(candidateCycle) ?? candidateSpec.position[1];
+        const baselineY = baselineSpec === undefined || baselineCycle === undefined ||
+            comparisonTrack !== "baseline"
+            ? baselineSpec?.position[1]
+            : new KonataRenderMetrics(baselineTrace, baselineSpec)
+                .getPositionYFromCycle(baselineCycle) ?? baselineSpec.position[1];
+        setToolTip(null);
+        viewController.setImmediately(
+            {
+                position: [candidateCycle, candidateY],
+                zoomLevel: candidateSpec.zoomLevel,
+            },
+            baselineSpec === undefined || baselineCycle === undefined
+                ? undefined
+                : {
+                    position: [baselineCycle, baselineY ?? baselineSpec.position[1]],
+                    zoomLevel: baselineSpec.zoomLevel,
+                },
+        );
+    };
+
+    const handleCycleNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
+        if (event.button !== 0 || cycleNavigatorRangeMode !== "overview" ||
+            navigatorData === null || cycleNavigatorPointerRef.current !== null) {
+            return;
+        }
+        const canvas = event.currentTarget;
+        const rect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const x = rect.width === 0 ? 0 : (event.clientX - rect.left) * width / rect.width;
+        const y = rect.height === 0
+            ? 0
+            : (event.clientY - rect.top) * canvas.clientHeight / rect.height;
+        const candidateSpec = viewController.currentSpec;
+        const baselineSpec = viewController.currentBaselineSpec;
+        const navigatorComparison = createCycleNavigatorComparison(
+            baselineNavigatorData, navigatorData, baselineSpec, candidateSpec,
+        );
+        const comparisonTrack: CycleNavigatorComparisonTrack | null = comparisonMode === null
+            ? null
+            : comparisonMode === "overlay"
+                ? y < canvas.clientHeight / 2 ? "baseline" : "candidate"
+                : comparisonMode;
+        const viewport = comparisonMode === null
+            ? getCycleNavigatorViewport(navigatorData, candidateSpec, width)
+            : navigatorComparison === null
+                ? null
+                : getComparisonCycleNavigatorViewport(
+                    navigatorComparison,
+                    comparisonMode,
+                    comparisonTrack ?? "candidate",
+                    width,
+                );
+        if (viewport === null) {
+            return;
+        }
+        const insideViewport = x >= viewport.left && x <= viewport.left + viewport.width;
+        const grabOffset = insideViewport ? x - viewport.left : viewport.width / 2;
+        cycleNavigatorPointerRef.current = {
+            pointerID: event.pointerId,
+            grabOffset,
+            comparisonTrack,
+        };
+        canvas.setPointerCapture(event.pointerId);
+        if (!insideViewport) {
+            moveCycleNavigatorViewport(
+                canvas, event.clientX, grabOffset, comparisonTrack,
+            );
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleCycleNavigatorPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
+        const pointer = cycleNavigatorPointerRef.current;
+        if (pointer?.pointerID !== event.pointerId) {
+            return;
+        }
+        moveCycleNavigatorViewport(
+            event.currentTarget,
+            event.clientX,
+            pointer.grabOffset,
+            pointer.comparisonTrack,
+        );
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleCycleNavigatorPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
+        if (cycleNavigatorPointerRef.current?.pointerID !== event.pointerId) {
+            return;
+        }
+        cycleNavigatorPointerRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
     const updateToolTip = (
         pane: "label" | "pipeline",
         event: ReactMouseEvent<HTMLCanvasElement>,
@@ -879,10 +1346,18 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const text = pane === "label"
             ? currentMetrics.getLabelToolTipText(y)
             : currentMetrics.getPipelineToolTipText(x, y);
-        setToolTip(text === null ? null : {
+        if (text === null) {
+            setToolTip(null);
+            return;
+        }
+        const pointerTop = event.clientY - viewerRect.top;
+        setToolTip({
             left: event.clientX - viewerRect.left,
-            top: event.clientY - viewerRect.top + 20,
+            top: pointerTop + TOOLTIP_BELOW_POINTER_OFFSET,
             text,
+            bottomBoundary: pane === "pipeline"
+                ? canvasRect.bottom - viewerRect.top
+                : undefined,
         });
     };
 
@@ -897,9 +1372,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     return (
         <div
             ref={viewerRef}
-            className={`viewer${trace === null ? " is-empty" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}`}
+            className={`viewer${trace === null ? " is-empty" : ""}${traceNavigatorAvailable ? " has-trace-navigator" : ""}${traceNavigatorExpanded ? " is-trace-navigator-expanded" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}${isTraceNavigatorResizing ? " is-resizing-trace-navigator" : ""}`}
             // 保存したdesktop幅を維持したまま、狭い画面ではCSS側だけで表示幅を制限する。
-            style={{ "--label-pane-width": `${splitterPosition}px` } as CSSProperties}
+            style={{
+                "--label-pane-width": `${splitterPosition}px`,
+                "--trace-navigator-height": `${traceNavigator.height}px`,
+            } as CSSProperties}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -944,6 +1422,130 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     The pipeline chart requires canvas support.
                 </canvas>
             </section>
+            {traceNavigatorAvailable && (
+                <>
+                    {traceNavigatorExpanded && (
+                        <div
+                            className="trace-navigator-resizer"
+                            role="separator"
+                            aria-label="Resize trace navigator"
+                            aria-orientation="horizontal"
+                            aria-valuemin={MIN_TRACE_NAVIGATOR_HEIGHT}
+                            aria-valuenow={traceNavigator.height}
+                            onClick={(event) => event.stopPropagation()}
+                            onPointerDown={handleTraceNavigatorResizerPointerDown}
+                            onPointerMove={handleTraceNavigatorResizerPointerMove}
+                            onPointerUp={handleTraceNavigatorResizerPointerUp}
+                            onPointerCancel={handleTraceNavigatorResizerPointerUp}
+                            onLostPointerCapture={handleTraceNavigatorResizerPointerUp}
+                        />
+                    )}
+                    <section
+                        className="viewer-pane trace-navigator-pane trace-navigator-cycle-label-pane"
+                        aria-label="Cycle navigator labels"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onMouseEnter={() => showCycleNavigatorDetails(true)}
+                        onMouseLeave={() => showCycleNavigatorDetails(false)}
+                    >
+                        <button
+                            type="button"
+                            className="trace-navigator-toggle"
+                            aria-label={traceNavigatorExpanded
+                                ? "Hide trace navigator"
+                                : "Show trace navigator"}
+                            aria-controls="cycle-trace-navigator"
+                            aria-expanded={traceNavigatorExpanded}
+                            title={traceNavigatorExpanded
+                                ? "Hide trace navigator"
+                                : "Show trace navigator"}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                setToolTip(null);
+                                onSetTraceNavigator({
+                                    ...traceNavigator,
+                                    visible: !traceNavigatorExpanded,
+                                });
+                            }}
+                        >
+                            {traceNavigatorExpanded
+                                ? <BsChevronBarDown aria-hidden="true" />
+                                : <BsChevronBarUp aria-hidden="true" />}
+                        </button>
+                        <canvas ref={cycleNavigatorLabelCanvasRef} aria-label="Cycle navigator labels canvas" />
+                        <select
+                            className="trace-navigator-mode"
+                            aria-label="Cycle navigator mode"
+                            value={cycleNavigatorMode}
+                            onChange={(event) => onSetTraceNavigator({
+                                ...traceNavigator,
+                                mode: event.currentTarget.value as CycleNavigatorMode,
+                            })}
+                        >
+                            <option
+                                value="top-down"
+                                disabled={cycleNavigatorAnalysisUnavailable}
+                            >Top-down</option>
+                            <option value="fetch">Fetch</option>
+                            <option
+                                value="issue"
+                                disabled={cycleNavigatorAnalysisUnavailable}
+                            >Issue</option>
+                            <option value="commit">Commit</option>
+                            <option
+                                value="flush"
+                                disabled={cycleNavigatorAnalysisUnavailable}
+                            >Flush</option>
+                            <option
+                                value="latency"
+                                disabled={cycleNavigatorAnalysisUnavailable}
+                            >Latency</option>
+                        </select>
+                        <div
+                            className="trace-navigator-range"
+                            role="group"
+                            aria-label="Navigator view"
+                        >
+                            {(["follow", "overview"] as const).map((rangeMode) => (
+                                <button
+                                    key={rangeMode}
+                                    type="button"
+                                    aria-pressed={traceNavigator.rangeMode === rangeMode}
+                                    onClick={() => onSetTraceNavigator({
+                                        ...traceNavigator,
+                                        rangeMode,
+                                    })}
+                                >
+                                    {rangeMode === "follow" ? "Detail" : "Overview"}
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+                    <div className="trace-navigator-cycle-divider" aria-hidden="true" />
+                    <section
+                        id="cycle-trace-navigator"
+                        className={`viewer-pane trace-navigator-pane trace-navigator-cycle-pane${cycleNavigatorRangeMode === "overview" ? " is-overview" : ""}`}
+                        aria-label="Cycle navigator"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onMouseEnter={() => setToolTip(null)}
+                    >
+                        <canvas
+                            ref={cycleNavigatorCanvasRef}
+                            aria-label="Cycle navigator canvas"
+                            onPointerDown={handleCycleNavigatorPointerDown}
+                            onPointerMove={handleCycleNavigatorPointerMove}
+                            onPointerUp={handleCycleNavigatorPointerUp}
+                            onPointerCancel={handleCycleNavigatorPointerUp}
+                            onLostPointerCapture={handleCycleNavigatorPointerUp}
+                        />
+                        {!traceNavigatorDataReady && (
+                            <span className="trace-navigator-cycle-status">
+                                {navigatorStatusMessage}
+                            </span>
+                        )}
+                    </section>
+                </>
+            )}
             {trace === null && loadState !== "loading" && (
                 <div className="empty-state">
                     <strong>{loadState === "error" ? "The trace could not be opened." : "Drop one or more Kanata or gem5 O3PipeView traces anywhere in this window."}</strong>
@@ -963,9 +1565,16 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             )}
             {toolTip !== null && (
                 <pre
+                    ref={toolTipRef}
                     className="canvas-tooltip"
                     role="tooltip"
-                    style={{ left: toolTip.left, top: toolTip.top }}
+                    style={{
+                        left: toolTip.left,
+                        top: toolTip.top,
+                        maxHeight: toolTip.bottomBoundary === undefined
+                            ? undefined
+                            : `min(18rem, ${toolTip.bottomBoundary}px)`,
+                    }}
                 >
                     {toolTip.text}
                 </pre>

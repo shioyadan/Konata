@@ -23,6 +23,8 @@ import {
     type KonataView,
     type RendererTheme,
 } from "./core/konata_renderer";
+import type { CycleNavigatorMode } from "./core/trace_navigator_analysis";
+import type { CycleNavigatorRangeMode } from "./core/trace_navigator_renderer";
 import {
     pickTraceFileAccess,
     recentTraceFileAccess,
@@ -62,11 +64,28 @@ export function getZoomSpeedFromFactor(factor: number): ZoomSpeed {
 
 // 旧Configの初期値を維持し、新しいTabだけは直前に選んだ幅を引き継ぐ。
 export const DEFAULT_SPLITTER_POSITION = 450;
+export const MIN_TRACE_NAVIGATOR_HEIGHT = 64;
+
+export interface TraceNavigatorSettings {
+    readonly visible: boolean;
+    readonly mode: CycleNavigatorMode;
+    readonly rangeMode: CycleNavigatorRangeMode;
+    readonly height: number;
+}
+
+export const DEFAULT_TRACE_NAVIGATOR_SETTINGS: Readonly<TraceNavigatorSettings> = {
+    visible: false,
+    mode: "top-down",
+    rangeMode: "overview",
+    height: MIN_TRACE_NAVIGATOR_HEIGHT,
+};
 
 export interface GlobalViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    // 集計済みCycleNavigatorDataはTraceSheetが所有し、軽量な表示設定だけをStoreへ置く。
+    readonly traceNavigator: Readonly<TraceNavigatorSettings>;
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly dependencyArrowType: DependencyArrowType;
     readonly splitLanes: boolean;
@@ -82,6 +101,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     theme: "dark",
     webGLEnabled: true,
     tiledRenderingEnabled: true,
+    traceNavigator: DEFAULT_TRACE_NAVIGATOR_SETTINGS,
     customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
@@ -98,6 +118,7 @@ export interface PersistedViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    readonly traceNavigator: Readonly<TraceNavigatorSettings>;
     readonly colorScheme: string;
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly splitterPosition: number;
@@ -113,6 +134,7 @@ export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = 
     theme: DEFAULT_GLOBAL_VIEW_SETTINGS.theme,
     webGLEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.webGLEnabled,
     tiledRenderingEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.tiledRenderingEnabled,
+    traceNavigator: DEFAULT_GLOBAL_VIEW_SETTINGS.traceNavigator,
     colorScheme: "Unique",
     customColorScheme: DEFAULT_GLOBAL_VIEW_SETTINGS.customColorScheme,
     splitterPosition: DEFAULT_SPLITTER_POSITION,
@@ -228,6 +250,10 @@ export type Action =
     | { readonly type: "KONATA_CHANGE_UI_COLOR_THEME"; readonly theme: RendererTheme }
     | { readonly type: "KONATA_SET_WEBGL_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_TILED_RENDERING_ENABLED"; readonly enabled: boolean }
+    | {
+        readonly type: "KONATA_SET_TRACE_NAVIGATOR";
+        readonly settings: Readonly<TraceNavigatorSettings>;
+    }
     | { readonly type: "KONATA_SET_DEP_ARROW_TYPE"; readonly arrowType: DependencyArrowType }
     | { readonly type: "KONATA_SPLIT_LANES"; readonly enabled: boolean }
     | { readonly type: "KONATA_FIX_OP_HEIGHT"; readonly enabled: boolean }
@@ -526,6 +552,7 @@ export class Store {
             theme: viewSettings.theme,
             webGLEnabled: viewSettings.webGLEnabled,
             tiledRenderingEnabled: viewSettings.tiledRenderingEnabled,
+            traceNavigator: viewSettings.traceNavigator,
             customColorScheme: viewSettings.customColorScheme,
             dependencyArrowType: viewSettings.dependencyArrowType,
             textLabelMinimumLaneHeight: viewSettings.textLabelMinimumLaneHeight,
@@ -573,6 +600,7 @@ export class Store {
             theme: this.settings_.theme,
             webGLEnabled: this.settings_.webGLEnabled,
             tiledRenderingEnabled: this.settings_.tiledRenderingEnabled,
+            traceNavigator: this.settings_.traceNavigator,
             colorScheme: this.defaultColorScheme_,
             customColorScheme: this.settings_.customColorScheme,
             splitterPosition: this.defaultSplitterPosition_,
@@ -1085,6 +1113,13 @@ export class Store {
             }, false, true);
             return;
         }
+        case "KONATA_SET_TRACE_NAVIGATOR": {
+            this.setGlobalViewSettings_({
+                ...this.settings_,
+                traceNavigator: action.settings,
+            }, false, true);
+            return;
+        }
         case "KONATA_SET_DEP_ARROW_TYPE": {
             this.setGlobalViewSettings_({
                 ...this.settings_,
@@ -1367,7 +1402,7 @@ export class Store {
 
     private async pickAndOpenFile_(): Promise<void> {
         try {
-            const access = await pickTraceFileAccess();
+            const access = await pickTraceFileAccess(this.recentFiles_[0]?.handle);
             if (access !== null) {
                 await this.openFile_(await access.read(), access);
             }

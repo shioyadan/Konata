@@ -9,7 +9,7 @@ import {
     getVisibilityLevelForMinimumLaneHeight,
 } from "../src/core/konata_renderer";
 import { type Change, Store } from "../src/store";
-import { getRemoteTraceFileNames } from "../src/trace_file_access";
+import { getRemoteTraceFileNames, pickTraceFileAccess } from "../src/trace_file_access";
 
 function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpStore } {
     const op = new Op();
@@ -273,6 +273,46 @@ test("Store requests the DOM file input through a Change when no picker is avail
 
     assert.ok(changes.some((change) => change.type === "FILE_INPUT_REQUEST"));
     store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("Trace picker starts in the previously opened file's directory", async () => {
+    const pickerGlobal = globalThis as typeof globalThis & {
+        showOpenFilePicker?: (
+            options: { readonly id?: string; readonly startIn?: FileSystemFileHandle },
+        ) => Promise<readonly FileSystemFileHandle[]>;
+    };
+    const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "showOpenFilePicker");
+    const previousHandle = {
+        kind: "file",
+        name: "previous.log",
+    } as FileSystemFileHandle;
+    const selectedHandle = {
+        kind: "file",
+        name: "selected.log",
+    } as FileSystemFileHandle;
+    let receivedOptions: { readonly id?: string; readonly startIn?: FileSystemFileHandle } | null = null;
+    Object.defineProperty(globalThis, "showOpenFilePicker", {
+        configurable: true,
+        value: async (options: typeof receivedOptions) => {
+            receivedOptions = options;
+            return [selectedHandle];
+        },
+    });
+
+    try {
+        const access = await pickTraceFileAccess(previousHandle);
+        assert.equal(access?.name, "selected.log");
+        assert.equal(receivedOptions?.id, "konata-trace");
+        assert.equal(receivedOptions?.startIn, previousHandle);
+    }
+    finally {
+        if (previousDescriptor === undefined) {
+            delete pickerGlobal.showOpenFilePicker;
+        }
+        else {
+            Object.defineProperty(globalThis, "showOpenFilePicker", previousDescriptor);
+        }
+    }
 });
 
 test("Comparison tabs share source OpStores until the last view is closed", () => {
@@ -599,6 +639,12 @@ test("Store restores and publishes persistent view settings", () => {
         theme: "light",
         webGLEnabled: true,
         tiledRenderingEnabled: true,
+        traceNavigator: {
+            visible: true,
+            mode: "issue",
+            rangeMode: "follow",
+            height: 144,
+        },
         colorScheme: "RoyalBlue",
         customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
         splitterPosition: 321,
@@ -621,6 +667,12 @@ test("Store restores and publishes persistent view settings", () => {
     // lane分割と固定高さは旧Configの保存対象ではなく、再起動時には初期値へ戻る。
     assert.equal(restored.splitLanes, false);
     assert.equal(restored.fixOpHeight, false);
+    assert.deepEqual(restored.traceNavigator, {
+        visible: true,
+        mode: "issue",
+        rangeMode: "follow",
+        height: 144,
+    });
 
     store.dispatch({ type: "FILE_OPEN", fileName: "restored.log" });
     const tab = store.activeTab;
@@ -648,12 +700,27 @@ test("Store restores and publishes persistent view settings", () => {
     store.dispatch({ type: "KONATA_CHANGE_ZOOM_SPEED", speed: "normal" });
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({ type: "KONATA_FIX_OP_HEIGHT", enabled: true });
+    store.dispatch({
+        type: "KONATA_SET_TRACE_NAVIGATOR",
+        settings: {
+            visible: false,
+            mode: "commit",
+            rangeMode: "overview",
+            height: 180,
+        },
+    });
     store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
 
     assert.deepEqual(store.persistedViewSettings, {
         theme: "dark",
         webGLEnabled: false,
         tiledRenderingEnabled: false,
+        traceNavigator: {
+            visible: false,
+            mode: "commit",
+            rangeMode: "overview",
+            height: 180,
+        },
         colorScheme: "Custom",
         customColorScheme,
         splitterPosition: 280,
@@ -664,8 +731,14 @@ test("Store restores and publishes persistent view settings", () => {
         stageBorderMinimumLaneHeight: 6,
         drawZoomFactor: 2,
     });
-    // Tab固有設定や旧Storeだけの一時設定では、永続化通知を増やさない。
-    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 9);
+    // Tab固有設定やsession内だけの設定では、永続化通知を増やさない。
+    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 10);
+    assert.deepEqual(store.getSnapshot().settings.traceNavigator, {
+        visible: false,
+        mode: "commit",
+        rangeMode: "overview",
+        height: 180,
+    });
 
     store.dispatch({ type: "STORE_CLOSE" });
 });
@@ -773,6 +846,10 @@ test("Store restores View defaults without moving the trace or discarding custom
     store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "light" });
     store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: false });
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
+    store.dispatch({
+        type: "KONATA_SET_TRACE_NAVIGATOR",
+        settings: { visible: true, mode: "issue", rangeMode: "follow", height: 144 },
+    });
     store.dispatch({ type: "KONATA_CHANGE_ZOOM_SPEED", speed: "fast" });
     store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });
     store.dispatch({ type: "KONATA_CHANGE_COLOR_SCHEME", tabID: tab.id, scheme: "Custom" });
@@ -784,6 +861,7 @@ test("Store restores View defaults without moving the trace or discarding custom
         ...defaults,
         customColorScheme,
     });
+    assert.deepEqual(store.getSnapshot().settings.traceNavigator, defaults.traceNavigator);
     assert.deepEqual(tab.renderSpec.position, [17, 23]);
     assert.equal(tab.renderSpec.zoomLevel, 3);
     assert.equal(tab.splitterPosition, 333);

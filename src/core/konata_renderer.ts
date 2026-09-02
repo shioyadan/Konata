@@ -314,6 +314,43 @@ export class KonataRenderMetrics {
         return [op.fetchedCycle, this.spec.hideFlushedOps ? op.rid : op.id];
     }
 
+    getPositionYFromCycle(cycle: number): number | null {
+        if (this.trace === null || this.trace.lastRID < 0) {
+            return null;
+        }
+
+        // Adjust positionの逆向きとして、fetch順と同じretired indexを二分探索する。
+        // gap中は直前にfetchされた命令を使い、同cycleのbundleは先頭を上端へ置く。
+        let lower = 0;
+        let upper = this.trace.lastRID;
+        while (lower < upper) {
+            const middle = Math.ceil((lower + upper) / 2);
+            const op = this.getOpFromRID(middle);
+            if (op === undefined) {
+                return null;
+            }
+            if (op.fetchedCycle <= cycle) {
+                lower = middle;
+            }
+            else {
+                upper = middle - 1;
+            }
+        }
+        let op = this.getOpFromRID(lower);
+        if (op === undefined) {
+            return null;
+        }
+        while (lower > 0) {
+            const previous = this.getOpFromRID(lower - 1);
+            if (previous === undefined || previous.fetchedCycle !== op.fetchedCycle) {
+                break;
+            }
+            lower--;
+            op = previous;
+        }
+        return this.spec.hideFlushedOps ? op.rid : op.id;
+    }
+
     withPosition(position: readonly [number, number]): Readonly<KonataRenderSpec> {
         // 旧Rendererは範囲外もinvalid領域として描くため、ここではclampしない。
         return { ...this.spec, position };

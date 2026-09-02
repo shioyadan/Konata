@@ -982,6 +982,21 @@ button:disabled {
     grid-template-columns: 0 minmax(0, 1fr);
 }
 
+.viewer.has-trace-navigator {
+    --trace-navigator-default-height: 64px;
+    --trace-navigator-collapsed-height: 22px;
+    --trace-navigator-effective-height: clamp(
+        64px,
+        var(--trace-navigator-height, var(--trace-navigator-default-height)),
+        calc(100% - 96px)
+    );
+    grid-template-rows: minmax(0, 1fr) var(--trace-navigator-collapsed-height);
+}
+
+.viewer.is-trace-navigator-expanded {
+    grid-template-rows: minmax(0, 1fr) var(--trace-navigator-effective-height);
+}
+
 .viewer.is-panning {
     cursor: grabbing;
 }
@@ -1016,6 +1031,183 @@ button:disabled {
 
 .pipeline-pane {
     background: #262930;
+}
+
+.trace-navigator-cycle-label-pane,
+.trace-navigator-cycle-divider,
+.trace-navigator-cycle-pane {
+    grid-row: 2;
+    border-top: 1px solid #555b68;
+}
+
+.trace-navigator-cycle-label-pane {
+    grid-column: 1;
+    overflow: visible;
+}
+
+.trace-navigator-cycle-divider {
+    grid-column: 2;
+}
+
+.trace-navigator-cycle-pane {
+    grid-column: 3;
+}
+
+/* 簡易表示では開閉button以外の左側を隠し、OverviewだけをPipeline列へ残す。 */
+.viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-label-pane > :not(.trace-navigator-toggle),
+.viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-status {
+    display: none;
+}
+
+/* rowを増やさず境界へ重ね、既定のNavigator高さとpipeline領域を変えない。 */
+.trace-navigator-resizer {
+    position: absolute;
+    z-index: 1;
+    right: 0;
+    bottom: calc(var(--trace-navigator-effective-height) - 5px);
+    left: 0;
+    height: 10px;
+    cursor: row-resize;
+    touch-action: none;
+}
+
+.trace-navigator-resizer::after {
+    position: absolute;
+    top: 4px;
+    left: calc(50% - 20px);
+    width: 40px;
+    border-top: 2px solid #697181;
+    content: "";
+}
+
+/* 左paneの中央をdrawer handleとし、label幅の変更にも横位置を追随させる。 */
+.trace-navigator-toggle {
+    position: absolute;
+    z-index: 2;
+    top: 1px;
+    left: 50%;
+    display: grid;
+    width: 28px;
+    height: 20px;
+    padding: 0;
+    border-color: #555b68;
+    background: rgb(38 41 48 / 88%);
+    color: #aeb5bf;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
+    place-items: center;
+    transform: translateX(-50%);
+}
+
+.viewer.is-trace-navigator-expanded .trace-navigator-toggle {
+    top: -10px;
+}
+
+.trace-navigator-toggle svg {
+    width: 14px;
+    height: 14px;
+}
+
+.trace-navigator-toggle:hover:not(:disabled) {
+    border-color: #697181;
+    background: #3a3e4b;
+    color: #fff;
+}
+
+.viewer.is-resizing-trace-navigator,
+.viewer.is-resizing-trace-navigator .trace-navigator-resizer {
+    cursor: row-resize;
+}
+
+.trace-navigator-cycle-label-pane,
+.trace-navigator-cycle-divider {
+    background: #303340;
+}
+
+.trace-navigator-cycle-pane {
+    background: #262930;
+}
+
+.trace-navigator-cycle-pane canvas {
+    cursor: crosshair;
+}
+
+.trace-navigator-cycle-pane.is-overview canvas {
+    cursor: grab;
+}
+
+.trace-navigator-cycle-pane.is-overview canvas:active {
+    cursor: grabbing;
+}
+
+.trace-navigator-mode {
+    position: absolute;
+    z-index: 1;
+    top: 6px;
+    left: 6px;
+    max-width: 112px;
+    padding: 1px 4px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: #f2f3f5;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.trace-navigator-mode:hover,
+.trace-navigator-mode:focus-visible {
+    border-color: #697181;
+    outline: none;
+    background: #3a3e4b;
+}
+
+.trace-navigator-range {
+    position: absolute;
+    z-index: 1;
+    top: 35px;
+    left: 6px;
+    display: flex;
+    overflow: hidden;
+    border: 1px solid #555b68;
+    border-radius: 4px;
+    background: #292c35;
+}
+
+.trace-navigator-range button {
+    padding: 1px 5px;
+    border: 0;
+    background: transparent;
+    color: #aeb5bf;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.65rem;
+    line-height: 17px;
+}
+
+.trace-navigator-range button + button {
+    border-left: 1px solid #555b68;
+}
+
+.trace-navigator-range button[aria-pressed="true"] {
+    background: #4b5160;
+    color: #fff;
+}
+
+.trace-navigator-range button:focus-visible {
+    outline: 1px solid #aeb5bf;
+    outline-offset: -2px;
+}
+
+.trace-navigator-cycle-status {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: #aeb5bf;
+    font-size: 0.72rem;
+    pointer-events: none;
 }
 
 .viewer canvas {
@@ -1960,6 +2152,76 @@ button:disabled {
     background: #fff;
 }
 
+.theme-light .trace-navigator-cycle-label-pane,
+.theme-light .trace-navigator-cycle-divider,
+.theme-light .trace-navigator-cycle-pane {
+    border-top-color: #b7bcc5;
+}
+
+.theme-light .trace-navigator-resizer::after {
+    border-top-color: #8c929c;
+}
+
+.theme-light .trace-navigator-toggle {
+    border-color: #aeb4be;
+    background: rgb(244 244 244 / 92%);
+    color: #596273;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 16%);
+}
+
+.theme-light .trace-navigator-toggle:hover:not(:disabled) {
+    border-color: #8c929c;
+    background: #e7e9ed;
+    color: #20242b;
+}
+
+.theme-light .trace-navigator-cycle-label-pane,
+.theme-light .trace-navigator-cycle-divider {
+    background: #f4f4f4;
+}
+
+.theme-light .trace-navigator-cycle-pane {
+    background: #fff;
+}
+
+.theme-light .trace-navigator-mode {
+    border-color: transparent;
+    background: transparent;
+    color: #20242b;
+}
+
+.theme-light .trace-navigator-mode:hover,
+.theme-light .trace-navigator-mode:focus-visible {
+    border-color: #aeb4be;
+    background: #e7e9ed;
+}
+
+.theme-light .trace-navigator-range {
+    border-color: #b7bcc5;
+    background: #eef0f3;
+}
+
+.theme-light .trace-navigator-range button {
+    color: #596273;
+}
+
+.theme-light .trace-navigator-range button + button {
+    border-left-color: #b7bcc5;
+}
+
+.theme-light .trace-navigator-range button[aria-pressed="true"] {
+    background: #d5d9e0;
+    color: #20242b;
+}
+
+.theme-light .trace-navigator-range button:focus-visible {
+    outline-color: #596273;
+}
+
+.theme-light .trace-navigator-cycle-status {
+    color: #596273;
+}
+
 .theme-light .log-pane {
     border-top-color: #aeb6c2;
     background: #f3f5f8;
@@ -2345,6 +2607,15 @@ button:disabled {
             minmax(0, min(var(--label-pane-width), 40%))
             10px
             minmax(0, 1fr);
+    }
+
+    .trace-navigator-resizer {
+        bottom: calc(var(--trace-navigator-effective-height) - 12px);
+        height: 24px;
+    }
+
+    .trace-navigator-resizer::after {
+        top: 11px;
     }
 
     /* 見た目の10px幅は保ちつつ、指でつかめる範囲だけを左右へ広げる。 */

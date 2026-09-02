@@ -4,6 +4,20 @@ import test from "node:test";
 import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
+import { getCycleActivity } from "../src/core/cycle_activity_analysis";
+import {
+    buildCycleNavigatorData,
+    getCycleNavigatorTopDown,
+    updateCycleNavigatorData,
+} from "../src/core/trace_navigator_analysis";
+import {
+    drawComparisonCycleNavigator,
+    drawCycleNavigator,
+    getComparisonCycleNavigatorScrollPosition,
+    getComparisonCycleNavigatorViewport,
+    getCycleNavigatorScrollPosition,
+    getCycleNavigatorViewport,
+} from "../src/core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -32,6 +46,7 @@ interface RecordedContext {
     readonly fillTexts: Array<[string, number, number]>;
     readonly fillRects: Array<[number, number, number, number]>;
     readonly fillStyles: string[];
+    readonly fillAlphas: number[];
     readonly strokeRects: Array<[number, number, number, number]>;
     readonly strokeStyles: string[];
     readonly lineWidths: number[];
@@ -48,6 +63,7 @@ function createRecordedContext(): RecordedContext {
     const fillTexts: Array<[string, number, number]> = [];
     const fillRects: Array<[number, number, number, number]> = [];
     const fillStyles: string[] = [];
+    const fillAlphas: number[] = [];
     const strokeRects: Array<[number, number, number, number]> = [];
     const strokeStyles: string[] = [];
     const lineWidths: number[] = [];
@@ -59,6 +75,7 @@ function createRecordedContext(): RecordedContext {
     const pathLineWidths: number[] = [];
     const context = {
         fillStyle: "",
+        globalAlpha: 1,
         strokeStyle: "",
         lineWidth: 1,
         font: "",
@@ -67,6 +84,7 @@ function createRecordedContext(): RecordedContext {
             commands.push("fillRect");
             fillRects.push([x, y, width, height]);
             fillStyles.push(String(this.fillStyle));
+            fillAlphas.push(this.globalAlpha);
         },
         clearRect(x: number, y: number, width: number, height: number) {
             clearRects.push([x, y, width, height]);
@@ -112,6 +130,9 @@ function createRecordedContext(): RecordedContext {
             commands.push(`text:${text}`);
             fillTexts.push([text, x, y]);
         },
+        measureText(text: string) {
+            return { width: text.length * 6 };
+        },
         createLinearGradient(x0: number, y0: number, x1: number, y1: number) {
             const gradient: RecordedGradient = { points: [x0, y0, x1, y1], stops: [] };
             gradients.push(gradient);
@@ -126,6 +147,7 @@ function createRecordedContext(): RecordedContext {
         fillTexts,
         fillRects,
         fillStyles,
+        fillAlphas,
         strokeRects,
         strokeStyles,
         lineWidths,
@@ -198,6 +220,1028 @@ function createLatencyTrace(ranges: readonly (readonly [number, number])[]): Par
     });
     return new ParsedTrace("latency.log", store, new StageLevelMap(), 1000);
 }
+
+function createTopDownCancellationTrace(cycleCount = 8): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    const addOp = (id: number, startCycle: number, endCycle: number, flush: boolean) => {
+        const op = new Op();
+        op.id = id;
+        op.rid = id;
+        op.retired = !flush;
+        op.flush = flush;
+        op.fetchedCycle = startCycle;
+        op.retiredCycle = endCycle;
+        const lane = new Lane();
+        const stage = new Stage();
+        stage.name = "X";
+        stage.startCycle = startCycle;
+        stage.endCycle = endCycle;
+        lane.stages.push(stage);
+        op.lanes[laneID] = lane;
+        levelMap.update("0", stage.name, lane);
+        store.setOp(id, op);
+        if (!flush) {
+            store.setRetiredOp(op.rid, op);
+        }
+    };
+    addOp(0, 0, 4, false);
+    addOp(1, 2, 6, true);
+    return new ParsedTrace("activity.log", store, levelMap, cycleCount);
+}
+
+function createTopDownBreakdownTrace(): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    const timings = [
+        // The oldest retired op leaves the reservoir after the younger retired op. This
+        // makes the otherwise arbitrary reservoir an observable allocation queue.
+        { source: 2, allocation: 3, execution: 11, retiredCycle: 13 },
+        { source: 2, allocation: 3, execution: 5, retiredCycle: 6 },
+        // execution待ちの命令がbackend内に残っていても、allocationを妨げていなければ
+        // TMA Level 1では空きslotをBackendへ分類しない。
+        { source: 3, allocation: 4, execution: 9, retiredCycle: 10 },
+        { source: 8, allocation: 9, execution: 10, retiredCycle: 11 },
+    ] as const;
+    timings.forEach((timing, id) => {
+        const op = new Op();
+        op.id = id;
+        op.gid = id;
+        op.rid = id;
+        op.tid = 0;
+        op.retired = id === 0 || id === 3;
+        op.flush = id === 1;
+        op.fetchedCycle = timing.source;
+        op.retiredCycle = timing.retiredCycle;
+        const lane = new Lane();
+        const ranges = [
+            ["arbitrary-source", timing.source, timing.allocation],
+            ["arbitrary-reservoir", timing.allocation, timing.execution],
+            ["arbitrary-event", timing.execution, timing.execution + 1],
+            ["arbitrary-tail", timing.execution + 1, timing.retiredCycle],
+        ] as const;
+        for (const [name, startCycle, endCycle] of ranges) {
+            const stage = new Stage();
+            stage.name = name;
+            stage.startCycle = startCycle;
+            stage.endCycle = endCycle;
+            lane.stages.push(stage);
+            levelMap.update("0", name, lane);
+        }
+        op.lanes[laneID] = lane;
+        store.setOp(id, op);
+        if (op.retired) {
+            store.setRetiredOp(op.rid, op);
+        }
+    });
+    return new ParsedTrace("topdown.log", store, levelMap, 14);
+}
+
+function createCompositeAllocationTrace(): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const pipelineLaneID = levelMap.getOrCreateLaneID("0");
+    const stallLaneID = levelMap.getOrCreateLaneID("1");
+    const timings = [
+        { stage: "ready", start: 2, end: 8, stallEnd: 12 },
+        { stage: "wait", start: 2, end: 9, stallEnd: 11 },
+        { stage: "ready", start: 2, end: 6, stallEnd: 10 },
+        { stage: "wait", start: 3, end: 7, stallEnd: 9 },
+    ] as const;
+    timings.forEach((timing, id) => {
+        const op = new Op();
+        op.id = id;
+        op.gid = id;
+        op.rid = id;
+        op.tid = 0;
+        op.retired = true;
+        op.fetchedCycle = timing.start - 1;
+        op.retiredCycle = timing.end + 2;
+        const lane = new Lane();
+        const execution = timing.stage === "ready" ? "execute-ready" : "execute-wait";
+        for (const [name, startCycle, endCycle] of [
+            ["source", timing.start - 1, timing.start],
+            [timing.stage, timing.start, timing.end],
+            [execution, timing.end, timing.end + 1],
+            ["complete", timing.end + 1, timing.end + 2],
+        ] as const) {
+            const stage = new Stage();
+            stage.name = name;
+            stage.startCycle = startCycle;
+            stage.endCycle = endCycle;
+            lane.stages.push(stage);
+            levelMap.update("0", name, lane);
+        }
+        op.lanes[pipelineLaneID] = lane;
+        const stallLane = new Lane();
+        const stall = new Stage();
+        stall.name = "stall";
+        stall.startCycle = 1;
+        stall.endCycle = timing.stallEnd;
+        stallLane.stages.push(stall);
+        levelMap.update("1", stall.name, stallLane);
+        op.lanes[stallLaneID] = stallLane;
+        store.setOp(id, op);
+        store.setRetiredOp(id, op);
+    });
+    return new ParsedTrace("composite-allocation.log", store, levelMap, 14);
+}
+
+function appendTopDownBreakdownOp(
+    trace: ParsedTrace,
+    id: number,
+    ranges: readonly (readonly [string, number, number])[],
+): void {
+    const laneID = trace.stageLevelMap.getLaneID("0");
+    assert.ok(laneID !== undefined);
+    const op = new Op();
+    op.id = id;
+    op.gid = id;
+    op.rid = id;
+    op.tid = 0;
+    op.retired = true;
+    op.fetchedCycle = ranges[0]?.[1] ?? 0;
+    op.retiredCycle = ranges.at(-1)?.[2] ?? op.fetchedCycle;
+    const lane = new Lane();
+    for (const [name, startCycle, endCycle] of ranges) {
+        const stage = new Stage();
+        stage.name = name;
+        stage.startCycle = startCycle;
+        stage.endCycle = endCycle;
+        lane.stages.push(stage);
+        trace.stageLevelMap.update("0", name, lane);
+    }
+    op.lanes[laneID] = lane;
+    const store = trace.opStore as ArrayOpStore;
+    store.setOp(id, op);
+    store.setRetiredOp(op.rid, op);
+    trace.updateLastCycle(Math.max(trace.lastCycle, op.retiredCycle));
+}
+
+function createCycleActivityTrace(): ParsedTrace {
+    const trace = createTopDownBreakdownTrace();
+    // 追加命令のIssue→Completion latencyを4 cycleとして観測する。
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 10, 11],
+        ["arbitrary-reservoir", 11, 12],
+        ["arbitrary-event", 12, 16],
+        ["arbitrary-tail", 16, 17],
+    ]);
+    trace.updateLastCycle(18);
+    return trace;
+}
+
+function createAllocationBlockedTrace(): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    const rangesByOp = [
+        [["entry-a", 3, 4], ["allocation", 4, 11], ["execution", 11, 12], ["tail", 12, 13]],
+        [["entry-b", 3, 4], ["allocation", 4, 9], ["execution", 9, 10], ["tail", 10, 11]],
+        [["entry-c", 3, 4], ["allocation", 4, 7], ["execution", 7, 8], ["tail", 8, 9]],
+        [["entry-d", 3, 4], ["allocation", 4, 5], ["execution", 5, 6], ["tail", 6, 7]],
+        // 最初の4命令は同時にallocateされた後、直列にexecutionへ進む。5番目だけは
+        // 通常1 cycleのentry-aを7 cycle占有し、backend入口で止められる。
+        [["entry-a", 5, 12], ["allocation", 12, 13], ["execution", 13, 14], ["tail", 14, 15]],
+    ] as const;
+    rangesByOp.forEach((ranges, id) => {
+        const op = new Op();
+        op.id = id;
+        op.gid = id;
+        op.rid = id;
+        op.tid = 0;
+        op.retired = true;
+        op.fetchedCycle = ranges[0][1];
+        op.retiredCycle = ranges[ranges.length - 1][2];
+        const lane = new Lane();
+        for (const [name, startCycle, endCycle] of ranges) {
+            const stage = new Stage();
+            stage.name = name;
+            stage.startCycle = startCycle;
+            stage.endCycle = endCycle;
+            lane.stages.push(stage);
+            levelMap.update("0", name, lane);
+        }
+        op.lanes[laneID] = lane;
+        store.setOp(id, op);
+        store.setRetiredOp(id, op);
+    });
+    return new ParsedTrace("allocation-blocked.log", store, levelMap, 16);
+}
+
+function createRecoveryBubbleTrace(
+    recoveryLatencies: readonly number[],
+    firstWindowHasAllocationBackpressure = false,
+): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const laneID = levelMap.getOrCreateLaneID("0");
+    let id = 0;
+    let lastEndCycle = 0;
+    const addOp = (
+        retired: boolean,
+        flush: boolean,
+        labelName: string,
+        ranges: readonly (readonly [string, number, number])[],
+    ) => {
+        const op = new Op();
+        op.id = id;
+        op.gid = id;
+        op.rid = id;
+        op.tid = 0;
+        op.retired = retired;
+        op.flush = flush;
+        op.labelName = labelName;
+        op.fetchedCycle = ranges[0][1];
+        op.retiredCycle = ranges[ranges.length - 1][2];
+        lastEndCycle = Math.max(lastEndCycle, op.retiredCycle);
+        const lane = new Lane();
+        for (const [name, startCycle, endCycle] of ranges) {
+            const stage = new Stage();
+            stage.name = name;
+            stage.startCycle = startCycle;
+            stage.endCycle = endCycle;
+            lane.stages.push(stage);
+            levelMap.update("0", name, lane);
+        }
+        op.lanes[laneID] = lane;
+        store.setOp(id, op);
+        if (retired) {
+            store.setRetiredOp(op.rid, op);
+        }
+        id++;
+    };
+
+    recoveryLatencies.forEach((recoveryLatency, eventIndex) => {
+        const base = 10 + eventIndex * 50;
+        const causeLabel = eventIndex === 0
+            ? "0x00001000: c_bnez a0, target:IntAlu"
+            : eventIndex === 1
+                ? "0x00401000: JNZ_I : wrip t1, t2:IntAlu"
+                : eventIndex === 2
+                    ? "0x00001000: cbnz x0, target:IntAlu"
+                    : "bne x1, x2, target";
+        // stage名は意図的に一般名にする。retired control-flowの直後にflush列があり、
+        // その後の最初のretired命令をcorrect pathの再allocationとして観測する。
+        addOp(true, false, causeLabel, [
+            ["arbitrary-source", base, base + 1],
+            ["arbitrary-reservoir", base + 1, base + 4],
+            ["arbitrary-event", base + 4, base + 5],
+            ["arbitrary-complete", base + 5, base + 6],
+            ["arbitrary-tail", base + 6, base + 7],
+        ]);
+        const wrongPathSourceEnd = eventIndex === 0 && firstWindowHasAllocationBackpressure
+            ? base + 4
+            : base + 2;
+        addOp(false, true, "add x3, x4, x5", [
+            ["arbitrary-source", base + 1, wrongPathSourceEnd],
+            ["arbitrary-reservoir", wrongPathSourceEnd, base + 4],
+            ["arbitrary-event", base + 4, base + 5],
+            ["arbitrary-complete", base + 5, base + 6],
+            ["arbitrary-tail", base + 6, base + 7],
+        ]);
+        const correctAllocation = base + 5 + recoveryLatency;
+        addOp(true, false, "add x6, x7, x8", [
+            ["arbitrary-source", correctAllocation - 1, correctAllocation],
+            ["arbitrary-reservoir", correctAllocation, correctAllocation + 2],
+            ["arbitrary-event", correctAllocation + 2, correctAllocation + 3],
+            ["arbitrary-complete", correctAllocation + 3, correctAllocation + 4],
+            ["arbitrary-tail", correctAllocation + 4, correctAllocation + 5],
+        ]);
+    });
+    if (recoveryLatencies.length > 0) {
+        // Add a small, causally neutral out-of-order completion after the measured windows so
+        // the generic detector can identify the allocation queue from order alone.
+        const evidence = lastEndCycle + 2;
+        addOp(true, false, "add x9, x10, x11", [
+            ["arbitrary-source", evidence - 1, evidence],
+            ["arbitrary-reservoir", evidence, evidence + 6],
+            ["arbitrary-event", evidence + 6, evidence + 7],
+            ["arbitrary-complete", evidence + 7, evidence + 8],
+            ["arbitrary-tail", evidence + 8, evidence + 9],
+        ]);
+        addOp(true, false, "add x12, x13, x14", [
+            ["arbitrary-source", evidence, evidence + 1],
+            ["arbitrary-reservoir", evidence + 1, evidence + 3],
+            ["arbitrary-event", evidence + 3, evidence + 4],
+            ["arbitrary-complete", evidence + 4, evidence + 5],
+            ["arbitrary-tail", evidence + 5, evidence + 6],
+        ]);
+    }
+    return new ParsedTrace(
+        "recovery-bubble.log",
+        store,
+        levelMap,
+        Math.max(1, lastEndCycle + 1),
+    );
+}
+
+test("Top-down-like view classifies allocation slots without stage names", async () => {
+    const trace = createTopDownBreakdownTrace();
+    const activity = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(activity !== null);
+    const analysis = activity.topDown;
+    assert.ok(analysis !== null);
+    assert.equal(analysis.allocationStage.stageName, "arbitrary-reservoir");
+    assert.equal(analysis.executionStage.stageName, "arbitrary-event");
+    assert.equal(analysis.allocationWidth, 2);
+    assert.ok(analysis.slotCounts instanceof Uint16Array);
+    assert.equal(analysis.slotCounts.length, activity.cycleCount * 6);
+    assert.equal(analysis.transitionCoverage, 1);
+    assert.equal(analysis.admissionStages.length, 1);
+    assert.equal(analysis.admissionStages[0].stage.stageName, "arbitrary-source");
+    assert.equal(analysis.admissionStages[0].typicalLatency, 1);
+
+    const fullAllocation = getCycleNavigatorTopDown(activity, 3, 4);
+    assert.ok(fullAllocation !== null);
+    assert.equal(fullAllocation.totalSlots, 2);
+    assert.equal(fullAllocation.retiringSlots, 1);
+    assert.equal(fullAllocation.squashedSlots, 1);
+    assert.equal(fullAllocation.unresolvedSlots, 0);
+    assert.equal(fullAllocation.frontendBound, 0);
+    assert.equal(fullAllocation.backendBound, 0);
+    const overviewSpec = { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] } as const;
+    const overviewWidth = 320;
+    const viewport = getCycleNavigatorViewport(activity, overviewSpec, overviewWidth);
+    assert.ok(viewport !== null && viewport.width < overviewWidth);
+    assert.ok(Math.abs((getCycleNavigatorScrollPosition(
+        activity,
+        overviewSpec,
+        overviewWidth,
+        viewport.left,
+    ) ?? -1) - 3) < 0.001);
+    const baselineSpec = { ...overviewSpec, position: [2, 0] } as const;
+    const comparison = {
+        baseline: { data: activity, spec: baselineSpec },
+        candidate: { data: activity, spec: overviewSpec },
+    } as const;
+    const baselineViewport = getComparisonCycleNavigatorViewport(
+        comparison,
+        "overlay",
+        "baseline",
+        overviewWidth,
+    );
+    const candidateViewport = getComparisonCycleNavigatorViewport(
+        comparison,
+        "overlay",
+        "candidate",
+        overviewWidth,
+    );
+    assert.ok(baselineViewport !== null && baselineViewport.width < overviewWidth);
+    assert.ok(candidateViewport !== null && candidateViewport.width < overviewWidth);
+    assert.ok(baselineViewport.left < candidateViewport.left);
+    const baselinePosition = getComparisonCycleNavigatorScrollPosition(
+        comparison,
+        "overlay",
+        "baseline",
+        overviewWidth,
+        baselineViewport.left,
+    );
+    assert.ok(baselinePosition !== null);
+    assert.ok(Math.abs(baselinePosition.baseline - 2) < 0.001);
+    assert.ok(Math.abs(baselinePosition.candidate - 3) < 0.001);
+    const candidatePosition = getComparisonCycleNavigatorScrollPosition(
+        comparison,
+        "overlay",
+        "candidate",
+        overviewWidth,
+        candidateViewport.left,
+    );
+    assert.ok(candidatePosition !== null);
+    assert.ok(Math.abs(candidatePosition.baseline - 2) < 0.001);
+    assert.ok(Math.abs(candidatePosition.candidate - 3) < 0.001);
+
+    const partialAllocation = getCycleNavigatorTopDown(activity, 4, 5);
+    assert.ok(partialAllocation !== null);
+    assert.equal(partialAllocation.totalSlots, 2);
+    assert.equal(partialAllocation.retiringSlots, 0);
+    assert.equal(partialAllocation.squashedSlots, 0);
+    assert.equal(partialAllocation.unresolvedSlots, 1);
+    // execution待ちの命令が残っていても、allocation入口が詰まっていなければFrontend。
+    assert.equal(partialAllocation.frontendBound, 1);
+    assert.equal(partialAllocation.backendBound, 0);
+
+    const postSquashGap = getCycleNavigatorTopDown(activity, 6, 7);
+    assert.ok(postSquashGap !== null);
+    assert.equal(postSquashGap.totalSlots, 2);
+    // squash後の空白だけからrecoveryを推定せず、入口backpressureがなければFrontend。
+    assert.equal(postSquashGap.squashedSlots, 0);
+    assert.equal(postSquashGap.frontendBound, 2);
+    assert.equal(postSquashGap.backendBound, 0);
+
+    const frontend = getCycleNavigatorTopDown(activity, 9, 10);
+    assert.ok(frontend !== null);
+    assert.equal(frontend.totalSlots, 2);
+    assert.equal(frontend.retiringSlots, 1);
+    assert.equal(frontend.frontendBound, 1);
+    assert.equal(frontend.backendBound, 0);
+
+    const labels = createRecordedContext();
+    const cycleNavigator = createRecordedContext();
+    drawCycleNavigator(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
+        createCanvas(labels.context, 450, 128),
+        createCanvas(cycleNavigator.context, 320, 128),
+        "top-down",
+        true,
+    );
+    assert.ok(labels.fillTexts.some(([text, x, y]) =>
+        text === "AUTO · arbitrary-reservoir ≥2/c → arbitrary-event" &&
+        x === 128 && y === 16));
+    const legendNames = new Set(["Bad spec", "Front", "Back", "Pending", "Retire"]);
+    assert.deepEqual(
+        labels.fillTexts.map(([text]) => text).filter((text) => legendNames.has(text)),
+        ["Bad spec", "Front", "Back", "Retire"],
+    );
+    const legendRects = labels.fillRects.filter(([, , width, height]) =>
+        width === 10 && height === 10);
+    assert.equal(legendRects.length, 4);
+    assert.deepEqual(legendRects.map(([x, y]) => [x, y]), [
+        [381, 7],
+        [381, 21],
+        [381, 35],
+        [381, 49],
+    ]);
+    assert.equal(labels.strokeRects.length, 0);
+    const compactLabels = createRecordedContext();
+    drawCycleNavigator(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] },
+        createCanvas(compactLabels.context, 450, 128),
+        createCanvas(createRecordedContext().context, 320, 128),
+    );
+    assert.ok(!compactLabels.fillTexts.some(([text]) => text.startsWith("AUTO")));
+    assert.ok(!compactLabels.fillTexts.some(([text]) =>
+        text === "arbitrary-reservoir ≥2/c → arbitrary-event"));
+    assert.ok(compactLabels.fillTexts.some(([text]) => text === "Retire"));
+    assert.ok(cycleNavigator.fillRects.length > 0);
+    for (const color of [
+        "hsl(0,0%,55%)",
+        "hsl(240,35%,55%)",
+        "hsl(140,35%,55%)",
+        "#262930",
+    ]) {
+        assert.ok(cycleNavigator.fillStyles.includes(color));
+    }
+    const colorsAtX = (x: number) => cycleNavigator.fillRects
+        .map((rect, index) => ({ rect, color: cycleNavigator.fillStyles[index] }))
+        .filter(({ rect }) => rect[0] === x && rect[2] < 320)
+        .map(({ color }) => color);
+    assert.deepEqual(colorsAtX(0), ["hsl(0,0%,55%)", "hsl(140,35%,55%)"]);
+    assert.deepEqual(colorsAtX(32), ["hsl(240,35%,55%)", "#262930"]);
+
+    const overviewNavigator = createRecordedContext();
+    drawCycleNavigator(
+        activity,
+        overviewSpec,
+        createCanvas(createRecordedContext().context, 450, 128),
+        createCanvas(overviewNavigator.context, overviewWidth, 128),
+        "top-down",
+        false,
+        "overview",
+    );
+    assert.equal(overviewNavigator.strokeRects.length, 1);
+    assert.equal(overviewNavigator.strokeStyles[0], "rgba(255,255,255,0.75)");
+    assert.ok(overviewNavigator.fillStyles.includes("rgba(0,0,0,0.35)"));
+
+    const lightNavigator = createRecordedContext();
+    drawCycleNavigator(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0], theme: "light" },
+        createCanvas(createRecordedContext().context, 450, 128),
+        createCanvas(lightNavigator.context, 320, 128),
+        "top-down",
+        false,
+        "overview",
+    );
+    for (const color of [
+        "hsl(0,0%,73%)",
+        "hsl(240,53%,73%)",
+        "hsl(140,53%,73%)",
+        "#ffffff",
+    ]) {
+        assert.ok(lightNavigator.fillStyles.includes(color));
+    }
+    assert.equal(lightNavigator.strokeStyles[0], "rgba(0,0,0,0.55)");
+    assert.ok(lightNavigator.fillStyles.includes("rgba(255,255,255,0.25)"));
+
+    const comparisonNavigator = createRecordedContext();
+    drawComparisonCycleNavigator(
+        comparison,
+        createCanvas(createRecordedContext().context, 450, 128),
+        createCanvas(comparisonNavigator.context, overviewWidth, 128),
+        "overlay",
+        "top-down",
+        false,
+        "overview",
+    );
+    assert.ok(comparisonNavigator.fillTexts.some(([text, x, y]) =>
+        text === "A" && x === 4 && y === 32));
+    assert.ok(comparisonNavigator.fillTexts.some(([text, x, y]) =>
+        text === "B" && x === 4 && y === 96));
+    assert.ok(comparisonNavigator.fillRects.some(([x, y, width, height]) =>
+        x === 0 && y === 64 && width === overviewWidth && height === 1));
+    assert.equal(comparisonNavigator.strokeRects.length, 2);
+    trace.close();
+});
+
+test("Top-down-like view uses a detected composite allocation frontier", async () => {
+    const trace = createCompositeAllocationTrace();
+    const data = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(data?.topDown !== null && data?.topDown !== undefined);
+    assert.equal(data.topDown.allocationStage.label, "0/ready/wait");
+    assert.equal(data.topDown.executionStage.label, "0/execute-ready/execute-wait");
+    assert.equal(data.topDown.allocationWidth, 3);
+    const fullAllocation = getCycleNavigatorTopDown(data, 2, 3);
+    assert.ok(fullAllocation !== null);
+    assert.equal(fullAllocation.retiringSlots, 3);
+    assert.equal(fullAllocation.frontendBound, 0);
+    trace.close();
+});
+
+test("Trace navigator retains completed data in 32-cycle bins", async () => {
+    const trace = createTopDownBreakdownTrace();
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 40, 41],
+        ["arbitrary-reservoir", 41, 43],
+        ["arbitrary-event", 43, 44],
+        ["arbitrary-tail", 44, 45],
+    ]);
+    appendTopDownBreakdownOp(trace, 5, [
+        ["arbitrary-source", 70, 71],
+        ["arbitrary-reservoir", 71, 73],
+        ["arbitrary-event", 73, 74],
+        ["arbitrary-tail", 74, 75],
+    ]);
+    const data = await buildCycleNavigatorData(trace);
+    assert.ok(data !== null && data.topDown !== null);
+    const binCount = Math.floor(data.cycleCount / 32);
+    assert.equal(data.cycleActivity.binCycleCount, 32);
+    assert.equal(data.topDown.slotCounts.length, binCount * 6);
+    assert.equal(data.topDown.tailSlots.length,
+        (data.observedCycleCount - data.cycleActivity.sealedCycle) *
+            data.topDown.allocationWidth);
+    assert.equal(data.cycleActivity.sealedCycle, binCount * 32);
+    assert.equal(data.cycleActivity.fetch.bins.length, binCount);
+    assert.ok(data.cycleActivity.fetch.bins instanceof Uint16Array);
+    assert.ok(data.cycleActivity.fetch.tailValues instanceof Uint8Array);
+    const full = getCycleNavigatorTopDown(data, 0, data.cycleCount);
+    assert.ok(full !== null);
+    assert.equal(full.totalSlots, data.cycleCount * data.topDown.allocationWidth);
+    assert.equal(full.samplingStride, 32);
+    const exact = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    const exactFull = exact === null ? null : getCycleNavigatorTopDown(exact, 0, exact.cycleCount);
+    assert.ok(exactFull !== null);
+    for (const category of [
+        "retiringSlots",
+        "squashedSlots",
+        "recoveryBubbleSlots",
+        "unresolvedSlots",
+        "frontendBound",
+        "backendBound",
+    ] as const) {
+        assert.equal(full[category], exactFull[category]);
+    }
+    for (const mode of ["fetch", "issue", "commit", "flush"] as const) {
+        const binned = getCycleActivity(
+            data.cycleActivity, data.cycleCount, mode, 0, data.cycleCount,
+        );
+        const unbinned = getCycleActivity(
+            exact.cycleActivity, exact.cycleCount, mode, 0, exact.cycleCount,
+        );
+        assert.ok(binned !== null && unbinned !== null);
+        assert.equal(binned.average, unbinned.average);
+        assert.equal(binned.flushedAverage, unbinned.flushedAverage);
+    }
+    trace.close();
+});
+
+test("Live navigator keeps the unconfirmed tail at one-cycle resolution", async () => {
+    const trace = createTopDownBreakdownTrace();
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 40, 41],
+        ["arbitrary-reservoir", 41, 43],
+        ["arbitrary-event", 43, 44],
+        ["arbitrary-tail", 44, 45],
+    ]);
+    const data = await buildCycleNavigatorData(trace, { live: true });
+    assert.ok(data !== null && data.topDown !== null);
+    assert.equal(data.confirmedCycle, 40);
+    assert.equal(data.cycleActivity.sealedCycle, 32);
+    assert.equal(data.cycleActivity.fetch.tailValues[40 - 32], 1);
+    assert.equal(data.cycleActivity.fetch.tailValues[39 - 32], 0);
+    const completedPrefix = getCycleActivity(
+        data.cycleActivity, data.cycleCount, "fetch", 0, 32,
+    );
+    assert.ok(completedPrefix !== null);
+
+    appendTopDownBreakdownOp(trace, 5, [
+        ["arbitrary-source", 70, 71],
+        ["arbitrary-reservoir", 71, 73],
+        ["arbitrary-event", 73, 74],
+        ["arbitrary-tail", 74, 75],
+    ]);
+    const advanced = updateCycleNavigatorData(data, trace);
+    assert.equal(advanced.confirmedCycle, 70);
+    assert.equal(advanced.cycleActivity.sealedCycle, 64);
+    assert.equal(getCycleActivity(
+        advanced.cycleActivity, advanced.cycleCount, "fetch", 0, 32,
+    )?.average, completedPrefix.average);
+    assert.equal(advanced.cycleActivity.fetch.maximum,
+        data.cycleActivity.fetch.maximum);
+
+    // EOFでは処理済みOpを走査し直さず、EOF markerを消費して末尾cycleを確定する。
+    const eof = new Op();
+    eof.id = 6;
+    eof.eof = true;
+    eof.fetchedCycle = 97;
+    eof.retiredCycle = 100;
+    const store = trace.opStore as ArrayOpStore;
+    store.setOp(eof.id, eof);
+    trace.updateLastCycle(100);
+    const finished = updateCycleNavigatorData(advanced, trace, true);
+    assert.equal(finished.sourceLastID, eof.id);
+    assert.equal(finished.cycleCount, 100);
+    assert.equal(finished.confirmedCycle, 100);
+    assert.equal(finished.cycleActivity.sealedCycle, 96);
+    trace.close();
+});
+
+test("Top-down-like analysis fixes its trace range while a live trace grows", async () => {
+    const trace = createTopDownBreakdownTrace();
+    const building = buildCycleNavigatorData(trace, { yieldInterval: 1 });
+
+    // build開始後に、既存candidateの投入cycle順を壊す命令を同じlive traceへ追加する。
+    // 今回のsnapshotへ混入すればallocation検出が失敗するため、結果から範囲固定を確認できる。
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 2, 3],
+        ["arbitrary-reservoir", 3, 12],
+        ["arbitrary-event", 12, 13],
+        ["arbitrary-tail", 13, 14],
+    ]);
+
+    const activity = await building;
+    assert.ok(activity !== null && activity.topDown !== null);
+    assert.equal(activity.topDown.allocationWidth, 2);
+    trace.close();
+});
+
+test("Cycle navigator keeps stage-independent activity when stage structure is unavailable", async () => {
+    const trace = createLatencyTrace([[2, 9], [3, 9]]);
+    const data = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(data !== null);
+    assert.equal(data.topDown, null);
+    const commit = getCycleActivity(data.cycleActivity, data.cycleCount, "commit", 9, 10);
+    assert.ok(commit !== null);
+    assert.equal(commit.average, 2);
+    assert.equal(commit.maximum, 2);
+
+    const labels = createRecordedContext();
+    const navigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [9, 0] },
+        createCanvas(labels.context, 500, 128),
+        createCanvas(navigator.context, 160, 128),
+        "top-down",
+        true,
+    );
+    assert.ok(labels.fillTexts.some(([text]) => text === "max 2 ops/cycle"));
+    assert.ok(navigator.fillStyles.includes("hsl(140,35%,55%)"));
+
+    const fetchLabels = createRecordedContext();
+    const fetchNavigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+        createCanvas(fetchLabels.context, 500, 128),
+        createCanvas(fetchNavigator.context, 160, 128),
+        "fetch",
+        true,
+    );
+    assert.ok(fetchLabels.fillTexts.some(([text]) => text === "max 1 ops/cycle"));
+    assert.ok(fetchNavigator.fillStyles.includes("hsl(240,35%,55%)"));
+
+    const comparisonNavigator = createRecordedContext();
+    const source = {
+        data,
+        spec: { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+    };
+    drawComparisonCycleNavigator(
+        { baseline: source, candidate: source },
+        createCanvas(createRecordedContext().context, 500, 128),
+        createCanvas(comparisonNavigator.context, 160, 128),
+        "overlay",
+        "fetch",
+        true,
+    );
+    assert.ok(comparisonNavigator.fillStyles.includes("hsl(240,35%,55%)"));
+    trace.close();
+});
+
+test("Cycle navigator counts throughput, flushed work, and latency", async () => {
+    const trace = createCycleActivityTrace();
+    const data = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(data !== null && data.topDown !== null);
+    const analysis = data.topDown;
+    const sample = (
+        mode: "fetch" | "issue" | "commit" | "flush" | "latency",
+        startCycle: number,
+        endCycle: number,
+    ) => getCycleActivity(
+        data.cycleActivity,
+        data.cycleCount,
+        mode,
+        startCycle,
+        endCycle,
+    );
+
+    const fetch = sample("fetch", 2, 3);
+    assert.ok(fetch !== null);
+    assert.equal(fetch.average, 2);
+    assert.equal(fetch.flushedAverage, 1);
+    assert.equal(fetch.maximum, 2);
+    const flushedIssue = sample("issue", 5, 6);
+    assert.ok(flushedIssue !== null);
+    assert.equal(flushedIssue.average, 1);
+    assert.equal(flushedIssue.flushedAverage, 1);
+    const issue = sample("issue", 12, 13);
+    assert.ok(issue !== null);
+    assert.equal(issue.average, 1);
+    const commit = sample("commit", 17, 18);
+    assert.ok(commit !== null);
+    assert.equal(commit.average, 1);
+    assert.equal(commit.flushedAverage, 0);
+
+    const flush = sample("flush", 3, 4);
+    assert.ok(flush !== null);
+    assert.equal(flush.average, 1);
+    const latency = sample("latency", 12, 13);
+    assert.ok(latency !== null);
+    assert.equal(latency.average, 4);
+    assert.equal(latency.maximum, 4);
+
+    const compactFetchLabels = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+        createCanvas(compactFetchLabels.context, 500, 128),
+        createCanvas(createRecordedContext().context, 160, 128),
+        "fetch",
+    );
+    assert.equal(compactFetchLabels.fillTexts.length, 0);
+
+    const fetchLabels = createRecordedContext();
+    const fetchNavigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] },
+        createCanvas(fetchLabels.context, 500, 128),
+        createCanvas(fetchNavigator.context, 160, 128),
+        "fetch",
+        true,
+    );
+    assert.ok(fetchLabels.fillTexts.some(([text, x, y]) =>
+        text === "max 2 ops/cycle" && x === 128 && y === 16));
+    assert.ok(fetchLabels.fillTexts.some(([text, , y]) =>
+        text === "Later flushed" && y === 16));
+    assert.ok(fetchNavigator.fillStyles.includes("hsl(0,0%,55%)"));
+    const lightFetchNavigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0], theme: "light" },
+        createCanvas(createRecordedContext().context, 500, 128),
+        createCanvas(lightFetchNavigator.context, 160, 128),
+        "fetch",
+    );
+    assert.ok(lightFetchNavigator.fillStyles.includes("rgba(0,0,0,0.35)"));
+
+    const labels = createRecordedContext();
+    const navigator = createRecordedContext();
+    drawCycleNavigator(
+        data,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [12, 0] },
+        createCanvas(labels.context, 500, 128),
+        createCanvas(navigator.context, 160, 128),
+        "latency",
+        true,
+    );
+    assert.ok(labels.fillTexts.some(([text]) =>
+        text === "arbitrary-event → completion · max 4 cycles"));
+    assert.ok(navigator.fillStyles.includes("hsl(280,35%,55%)"));
+    trace.close();
+});
+
+test("Top-down-like live updates stop at gaps and follow the retired fetch frontier", async () => {
+    const trace = createTopDownBreakdownTrace();
+    // ID 6の正常リタイアでfetch cycle 20より前を確定させるが、ID 4の穴では停止する。
+    appendTopDownBreakdownOp(trace, 6, [
+        ["arbitrary-source", 20, 21],
+        ["arbitrary-reservoir", 21, 22],
+        ["arbitrary-event", 22, 23],
+        ["arbitrary-tail", 23, 24],
+    ]);
+    const data = await buildCycleNavigatorData(trace, { binCycleCount: 1, live: true });
+    assert.ok(data !== null && data.topDown !== null);
+    appendTopDownBreakdownOp(trace, 5, [
+        ["arbitrary-source", 12, 14],
+        ["arbitrary-reservoir", 14, 16],
+        ["arbitrary-event", 16, 17],
+        ["arbitrary-tail", 17, 18],
+    ]);
+    const withGap = updateCycleNavigatorData(data, trace);
+    assert.equal(withGap.sourceLastID, 3);
+    assert.ok(withGap.topDown !== null);
+    assert.ok(withGap.topDown.tailSlots.length >=
+        (withGap.observedCycleCount - withGap.cycleActivity.sealedCycle) * 2);
+    const backend = getCycleNavigatorTopDown(withGap, 13, 14);
+    assert.equal(backend, null);
+
+    appendTopDownBreakdownOp(trace, 4, [
+        ["arbitrary-source", 12, 13],
+        ["arbitrary-reservoir", 13, 15],
+        ["arbitrary-event", 15, 16],
+        ["arbitrary-tail", 16, 17],
+    ]);
+    const filled = updateCycleNavigatorData(withGap, trace);
+    assert.equal(filled.sourceLastID, 6);
+    const filledGap = getCycleNavigatorTopDown(filled, 13, 14);
+    assert.ok(filledGap !== null);
+    assert.equal(filledGap.retiringSlots, 1);
+    assert.equal(filledGap.backendBound, 1);
+    assert.equal(getCycleActivity(
+        filled.cycleActivity, filled.cycleCount, "fetch", 12, 13,
+    )?.average, 2);
+    assert.equal(getCycleActivity(
+        filled.cycleActivity, filled.cycleCount, "issue", 15, 16,
+    )?.average, 1);
+    assert.equal(updateCycleNavigatorData(filled, trace), filled);
+    trace.close();
+});
+
+test("Stage-independent live activity updates without a detected structure", async () => {
+    const trace = createLatencyTrace([[2, 9], [3, 9]]);
+    const data = await buildCycleNavigatorData(trace, { binCycleCount: 1, live: true });
+    assert.ok(data !== null && data.topDown === null);
+    const store = trace.opStore as ArrayOpStore;
+    for (const [id, fetchedCycle, retiredCycle] of [
+        [2, 10, 15],
+        [3, 20, 25],
+    ] as const) {
+        const op = new Op();
+        op.id = id;
+        op.rid = id;
+        op.retired = true;
+        op.fetchedCycle = fetchedCycle;
+        op.retiredCycle = retiredCycle;
+        store.setOp(id, op);
+        store.setRetiredOp(id, op);
+    }
+    trace.updateLastCycle(25);
+
+    const updated = updateCycleNavigatorData(data, trace);
+    assert.equal(updated.sourceLastID, 3);
+    assert.equal(getCycleActivity(
+        updated.cycleActivity, updated.cycleCount, "fetch", 10, 11,
+    )?.average, 1);
+    assert.equal(getCycleActivity(
+        updated.cycleActivity, updated.cycleCount, "commit", 15, 16,
+    )?.average, 1);
+
+    // cycle 25のcommitは表示境界20より後でもexact tailに残り、次の確定境界で現れる。
+    const next = new Op();
+    next.id = 4;
+    next.rid = 4;
+    next.retired = true;
+    next.fetchedCycle = 30;
+    next.retiredCycle = 35;
+    store.setOp(4, next);
+    store.setRetiredOp(4, next);
+    trace.updateLastCycle(35);
+    const advanced = updateCycleNavigatorData(updated, trace);
+    assert.equal(advanced.cycleCount, 30);
+    assert.equal(getCycleActivity(
+        advanced.cycleActivity, advanced.cycleCount, "commit", 25, 26,
+    )?.average, 1);
+    trace.close();
+});
+
+test("Top-down-like view distinguishes allocated dependencies from allocation backpressure", async () => {
+    const trace = createAllocationBlockedTrace();
+    const activity = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(activity !== null);
+    const analysis = activity.topDown;
+    assert.ok(analysis !== null);
+    assert.equal(analysis.allocationStage.stageName, "allocation");
+    assert.equal(analysis.executionStage.stageName, "execution");
+    assert.equal(analysis.allocationWidth, 4);
+    assert.equal(analysis.admissionStages.length, 4);
+    assert.equal(analysis.admissionStages[0].stage.stageName, "entry-a");
+    assert.equal(analysis.admissionStages[0].typicalLatency, 1);
+
+    const allocatedDependencies = getCycleNavigatorTopDown(activity, 4, 5);
+    assert.ok(allocatedDependencies !== null);
+    assert.equal(allocatedDependencies.retiringSlots, 4);
+    assert.equal(allocatedDependencies.frontendBound, 0);
+    assert.equal(allocatedDependencies.backendBound, 0);
+
+    const blocked = getCycleNavigatorTopDown(activity, 6, 7);
+    assert.ok(blocked !== null);
+    assert.equal(blocked.frontendBound, 0);
+    assert.equal(blocked.backendBound, 4);
+
+    const labels = createRecordedContext();
+    const cycleNavigator = createRecordedContext();
+    drawCycleNavigator(
+        activity,
+        { ...DEFAULT_KONATA_RENDER_SPEC, position: [6, 0] },
+        createCanvas(labels.context, 450, 128),
+        createCanvas(cycleNavigator.context, 160, 128),
+    );
+    assert.ok(cycleNavigator.fillStyles.includes("hsl(30,35%,55%)"));
+    trace.close();
+});
+
+test("Top-down-like view retrospectively classifies supported recovery bubbles", async () => {
+    const trace = createRecoveryBubbleTrace(
+        [...Array<number>(10).fill(3), 30],
+        true,
+    );
+    const activity = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(activity !== null);
+    const analysis = activity.topDown;
+    assert.ok(analysis !== null);
+    assert.equal(analysis.allocationStage.stageName, "arbitrary-reservoir");
+    assert.equal(analysis.executionStage.stageName, "arbitrary-event");
+    assert.equal(analysis.recoveryWindowCount, 11);
+    assert.equal(analysis.minimumRecoveryCycles, 3);
+    assert.equal(analysis.minimumRecoverySampleCount, 10);
+
+    const sampled = getCycleNavigatorTopDown(activity, 0, activity.cycleCount);
+    assert.ok(sampled !== null);
+    assert.equal(sampled.samplingStride, 1);
+    assert.equal(sampled.sampledCycleCount, activity.cycleCount);
+    assert.equal(sampled.totalSlots, sampled.sampledCycleCount * analysis.allocationWidth);
+
+    const sampleCycle = (cycle: number) => getCycleNavigatorTopDown(
+        activity, cycle, cycle + 1,
+    );
+    const blocked = sampleCycle(12);
+    assert.ok(blocked !== null);
+    // resolution前のwrong-path命令が入口で止まった空きslotは、通常のBackend停滞である。
+    assert.equal(blocked.backendBound, 1);
+    assert.equal(blocked.recoveryBubbleSlots, 0);
+
+    const recovered = sampleCycle(16);
+    assert.ok(recovered !== null);
+    assert.equal(recovered.frontendBound, 0);
+    assert.equal(recovered.recoveryBubbleSlots, 1);
+
+    const outlierBase = 10 + 10 * 50;
+    const cappedOutlier = sampleCycle(outlierBase + 9);
+    assert.ok(cappedOutlier !== null);
+    // 単発の長いcorrect-path待ちは、反復観測した最短回復を越えればFrontendへ戻す。
+    assert.equal(cappedOutlier.recoveryBubbleSlots, 0);
+    assert.equal(cappedOutlier.frontendBound, 1);
+
+    trace.close();
+});
+
+test("Top-down-like view does not learn recovery from an unsupported sample", async () => {
+    const trace = createRecoveryBubbleTrace([30]);
+    const activity = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(activity !== null);
+    const analysis = activity.topDown;
+    assert.ok(analysis !== null);
+    assert.equal(analysis.recoveryWindowCount, 1);
+    assert.equal(analysis.minimumRecoveryCycles, null);
+    assert.equal(analysis.minimumRecoverySampleCount, 0);
+
+    const beforeComplete = getCycleNavigatorTopDown(activity, 14, 15);
+    assert.ok(beforeComplete !== null);
+    assert.equal(beforeComplete.recoveryBubbleSlots, 0);
+    assert.equal(beforeComplete.frontendBound, 1);
+    const afterComplete = getCycleNavigatorTopDown(activity, 16, 17);
+    assert.ok(afterComplete !== null);
+    assert.equal(afterComplete.recoveryBubbleSlots, 0);
+    assert.equal(afterComplete.frontendBound, 1);
+    trace.close();
+});
+
+test("Top-down-like analysis stops after yielding when its pane is closed", async () => {
+    const trace = createTopDownCancellationTrace();
+    let canceled = false;
+    const building = buildCycleNavigatorData(trace, {
+        yieldInterval: 1,
+        isCanceled: () => canceled,
+    });
+    canceled = true;
+    assert.equal(await building, null);
+    trace.close();
+});
 
 test("Web renderer keeps the legacy instruction label format", () => {
     const { op } = createTrace();
@@ -413,6 +1457,22 @@ test("Web render metrics find an instruction anchor for position adjustment", ()
         new KonataRenderMetrics(trace, metrics.withPosition([100, 10])).getAdjustedViewPosition(),
         [2, 0],
     );
+});
+
+test("Web render metrics find the instruction row for a cycle", () => {
+    const trace = createLatencyTrace([
+        [100, 130],
+        [100, 140],
+        [200, 230],
+    ]);
+    const metrics = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
+
+    assert.equal(metrics.getPositionYFromCycle(50), 0);
+    assert.equal(metrics.getPositionYFromCycle(100), 0);
+    assert.equal(metrics.getPositionYFromCycle(199), 0);
+    assert.equal(metrics.getPositionYFromCycle(200), 2);
+    assert.equal(metrics.getPositionYFromCycle(300), 2);
+    trace.close();
 });
 
 test("Web render metrics reversibly follow the visible phase during vertical scrolling", () => {

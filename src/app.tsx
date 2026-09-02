@@ -55,11 +55,14 @@ import {
 import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
     DEFAULT_SPLITTER_POSITION,
+    DEFAULT_TRACE_NAVIGATOR_SETTINGS,
     getZoomSpeedFromFactor,
+    MIN_TRACE_NAVIGATOR_HEIGHT,
     type MinimumLaneHeightKey,
     type Operation,
     type PersistedViewSettings,
     Store,
+    type TraceNavigatorSettings,
     type ZoomSpeed,
 } from "./store";
 import { getRemoteTraceFileNames } from "./trace_file_access";
@@ -165,6 +168,31 @@ function isCustomColorScheme(value: unknown): value is CustomColorScheme {
     });
 }
 
+function parseTraceNavigatorSettings(value: unknown): Readonly<TraceNavigatorSettings> {
+    if (typeof value !== "object" || value === null) {
+        return DEFAULT_TRACE_NAVIGATOR_SETTINGS;
+    }
+    const settings = value as Partial<Record<keyof TraceNavigatorSettings, unknown>>;
+    const mode = settings.mode;
+    const rangeMode = settings.rangeMode;
+    return {
+        visible: typeof settings.visible === "boolean"
+            ? settings.visible
+            : DEFAULT_TRACE_NAVIGATOR_SETTINGS.visible,
+        mode: mode === "top-down" || mode === "fetch" || mode === "issue" ||
+            mode === "commit" || mode === "flush" || mode === "latency"
+            ? mode
+            : DEFAULT_TRACE_NAVIGATOR_SETTINGS.mode,
+        rangeMode: rangeMode === "follow" || rangeMode === "overview"
+            ? rangeMode
+            : DEFAULT_TRACE_NAVIGATOR_SETTINGS.rangeMode,
+        height: isPositiveFiniteNumber(settings.height) &&
+            settings.height >= MIN_TRACE_NAVIGATOR_HEIGHT
+            ? Math.round(settings.height)
+            : DEFAULT_TRACE_NAVIGATOR_SETTINGS.height,
+    };
+}
+
 function parsePersistedViewSettings(value: unknown): PersistedViewSettings | null {
     if (typeof value !== "object" || value === null) {
         return null;
@@ -221,6 +249,7 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         theme: settings.theme,
         webGLEnabled,
         tiledRenderingEnabled,
+        traceNavigator: parseTraceNavigatorSettings(settings.traceNavigator),
         colorScheme,
         // 旧Web版の保存値にはこのfieldがないため、他の設定を捨てず既定配色で補う。
         customColorScheme: isCustomColorScheme(settings.customColorScheme)
@@ -1677,6 +1706,7 @@ export function App() {
                 renderVersion={renderVersion}
                 webGLEnabled={settings.webGLEnabled}
                 tiledRenderingEnabled={settings.tiledRenderingEnabled}
+                traceNavigator={settings.traceNavigator}
                 zoomStep={1 / settings.drawZoomFactor}
                 findResult={findResult}
                 comparison={comparisonTab === null ? null : {
@@ -1687,6 +1717,10 @@ export function App() {
                 }}
                 splitterPosition={activeTab?.splitterPosition ?? DEFAULT_SPLITTER_POSITION}
                 onMoveSplitter={moveSplitter}
+                onSetTraceNavigator={(traceNavigator) => store.dispatch({
+                    type: "KONATA_SET_TRACE_NAVIGATOR",
+                    settings: traceNavigator,
+                })}
                 onSetView={setView}
                 onCloseFindResult={hideSearchResult}
                 onOpenTrace={openFilePicker}
