@@ -601,10 +601,10 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.ok(labels.fillTexts.some(([text, x, y]) =>
         text === "AUTO · arbitrary-reservoir ≥2/c → arbitrary-event" &&
         x === 128 && y === 16));
-    const legendNames = new Set(["Bad", "Front", "Back", "Pending", "Retire"]);
+    const legendNames = new Set(["Bad spec", "Front", "Back", "Pending", "Retire"]);
     assert.deepEqual(
         labels.fillTexts.map(([text]) => text).filter((text) => legendNames.has(text)),
-        ["Bad", "Front", "Back", "Retire"],
+        ["Bad spec", "Front", "Back", "Retire"],
     );
     const legendRects = labels.fillRects.filter(([, , width, height]) =>
         width === 10 && height === 10);

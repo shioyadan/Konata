@@ -269,7 +269,7 @@ function drawLabels(
     }
 
     const legends = [
-        ["Bad", colors.badSpeculation],
+        ["Bad spec", colors.badSpeculation],
         ["Front", colors.frontendBound],
         ["Back", colors.backendBound],
         ["Retire", colors.retiring],
