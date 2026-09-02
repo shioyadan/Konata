@@ -14,13 +14,14 @@ import { BsChevronBarDown, BsChevronBarUp, BsX } from "react-icons/bs";
 
 import type { ParsedTrace } from "../core/model";
 import {
-    buildTopDownData,
-    TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT,
-    type TopDownData,
-    updateTopDownData,
-} from "../core/top_down_analysis";
+    buildCycleNavigatorData,
+    CYCLE_NAVIGATOR_INITIAL_SNAPSHOT_OP_COUNT,
+    resolveCycleNavigatorMode,
+    type CycleNavigatorData,
+    type CycleNavigatorMode,
+    updateCycleNavigatorData,
+} from "../core/trace_navigator_analysis";
 import {
-    cycleNavigatorModeRequiresStageStructure,
     drawComparisonCycleNavigator,
     drawCycleNavigator,
     getComparisonCycleNavigatorScrollPosition,
@@ -28,7 +29,6 @@ import {
     getCycleNavigatorScrollPosition,
     getCycleNavigatorViewport,
     type CycleNavigatorComparison,
-    type CycleNavigatorMode,
     type CycleNavigatorComparisonTrack,
 } from "../core/trace_navigator_renderer";
 import {
@@ -104,8 +104,8 @@ function normalizeWheelDelta(event: WheelEvent): number {
 }
 
 function createCycleNavigatorComparison(
-    baselineData: Readonly<TopDownData> | null,
-    candidateData: Readonly<TopDownData>,
+    baselineData: Readonly<CycleNavigatorData> | null,
+    candidateData: Readonly<CycleNavigatorData>,
     baselineSpec: Readonly<KonataRenderSpec> | undefined,
     candidateSpec: Readonly<KonataRenderSpec>,
 ): CycleNavigatorComparison | null {
@@ -278,17 +278,18 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const [isTraceNavigatorResizing, setIsTraceNavigatorResizing] = useState(false);
     const [toolTip, setToolTip] = useState<CanvasToolTip | null>(null);
     const toolTipRef = useRef<HTMLPreElement>(null);
-    // UI／制御層は集計結果の寿命だけを所有する。TopDownDataはTraceから
+    // UI／制御層は集計結果の寿命だけを所有する。CycleNavigatorDataはTraceから
     // 再構築できる派生dataなのでStoreへ入れず、表示中のTraceSheet内に留める。
-    const [topDownData, setTopDownData] = useState<TopDownData | null>(null);
-    const [baselineTopDownData, setBaselineTopDownData] = useState<TopDownData | null>(null);
-    const topDownLiveDataRef = useRef<{
+    const [navigatorData, setNavigatorData] = useState<CycleNavigatorData | null>(null);
+    const [baselineNavigatorData, setBaselineNavigatorData] =
+        useState<CycleNavigatorData | null>(null);
+    const navigatorLiveDataRef = useRef<{
         readonly trace: ParsedTrace;
-        data: TopDownData;
+        data: CycleNavigatorData;
     } | null>(null);
     const loadStateRef = useRef(loadState);
     loadStateRef.current = loadState;
-    const [topDownError, setTopDownError] = useState(false);
+    const [navigatorError, setNavigatorError] = useState(false);
     const comparisonActive = comparison !== null;
     const comparisonMode = comparison?.mode ?? null;
     const comparisonOpacity = comparison?.opacity ?? 1;
@@ -299,22 +300,27 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const cycleNavigatorRangeMode = traceNavigatorExpanded
         ? traceNavigator.rangeMode
         : "overview";
-    const cycleNavigatorStageStructureUnavailable = (comparisonMode === "baseline"
-        ? baselineTopDownData
-        : topDownData)?.analysis === null ||
-        (comparisonMode === "overlay" && baselineTopDownData?.analysis === null);
-    const cycleNavigatorMode = cycleNavigatorStageStructureUnavailable &&
-        cycleNavigatorModeRequiresStageStructure(traceNavigator.mode)
-        ? "commit"
-        : traceNavigator.mode;
-    const traceNavigatorDataReady = topDownData !== null &&
-        (comparisonMode === null || baselineTopDownData !== null);
-    const topDownSampleReady = trace !== null && (loadState === "ready" ||
-        trace.opCount >= TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT);
-    const topDownStatusMessage = topDownError
+    const modeSources = comparisonMode === "baseline"
+        ? [baselineNavigatorData]
+        : comparisonMode === "overlay"
+            ? [baselineNavigatorData, navigatorData]
+            : [navigatorData];
+    const cycleNavigatorMode = resolveCycleNavigatorMode(
+        traceNavigator.mode,
+        ...modeSources,
+    );
+    const cycleNavigatorAnalysisUnavailable = resolveCycleNavigatorMode(
+        "top-down",
+        ...modeSources,
+    ) !== "top-down";
+    const traceNavigatorDataReady = navigatorData !== null &&
+        (comparisonMode === null || baselineNavigatorData !== null);
+    const navigatorSampleReady = trace !== null && (loadState === "ready" ||
+        trace.opCount >= CYCLE_NAVIGATOR_INITIAL_SNAPSHOT_OP_COUNT);
+    const navigatorStatusMessage = navigatorError
         ? "Trace navigator analysis unavailable"
-        : !topDownSampleReady
-            ? `Collecting pipeline sample… ${(trace?.opCount ?? 0).toLocaleString()} / ${TOP_DOWN_INITIAL_SNAPSHOT_OP_COUNT.toLocaleString()} ops`
+        : !navigatorSampleReady
+            ? `Collecting pipeline sample… ${(trace?.opCount ?? 0).toLocaleString()} / ${CYCLE_NAVIGATOR_INITIAL_SNAPSHOT_OP_COUNT.toLocaleString()} ops`
             : "Building trace navigator analysis…";
     // A単独表示だけはラベルとマウス参照もAへ切り替え、それ以外はBを前面の情報源にする。
     const displayRenderer = comparisonMode === "baseline" && baselineRenderer !== null
@@ -536,10 +542,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ...tileOptions,
             prefetchSpec: baselinePrefetchSpec,
         } as const;
-        if (traceNavigatorAvailable && traceNavigatorDataReady && topDownData !== null &&
+        if (traceNavigatorAvailable && traceNavigatorDataReady && navigatorData !== null &&
             cycleNavigatorLabelCanvas !== null && cycleNavigatorCanvas !== null) {
             const navigatorComparison = createCycleNavigatorComparison(
-                baselineTopDownData, topDownData, currentBaselineSpec, candidateSpec,
+                baselineNavigatorData, navigatorData, currentBaselineSpec, candidateSpec,
             );
             if (comparisonMode !== null && navigatorComparison !== null) {
                 drawComparisonCycleNavigator(
@@ -554,7 +560,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             }
             else {
                 drawCycleNavigator(
-                    topDownData,
+                    navigatorData,
                     candidateSpec,
                     cycleNavigatorLabelCanvas,
                     cycleNavigatorCanvas,
@@ -637,8 +643,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         renderer,
         cycleNavigatorRangeMode,
         cycleNavigatorMode,
-        baselineTopDownData,
-        topDownData,
+        baselineNavigatorData,
+        navigatorData,
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
@@ -669,23 +675,23 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
     // Traceまたはpaneを切り替えた時は、以前のTraceから作った派生dataを外す。
     useEffect(() => {
-        topDownLiveDataRef.current = null;
-        setTopDownData(null);
-        setTopDownError(false);
+        navigatorLiveDataRef.current = null;
+        setNavigatorData(null);
+        setNavigatorError(false);
     }, [trace, traceNavigatorAvailable]);
 
     // 最初の50k命令で構造を固定し、以降はEOFまで同じdataを増分更新する。
-    // zoomやthemeの変更は下のuseLayoutEffectから同じTopDownDataを再描画する。
+    // zoomやthemeの変更は下のuseLayoutEffectから同じ集計dataを再描画する。
     useEffect(() => {
         let canceled = false;
-        if (!traceNavigatorAvailable || trace === null || !topDownSampleReady) {
+        if (!traceNavigatorAvailable || trace === null || !navigatorSampleReady) {
             return () => {
                 canceled = true;
             };
         }
-        setTopDownError(false);
+        setNavigatorError(false);
 
-        void buildTopDownData(trace, {
+        void buildCycleNavigatorData(trace, {
             isCanceled: () => canceled,
             live: loadStateRef.current !== "ready",
         })
@@ -693,45 +699,45 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 if (!canceled && data !== null) {
                     // 初期解析中にParserが公開した分も、最初の表示へまとめて追記する。
                     // stage構造が不明でもFetch／Commitのlive更新には同じ参照を使う。
-                    const currentData = updateTopDownData(
+                    const currentData = updateCycleNavigatorData(
                         data,
                         trace,
                         loadStateRef.current === "ready",
                     );
-                    topDownLiveDataRef.current = { trace, data: currentData };
-                    setTopDownData(currentData);
+                    navigatorLiveDataRef.current = { trace, data: currentData };
+                    setNavigatorData(currentData);
                 }
             })
             .catch((error: unknown) => {
                 if (!canceled) {
                     console.warn("Could not build trace navigator analysis.", error);
-                    setTopDownError(true);
+                    setNavigatorError(true);
                 }
             });
         return () => {
             canceled = true;
         };
-    }, [topDownSampleReady, trace, traceNavigatorAvailable]);
+    }, [navigatorSampleReady, trace, traceNavigatorAvailable]);
 
     // 比較元Aは比較Tabを作る時点で読み込み済みなので、live追記を持たず一度だけ集計する。
     useEffect(() => {
         let canceled = false;
-        setBaselineTopDownData(null);
+        setBaselineNavigatorData(null);
         if (!traceNavigatorAvailable || !comparisonActive || baselineTrace === null) {
             return () => {
                 canceled = true;
             };
         }
-        void buildTopDownData(baselineTrace, { isCanceled: () => canceled })
+        void buildCycleNavigatorData(baselineTrace, { isCanceled: () => canceled })
             .then((data) => {
                 if (!canceled && data !== null) {
-                    setBaselineTopDownData(data);
+                    setBaselineNavigatorData(data);
                 }
             })
             .catch((error: unknown) => {
                 if (!canceled) {
                     console.warn("Could not build baseline trace navigator analysis.", error);
-                    setTopDownError(true);
+                    setNavigatorError(true);
                 }
             });
         return () => {
@@ -741,13 +747,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
     // Pipelineと同じ途中Traceの公開通知ごとに、節目間の差分だけをNavigatorへ反映する。
     useEffect(() => {
-        const live = topDownLiveDataRef.current;
+        const live = navigatorLiveDataRef.current;
         if (!traceNavigatorAvailable || trace === null || live?.trace !== trace) {
             return;
         }
-        const data = updateTopDownData(live.data, trace, loadState === "ready");
+        const data = updateCycleNavigatorData(live.data, trace, loadState === "ready");
         live.data = data;
-        setTopDownData((current) => current === data ? current : data);
+        setNavigatorData((current) => current === data ? current : data);
     }, [loadState, renderVersion, trace, traceNavigatorAvailable]);
 
     useLayoutEffect(() => {
@@ -755,9 +761,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             redraw();
         }
     }, [
-        baselineTopDownData,
+        baselineNavigatorData,
         redraw,
-        topDownData,
+        navigatorData,
         traceNavigator,
         traceNavigatorAvailable,
         traceNavigatorDataReady,
@@ -1185,7 +1191,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         grabOffset: number,
         comparisonTrack: CycleNavigatorComparisonTrack | null,
     ) => {
-        if (topDownData === null) {
+        if (navigatorData === null) {
             return;
         }
         const rect = canvas.getBoundingClientRect();
@@ -1194,11 +1200,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const candidateSpec = viewController.currentSpec;
         const baselineSpec = viewController.currentBaselineSpec;
         const navigatorComparison = createCycleNavigatorComparison(
-            baselineTopDownData, topDownData, baselineSpec, candidateSpec,
+            baselineNavigatorData, navigatorData, baselineSpec, candidateSpec,
         );
         const position = comparisonMode === null
             ? getCycleNavigatorScrollPosition(
-                topDownData, candidateSpec, width, x - grabOffset,
+                navigatorData, candidateSpec, width, x - grabOffset,
             )
             : navigatorComparison === null
                 ? null
@@ -1244,7 +1250,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
     const handleCycleNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
         if (event.button !== 0 || cycleNavigatorRangeMode !== "overview" ||
-            topDownData === null || cycleNavigatorPointerRef.current !== null) {
+            navigatorData === null || cycleNavigatorPointerRef.current !== null) {
             return;
         }
         const canvas = event.currentTarget;
@@ -1257,7 +1263,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const candidateSpec = viewController.currentSpec;
         const baselineSpec = viewController.currentBaselineSpec;
         const navigatorComparison = createCycleNavigatorComparison(
-            baselineTopDownData, topDownData, baselineSpec, candidateSpec,
+            baselineNavigatorData, navigatorData, baselineSpec, candidateSpec,
         );
         const comparisonTrack: CycleNavigatorComparisonTrack | null = comparisonMode === null
             ? null
@@ -1265,7 +1271,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 ? y < canvas.clientHeight / 2 ? "baseline" : "candidate"
                 : comparisonMode;
         const viewport = comparisonMode === null
-            ? getCycleNavigatorViewport(topDownData, candidateSpec, width)
+            ? getCycleNavigatorViewport(navigatorData, candidateSpec, width)
             : navigatorComparison === null
                 ? null
                 : getComparisonCycleNavigatorViewport(
@@ -1478,21 +1484,21 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         >
                             <option
                                 value="top-down"
-                                disabled={cycleNavigatorStageStructureUnavailable}
+                                disabled={cycleNavigatorAnalysisUnavailable}
                             >Top-down</option>
                             <option value="fetch">Fetch</option>
                             <option
                                 value="issue"
-                                disabled={cycleNavigatorStageStructureUnavailable}
+                                disabled={cycleNavigatorAnalysisUnavailable}
                             >Issue</option>
                             <option value="commit">Commit</option>
                             <option
                                 value="flush"
-                                disabled={cycleNavigatorStageStructureUnavailable}
+                                disabled={cycleNavigatorAnalysisUnavailable}
                             >Flush</option>
                             <option
                                 value="latency"
-                                disabled={cycleNavigatorStageStructureUnavailable}
+                                disabled={cycleNavigatorAnalysisUnavailable}
                             >Latency</option>
                         </select>
                         <div
@@ -1534,7 +1540,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         />
                         {!traceNavigatorDataReady && (
                             <span className="trace-navigator-cycle-status">
-                                {topDownStatusMessage}
+                                {navigatorStatusMessage}
                             </span>
                         )}
                     </section>

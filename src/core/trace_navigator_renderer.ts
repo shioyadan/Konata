@@ -2,14 +2,14 @@
 import darkStyle from "../../theme/dark/style.json";
 import lightStyle from "../../theme/light/style.json";
 import {
-    getCycleActivity,
-    type CycleActivityMode,
-} from "./cycle_activity_analysis";
-import {
-    getTopDownBreakdown,
-    type TopDownBreakdown,
-    type TopDownData,
-} from "./top_down_analysis";
+    getCycleNavigatorActivity,
+    getCycleNavigatorActivityMaximum,
+    getCycleNavigatorTopDown,
+    resolveCycleNavigatorMode,
+    type CycleNavigatorData,
+    type CycleNavigatorMode,
+    type CycleNavigatorTopDownSample,
+} from "./trace_navigator_analysis";
 import {
     getKonataZoomScale,
     KONATA_OP_WIDTH,
@@ -18,21 +18,12 @@ import {
 
 // 縮小表示ではOp描画と同じくglobal cycleへ揃えた代表点だけを見る。各cycle内では
 // 全allocation slotを数えるため、slot位置によるcategory比率の偏りは作らない。
-const MAX_SAMPLED_CYCLES_PER_PIXEL = 64;
 const MIN_VIEWPORT_WIDTH = 8;
 const styles = { light: lightStyle, dark: darkStyle };
 
-export type CycleNavigatorMode = "top-down" | CycleActivityMode;
 export type CycleNavigatorRangeMode = "follow" | "overview";
 export type CycleNavigatorComparisonMode = "baseline" | "overlay" | "candidate";
 export type CycleNavigatorComparisonTrack = "baseline" | "candidate";
-
-/** Fetch／Commit以外は、Detectorが推定したstage境界を集計に使う。 */
-export function cycleNavigatorModeRequiresStageStructure(
-    mode: CycleNavigatorMode,
-): boolean {
-    return mode !== "fetch" && mode !== "commit";
-}
 
 export interface CycleNavigatorViewport {
     readonly left: number;
@@ -40,7 +31,7 @@ export interface CycleNavigatorViewport {
 }
 
 export interface CycleNavigatorSource {
-    readonly data: Readonly<TopDownData>;
+    readonly data: Readonly<CycleNavigatorData>;
     readonly spec: Readonly<KonataRenderSpec>;
 }
 
@@ -141,7 +132,7 @@ function createBreakdownColors(
 
 function drawBreakdown(
     context: CanvasRenderingContext2D,
-    sample: Readonly<TopDownBreakdown>,
+    sample: Readonly<CycleNavigatorTopDownSample>,
     colors: Readonly<BreakdownColors>,
     left: number,
     width: number,
@@ -193,7 +184,7 @@ function drawViewport(
 }
 
 function drawLabels(
-    data: Readonly<TopDownData>,
+    data: Readonly<CycleNavigatorData>,
     spec: Readonly<KonataRenderSpec>,
     canvas: Readonly<PreparedCanvas>,
     colors: Readonly<BreakdownColors>,
@@ -201,7 +192,7 @@ function drawLabels(
     showDetails: boolean,
     activityMaximum?: number,
 ): void {
-    const { analysis } = data;
+    const { topDown } = data;
     const style = styles[spec.theme];
     const margin = Number(style.labelPane.marginLeft);
     const { context } = canvas;
@@ -218,14 +209,14 @@ function drawLabels(
         if (!showDetails) {
             return;
         }
-        const series = data.cycleActivity[mode];
         const info = activityInfo[mode];
-        const prefix = mode === "issue" && analysis !== null
-            ? `${analysis.executionStage.label} · `
-            : mode === "latency" && analysis !== null
-                ? `${analysis.executionStage.label} → completion · `
+        const prefix = mode === "issue" && topDown !== null
+            ? `${topDown.executionStage.label} · `
+            : mode === "latency" && topDown !== null
+                ? `${topDown.executionStage.label} → completion · `
                 : "";
-        const maximumValue = activityMaximum ?? series.maximum;
+        const maximumValue = activityMaximum ??
+            getCycleNavigatorActivityMaximum(data, mode);
         const maximum = maximumValue >= 255 ? "≥255" : format(maximumValue);
         let detailWidth = canvas.width - detailLeft - margin;
         if (mode === "fetch" || mode === "issue") {
@@ -251,7 +242,7 @@ function drawLabels(
         );
         return;
     }
-    if (analysis === null) {
+    if (topDown === null) {
         return;
     }
 
@@ -260,8 +251,8 @@ function drawLabels(
     if (showDetails) {
         context.font = `${style.fontStyle} 11px ${style.fontFamily}`;
         context.fillText(
-            `AUTO · ${analysis.allocationStage.label} ` +
-                `≥${format(analysis.allocationWidth)}/c → ${analysis.executionStage.label}`,
+            `AUTO · ${topDown.allocationStage.label} ` +
+                `≥${format(topDown.allocationWidth)}/c → ${topDown.executionStage.label}`,
             detailLeft,
             detailCenter,
             Math.max(1, legendLeft - detailLeft - 10),
@@ -290,7 +281,7 @@ function drawLabels(
 }
 
 function getCycleScale(
-    data: Readonly<TopDownData>,
+    data: Readonly<CycleNavigatorData>,
     spec: Readonly<KonataRenderSpec>,
     width: number,
     rangeMode: CycleNavigatorRangeMode,
@@ -353,7 +344,7 @@ function getScrollPosition(
 
 /** Overview上で、現在のPipeline表示範囲に対応するscrollbar thumbを返す。 */
 export function getCycleNavigatorViewport(
-    data: Readonly<TopDownData>,
+    data: Readonly<CycleNavigatorData>,
     spec: Readonly<KonataRenderSpec>,
     width: number,
 ): CycleNavigatorViewport | null {
@@ -364,7 +355,7 @@ export function getCycleNavigatorViewport(
 
 /** Overviewのthumb左端を、Pipeline左端のcycleへ戻す。 */
 export function getCycleNavigatorScrollPosition(
-    data: Readonly<TopDownData>,
+    data: Readonly<CycleNavigatorData>,
     spec: Readonly<KonataRenderSpec>,
     width: number,
     viewportLeft: number,
@@ -462,7 +453,7 @@ function clearNavigator(
 }
 
 function drawCycleTrack(
-    data: Readonly<TopDownData>,
+    data: Readonly<CycleNavigatorData>,
     cycleNavigator: Readonly<PreparedCanvas>,
     scale: Readonly<CycleScale>,
     top: number,
@@ -476,11 +467,10 @@ function drawCycleTrack(
     const rightCycle = leftCycle + cycleNavigator.width / scale.pixelsPerCycle;
     const drawRange = (startCycle: number, endCycle: number, left: number, width: number) => {
         if (mode === "top-down") {
-            const sample = getTopDownBreakdown(
+            const sample = getCycleNavigatorTopDown(
                 data,
                 startCycle,
                 endCycle,
-                MAX_SAMPLED_CYCLES_PER_PIXEL,
             );
             if (sample !== null) {
                 drawBreakdown(
@@ -495,13 +485,11 @@ function drawCycleTrack(
             }
             return;
         }
-        const sample = getCycleActivity(
-            data.cycleActivity,
-            data.cycleCount,
+        const sample = getCycleNavigatorActivity(
+            data,
             mode,
             startCycle,
             endCycle,
-            MAX_SAMPLED_CYCLES_PER_PIXEL,
         );
         const maximum = activityMaximum ?? sample?.maximum ?? 0;
         if (sample === null || maximum === 0) {
@@ -573,7 +561,7 @@ function drawNavigatorViewport(
 }
 
 export function drawCycleNavigator(
-    data: Readonly<TopDownData>,
+    data: Readonly<CycleNavigatorData>,
     spec: Readonly<KonataRenderSpec>,
     labelCanvas: HTMLCanvasElement,
     cycleCanvas: HTMLCanvasElement,
@@ -607,13 +595,10 @@ export function drawComparisonCycleNavigator(
     const overlay = comparisonMode === "overlay";
     const selected = comparisonMode === "baseline" ? baseline : candidate;
     // stage依存modeだけをCommitへ退避する。Fetch／Commitは構造なしでも比較できる。
-    const stageStructureUnavailable = overlay
-        ? baseline.data.analysis === null || candidate.data.analysis === null
-        : selected.data.analysis === null;
-    const effectiveMode = stageStructureUnavailable &&
-        cycleNavigatorModeRequiresStageStructure(mode)
-        ? "commit"
-        : mode;
+    const effectiveMode = resolveCycleNavigatorMode(
+        mode,
+        ...(overlay ? [baseline.data, candidate.data] : [selected.data]),
+    );
     const labelSource = overlay ? candidate : selected;
     const label = prepareCanvas(labelCanvas);
     const cycleNavigator = prepareCanvas(cycleCanvas);
@@ -621,8 +606,8 @@ export function drawComparisonCycleNavigator(
     const colors = clearNavigator(label, cycleNavigator, labelSource.spec);
     const activityMaximum = overlay && effectiveMode !== "top-down"
         ? Math.max(
-            baseline.data.cycleActivity[effectiveMode].maximum,
-            candidate.data.cycleActivity[effectiveMode].maximum,
+            getCycleNavigatorActivityMaximum(baseline.data, effectiveMode),
+            getCycleNavigatorActivityMaximum(candidate.data, effectiveMode),
         )
         : undefined;
     drawLabels(

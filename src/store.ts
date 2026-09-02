@@ -23,10 +23,8 @@ import {
     type KonataView,
     type RendererTheme,
 } from "./core/konata_renderer";
-import type {
-    CycleNavigatorMode,
-    CycleNavigatorRangeMode,
-} from "./core/trace_navigator_renderer";
+import type { CycleNavigatorMode } from "./core/trace_navigator_analysis";
+import type { CycleNavigatorRangeMode } from "./core/trace_navigator_renderer";
 import {
     pickTraceFileAccess,
     recentTraceFileAccess,
@@ -86,7 +84,7 @@ export interface GlobalViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
-    // 集計済みTopDownDataはTraceSheetが所有し、軽量な表示設定だけをStoreへ置く。
+    // 集計済みCycleNavigatorDataはTraceSheetが所有し、軽量な表示設定だけをStoreへ置く。
     readonly traceNavigator: Readonly<TraceNavigatorSettings>;
     readonly customColorScheme: Readonly<CustomColorScheme>;
     readonly dependencyArrowType: DependencyArrowType;
