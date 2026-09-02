@@ -339,10 +339,12 @@ export class Gem5O3PipeViewParser {
             for (const stage of lane.stages) {
                 stage.startCycle = stage.startCycle / this.ticksPerClock_ - this.cycleBegin_;
                 stage.endCycle = stage.endCycle / this.ticksPerClock_ - this.cycleBegin_;
-                // retire eventは通常stageとして右端へ1 cycle表示する。生のretire時刻は
-                // op.retiredCycleに保持し、命令のretire順や依存線の位置は変えない。
+                // retire eventは通常stageとして右端へ1 cycle表示する。共通modelの
+                // retiredCycleは排他的な描画終端なので、Rtの末端へ揃える。
+                // 生のretire時刻はRtの始点とlabelDetailのRetired Tickに残る。
                 if (stage.name === STAGE_LABELS.retire && stage.startCycle === stage.endCycle) {
                     stage.endCycle++;
+                    op.retiredCycle = stage.endCycle;
                 }
                 // Rendererの既存規則を変えず、flushの0-cycle stageも従来どおり広げる。
                 else if (op.flush && stage.startCycle === stage.endCycle) {

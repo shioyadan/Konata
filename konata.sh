@@ -2,20 +2,102 @@
 
 # リモートやWSL上のtraceを、SSH port forwarding先のbrowserからKonataで開く。
 # PythonでHTMLと指定traceだけを固定URLへ対応付け、元のdirectory全体は公開しない。
+# 配布済みdirectoryでは、Pages上の検証済みlatest archiveから自分自身を更新できる。
 set -eu
 
-# traceは比較用を含め2 fileまでに限定する。
+# archive生成時にcommit時刻、hash、日付へ置換し、updateの表示と新旧判定に使う。
+build=0-source-unknown
+
 usage() {
-    echo "Usage: $0 TRACE1 [TRACE2]" >&2
+    echo "Usage:" >&2
+    echo "  $0 TRACE1 [TRACE2]" >&2
+    echo "  $0 --update" >&2
     exit 2
 }
 
+# symlink経由でも配布本体を更新し、起動時にも同じHTMLを参照する。
+script_path="$(realpath -- "$0")"
+script_dir="$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)"
+
+if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
+    index_path="$script_dir/index.html"
+    if [ ! -f "$index_path" ]; then
+        echo "Konata can update only an extracted distribution with index.html next to konata.sh." >&2
+        exit 1
+    fi
+
+    update_dir="$(mktemp -d "$script_dir/.konata-update.XXXXXX")"
+    trap 'rm -rf -- "$update_dir"' EXIT
+    trap 'exit 1' HUP INT TERM
+
+    echo "Downloading the latest Konata development build..."
+    update_url="${KONATA_UPDATE_URL:-https://shioyadan.github.io/Konata/konata-latest.zip}"
+    archive_path="$update_dir/konata-latest.zip"
+    if ! python3 -c \
+        'import socket,sys; from urllib.request import urlretrieve; socket.setdefaulttimeout(30); urlretrieve(*sys.argv[1:])' \
+        "$update_url" "$archive_path" ||
+        ! python3 -m zipfile -e "$archive_path" "$update_dir"; then
+        echo "Could not download and unpack the Konata update." >&2
+        exit 1
+    fi
+
+    payload_dir="$update_dir/konata-latest"
+    payload_build="$(sed -n 's/^build=//p' "$payload_dir/konata.sh" 2>/dev/null || true)"
+    if [[ ! "$payload_build" =~ ^[0-9]+-[0-9a-f]+-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] ||
+        [ "$(head -n 1 "$payload_dir/konata.sh")" != '#!/usr/bin/env bash' ] ||
+        ! bash -n "$payload_dir/konata.sh" ||
+        ! head -c 64 "$payload_dir/index.html" | grep -qi '^<!doctype html>'; then
+        echo "The downloaded Konata update is invalid." >&2
+        exit 1
+    fi
+
+    IFS=- read -r current_time current_hash current_date <<< "$build"
+    IFS=- read -r payload_time payload_hash payload_date <<< "$payload_build"
+    printf 'Installed build: %s (%s)\n' "$current_hash" "$current_date"
+    printf 'Available build: %s (%s)\n' "$payload_hash" "$payload_date"
+    if cmp -s "$payload_dir/konata.sh" "$script_path" &&
+        cmp -s "$payload_dir/index.html" "$index_path"; then
+        echo "Konata is already up to date."
+        exit 0
+    fi
+    if [ "$payload_time" -gt "$current_time" ]; then
+        echo "A newer Konata build is available:"
+    elif [ "$payload_time" -lt "$current_time" ]; then
+        echo "The available Konata build is older than this copy:"
+    else
+        echo "The available Konata build differs from this copy:"
+    fi
+    cmp -s "$payload_dir/konata.sh" "$script_path" || echo "  konata.sh"
+    cmp -s "$payload_dir/index.html" "$index_path" || echo "  index.html"
+    printf 'Install this update? [y/N] ' >&2
+    if ! read -r answer; then
+        echo >&2
+        answer=
+    fi
+    case "$answer" in
+        y|Y|yes|Yes|YES) ;;
+        *)
+            echo "Update cancelled."
+            exit 0
+            ;;
+    esac
+
+    chmod 755 "$payload_dir/konata.sh"
+    chmod 644 "$payload_dir/index.html"
+
+    # scriptを先に置換し、2つ目で中断しても--updateを再実行できるようにする。
+    mv -f "$payload_dir/konata.sh" "$script_path"
+    mv -f "$payload_dir/index.html" "$index_path"
+    echo "Konata was updated to the latest development build."
+    exit 0
+fi
+
+# traceは比較用を含め2 fileまでに限定する。
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     usage
 fi
 
 # releaseでは同梱HTML、source treeではproduction buildを探す。
-script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 if [ -f "$script_dir/index.html" ]; then
     index_file="$script_dir/index.html"
 elif [ -f "$script_dir/dist-web/index.html" ]; then
@@ -44,8 +126,13 @@ for trace_file in "$@"; do
     trace_paths+=("$trace_path")
 done
 
-# localhostの待受portだけを環境変数で変更できる。
-port="${KONATA_PORT:-30080}"
+# 未指定時は短い事前探索で空きportを選ぶ。serverのbindまでに稀な競合はあり得る。
+port="${KONATA_PORT:-$(python3 -c '
+import socket
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+')}"
 case "$port" in
     ''|*[!0-9]*)
         echo "KONATA_PORT must be an integer from 1 to 65535." >&2

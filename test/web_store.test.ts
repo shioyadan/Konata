@@ -444,6 +444,60 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     assert.equal(store.activeTab, null);
 });
 
+test("Comparison tabs follow live source traces while loading", () => {
+    const store = new Store();
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "live-baseline.log" });
+    const baselineTab = store.activeTab;
+    assert.ok(baselineTab !== null && baselineTab.kind === "trace");
+    const baseline = createTrace("live-baseline.log");
+    store.dispatch({ type: "FILE_LOAD_TRACE", tabID: baselineTab.id, trace: baseline.trace });
+
+    store.dispatch({ type: "FILE_OPEN", fileName: "live-candidate.log" });
+    const candidateTab = store.activeTab;
+    assert.ok(candidateTab !== null && candidateTab.kind === "trace");
+    const candidate = createTrace("live-candidate.log");
+    store.dispatch({ type: "FILE_LOAD_TRACE", tabID: candidateTab.id, trace: candidate.trace });
+
+    assert.equal(baselineTab.loadState, "loading");
+    assert.equal(candidateTab.loadState, "loading");
+    store.dispatch({
+        type: "COMPARISON_OPEN",
+        baselineTabID: baselineTab.id,
+        candidateTabID: candidateTab.id,
+    });
+    const comparison = store.activeTab;
+    assert.ok(comparison !== null && comparison.kind === "comparison");
+    assert.equal(comparison.baselineTrace, baseline.trace);
+    assert.equal(comparison.trace, candidate.trace);
+
+    changes.length = 0;
+    const added = new Op();
+    added.id = 1;
+    candidate.opStore.setOp(added.id, added);
+    store.dispatch({ type: "FILE_LOAD_TRACE", tabID: candidateTab.id, trace: candidate.trace });
+
+    assert.equal(comparison.trace?.opCount, 2);
+    assert.ok(changes.some((change) => change.type === "PANE_CONTENT_UPDATE" &&
+        change.tabID === candidateTab.id));
+    assert.ok(changes.some((change) => change.type === "PANE_CONTENT_UPDATE" &&
+        change.tabID === comparison.id));
+
+    changes.length = 0;
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: baselineTab.id, trace: baseline.trace });
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: candidateTab.id, trace: candidate.trace });
+    assert.equal(baselineTab.loadState, "ready");
+    assert.equal(candidateTab.loadState, "ready");
+    assert.ok(changes.some((change) => change.type === "PANE_CONTENT_UPDATE" &&
+        change.tabID === comparison.id));
+
+    store.dispatch({ type: "STORE_CLOSE" });
+    assert.equal(baseline.opStore.opCount, 0);
+    assert.equal(candidate.opStore.opCount, 0);
+});
+
 test("Store rejects a delayed trace update after its tab is closed", () => {
     const store = new Store();
     store.dispatch({ type: "FILE_OPEN", fileName: "closed.log" });
