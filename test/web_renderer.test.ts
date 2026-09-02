@@ -299,6 +299,56 @@ function createTopDownBreakdownTrace(): ParsedTrace {
     return new ParsedTrace("topdown.log", store, levelMap, 14);
 }
 
+function createCompositeAllocationTrace(): ParsedTrace {
+    const store = new ArrayOpStore();
+    const levelMap = new StageLevelMap();
+    const pipelineLaneID = levelMap.getOrCreateLaneID("0");
+    const stallLaneID = levelMap.getOrCreateLaneID("1");
+    const timings = [
+        { stage: "ready", start: 2, end: 8, stallEnd: 12 },
+        { stage: "wait", start: 2, end: 9, stallEnd: 11 },
+        { stage: "ready", start: 2, end: 6, stallEnd: 10 },
+        { stage: "wait", start: 3, end: 7, stallEnd: 9 },
+    ] as const;
+    timings.forEach((timing, id) => {
+        const op = new Op();
+        op.id = id;
+        op.gid = id;
+        op.rid = id;
+        op.tid = 0;
+        op.retired = true;
+        op.fetchedCycle = timing.start - 1;
+        op.retiredCycle = timing.end + 2;
+        const lane = new Lane();
+        const execution = timing.stage === "ready" ? "execute-ready" : "execute-wait";
+        for (const [name, startCycle, endCycle] of [
+            ["source", timing.start - 1, timing.start],
+            [timing.stage, timing.start, timing.end],
+            [execution, timing.end, timing.end + 1],
+            ["complete", timing.end + 1, timing.end + 2],
+        ] as const) {
+            const stage = new Stage();
+            stage.name = name;
+            stage.startCycle = startCycle;
+            stage.endCycle = endCycle;
+            lane.stages.push(stage);
+            levelMap.update("0", name, lane);
+        }
+        op.lanes[pipelineLaneID] = lane;
+        const stallLane = new Lane();
+        const stall = new Stage();
+        stall.name = "stall";
+        stall.startCycle = 1;
+        stall.endCycle = timing.stallEnd;
+        stallLane.stages.push(stall);
+        levelMap.update("1", stall.name, stallLane);
+        op.lanes[stallLaneID] = stallLane;
+        store.setOp(id, op);
+        store.setRetiredOp(id, op);
+    });
+    return new ParsedTrace("composite-allocation.log", store, levelMap, 14);
+}
+
 function appendTopDownBreakdownOp(
     trace: ParsedTrace,
     id: number,
@@ -695,6 +745,20 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.ok(comparisonNavigator.fillRects.some(([x, y, width, height]) =>
         x === 0 && y === 64 && width === overviewWidth && height === 1));
     assert.equal(comparisonNavigator.strokeRects.length, 2);
+    trace.close();
+});
+
+test("Top-down-like view uses a detected composite allocation frontier", async () => {
+    const trace = createCompositeAllocationTrace();
+    const data = await buildTopDownData(trace, { binCycleCount: 1 });
+    assert.ok(data?.analysis !== null && data?.analysis !== undefined);
+    assert.equal(data.analysis.allocationStage.label, "0/ready/wait");
+    assert.equal(data.analysis.executionStage.label, "0/execute-ready/execute-wait");
+    assert.equal(data.analysis.allocationWidth, 3);
+    const fullAllocation = getTopDownBreakdown(data, 2, 3);
+    assert.ok(fullAllocation !== null);
+    assert.equal(fullAllocation.retiringSlots, 3);
+    assert.equal(fullAllocation.frontendBound, 0);
     trace.close();
 });
 
