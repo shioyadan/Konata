@@ -3895,6 +3895,7 @@ async function run() {
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const dependencyType = document.querySelector('select[aria-label="Dependency arrow type"]');
         const webGLToggle = document.querySelector('input[aria-label="WebGL rendering"]');
+        const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
         const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
@@ -3903,6 +3904,7 @@ async function run() {
             !(colorScheme instanceof HTMLSelectElement) ||
             !(dependencyType instanceof HTMLSelectElement) ||
             !(webGLToggle instanceof HTMLInputElement) ||
+            !(tiledRendering instanceof HTMLInputElement) ||
             !(zoomSpeed instanceof HTMLSelectElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement) || !(pipeline instanceof HTMLCanvasElement)) {
@@ -3913,7 +3915,14 @@ async function run() {
         const originalColorScheme = colorScheme.value;
         const originalDependencyType = dependencyType.value;
         const originalWebGLEnabled = webGLToggle.checked;
+        const originalTiledRendering = tiledRendering.checked;
         const originalZoomSpeed = zoomSpeed.value;
+        // WebGL/Canvas backendそのものを比較する間は非同期tile cacheを切る。
+        // tile生成速度で完成時刻が変わると、固定時間後の画素比較が未完成frameを拾ってしまう。
+        if (tiledRendering.checked) {
+            tiledRendering.click();
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
         let drawCalls = 0;
         let instances = 0;
         let maximumInstances = 0;
@@ -4118,6 +4127,9 @@ async function run() {
         dependencyType.dispatchEvent(new Event("change", {bubbles: true}));
         if (webGLToggle.checked !== originalWebGLEnabled) {
             webGLToggle.click();
+        }
+        if (tiledRendering.checked !== originalTiledRendering) {
+            tiledRendering.click();
         }
         zoomSpeed.value = originalZoomSpeed;
         zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
