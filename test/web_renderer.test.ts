@@ -11,12 +11,15 @@ import {
     updateCycleNavigatorData,
 } from "../src/core/trace_navigator_analysis";
 import {
+    drawComparisonInstructionNavigator,
     drawComparisonCycleNavigator,
     drawCycleNavigator,
+    drawInstructionNavigator,
     getComparisonCycleNavigatorScrollPosition,
     getComparisonCycleNavigatorViewport,
     getCycleNavigatorScrollPosition,
     getCycleNavigatorViewport,
+    getInstructionNavigatorPosition,
 } from "../src/core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -747,6 +750,154 @@ test("Top-down-like view classifies allocation slots without stage names", async
         x === 0 && y === 64 && width === overviewWidth && height === 1));
     assert.equal(comparisonNavigator.strokeRects.length, 2);
     trace.close();
+});
+
+test("Instruction navigator draws one wrapped lifetime per sampled instruction", () => {
+    const trace = createTopDownBreakdownTrace();
+    const height = 48;
+    const baselineSpec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [2, 0],
+    } as const;
+    const candidateSpec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [3, 1],
+    } as const;
+    const position = getInstructionNavigatorPosition(
+        trace, candidateSpec, 16, height, 3, 1,
+    );
+    assert.ok(position !== null && position[0] >= 0 && position[1] >= 0);
+
+    const navigator = createRecordedContext();
+    drawInstructionNavigator(
+        trace,
+        candidateSpec,
+        createCanvas(navigator.context, 16, height),
+        160,
+    );
+    assert.ok(navigator.fillStyles.includes("hsl(0,0%,70%)"));
+    assert.ok(navigator.fillStyles.includes("hsl(0,0%,55%)"));
+    assert.ok(navigator.fillStyles.includes("rgba(0,0,0,0.6)"));
+    assert.ok(navigator.fillStyles.includes("rgba(255,255,255,0.75)"));
+
+    const lightNavigator = createRecordedContext();
+    drawInstructionNavigator(
+        trace,
+        { ...candidateSpec, theme: "light" },
+        createCanvas(lightNavigator.context, 16, height),
+        160,
+    );
+    assert.ok(lightNavigator.fillStyles.includes("rgba(0,0,0,0.68)"));
+    assert.ok(lightNavigator.fillStyles.includes("rgba(0,0,0,0.35)"));
+    assert.ok(lightNavigator.fillStyles.includes("rgba(255,255,255,0.6)"));
+
+    const comparison = {
+        baseline: { trace, spec: baselineSpec },
+        candidate: { trace, spec: candidateSpec },
+    } as const;
+    const comparisonNavigator = createRecordedContext();
+    drawComparisonInstructionNavigator(
+        comparison,
+        createCanvas(comparisonNavigator.context, 16, height),
+        "overlay",
+        160,
+    );
+    assert.ok(comparisonNavigator.fillRects.some(([x, y, width, drawnHeight]) =>
+        x === 8 && y === 0 && width === 1 && drawnHeight === height));
+    trace.close();
+});
+
+test("Instruction navigator magnifies and wraps instruction lifetimes", () => {
+    const trace = createLatencyTrace([[14, 15]]);
+    const navigator = createRecordedContext();
+    const scale = drawInstructionNavigator(
+        trace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(navigator.context, 16, 3),
+        128,
+    );
+    assert.equal(scale, 1);
+    const instructionColor = "hsl(0,0%,70%)";
+    assert.ok(navigator.fillRects.some((rect, index) =>
+        navigator.fillStyles[index] === instructionColor &&
+        rect[0] === 14 && rect[1] === 0 && rect[2] === 2 && rect[3] === 3));
+    assert.ok(navigator.fillRects.some((rect, index) =>
+        navigator.fillStyles[index] === instructionColor &&
+        rect[0] === 0 && rect[1] === 0 && rect[2] === 6 && rect[3] === 3));
+    assert.ok(navigator.fillRects.some((rect, index) =>
+        navigator.fillStyles[index] === "hsl(0,0%,84%)" &&
+        rect[0] === 14 && rect[1] === 0 && rect[2] === 1 && rect[3] === 3));
+    assert.ok(navigator.fillRects.some((rect, index) =>
+        navigator.fillStyles[index] === "hsl(0,0%,84%)" &&
+        rect[0] === 5 && rect[1] === 0 && rect[2] === 1 && rect[3] === 3));
+    assert.deepEqual(
+        getInstructionNavigatorPosition(
+            trace, DEFAULT_KONATA_RENDER_SPEC, 16, 3, 14, 1, scale,
+        ),
+        [14, 0],
+    );
+    trace.close();
+
+    const flushedTrace = createTopDownCancellationTrace();
+    const flushedNavigator = createRecordedContext();
+    drawInstructionNavigator(
+        flushedTrace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(flushedNavigator.context, 8, 2),
+        128,
+    );
+    assert.ok(flushedNavigator.fillRects.some((rect, index) =>
+        flushedNavigator.fillStyles[index] === "hsl(0,0%,55%)" &&
+        rect[0] === 0 && rect[1] === 1 && rect[2] === 8 && rect[3] === 1));
+    flushedTrace.close();
+
+    const pipelineAspectTrace = createLatencyTrace(Array.from(
+        { length: 64 },
+        (_, id) => [Math.floor(id / 4), Math.floor(id / 4) + 16] as const,
+    ));
+    const aspectNavigator = createRecordedContext();
+    assert.equal(drawInstructionNavigator(
+        pipelineAspectTrace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(aspectNavigator.context, 16, 4),
+        128,
+    ), 12);
+    assert.deepEqual(aspectNavigator.fillRects
+        .filter((_, index) => aspectNavigator.fillStyles[index] === instructionColor)
+        .map(([x, y, width]) => [x, y, width]), [
+            [0, 0, 11], [0, 1, 11], [0, 2, 11], [1, 3, 11],
+        ]);
+    for (let y = 0; y < 4; y++) {
+        assert.equal(getInstructionNavigatorPosition(
+            pipelineAspectTrace, DEFAULT_KONATA_RENDER_SPEC, 16, 4, 0, y, 12,
+        )?.[1], y * 16);
+    }
+    pipelineAspectTrace.close();
+});
+
+test("Instruction navigator hit testing follows drawn row boundaries", () => {
+    for (const [rowCount, height] of [[3, 4], [5, 8], [7, 11], [100, 200]]) {
+        const trace = createLatencyTrace(Array.from(
+            { length: rowCount }, (_, id) => [id * 8, id * 8 + 1] as const,
+        ));
+        const navigator = createRecordedContext();
+        const width = rowCount * 8;
+        const scale = drawInstructionNavigator(
+            trace, DEFAULT_KONATA_RENDER_SPEC,
+            createCanvas(navigator.context, width, height), 1,
+        );
+        const bars = navigator.fillRects.filter((_, index) =>
+            navigator.fillStyles[index] === "hsl(0,0%,70%)");
+        assert.equal(bars.length, rowCount);
+        for (const [x, top, , barHeight] of bars) {
+            for (let y = top; y < top + barHeight; y++) {
+                assert.deepEqual(getInstructionNavigatorPosition(
+                    trace, DEFAULT_KONATA_RENDER_SPEC, width, height, x, y, scale,
+                ), [x, x / 8], `Row ${y} of ${height} pixels / ${rowCount} ops`);
+            }
+        }
+        trace.close();
+    }
 });
 
 test("Top-down-like view uses a detected composite allocation frontier", async () => {

@@ -22,12 +22,15 @@ import {
     updateCycleNavigatorData,
 } from "../core/trace_navigator_analysis";
 import {
+    drawComparisonInstructionNavigator,
     drawComparisonCycleNavigator,
     drawCycleNavigator,
+    drawInstructionNavigator,
     getComparisonCycleNavigatorScrollPosition,
     getComparisonCycleNavigatorViewport,
     getCycleNavigatorScrollPosition,
     getCycleNavigatorViewport,
+    getInstructionNavigatorPosition,
     type CycleNavigatorComparison,
     type CycleNavigatorComparisonTrack,
 } from "../core/trace_navigator_renderer";
@@ -209,12 +212,18 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorLabelCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
+    const instructionNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorDetailsVisibleRef = useRef(false);
     const cycleNavigatorPointerRef = useRef<{
         readonly pointerID: number;
         readonly grabOffset: number;
         readonly comparisonTrack: CycleNavigatorComparisonTrack | null;
     } | null>(null);
+    const instructionNavigatorPointerRef = useRef<{
+        readonly pointerID: number;
+        readonly baselineSelected: boolean;
+    } | null>(null);
+    const instructionNavigatorScaleRef = useRef(1);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const findResultRef = useRef<HTMLDivElement>(null);
@@ -512,6 +521,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             candidateLayerCanvasRef.current,
             cycleNavigatorLabelCanvasRef.current,
             cycleNavigatorCanvasRef.current,
+            instructionNavigatorCanvasRef.current,
         ]) {
             if (canvas !== null) {
                 // software Canvasの遅延描画資源を、参照中のTraceより先に切り離す。
@@ -531,6 +541,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const pipelineCanvas = pipelineCanvasRef.current;
         const cycleNavigatorLabelCanvas = cycleNavigatorLabelCanvasRef.current;
         const cycleNavigatorCanvas = cycleNavigatorCanvasRef.current;
+        const instructionNavigatorCanvas = instructionNavigatorCanvasRef.current;
         const candidateMetrics = new KonataRenderMetrics(trace, candidateSpec);
         const currentBaselineMetrics = currentBaselineSpec === undefined
             ? null
@@ -557,6 +568,26 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ...tileOptions,
             prefetchSpec: baselinePrefetchSpec,
         } as const;
+        if (traceNavigatorAvailable && trace !== null && instructionNavigatorCanvas !== null) {
+            const pipelineHeight = pipelineCanvas?.clientHeight ?? instructionNavigatorCanvas.clientHeight;
+            if (comparisonMode !== null && baselineTrace !== null &&
+                currentBaselineSpec !== undefined) {
+                instructionNavigatorScaleRef.current = drawComparisonInstructionNavigator(
+                    {
+                        baseline: { trace: baselineTrace, spec: currentBaselineSpec },
+                        candidate: { trace, spec: candidateSpec },
+                    },
+                    instructionNavigatorCanvas,
+                    comparisonMode,
+                    pipelineHeight,
+                );
+            }
+            else {
+                instructionNavigatorScaleRef.current = drawInstructionNavigator(
+                    trace, candidateSpec, instructionNavigatorCanvas, pipelineHeight,
+                );
+            }
+        }
         if (traceNavigatorAvailable && traceNavigatorDataReady && navigatorData !== null &&
             cycleNavigatorLabelCanvas !== null && cycleNavigatorCanvas !== null) {
             const navigatorComparison = createCycleNavigatorComparison(
@@ -1342,6 +1373,102 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         event.stopPropagation();
     };
 
+    const moveInstructionNavigatorPosition = (
+        canvas: HTMLCanvasElement,
+        clientX: number,
+        clientY: number,
+        baselineSelected: boolean,
+    ) => {
+        if (trace === null) {
+            return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const x = rect.width === 0 ? 0 : (clientX - rect.left) * width / rect.width;
+        const y = rect.height === 0 ? 0 : (clientY - rect.top) * height / rect.height;
+        const candidateSpec = viewController.currentSpec;
+        const baselineSpec = viewController.currentBaselineSpec;
+        const selectedTrace = baselineSelected ? baselineTrace : trace;
+        const selectedSpec = baselineSelected ? baselineSpec : candidateSpec;
+        if (selectedTrace === null || selectedSpec === undefined) {
+            return;
+        }
+        const middle = Math.floor(width / 2);
+        const trackLeft = comparisonMode === "overlay" && !baselineSelected ? middle : 0;
+        const trackWidth = comparisonMode === "overlay"
+            ? baselineSelected ? middle : width - middle
+            : width;
+        const position = getInstructionNavigatorPosition(
+            selectedTrace, selectedSpec, trackWidth, height, x - trackLeft, y,
+            instructionNavigatorScaleRef.current,
+        );
+        if (position === null) {
+            return;
+        }
+        const movedView = {
+            position,
+            zoomLevel: selectedSpec.zoomLevel,
+        };
+        setToolTip(null);
+        viewController.setImmediately(
+            baselineSelected ? getKonataView(candidateSpec) : movedView,
+            baselineSpec === undefined
+                ? undefined
+                : baselineSelected ? movedView : getKonataView(baselineSpec),
+        );
+    };
+
+    const handleInstructionNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
+        if (event.button !== 0 || trace === null ||
+            instructionNavigatorPointerRef.current !== null) {
+            return;
+        }
+        const canvas = event.currentTarget;
+        const rect = canvas.getBoundingClientRect();
+        const width = canvas.clientWidth;
+        const x = rect.width === 0 ? 0 : (event.clientX - rect.left) * width / rect.width;
+        const baselineSelected = comparisonMode === "baseline" ||
+            (comparisonMode === "overlay" && x < Math.floor(width / 2));
+        instructionNavigatorPointerRef.current = {
+            pointerID: event.pointerId,
+            baselineSelected,
+        };
+        canvas.setPointerCapture(event.pointerId);
+        moveInstructionNavigatorPosition(
+            canvas, event.clientX, event.clientY, baselineSelected,
+        );
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleInstructionNavigatorPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
+        const pointer = instructionNavigatorPointerRef.current;
+        if (pointer?.pointerID !== event.pointerId) {
+            return;
+        }
+        moveInstructionNavigatorPosition(
+            event.currentTarget,
+            event.clientX,
+            event.clientY,
+            pointer.baselineSelected,
+        );
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const handleInstructionNavigatorPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
+        if (instructionNavigatorPointerRef.current?.pointerID !== event.pointerId) {
+            return;
+        }
+        instructionNavigatorPointerRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
     const updateToolTip = (
         pane: "label" | "pipeline",
         event: ReactMouseEvent<HTMLCanvasElement>,
@@ -1437,6 +1564,23 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     The pipeline chart requires canvas support.
                 </canvas>
             </section>
+            {traceNavigatorAvailable && (
+                <section
+                    className="viewer-pane trace-navigator-pane instruction-navigator-pane"
+                    aria-label="Instruction navigator"
+                    onPointerDown={(event) => event.stopPropagation()}
+                >
+                    <canvas
+                        ref={instructionNavigatorCanvasRef}
+                        aria-label="Instruction navigator canvas"
+                        onPointerDown={handleInstructionNavigatorPointerDown}
+                        onPointerMove={handleInstructionNavigatorPointerMove}
+                        onPointerUp={handleInstructionNavigatorPointerUp}
+                        onPointerCancel={handleInstructionNavigatorPointerUp}
+                        onLostPointerCapture={handleInstructionNavigatorPointerUp}
+                    />
+                </section>
+            )}
             {traceNavigatorAvailable && (
                 <>
                     {traceNavigatorExpanded && (

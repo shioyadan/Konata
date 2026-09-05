@@ -964,12 +964,17 @@ button:disabled {
 }
 
 .viewer {
+    --instruction-navigator-width: 0px;
     position: relative;
     display: grid;
     grid-template-columns:
-        minmax(0, min(var(--label-pane-width), calc(100% - 10px)))
+        minmax(0, min(
+            var(--label-pane-width),
+            calc(100% - 10px - var(--instruction-navigator-width))
+        ))
         10px
-        minmax(0, 1fr);
+        minmax(0, 1fr)
+        var(--instruction-navigator-width);
     min-height: 0;
     flex: 1;
     cursor: grab;
@@ -983,6 +988,7 @@ button:disabled {
 }
 
 .viewer.has-trace-navigator {
+    --instruction-navigator-width: 32px;
     --trace-navigator-default-height: 64px;
     --trace-navigator-collapsed-height: 22px;
     --trace-navigator-effective-height: clamp(
@@ -1031,6 +1037,21 @@ button:disabled {
 
 .pipeline-pane {
     background: #262930;
+}
+
+.instruction-navigator-pane {
+    grid-column: 4;
+    grid-row: 1;
+    border-left: 1px solid #555b68;
+    background: #262930;
+}
+
+.instruction-navigator-pane canvas {
+    cursor: grab;
+}
+
+.instruction-navigator-pane canvas:active {
+    cursor: grabbing;
 }
 
 .trace-navigator-cycle-label-pane,
@@ -2152,6 +2173,11 @@ button:disabled {
     background: #fff;
 }
 
+.theme-light .instruction-navigator-pane {
+    border-left-color: #b7bcc5;
+    background: #fff;
+}
+
 .theme-light .trace-navigator-cycle-label-pane,
 .theme-light .trace-navigator-cycle-divider,
 .theme-light .trace-navigator-cycle-pane {
@@ -2606,7 +2632,8 @@ button:disabled {
         grid-template-columns:
             minmax(0, min(var(--label-pane-width), 40%))
             10px
-            minmax(0, 1fr);
+            minmax(0, 1fr)
+            var(--instruction-navigator-width);
     }
 
     .trace-navigator-resizer {

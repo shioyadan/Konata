@@ -924,10 +924,12 @@ async function moveSplitter(window, position, pointerType = "mouse") {
         const viewer = document.querySelector(".viewer");
         const label = document.querySelector(".label-pane");
         const pipeline = document.querySelector(".pipeline-pane");
+        const instructionNavigator = document.querySelector(".instruction-navigator-pane");
         const splitter = document.querySelector('[role="separator"][aria-label="Resize instruction labels"]');
         if (!(viewer instanceof HTMLElement) ||
             !(label instanceof HTMLElement) ||
             !(pipeline instanceof HTMLElement) ||
+            !(instructionNavigator instanceof HTMLElement) ||
             !(splitter instanceof HTMLElement)) {
             throw new Error("The trace pane splitter was not found.");
         }
@@ -961,6 +963,8 @@ async function moveSplitter(window, position, pointerType = "mouse") {
                 labelWidth: Math.round(label.getBoundingClientRect().width),
                 splitterWidth: Math.round(splitter.getBoundingClientRect().width),
                 pipelineWidth: Math.round(pipeline.getBoundingClientRect().width),
+                instructionNavigatorWidth:
+                    Math.round(instructionNavigator.getBoundingClientRect().width),
                 position: splitter.getAttribute("aria-valuenow"),
                 cursor: getComputedStyle(splitter).cursor,
                 capturedPointers: captured.size
@@ -2382,7 +2386,9 @@ async function run() {
     if (firstSplitterState.initialLabelWidth !== 450 ||
         firstSplitterState.labelWidth !== 320 ||
         firstSplitterState.splitterWidth !== 10 ||
-        firstSplitterState.pipelineWidth !== firstSplitterState.viewerWidth - 330 ||
+        firstSplitterState.pipelineWidth !== firstSplitterState.viewerWidth -
+            firstSplitterState.labelWidth - firstSplitterState.splitterWidth -
+            firstSplitterState.instructionNavigatorWidth ||
         firstSplitterState.position !== "320" ||
         firstSplitterState.cursor !== "col-resize" ||
         firstSplitterState.capturedPointers !== 0) {
@@ -2405,7 +2411,7 @@ async function run() {
         }));
     })`);
     if (narrowPaneState.labelWidth > narrowPaneState.viewerWidth * 0.4 + 1 ||
-        narrowPaneState.pipelineWidth < narrowPaneState.viewerWidth * 0.55 ||
+        narrowPaneState.pipelineWidth < narrowPaneState.viewerWidth * 0.55 - 32 ||
         narrowPaneState.position !== "320") {
         throw new Error(`Narrow trace panes are incomplete: ${JSON.stringify(narrowPaneState)}`);
     }
@@ -2537,7 +2543,9 @@ async function run() {
     window.setContentSize(390, 700);
     const touchSplitterState = await moveSplitter(window, 120, "touch");
     if (touchSplitterState.labelWidth !== 120 ||
-        touchSplitterState.pipelineWidth !== touchSplitterState.viewerWidth - 130 ||
+        touchSplitterState.pipelineWidth !== touchSplitterState.viewerWidth -
+            touchSplitterState.labelWidth - touchSplitterState.splitterWidth -
+            touchSplitterState.instructionNavigatorWidth ||
         touchSplitterState.position !== "120" ||
         touchSplitterState.capturedPointers !== 0) {
         throw new Error(`Touch splitter is incomplete: ${JSON.stringify(touchSplitterState)}`);
@@ -2566,10 +2574,12 @@ async function run() {
         const viewer = document.querySelector(".viewer");
         const pipeline = document.querySelector(".pipeline-pane");
         const collapsedCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+        const instructionCanvas = document.querySelector('canvas[aria-label="Instruction navigator canvas"]');
         const collapsedLabels = document.querySelector(".trace-navigator-cycle-label-pane");
         if (!(toggle instanceof HTMLButtonElement) ||
             !(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
             !(collapsedCanvas instanceof HTMLCanvasElement) ||
+            !(instructionCanvas instanceof HTMLCanvasElement) ||
             !(collapsedLabels instanceof HTMLElement) ||
             toggle.getAttribute("aria-expanded") !== "false" ||
             toggle.getAttribute("aria-label") !== "Show trace navigator") {
@@ -2578,6 +2588,7 @@ async function run() {
         const viewerRectBeforeOpen = viewer.getBoundingClientRect();
         const pipelineRectBeforeOpen = pipeline.getBoundingClientRect();
         const collapsedCanvasRect = collapsedCanvas.getBoundingClientRect();
+        const instructionRect = instructionCanvas.getBoundingClientRect();
         const collapsedToggleRect = toggle.getBoundingClientRect();
         collapsedCanvas.dispatchEvent(new MouseEvent("mouseover", {
             bubbles: true,
@@ -2603,7 +2614,12 @@ async function run() {
             resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
             cursor: getComputedStyle(collapsedCanvas).cursor,
             toggleBottom: Math.round(viewerRectBeforeOpen.bottom - collapsedToggleRect.bottom),
-            toggleLeft: Math.round(collapsedToggleRect.left - viewerRectBeforeOpen.left)
+            toggleLeft: Math.round(collapsedToggleRect.left - viewerRectBeforeOpen.left),
+            instructionWidth: Math.round(instructionRect.width),
+            instructionAligned: Math.round(instructionRect.height) ===
+                Math.round(pipelineRectBeforeOpen.height) &&
+                Math.abs(instructionRect.right - viewerRectBeforeOpen.right) < 1,
+            instructionCursor: getComputedStyle(instructionCanvas).cursor
         };
         const initialPipelineHeight = pipeline.getBoundingClientRect().height;
         toggle.click();
@@ -2681,6 +2697,33 @@ async function run() {
         const navigatorZoom = zoomOutput?.textContent ?? null;
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
+        const instructionCaptured = new Set();
+        Object.defineProperties(instructionCanvas, {
+            setPointerCapture: {configurable: true, value: (id) => instructionCaptured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => instructionCaptured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => instructionCaptured.delete(id)}
+        });
+        const currentInstructionRect = instructionCanvas.getBoundingClientRect();
+        const dispatchInstructionPointer = (type, clientY, buttons) =>
+            instructionCanvas.dispatchEvent(new PointerEvent(type, {
+                pointerId: 3,
+                pointerType: "mouse",
+                isPrimary: true,
+                bubbles: true,
+                cancelable: true,
+                button: type === "pointerdown" ? 0 : -1,
+                buttons,
+                clientX: currentInstructionRect.left + currentInstructionRect.width / 2,
+                clientY
+            }));
+        const instructionPointerCanceled = [
+            dispatchInstructionPointer("pointerdown", currentInstructionRect.top + 2, 1),
+            dispatchInstructionPointer("pointermove", currentInstructionRect.bottom - 2, 1),
+            dispatchInstructionPointer("pointerup", currentInstructionRect.bottom - 2, 0)
+        ].every((dispatched) => !dispatched);
+        delete instructionCanvas.setPointerCapture;
+        delete instructionCanvas.hasPointerCapture;
+        delete instructionCanvas.releasePointerCapture;
         const result = {
             expanded: toggle.getAttribute("aria-expanded"),
             openLabel: toggle.getAttribute("aria-label"),
@@ -2714,6 +2757,8 @@ async function run() {
             overviewSelected: overviewRange.getAttribute("aria-pressed"),
             overviewCursor: getComputedStyle(navigatorCanvas).cursor,
             navigatorTooltipHidden,
+            instructionPointerCanceled,
+            instructionCapturedPointers: instructionCaptured.size,
             zoomCanceled: zoomDispatched.every((value, index) =>
                 !value && zoomEvents[index].defaultPrevented),
             navigatorZoom
@@ -2798,6 +2843,9 @@ async function run() {
         navigatorState.collapsedState.cursor !== "grab" ||
         navigatorState.collapsedState.toggleBottom < 0 ||
         navigatorState.collapsedState.toggleBottom > 1 ||
+        navigatorState.collapsedState.instructionWidth !== 31 ||
+        !navigatorState.collapsedState.instructionAligned ||
+        navigatorState.collapsedState.instructionCursor !== "grab" ||
         navigatorState.openToggleLeft !== navigatorState.collapsedState.toggleLeft ||
         !navigatorState.openAtBoundary || !navigatorState.hasClass ||
         !navigatorState.hasExpandedClass ||
@@ -2814,6 +2862,8 @@ async function run() {
         navigatorState.overviewSelected !== "true" ||
         navigatorState.overviewCursor !== "grab" ||
         !navigatorState.navigatorTooltipHidden ||
+        !navigatorState.instructionPointerCanceled ||
+        navigatorState.instructionCapturedPointers !== 0 ||
         !navigatorState.zoomCanceled || navigatorState.navigatorZoom !== "119%" ||
         navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
         navigatorState.resized.pipelineHeightReduction !== 158 ||
@@ -2978,7 +3028,9 @@ async function run() {
     if (secondSplitterState.initialLabelWidth !== 320 ||
         secondSplitterState.labelWidth !== 280 ||
         secondSplitterState.splitterWidth !== 10 ||
-        secondSplitterState.pipelineWidth !== secondSplitterState.viewerWidth - 290 ||
+        secondSplitterState.pipelineWidth !== secondSplitterState.viewerWidth -
+            secondSplitterState.labelWidth - secondSplitterState.splitterWidth -
+            secondSplitterState.instructionNavigatorWidth ||
         secondSplitterState.position !== "280" ||
         secondSplitterState.capturedPointers !== 0) {
         throw new Error(`Second tab splitter is incomplete: ${JSON.stringify(secondSplitterState)}`);
@@ -3035,6 +3087,7 @@ async function run() {
         const nextFrame = () => new Promise((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(resolve)));
         let comparisonLayerCompositions = [];
+        const comparisonLayers = [];
         observeMethod(CanvasRenderingContext2D.prototype, "drawImage", function(args) {
             // tile内部のCanvas copyではなく、A/B layerから最終表示Canvasへの合成だけを数える。
             if (args[0] instanceof HTMLCanvasElement &&
@@ -3045,6 +3098,9 @@ async function run() {
                     operation: this.globalCompositeOperation,
                     filter: this.filter
                 });
+                if (this.canvas.dataset.comparisonMode === "overlay") {
+                    comparisonLayers[this.globalAlpha === 1 ? 0 : 1] = args[0];
+                }
             }
         });
         const summary = document.querySelector('[aria-label="Compare traces"]');
@@ -3200,6 +3256,49 @@ async function run() {
         theme.value = "dark";
         theme.dispatchEvent(new Event("change", {bubbles: true}));
         await nextFrame();
+        // 実際のA/B描画を比較し、境界を横切ってもdrag開始側だけが動くことを確認する。
+        const instructionCanvas = document.querySelector('canvas[aria-label="Instruction navigator canvas"]');
+        if (!(instructionCanvas instanceof HTMLCanvasElement) || comparisonLayers.length !== 2) {
+            throw new Error("The comparison instruction navigator was not found.");
+        }
+        const captured = new Set();
+        Object.defineProperties(instructionCanvas, {
+            setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => captured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
+        });
+        const rect = instructionCanvas.getBoundingClientRect();
+        const dragInstruction = async (fromX, toX, selected) => {
+            const before = comparisonLayers.map((canvas) => canvas.toDataURL());
+            let moved = false;
+            let otherUnchanged = true;
+            for (const [type, clientX, clientY, buttons] of [
+                ["pointerdown", fromX, rect.top + 2, 1],
+                ["pointermove", toX, rect.bottom - 2, 1],
+                ["pointerup", toX, rect.bottom - 2, 0]
+            ]) {
+                instructionCanvas.dispatchEvent(new PointerEvent(type, {
+                    pointerId: 7, pointerType: "mouse", isPrimary: true,
+                    bubbles: true, cancelable: true,
+                    button: type === "pointerdown" ? 0 : -1,
+                    buttons, clientX, clientY
+                }));
+                await nextFrame();
+                const after = comparisonLayers.map((canvas) => canvas.toDataURL());
+                moved ||= before[selected] !== after[selected];
+                otherUnchanged &&= before[1 - selected] === after[1 - selected];
+            }
+            return {moved, otherUnchanged, captureReleased: captured.size === 0};
+        };
+        const leftTrack = rect.left + rect.width / 4;
+        const rightTrack = rect.left + rect.width * 3 / 4;
+        const instructionDrag = [
+            await dragInstruction(leftTrack, rightTrack, 0),
+            await dragInstruction(rightTrack, leftTrack, 1)
+        ];
+        delete instructionCanvas.setPointerCapture;
+        delete instructionCanvas.hasPointerCapture;
+        delete instructionCanvas.releasePointerCapture;
         document.querySelector('.trace-tab.is-active .trace-tab-close')?.click();
         await nextFrame();
         restoreObservedMethods();
@@ -3207,6 +3306,7 @@ async function run() {
             initial,
             finalOverlayState,
             lightAlign,
+            instructionDrag,
             remainingCount: document.querySelectorAll('[role="tab"]').length,
             remainingSelected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null
         };
@@ -3269,6 +3369,8 @@ async function run() {
         comparisonState.lightAlign.baselineBackground !== "rgba(45, 118, 196, 0.18)" ||
         comparisonState.lightAlign.candidateColor !== "rgb(243, 160, 154)" ||
         comparisonState.lightAlign.candidateBackground !== "rgba(190, 66, 70, 0.18)" ||
+        !comparisonState.instructionDrag.every((drag) =>
+            drag.moved && drag.otherUnchanged && drag.captureReleased) ||
         comparisonState.remainingCount !== 2 ||
         comparisonState.remainingSelected !== "gem5-basic.txt") {
         throw new Error(`Comparison tabs are incomplete: ${JSON.stringify(comparisonState)}`);

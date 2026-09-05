@@ -35,7 +35,10 @@
         "flushedRegionColor": "rgba(0,0,0,0.5)"
     },
     "traceNavigator": {
+        "instructionColor": "hsl(0,0%,70%)",
+        "instructionEndpointColor": "hsl(0,0%,84%)",
         "flushedColor": "hsl(0,0%,55%)",
+        "instructionViewportShadeColor": "rgba(0,0,0,0.6)",
         "viewportShadeColor": "rgba(0,0,0,0.35)",
         "viewportBorderColor": "rgba(255,255,255,0.75)"
     }
