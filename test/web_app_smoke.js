@@ -3261,6 +3261,13 @@ async function run() {
         if (!(instructionCanvas instanceof HTMLCanvasElement) || comparisonLayers.length !== 2) {
             throw new Error("The comparison instruction navigator was not found.");
         }
+        const alignedLayers = comparisonLayers.map((canvas) => canvas.toDataURL());
+        // 両側を横へずらしてから、選んだ側だけがfetch位置へ復帰することを確かめる。
+        document.querySelector('.comparison-result-canvas').dispatchEvent(new WheelEvent("wheel", {
+            deltaX: 100, deltaY: 0, bubbles: true, cancelable: true
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await nextFrame();
         const captured = new Set();
         Object.defineProperties(instructionCanvas, {
             setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
@@ -3272,8 +3279,10 @@ async function run() {
             const before = comparisonLayers.map((canvas) => canvas.toDataURL());
             let moved = false;
             let otherUnchanged = true;
+            let fetchAligned = true;
             for (const [type, clientX, clientY, buttons] of [
                 ["pointerdown", fromX, rect.top + 2, 1],
+                ["pointermove", toX, rect.top + 2, 1],
                 ["pointermove", toX, rect.bottom - 2, 1],
                 ["pointerup", toX, rect.bottom - 2, 0]
             ]) {
@@ -3287,8 +3296,11 @@ async function run() {
                 const after = comparisonLayers.map((canvas) => canvas.toDataURL());
                 moved ||= before[selected] !== after[selected];
                 otherUnchanged &&= before[1 - selected] === after[1 - selected];
+                if (clientY === rect.top + 2) {
+                    fetchAligned &&= after[selected] === alignedLayers[selected];
+                }
             }
-            return {moved, otherUnchanged, captureReleased: captured.size === 0};
+            return {moved, otherUnchanged, fetchAligned, captureReleased: captured.size === 0};
         };
         const leftTrack = rect.left + rect.width / 4;
         const rightTrack = rect.left + rect.width * 3 / 4;
@@ -3370,7 +3382,7 @@ async function run() {
         comparisonState.lightAlign.candidateColor !== "rgb(243, 160, 154)" ||
         comparisonState.lightAlign.candidateBackground !== "rgba(190, 66, 70, 0.18)" ||
         !comparisonState.instructionDrag.every((drag) =>
-            drag.moved && drag.otherUnchanged && drag.captureReleased) ||
+            drag.moved && drag.otherUnchanged && drag.fetchAligned && drag.captureReleased) ||
         comparisonState.remainingCount !== 2 ||
         comparisonState.remainingSelected !== "gem5-basic.txt") {
         throw new Error(`Comparison tabs are incomplete: ${JSON.stringify(comparisonState)}`);

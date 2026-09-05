@@ -764,7 +764,7 @@ test("Instruction navigator draws one wrapped lifetime per sampled instruction",
         position: [3, 1],
     } as const;
     const position = getInstructionNavigatorPosition(
-        trace, candidateSpec, 16, height, 3, 1,
+        trace, candidateSpec, height, 1,
     );
     assert.ok(position !== null && position[0] >= 0 && position[1] >= 0);
 
@@ -832,7 +832,7 @@ test("Instruction navigator magnifies and wraps instruction lifetimes", () => {
         rect[0] === 5 && rect[1] === 0 && rect[2] === 1 && rect[3] === 3));
     assert.deepEqual(
         getInstructionNavigatorPosition(
-            trace, DEFAULT_KONATA_RENDER_SPEC, 16, 3, 14, 1, scale,
+            trace, DEFAULT_KONATA_RENDER_SPEC, 3, 1,
         ),
         [14, 0],
     );
@@ -868,9 +868,9 @@ test("Instruction navigator magnifies and wraps instruction lifetimes", () => {
             [0, 0, 11], [0, 1, 11], [0, 2, 11], [1, 3, 11],
         ]);
     for (let y = 0; y < 4; y++) {
-        assert.equal(getInstructionNavigatorPosition(
-            pipelineAspectTrace, DEFAULT_KONATA_RENDER_SPEC, 16, 4, 0, y, 12,
-        )?.[1], y * 16);
+        assert.deepEqual(getInstructionNavigatorPosition(
+            pipelineAspectTrace, DEFAULT_KONATA_RENDER_SPEC, 4, y,
+        ), [y * 4, y * 16]);
     }
     pipelineAspectTrace.close();
 });
@@ -882,7 +882,7 @@ test("Instruction navigator hit testing follows drawn row boundaries", () => {
         ));
         const navigator = createRecordedContext();
         const width = rowCount * 8;
-        const scale = drawInstructionNavigator(
+        drawInstructionNavigator(
             trace, DEFAULT_KONATA_RENDER_SPEC,
             createCanvas(navigator.context, width, height), 1,
         );
@@ -892,12 +892,31 @@ test("Instruction navigator hit testing follows drawn row boundaries", () => {
         for (const [x, top, , barHeight] of bars) {
             for (let y = top; y < top + barHeight; y++) {
                 assert.deepEqual(getInstructionNavigatorPosition(
-                    trace, DEFAULT_KONATA_RENDER_SPEC, width, height, x, y, scale,
+                    trace, DEFAULT_KONATA_RENDER_SPEC, height, y,
                 ), [x, x / 8], `Row ${y} of ${height} pixels / ${rowCount} ops`);
             }
         }
         trace.close();
     }
+});
+
+test("Instruction navigator restores the selected fetch cycle from any view", () => {
+    const trace = createLatencyTrace([[100, 1000], [200, 220], [300, 300]]);
+    for (const hideFlushedOps of [false, true]) {
+        const spec = {
+            ...DEFAULT_KONATA_RENDER_SPEC,
+            position: [900, -10] as const,
+            zoomLevel: 8,
+            hideFlushedOps,
+        };
+        for (const [y, cycle, row] of [
+            [-10, 100, 0], [0, 100, 0], [10, 200, 1], [29, 300, 2], [50, 300, 2],
+        ]) {
+            assert.deepEqual(getInstructionNavigatorPosition(trace, spec, 30, y), [cycle, row]);
+        }
+        assert.equal(getInstructionNavigatorPosition(trace, spec, 0, 0), null);
+    }
+    trace.close();
 });
 
 test("Top-down-like view uses a detected composite allocation frontier", async () => {

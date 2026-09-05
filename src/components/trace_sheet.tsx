@@ -223,7 +223,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         readonly pointerID: number;
         readonly baselineSelected: boolean;
     } | null>(null);
-    const instructionNavigatorScaleRef = useRef(1);
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const findResultRef = useRef<HTMLDivElement>(null);
@@ -572,7 +571,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             const pipelineHeight = pipelineCanvas?.clientHeight ?? instructionNavigatorCanvas.clientHeight;
             if (comparisonMode !== null && baselineTrace !== null &&
                 currentBaselineSpec !== undefined) {
-                instructionNavigatorScaleRef.current = drawComparisonInstructionNavigator(
+                drawComparisonInstructionNavigator(
                     {
                         baseline: { trace: baselineTrace, spec: currentBaselineSpec },
                         candidate: { trace, spec: candidateSpec },
@@ -583,7 +582,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 );
             }
             else {
-                instructionNavigatorScaleRef.current = drawInstructionNavigator(
+                drawInstructionNavigator(
                     trace, candidateSpec, instructionNavigatorCanvas, pipelineHeight,
                 );
             }
@@ -1375,7 +1374,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
     const moveInstructionNavigatorPosition = (
         canvas: HTMLCanvasElement,
-        clientX: number,
         clientY: number,
         baselineSelected: boolean,
     ) => {
@@ -1383,9 +1381,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const rect = canvas.getBoundingClientRect();
-        const width = canvas.clientWidth;
         const height = canvas.clientHeight;
-        const x = rect.width === 0 ? 0 : (clientX - rect.left) * width / rect.width;
         const y = rect.height === 0 ? 0 : (clientY - rect.top) * height / rect.height;
         const candidateSpec = viewController.currentSpec;
         const baselineSpec = viewController.currentBaselineSpec;
@@ -1394,14 +1390,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (selectedTrace === null || selectedSpec === undefined) {
             return;
         }
-        const middle = Math.floor(width / 2);
-        const trackLeft = comparisonMode === "overlay" && !baselineSelected ? middle : 0;
-        const trackWidth = comparisonMode === "overlay"
-            ? baselineSelected ? middle : width - middle
-            : width;
         const position = getInstructionNavigatorPosition(
-            selectedTrace, selectedSpec, trackWidth, height, x - trackLeft, y,
-            instructionNavigatorScaleRef.current,
+            selectedTrace, selectedSpec, height, y,
         );
         if (position === null) {
             return;
@@ -1436,7 +1426,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         };
         canvas.setPointerCapture(event.pointerId);
         moveInstructionNavigatorPosition(
-            canvas, event.clientX, event.clientY, baselineSelected,
+            canvas, event.clientY, baselineSelected,
         );
         event.preventDefault();
         event.stopPropagation();
@@ -1449,7 +1439,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         moveInstructionNavigatorPosition(
             event.currentTarget,
-            event.clientX,
             event.clientY,
             pointer.baselineSelected,
         );

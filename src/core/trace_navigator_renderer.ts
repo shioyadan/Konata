@@ -439,21 +439,17 @@ export function getComparisonCycleNavigatorScrollPosition(
     };
 }
 
-/** 命令行とcycleの折り返し位相を、Pipelineの表示位置へ戻す。 */
+/** 描画と同じ代表命令を選び、fetchがPipeline左端に見える位置へ補正する。 */
 export function getInstructionNavigatorPosition(
     trace: ParsedTrace,
     spec: Readonly<KonataRenderSpec>,
-    width: number,
     height: number,
-    x: number,
     y: number,
-    cyclesPerPixel = 1,
 ): readonly [number, number] | null {
-    const trackWidth = Math.floor(width);
     const trackHeight = Math.floor(height);
     const metrics = new KonataRenderMetrics(trace, spec);
     const rowCount = metrics.getVisibleBottom() + 1;
-    if (trackWidth <= 0 || trackHeight <= 0 || rowCount <= 0) {
+    if (trackHeight <= 0 || rowCount <= 0) {
         return null;
     }
     const pixelRow = Math.min(trackHeight - 1, Math.max(0, Math.floor(y)));
@@ -472,14 +468,8 @@ export function getInstructionNavigatorPosition(
     if (op === undefined || op.fetchedCycle < 0) {
         return null;
     }
-    const phase = Math.min(trackWidth - 1, Math.max(0, Math.floor(x))) *
-        cyclesPerPixel;
-    const wrapCycles = trackWidth * cyclesPerPixel;
-    const cycle = Math.min(trace.lastCycle, Math.max(
-        0,
-        phase + Math.round((op.fetchedCycle - phase) / wrapCycles) * wrapCycles,
-    ));
-    return [cycle, metrics.getPositionYFromOp(op)];
+    // 折り返し位置や強調したbar長は実時間とは異なるため、横座標の逆変換には使わない。
+    return [op.fetchedCycle, metrics.getPositionYFromOp(op)];
 }
 
 function clearNavigator(
