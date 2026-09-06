@@ -65,19 +65,26 @@ export function getZoomSpeedFromFactor(factor: number): ZoomSpeed {
 // 旧Configの初期値を維持し、新しいTabだけは直前に選んだ幅を引き継ぐ。
 export const DEFAULT_SPLITTER_POSITION = 450;
 export const MIN_TRACE_NAVIGATOR_HEIGHT = 64;
+export const MIN_INSTRUCTION_NAVIGATOR_WIDTH = 32;
 
 export interface TraceNavigatorSettings {
-    readonly visible: boolean;
+    // 下部は詳細・簡易・非表示の3段階。heightは詳細表示の高さを保持する。
+    readonly display: "expanded" | "compact" | "hidden";
     readonly mode: CycleNavigatorMode;
     readonly rangeMode: CycleNavigatorRangeMode;
     readonly height: number;
+    // 右側の開閉・幅は下部とは独立して保存する。
+    readonly instructionVisible: boolean;
+    readonly instructionWidth: number;
 }
 
 export const DEFAULT_TRACE_NAVIGATOR_SETTINGS: Readonly<TraceNavigatorSettings> = {
-    visible: false,
+    display: "hidden",
     mode: "top-down",
     rangeMode: "overview",
     height: MIN_TRACE_NAVIGATOR_HEIGHT,
+    instructionVisible: true,
+    instructionWidth: MIN_INSTRUCTION_NAVIGATOR_WIDTH,
 };
 
 export interface GlobalViewSettings {

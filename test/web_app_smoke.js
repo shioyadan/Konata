@@ -467,6 +467,7 @@ async function verifyIncrementalRendering(window) {
                 if (navigatorToggle instanceof HTMLButtonElement &&
                     navigatorToggle.getAttribute("aria-expanded") === "true") {
                     navigatorToggle.click();
+                    requestAnimationFrame(() => navigatorToggle.click());
                 }
                 requestAnimationFrame(() => resolve({
                     partialPixels,
@@ -2567,7 +2568,7 @@ async function run() {
         throw new Error(`Desktop pane width was not restored: ${JSON.stringify(restoredPaneState)}`);
     }
 
-    // 閉時はPipeline直下に簡易Overviewを残し、展開時だけ詳細controlと高さ変更を有効にする。
+    // 閉時はつまみだけを残し、開閉と高さ変更を同じgripで行う。
     const navigatorState = await window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
         const toggle = document.querySelector(".trace-navigator-toggle");
@@ -2576,44 +2577,35 @@ async function run() {
         const collapsedCanvas = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
         const instructionCanvas = document.querySelector('canvas[aria-label="Instruction navigator canvas"]');
         const collapsedLabels = document.querySelector(".trace-navigator-cycle-label-pane");
+        const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
         if (!(toggle instanceof HTMLButtonElement) ||
+            !(resizer instanceof HTMLElement) ||
             !(viewer instanceof HTMLElement) || !(pipeline instanceof HTMLElement) ||
-            !(collapsedCanvas instanceof HTMLCanvasElement) ||
+            collapsedCanvas !== null ||
             !(instructionCanvas instanceof HTMLCanvasElement) ||
-            !(collapsedLabels instanceof HTMLElement) ||
+            collapsedLabels !== null ||
             toggle.getAttribute("aria-expanded") !== "false" ||
             toggle.getAttribute("aria-label") !== "Show trace navigator") {
             throw new Error("The trace navigator control was not ready.");
         }
         const viewerRectBeforeOpen = viewer.getBoundingClientRect();
         const pipelineRectBeforeOpen = pipeline.getBoundingClientRect();
-        const collapsedCanvasRect = collapsedCanvas.getBoundingClientRect();
         const instructionRect = instructionCanvas.getBoundingClientRect();
         const collapsedToggleRect = toggle.getBoundingClientRect();
-        collapsedCanvas.dispatchEvent(new MouseEvent("mouseover", {
-            bubbles: true,
-            clientX: collapsedCanvasRect.left + collapsedCanvasRect.width / 2,
-            clientY: collapsedCanvasRect.top + collapsedCanvasRect.height / 2
-        }));
-        await nextFrame();
         const collapsedState = {
-            paneHeight: Math.round(collapsedCanvasRect.height),
-            pipelineAligned: Math.round(collapsedCanvasRect.width) ===
-                Math.round(pipelineRectBeforeOpen.width),
-            labelsVisible: getComputedStyle(collapsedLabels).display !== "none",
-            labelContentsHidden: [...collapsedLabels.children]
-                .filter((child) => child !== toggle)
-                .every((child) => getComputedStyle(child).display === "none"),
+            pipelineFullHeight: Math.abs(pipelineRectBeforeOpen.height - viewerRectBeforeOpen.height) < 1,
             toggleVisible: getComputedStyle(toggle).display !== "none",
             toggleCentered: Math.abs(
                 collapsedToggleRect.left + collapsedToggleRect.width / 2 -
-                (collapsedLabels.getBoundingClientRect().left +
-                    collapsedLabels.getBoundingClientRect().width / 2)
+                (resizer.getBoundingClientRect().left + resizer.getBoundingClientRect().width / 2)
             ) < 2,
             tooltipHidden: document.querySelector(".canvas-tooltip") === null,
-            resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
-            cursor: getComputedStyle(collapsedCanvas).cursor,
-            toggleBottom: Math.round(viewerRectBeforeOpen.bottom - collapsedToggleRect.bottom),
+            resizerVisible: getComputedStyle(resizer).display !== "none",
+            atBoundary: Math.abs(collapsedToggleRect.bottom - viewerRectBeforeOpen.bottom) < 1,
+            gripReachable: document.elementFromPoint(
+                collapsedToggleRect.left + collapsedToggleRect.width / 2,
+                collapsedToggleRect.bottom - 5
+            ) === toggle,
             toggleLeft: Math.round(collapsedToggleRect.left - viewerRectBeforeOpen.left),
             instructionWidth: Math.round(instructionRect.width),
             instructionAligned: Math.round(instructionRect.height) ===
@@ -2641,7 +2633,6 @@ async function run() {
             .find((button) => button.textContent?.trim() === "Detail");
         const overviewRange = [...(navigatorRange?.querySelectorAll("button") ?? [])]
             .find((button) => button.textContent?.trim() === "Overview");
-        const resizer = document.querySelector('[role="separator"][aria-label="Resize trace navigator"]');
         const reset = [...document.querySelectorAll(".zoom-controls button")]
             .find((button) => button.textContent?.trim() === "Reset");
         const zoomOutput = document.querySelector(".zoom-controls output");
@@ -2754,6 +2745,7 @@ async function run() {
             controls: toggle.getAttribute("aria-controls"),
             toggleWidth: Math.round(toggle.getBoundingClientRect().width),
             toggleHeight: Math.round(toggle.getBoundingClientRect().height),
+            gripBackground: getComputedStyle(toggle).backgroundColor,
             openToggleLeft: Math.round(
                 toggle.getBoundingClientRect().left - viewer.getBoundingClientRect().left
             ),
@@ -2823,13 +2815,89 @@ async function run() {
         const storedNavigator = JSON.parse(
             localStorage.getItem("konata.viewSettings") ?? "null"
         )?.traceNavigator ?? null;
+        const getHeight = () => JSON.parse(localStorage.getItem("konata.viewSettings"))
+            .traceNavigator.height;
+        // 中間の高さを経由して折りたたんでも、drag開始時の詳細高さを復元する。
+        dispatchPointer("pointerdown", viewerRect.bottom - 180, 1);
+        dispatchPointer("pointermove", viewerRect.bottom - 80, 1);
+        await nextFrame();
+        dispatchPointer("pointermove", viewerRect.bottom - 22, 1);
+        await nextFrame();
+        if (toggle.dataset.display !== "compact" || getHeight() !== 180 ||
+            resizer.getAttribute("aria-valuenow") !== "22" ||
+            Math.round(navigatorCanvas.parentElement.getBoundingClientRect().height) !== 22 ||
+            getComputedStyle(labelCanvas).display !== "none" ||
+            getComputedStyle(navigatorMode).display !== "none") {
+            throw new Error("Dragging below the expanded minimum must show only the compact graph.");
+        }
+        dispatchPointer("pointermove", viewerRect.bottom - 5, 1);
+        dispatchPointer("pointerup", viewerRect.bottom - 5, 0);
+        resizer.dispatchEvent(new MouseEvent("click", {bubbles: true, detail: 1}));
+        await nextFrame();
+        if (toggle.getAttribute("aria-expanded") !== "false" || getHeight() !== 180 ||
+            resizer.getAttribute("aria-valuenow") !== "0") {
+            throw new Error("Dragging closed must retain the expanded height and ignore the trailing click.");
+        }
+        // 閉時も画面内のgripから展開でき、cancel時は非表示と保存高さへ戻る。
+        dispatchPointer("pointerdown", viewerRect.bottom - 5, 1);
+        dispatchPointer("pointermove", viewerRect.bottom - 125, 1);
+        await nextFrame();
+        if (toggle.getAttribute("aria-expanded") !== "true" || getHeight() !== 120) {
+            throw new Error("Dragging the collapsed boundary must expand the navigator.");
+        }
+        dispatchPointer("pointercancel", viewerRect.bottom - 125, 0);
+        await nextFrame();
+        if (toggle.getAttribute("aria-expanded") !== "false" || getHeight() !== 180 || captured.size) {
+            throw new Error("Canceling a resize must restore the original navigator settings.");
+        }
+        // clickの小さな揺れではresizeせず、同じgripで前回の高さへ展開する。
+        dispatchPointer("pointerdown", viewerRect.bottom - 5, 1);
+        dispatchPointer("pointerup", viewerRect.bottom - 7, 0);
+        resizer.dispatchEvent(new MouseEvent("click", {bubbles: true, detail: 1}));
+        await nextFrame();
+        if (toggle.getAttribute("aria-expanded") !== "true" || getHeight() !== 180) {
+            throw new Error("Clicking the grip must restore the previous expanded height.");
+        }
+        for (const [key, height] of [["ArrowUp", 196], ["ArrowDown", 180]]) {
+            const event = new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true});
+            toggle.dispatchEvent(event);
+            await nextFrame();
+            if (!event.defaultPrevented || getHeight() !== height) {
+                throw new Error("The navigator grip must support keyboard resizing.");
+            }
+        }
         delete resizer.setPointerCapture;
         delete resizer.hasPointerCapture;
         delete resizer.releasePointerCapture;
+        document.querySelector('[aria-label="Navigator view"] button:first-child').click();
+        await nextFrame();
         toggle.click();
         await nextFrame();
-        const collapsedAgainRect = navigatorCanvas.getBoundingClientRect();
-        const collapsedLabelPane = labelCanvas.parentElement;
+        if (toggle.dataset.display !== "compact" ||
+            !document.querySelector('.trace-navigator-cycle-pane').classList.contains("is-overview") ||
+            JSON.parse(localStorage.getItem("konata.viewSettings")).traceNavigator.rangeMode !== "follow") {
+            throw new Error("The compact graph must use Overview without overwriting the expanded range setting.");
+        }
+        toggle.click();
+        await nextFrame();
+        // 上矢印では非表示→簡易→前回の詳細高さへ順に戻れる。
+        for (const [display, height] of [["compact", "22"], ["expanded", "180"]]) {
+            toggle.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowUp", bubbles: true}));
+            await nextFrame();
+            if (toggle.dataset.display !== display || resizer.getAttribute("aria-valuenow") !== height) {
+                throw new Error("The navigator arrow key must restore all three display states.");
+            }
+        }
+        if (document.querySelector('.trace-navigator-cycle-pane').classList.contains("is-overview")) {
+            throw new Error("Expanding the navigator must restore its Detail range setting.");
+        }
+        // 非表示を経るとCanvasと操作欄は再作成される。
+        document.querySelector('[aria-label="Navigator view"] button:last-child').click();
+        await nextFrame();
+        toggle.click();
+        await nextFrame();
+        toggle.click();
+        await nextFrame();
         return {
             ...result,
             resized,
@@ -2837,36 +2905,26 @@ async function run() {
             collapsed: toggle.getAttribute("aria-expanded"),
             closedLabel: toggle.getAttribute("aria-label"),
             collapsedAgain: {
-                paneHeight: Math.round(collapsedAgainRect.height),
-                pipelineAligned: Math.round(collapsedAgainRect.width) ===
-                    Math.round(pipeline.getBoundingClientRect().width),
-                labelsVisible: collapsedLabelPane !== null &&
-                    getComputedStyle(collapsedLabelPane).display !== "none",
-                labelContentsHidden: collapsedLabelPane !== null &&
-                    [...collapsedLabelPane.children]
-                        .filter((child) => child !== toggle)
-                        .every((child) => getComputedStyle(child).display === "none"),
-                resizerHidden: document.querySelector('[aria-label="Resize trace navigator"]') === null,
-                paneRetained: document.querySelector(".trace-navigator-cycle-pane") !== null
+                pipelineFullHeight: Math.abs(pipeline.getBoundingClientRect().height - viewerRect.height) < 1,
+                resizerVisible: getComputedStyle(resizer).display !== "none",
+                paneRemoved: document.querySelector(".trace-navigator-cycle-pane") === null &&
+                    document.querySelector(".trace-navigator-cycle-label-pane") === null &&
+                    document.querySelector(".trace-navigator-cycle-divider") === null
             }
         };
     })()`);
     if (navigatorState.expanded !== "true" ||
-        navigatorState.openLabel !== "Hide trace navigator" ||
+        navigatorState.openLabel !== "Compact trace navigator" ||
         navigatorState.controls !== "cycle-trace-navigator" ||
-        navigatorState.toggleWidth !== 28 || navigatorState.toggleHeight !== 20 ||
-        navigatorState.collapsedState?.paneHeight < 21 ||
-        navigatorState.collapsedState.paneHeight > 22 ||
-        !navigatorState.collapsedState.pipelineAligned ||
-        !navigatorState.collapsedState.labelsVisible ||
-        !navigatorState.collapsedState.labelContentsHidden ||
+        navigatorState.toggleWidth !== 44 || navigatorState.toggleHeight !== 10 ||
+        navigatorState.gripBackground !== "rgba(0, 0, 0, 0)" ||
+        !navigatorState.collapsedState.pipelineFullHeight ||
         !navigatorState.collapsedState.toggleVisible ||
         !navigatorState.collapsedState.toggleCentered ||
         !navigatorState.collapsedState.tooltipHidden ||
-        !navigatorState.collapsedState.resizerHidden ||
-        navigatorState.collapsedState.cursor !== "grab" ||
-        navigatorState.collapsedState.toggleBottom < 0 ||
-        navigatorState.collapsedState.toggleBottom > 1 ||
+        !navigatorState.collapsedState.resizerVisible ||
+        !navigatorState.collapsedState.atBoundary ||
+        !navigatorState.collapsedState.gripReachable ||
         navigatorState.collapsedState.instructionWidth !== 31 ||
         !navigatorState.collapsedState.instructionAligned ||
         navigatorState.collapsedState.instructionCursor !== "grab" ||
@@ -2875,7 +2933,7 @@ async function run() {
         !navigatorState.hasExpandedClass ||
         navigatorState.paneHeight < 63 || navigatorState.paneHeight > 64 ||
         !navigatorState.labelAligned ||
-        !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 42 ||
+        !navigatorState.navigatorAligned || navigatorState.pipelineHeightReduction !== 64 ||
         navigatorState.mode !== "commit" ||
         navigatorState.fallbackMode !== "commit" || navigatorState.fallbackDisabled ||
         navigatorState.fallbackDisabledModes?.join(",") !== "top-down,issue,flush,latency" ||
@@ -2890,27 +2948,45 @@ async function run() {
         navigatorState.instructionCapturedPointers !== 0 ||
         !navigatorState.zoomCanceled || navigatorState.navigatorZoom !== "119%" ||
         navigatorState.resized?.paneHeight < 179 || navigatorState.resized.paneHeight > 180 ||
-        navigatorState.resized.pipelineHeightReduction !== 158 ||
+        navigatorState.resized.pipelineHeightReduction !== 180 ||
         navigatorState.resized.canvasHeight < 179 ||
         navigatorState.resized.separatorHeight !== 10 ||
         navigatorState.resized.position !== "180" ||
         navigatorState.resized.cursor !== "row-resize" ||
         navigatorState.resized.capturedPointers !== 0 ||
-        navigatorState.storedNavigator?.visible !== true ||
+        navigatorState.storedNavigator?.display !== "expanded" ||
         navigatorState.storedNavigator?.mode !== "commit" ||
         navigatorState.storedNavigator?.rangeMode !== "overview" ||
         navigatorState.storedNavigator?.height !== 180 ||
         navigatorState.collapsed !== "false" ||
         navigatorState.closedLabel !== "Show trace navigator" ||
-        navigatorState.collapsedAgain?.paneHeight < 21 ||
-        navigatorState.collapsedAgain.paneHeight > 22 ||
-        !navigatorState.collapsedAgain.pipelineAligned ||
-        !navigatorState.collapsedAgain.labelsVisible ||
-        !navigatorState.collapsedAgain.labelContentsHidden ||
-        !navigatorState.collapsedAgain.resizerHidden ||
-        !navigatorState.collapsedAgain.paneRetained) {
+        !navigatorState.collapsedAgain.pipelineFullHeight ||
+        !navigatorState.collapsedAgain.resizerVisible ||
+        !navigatorState.collapsedAgain.paneRemoved) {
         throw new Error(`Trace navigator is incomplete: ${JSON.stringify(navigatorState)}`);
     }
+
+    // 実際のkey入力でnative buttonのclickも検証し、PipelineのEnter shortcutによる横取りを防ぐ。
+    await window.webContents.executeJavaScript(`document.querySelector('.trace-navigator-toggle').focus()`);
+    for (const [keyCode, display] of [["Return", "expanded"], ["Space", "compact"], ["Return", "hidden"]]) {
+        window.webContents.sendInputEvent({type: "keyDown", keyCode});
+        window.webContents.sendInputEvent({type: "char", keyCode: keyCode === "Return" ? "\r" : " "});
+        window.webContents.sendInputEvent({type: "keyUp", keyCode});
+        await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+            const deadline = performance.now() + 1000;
+            const check = () => {
+                if (document.querySelector('.trace-navigator-toggle').dataset.display ===
+                    ${JSON.stringify(display)}) resolve();
+                else if (performance.now() >= deadline) reject(new Error("Navigator keyboard toggle failed: " +
+                    JSON.stringify({ key: ${JSON.stringify(keyCode)},
+                        active: document.activeElement?.outerHTML,
+                        display: document.querySelector('.trace-navigator-toggle').dataset.display })));
+                else requestAnimationFrame(check);
+            };
+            check();
+        })`);
+    }
+    await window.webContents.executeJavaScript(`document.querySelector('.trace-navigator-toggle').blur()`);
 
     // Webでは旧native menuの代わりにView panelからRendererの表示modeを変更する。
     const viewControlState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
@@ -2965,6 +3041,9 @@ async function run() {
             fixEnabled: !fixed.disabled,
             arrows: arrows.value,
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
+            navigatorGripBackground: getComputedStyle(
+                document.querySelector('.trace-navigator-toggle')
+            ).backgroundColor,
             color: color.value,
             webGL: webGL.checked,
             tiledRendering: tiledRendering.checked,
@@ -2981,6 +3060,7 @@ async function run() {
         !viewControlState.fixEnabled ||
         viewControlState.arrows !== "leftSideCurve" ||
         viewControlState.theme !== "light" ||
+        viewControlState.navigatorGripBackground !== "rgba(0, 0, 0, 0)" ||
         viewControlState.color !== "Custom" ||
         !viewControlState.webGL ||
         !viewControlState.tiledRendering ||
@@ -3143,6 +3223,8 @@ async function run() {
         const selectedCandidate = candidate.selectedOptions[0]?.textContent?.trim() ?? null;
         open.click();
         await nextFrame();
+        document.querySelector('.trace-navigator-toggle').click();
+        await nextFrame();
         const navigatorDeadline = performance.now() + 2000;
         while (performance.now() < navigatorDeadline &&
             document.querySelector('.trace-navigator-cycle-status') !== null) {
@@ -3209,6 +3291,10 @@ async function run() {
             })(),
             overlayLayerCompositions: comparisonLayerCompositions.slice(-2)
         };
+        document.querySelector('.trace-navigator-toggle').click();
+        await nextFrame();
+        document.querySelector('.trace-navigator-toggle').click();
+        await nextFrame();
         comparisonLayerCompositions = [];
         alignToA.click();
         await nextFrame();
@@ -3367,9 +3453,9 @@ async function run() {
             value: "Comparison",
             disabled: true
         }) ||
-        comparisonState.initial.navigator?.expanded !== "false" ||
-        comparisonState.initial.navigator.paneHeight < 21 ||
-        comparisonState.initial.navigator.paneHeight > 22 ||
+        comparisonState.initial.navigator?.expanded !== "true" ||
+        comparisonState.initial.navigator.paneHeight < 179 ||
+        comparisonState.initial.navigator.paneHeight > 180 ||
         comparisonState.initial.navigator.mode !== "commit" ||
         comparisonState.initial.navigator.modeDisabled ||
         !comparisonState.initial.navigator.ready ||
@@ -4597,6 +4683,98 @@ async function run() {
         throw new Error(`Zoom rendering is incomplete: ${JSON.stringify(zoomedState)}`);
     }
 
+    // 右Navigatorは最小幅未満でCanvasを外し、境界だけで再展開できるようにする。
+    await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const resizer = document.querySelector('.instruction-navigator-resizer');
+        const grip = document.querySelector('.instruction-navigator-toggle');
+        const viewer = document.querySelector('.viewer');
+        const pipeline = document.querySelector('.pipeline-pane');
+        const cycle = document.querySelector('.trace-navigator-cycle-pane');
+        const pane = () => document.querySelector('.instruction-navigator-pane');
+        const width = () => pane()?.getBoundingClientRect().width ?? 0;
+        const settings = () => JSON.parse(localStorage.getItem('konata.viewSettings')).traceNavigator;
+        const check = (condition, message) => { if (!condition) throw new Error(message); };
+        check(grip instanceof HTMLButtonElement && width() === 32,
+            'The instruction navigator must start at its default width.');
+        check(getComputedStyle(grip).backgroundColor === 'rgba(0, 0, 0, 0)',
+            'The instruction navigator grip must not have a button background.');
+        const initialPipelineWidth = pipeline.getBoundingClientRect().width;
+        const initialPipelineHeight = pipeline.getBoundingClientRect().height;
+        const initialCycleSettings = settings();
+        const captured = new Set();
+        Object.defineProperties(resizer, {
+            setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => captured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
+        });
+        const pointer = (type, clientX) => resizer.dispatchEvent(new PointerEvent(type, {
+            pointerId: 6, pointerType: 'mouse', isPrimary: true, bubbles: true, cancelable: true,
+            button: type === 'pointerdown' ? 0 : -1, buttons: type === 'pointerup' ? 0 : 1,
+            clientX, clientY: resizer.getBoundingClientRect().top + 50
+        }));
+        const edge = () => resizer.getBoundingClientRect().right - 5;
+        let start = edge();
+        pointer('pointerdown', start);
+        pointer('pointermove', start - 48);
+        pointer('pointerup', start - 48);
+        await nextFrame();
+        check(width() === 80 && settings().instructionWidth === 80 && captured.size === 0,
+            'Dragging left must resize and save the instruction navigator width.');
+        const canvas = pane().querySelector('canvas');
+        const rect = canvas.getBoundingClientRect();
+        check(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === canvas,
+            'The resize boundary must not intercept navigation inside the graph.');
+        start = edge();
+        pointer('pointerdown', start);
+        pointer('pointermove', start + 32);
+        await nextFrame();
+        pointer('pointermove', start + 64);
+        pointer('pointerup', start + 64);
+        resizer.dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 1}));
+        await nextFrame();
+        check(pane() === null && grip.getAttribute('aria-expanded') === 'false' &&
+            settings().instructionWidth === 80 && resizer.getAttribute('aria-valuenow') === '0',
+            'Dragging closed must hide the graph and retain the original expanded width.');
+        check(pipeline.getBoundingClientRect().width === initialPipelineWidth + 32 &&
+            cycle === null && document.querySelector('.trace-navigator-cycle-pane') === null &&
+            pipeline.getBoundingClientRect().height === initialPipelineHeight,
+            'Hiding the right navigator must reclaim width without changing the lower navigator height.');
+        const gripRect = grip.getBoundingClientRect();
+        check(gripRect.right <= viewer.getBoundingClientRect().right &&
+            document.elementFromPoint(gripRect.right - 5, gripRect.top + 22) === grip,
+            'The collapsed instruction navigator grip must remain reachable inside the viewport.');
+        start = edge();
+        pointer('pointerdown', start);
+        pointer('pointermove', start - 96);
+        await nextFrame();
+        check(width() === 96, 'Dragging from the hidden boundary must reopen the navigator.');
+        pointer('pointercancel', start - 96);
+        await nextFrame();
+        check(pane() === null && settings().instructionWidth === 80 && captured.size === 0,
+            'Canceling an instruction navigator resize must restore its previous state.');
+        grip.click();
+        await nextFrame();
+        check(width() === 80, 'The instruction navigator grip must restore the saved width.');
+        for (const [key, expected] of [['ArrowLeft', 96], ['ArrowRight', 80]]) {
+            const event = new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true});
+            grip.dispatchEvent(event);
+            await nextFrame();
+            check(event.defaultPrevented && width() === expected,
+                'The instruction navigator must support keyboard resizing.');
+        }
+        grip.click();
+        await nextFrame();
+        const current = settings();
+        check(!current.instructionVisible && current.instructionWidth === 80 &&
+            current.display === initialCycleSettings.display && current.height === initialCycleSettings.height &&
+            current.mode === initialCycleSettings.mode && current.rangeMode === initialCycleSettings.rangeMode,
+            'Instruction navigator settings must not modify cycle navigator settings.');
+        delete resizer.setPointerCapture;
+        delete resizer.hasPointerCapture;
+        delete resizer.releasePointerCapture;
+    })()`);
+
     // 非既定のthemeとWebGL設定を保存し、Tab表示だけのlane分割は保存値へ混ぜない。
     const viewSettingsSetupState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
@@ -4646,10 +4824,12 @@ async function run() {
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
         viewSettingsSetupState.stored?.webGLEnabled !== false ||
         viewSettingsSetupState.stored?.tiledRenderingEnabled !== false ||
-        viewSettingsSetupState.stored?.traceNavigator?.visible !== true ||
+        viewSettingsSetupState.stored?.traceNavigator?.display !== "expanded" ||
         viewSettingsSetupState.stored?.traceNavigator?.mode !== "commit" ||
         viewSettingsSetupState.stored?.traceNavigator?.rangeMode !== "overview" ||
         viewSettingsSetupState.stored?.traceNavigator?.height !== 180 ||
+        viewSettingsSetupState.stored?.traceNavigator?.instructionVisible !== false ||
+        viewSettingsSetupState.stored?.traceNavigator?.instructionWidth !== 80 ||
         viewSettingsSetupState.storesSplitLanes ||
         viewSettingsSetupState.storesLegacyLaneHeight) {
         throw new Error(`View settings setup is incomplete: ${JSON.stringify(viewSettingsSetupState)}`);
@@ -4666,6 +4846,16 @@ async function run() {
         zoomIn.click();
         await new Promise((resolve) => setTimeout(resolve, 220));
         await new Promise((resolve) => requestAnimationFrame(resolve));
+        const instructionGrip = document.querySelector('.instruction-navigator-toggle');
+        if (instructionGrip?.getAttribute('aria-expanded') !== 'false' ||
+            document.querySelector('.instruction-navigator-pane') !== null) {
+            throw new Error('The instruction navigator hidden state was not restored.');
+        }
+        instructionGrip.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        if (document.querySelector('.instruction-navigator-pane')?.getBoundingClientRect().width !== 80) {
+            throw new Error('The instruction navigator saved width was not restored.');
+        }
         return {
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
             split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
@@ -4698,6 +4888,32 @@ async function run() {
         persistedViewSettingsState.zoomSpeed !== "normal" ||
         persistedViewSettingsState.zoom !== "141%") {
         throw new Error(`View settings persistence is incomplete: ${JSON.stringify(persistedViewSettingsState)}`);
+    }
+
+    // 簡易・非表示の状態も保存し、詳細高さは切替やreloadで失わない。
+    for (const display of ["compact", "hidden"]) {
+        await window.webContents.executeJavaScript(`(async () => {
+            document.querySelector('.trace-navigator-toggle').click();
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        })()`);
+        await window.loadFile(webFile);
+        await dropFixture(window, plainFixture, "text/plain");
+        const restored = await window.webContents.executeJavaScript(`(async () => {
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            return {
+                display: document.querySelector('.trace-navigator-toggle').dataset.display,
+                height: document.querySelector('.trace-navigator-cycle-pane')?.getBoundingClientRect().height ?? 0,
+                savedHeight: JSON.parse(localStorage.getItem('konata.viewSettings')).traceNavigator.height,
+                legendVisible: (() => {
+                    const label = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
+                    return label !== null && getComputedStyle(label).display !== 'none';
+                })()
+            };
+        })()`);
+        if (restored.display !== display || restored.height !== (display === "compact" ? 22 : 0) ||
+            restored.savedHeight !== 180 || restored.legendVisible) {
+            throw new Error(`Navigator display persistence failed: ${JSON.stringify(restored)}`);
+        }
     }
 
     // 旧Webのthreshold名と新しい設定の欠落、Custom部分の破損が重なっても他の設定を維持する。
@@ -4764,10 +4980,12 @@ async function run() {
         recoveredCustomColorState.navigator !== "false" ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.migratedLaneHeight !== 3 ||
-        recoveredCustomColorState.migratedNavigator?.visible !== false ||
+        recoveredCustomColorState.migratedNavigator?.display !== "hidden" ||
         recoveredCustomColorState.migratedNavigator?.mode !== "top-down" ||
         recoveredCustomColorState.migratedNavigator?.rangeMode !== "overview" ||
         recoveredCustomColorState.migratedNavigator?.height !== 64 ||
+        recoveredCustomColorState.migratedNavigator?.instructionVisible !== true ||
+        recoveredCustomColorState.migratedNavigator?.instructionWidth !== 32 ||
         !recoveredCustomColorState.removedLegacyLaneHeight) {
         throw new Error(`Custom color recovery is incomplete: ${JSON.stringify(recoveredCustomColorState)}`);
     }
