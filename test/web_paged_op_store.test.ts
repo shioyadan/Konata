@@ -142,7 +142,9 @@ test("PagedOpStore restores the complete mutable Op model", async () => {
     // 直前stageはobject参照ではなくlane/stageの配列indexだけで往復する。
     assert.equal(getLastParsedStage(restored), restored.lanes[1]?.stages[0]);
     assert.equal(store.getOpFromRID(2), restored);
-    assert.equal(store.getOp(1, 1), restored);
+    // 間引きlevelを持たないstoreは、解像度が指定されても正確なIDを返す。
+    assert.equal(store.getOp(0, 1), restored);
+    assert.equal(store.getOp(1, 1)?.id, 1);
 
     // 取得結果の変更をsetOpで書き戻せば、再度pageを追い出しても変更が残る。
     restored.labelDetail += "; updated";
@@ -264,7 +266,7 @@ test("PagedOpStore uses coarse pages and both LRU layers", async () => {
     const coarse = store.getOp(65, 5);
     assert.equal(coarse?.id, 64);
     const afterCoarse = store.levelMetrics;
-    // 2^6単位へ丸めたIDは64命令間隔の階層から読み、level 0を展開しない。
+    // 希望間隔2^5の近傍にある64命令間隔の階層から読み、level 0を展開しない。
     assert.equal(afterCoarse[0].decodeCount, before[0].decodeCount);
     assert.equal(afterCoarse[1].decodeCount, before[1].decodeCount);
     assert.equal(afterCoarse[2].decodeCount, before[2].decodeCount + 1);
@@ -293,6 +295,44 @@ test("PagedOpStore uses coarse pages and both LRU layers", async () => {
     store.setOp(updated.id, updated);
     assert.equal(store.opCount, 129);
     assert.equal(store.getOp(9, 2)?.labelDetail, "updated after eviction");
+});
+
+test("PagedOpStore resolves sampling hints using its own page levels", async () => {
+    const store = new PagedOpStore({
+        pageSizeBits: 0,
+        maxDecodedPages: 1,
+        maxCachedOps: 1,
+        levelSpans: [1, 3, 9],
+    });
+    for (let id = 0; id <= 28; id++) {
+        const op = new Op();
+        op.id = id;
+        op.rid = id + 100;
+        store.setOp(id, op);
+        store.setRetiredOp(op.rid, op);
+    }
+    await store.waitForPendingCompression();
+
+    const before = store.levelMetrics[0];
+    // Rendererが保存間隔を知らなくても、実際の階層へ最寄りのIDを揃える。
+    assert.equal(store.getOp(5, 1)?.id, 6);
+    assert.equal(store.getOp(5, 0.1)?.id, 6);
+    assert.equal(store.getOp(14, 3)?.id, 18);
+    assert.equal(store.getOp(28, 3)?.id, 27);
+    assert.equal(store.getOpFromRID(105, 1)?.id, 6);
+    assert.equal(store.levelMetrics[0].decodeCount, before.decodeCount);
+    assert.equal(store.levelMetrics[0].serializeCount, before.serializeCount);
+
+    // 正確な参照と走査は近似せず、丸めによって範囲外の要求も有効化しない。
+    for (const resolution of [0, -1, NaN, Infinity]) {
+        assert.equal(store.getOp(5, resolution)?.id, 5);
+    }
+    assert.equal(store.getOpForScan(5)?.id, 5);
+    assert.equal(store.getOp(-1, 3), undefined);
+    assert.equal(store.getOp(29, 3), undefined);
+    assert.equal(store.getOpFromRID(99, 3), undefined);
+    assert.equal(store.getOpFromRID(129, 3), undefined);
+    store.close();
 });
 
 test("OnikiriParser preserves post-retire updates through serialized pages", async () => {

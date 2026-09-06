@@ -694,10 +694,12 @@ test("Store restores and publishes persistent view settings", () => {
         webGLEnabled: true,
         tiledRenderingEnabled: true,
         traceNavigator: {
-            visible: true,
+            display: "expanded",
             mode: "issue",
             rangeMode: "follow",
             height: 144,
+            instructionVisible: false,
+            instructionWidth: 96,
         },
         colorScheme: "RoyalBlue",
         customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
@@ -722,10 +724,12 @@ test("Store restores and publishes persistent view settings", () => {
     assert.equal(restored.splitLanes, false);
     assert.equal(restored.fixOpHeight, false);
     assert.deepEqual(restored.traceNavigator, {
-        visible: true,
+        display: "expanded",
         mode: "issue",
         rangeMode: "follow",
         height: 144,
+        instructionVisible: false,
+        instructionWidth: 96,
     });
 
     store.dispatch({ type: "FILE_OPEN", fileName: "restored.log" });
@@ -757,10 +761,12 @@ test("Store restores and publishes persistent view settings", () => {
     store.dispatch({
         type: "KONATA_SET_TRACE_NAVIGATOR",
         settings: {
-            visible: false,
+            display: "compact",
             mode: "commit",
             rangeMode: "overview",
             height: 180,
+            instructionVisible: true,
+            instructionWidth: 72,
         },
     });
     store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
@@ -770,10 +776,12 @@ test("Store restores and publishes persistent view settings", () => {
         webGLEnabled: false,
         tiledRenderingEnabled: false,
         traceNavigator: {
-            visible: false,
+            display: "compact",
             mode: "commit",
             rangeMode: "overview",
             height: 180,
+            instructionVisible: true,
+            instructionWidth: 72,
         },
         colorScheme: "Custom",
         customColorScheme,
@@ -788,10 +796,12 @@ test("Store restores and publishes persistent view settings", () => {
     // Tab固有設定やsession内だけの設定では、永続化通知を増やさない。
     assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 10);
     assert.deepEqual(store.getSnapshot().settings.traceNavigator, {
-        visible: false,
+        display: "compact",
         mode: "commit",
         rangeMode: "overview",
         height: 180,
+        instructionVisible: true,
+        instructionWidth: 72,
     });
 
     store.dispatch({ type: "STORE_CLOSE" });
@@ -902,7 +912,8 @@ test("Store restores View defaults without moving the trace or discarding custom
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({
         type: "KONATA_SET_TRACE_NAVIGATOR",
-        settings: { visible: true, mode: "issue", rangeMode: "follow", height: 144 },
+        settings: { ...defaults.traceNavigator, display: "expanded", mode: "issue", rangeMode: "follow", height: 144,
+            instructionVisible: false, instructionWidth: 96 },
     });
     store.dispatch({ type: "KONATA_CHANGE_ZOOM_SPEED", speed: "fast" });
     store.dispatch({ type: "KONATA_CHANGE_CUSTOM_COLORS", scheme: customColorScheme });

@@ -3,20 +3,25 @@ import test from "node:test";
 
 import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
+import { PagedOpStore } from "../src/core/paged_op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
 import { getCycleActivity } from "../src/core/cycle_activity_analysis";
 import {
     buildCycleNavigatorData,
+    getCycleNavigatorActivity,
     getCycleNavigatorTopDown,
     updateCycleNavigatorData,
 } from "../src/core/trace_navigator_analysis";
 import {
+    drawComparisonInstructionNavigator,
     drawComparisonCycleNavigator,
     drawCycleNavigator,
+    drawInstructionNavigator,
     getComparisonCycleNavigatorScrollPosition,
     getComparisonCycleNavigatorViewport,
     getCycleNavigatorScrollPosition,
     getCycleNavigatorViewport,
+    getInstructionNavigatorPosition,
 } from "../src/core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -565,10 +570,10 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(fullAllocation.backendBound, 0);
     const overviewSpec = { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] } as const;
     const overviewWidth = 320;
-    const viewport = getCycleNavigatorViewport(activity, overviewSpec, overviewWidth);
+    const viewport = getCycleNavigatorViewport(activity.cycleCount, overviewSpec, overviewWidth);
     assert.ok(viewport !== null && viewport.width < overviewWidth);
     assert.ok(Math.abs((getCycleNavigatorScrollPosition(
-        activity,
+        activity.cycleCount,
         overviewSpec,
         overviewWidth,
         viewport.left,
@@ -601,8 +606,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
         baselineViewport.left,
     );
     assert.ok(baselinePosition !== null);
-    assert.ok(Math.abs(baselinePosition.baseline - 2) < 0.001);
-    assert.ok(Math.abs(baselinePosition.candidate - 3) < 0.001);
+    assert.ok(Math.abs(baselinePosition - 2) < 0.001);
     const candidatePosition = getComparisonCycleNavigatorScrollPosition(
         comparison,
         "overlay",
@@ -611,8 +615,25 @@ test("Top-down-like view classifies allocation slots without stage names", async
         candidateViewport.left,
     );
     assert.ok(candidatePosition !== null);
-    assert.ok(Math.abs(candidatePosition.baseline - 2) < 0.001);
-    assert.ok(Math.abs(candidatePosition.candidate - 3) < 0.001);
+    assert.ok(Math.abs(candidatePosition - 3) < 0.001);
+
+    // 全長・zoom・位置が異なるA/Bでも、描画とdragが同じ軸を使う。
+    const unequalComparison = {
+        baseline: { data: { ...activity, cycleCount: 1000 }, spec: { ...baselineSpec, zoomLevel: -2 } },
+        candidate: { data: { ...activity, cycleCount: 100 }, spec: overviewSpec },
+    };
+    for (const mode of ["baseline", "candidate", "overlay"] as const) {
+        for (const track of ["baseline", "candidate"] as const) {
+            const source = unequalComparison[mode === "overlay" ? track : mode];
+            const count = mode === "overlay" ? 1000 : source.data.cycleCount;
+            const viewport = getComparisonCycleNavigatorViewport(unequalComparison, mode, track, overviewWidth);
+            assert.deepEqual(viewport, getCycleNavigatorViewport(count, source.spec, overviewWidth));
+            assert.ok(viewport !== null);
+            assert.ok(Math.abs((getComparisonCycleNavigatorScrollPosition(
+                unequalComparison, mode, track, overviewWidth, viewport.left,
+            ) ?? -1) - source.spec.position[0]) < 0.001);
+        }
+    }
 
     const partialAllocation = getCycleNavigatorTopDown(activity, 4, 5);
     assert.ok(partialAllocation !== null);
@@ -746,6 +767,208 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.ok(comparisonNavigator.fillRects.some(([x, y, width, height]) =>
         x === 0 && y === 64 && width === overviewWidth && height === 1));
     assert.equal(comparisonNavigator.strokeRects.length, 2);
+    trace.close();
+});
+
+test("Instruction navigator draws one wrapped lifetime per sampled instruction", () => {
+    const trace = createTopDownBreakdownTrace();
+    const height = 48;
+    const baselineSpec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [2, 0],
+    } as const;
+    const candidateSpec = {
+        ...DEFAULT_KONATA_RENDER_SPEC,
+        position: [3, 1],
+    } as const;
+    const position = getInstructionNavigatorPosition(
+        trace, candidateSpec, height, 1,
+    );
+    assert.ok(position !== null && position[0] >= 0 && position[1] >= 0);
+
+    const navigator = createRecordedContext();
+    drawInstructionNavigator(
+        trace,
+        candidateSpec,
+        createCanvas(navigator.context, 16, height),
+        160,
+    );
+    assert.ok(navigator.fillStyles.includes("hsl(0,0%,70%)"));
+    assert.ok(navigator.fillStyles.includes("hsl(0,0%,55%)"));
+    assert.ok(navigator.fillStyles.includes("rgba(0,0,0,0.6)"));
+    assert.ok(navigator.fillStyles.includes("rgba(255,255,255,0.75)"));
+
+    const lightNavigator = createRecordedContext();
+    drawInstructionNavigator(
+        trace,
+        { ...candidateSpec, theme: "light" },
+        createCanvas(lightNavigator.context, 16, height),
+        160,
+    );
+    assert.ok(lightNavigator.fillStyles.includes("rgba(0,0,0,0.68)"));
+    assert.ok(lightNavigator.fillStyles.includes("rgba(0,0,0,0.35)"));
+    assert.ok(lightNavigator.fillStyles.includes("rgba(255,255,255,0.6)"));
+
+    const comparison = {
+        baseline: { trace, spec: baselineSpec },
+        candidate: { trace, spec: candidateSpec },
+    } as const;
+    const comparisonNavigator = createRecordedContext();
+    drawComparisonInstructionNavigator(
+        comparison,
+        createCanvas(comparisonNavigator.context, 16, height),
+        "overlay",
+        160,
+    );
+    assert.ok(comparisonNavigator.fillRects.some(([x, y, width, drawnHeight]) =>
+        x === 8 && y === 0 && width === 1 && drawnHeight === height));
+    trace.close();
+});
+
+test("Instruction navigator magnifies and wraps instruction lifetimes", () => {
+    const trace = createLatencyTrace([[14, 15]]);
+    const navigator = createRecordedContext();
+    const scale = drawInstructionNavigator(
+        trace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(navigator.context, 16, 3),
+        128,
+    );
+    assert.equal(scale, 1);
+    const instructionColor = "hsl(0,0%,70%)";
+    assert.ok(navigator.fillRects.some((rect, index) =>
+        navigator.fillStyles[index] === instructionColor &&
+        rect[0] === 14 && rect[1] === 0 && rect[2] === 2 && rect[3] === 3));
+    assert.ok(navigator.fillRects.some((rect, index) =>
+        navigator.fillStyles[index] === instructionColor &&
+        rect[0] === 0 && rect[1] === 0 && rect[2] === 6 && rect[3] === 3));
+    assert.ok(navigator.fillRects.some((rect, index) =>
+        navigator.fillStyles[index] === "hsl(0,0%,84%)" &&
+        rect[0] === 14 && rect[1] === 0 && rect[2] === 1 && rect[3] === 3));
+    assert.ok(navigator.fillRects.some((rect, index) =>
+        navigator.fillStyles[index] === "hsl(0,0%,84%)" &&
+        rect[0] === 5 && rect[1] === 0 && rect[2] === 1 && rect[3] === 3));
+    assert.deepEqual(
+        getInstructionNavigatorPosition(
+            trace, DEFAULT_KONATA_RENDER_SPEC, 3, 1,
+        ),
+        [14, 0],
+    );
+    trace.close();
+
+    const flushedTrace = createTopDownCancellationTrace();
+    const flushedNavigator = createRecordedContext();
+    drawInstructionNavigator(
+        flushedTrace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(flushedNavigator.context, 8, 2),
+        128,
+    );
+    assert.ok(flushedNavigator.fillRects.some((rect, index) =>
+        flushedNavigator.fillStyles[index] === "hsl(0,0%,55%)" &&
+        rect[0] === 0 && rect[1] === 1 && rect[2] === 8 && rect[3] === 1));
+    flushedTrace.close();
+
+    const pipelineAspectTrace = createLatencyTrace(Array.from(
+        { length: 64 },
+        (_, id) => [Math.floor(id / 4), Math.floor(id / 4) + 16] as const,
+    ));
+    const aspectNavigator = createRecordedContext();
+    assert.equal(drawInstructionNavigator(
+        pipelineAspectTrace,
+        DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(aspectNavigator.context, 16, 4),
+        128,
+    ), 12);
+    assert.deepEqual(aspectNavigator.fillRects
+        .filter((_, index) => aspectNavigator.fillStyles[index] === instructionColor)
+        .map(([x, y, width]) => [x, y, width]), [
+            [0, 0, 11], [0, 1, 11], [0, 2, 11], [1, 3, 11],
+        ]);
+    for (let y = 0; y < 4; y++) {
+        assert.deepEqual(getInstructionNavigatorPosition(
+            pipelineAspectTrace, DEFAULT_KONATA_RENDER_SPEC, 4, y,
+        ), [y * 4 + 2, y * 16 + 8]);
+    }
+    pipelineAspectTrace.close();
+});
+
+test("Instruction navigator hit testing follows drawn row boundaries", () => {
+    for (const [rowCount, height] of [[3, 4], [5, 8], [7, 11], [100, 200]]) {
+        const trace = createLatencyTrace(Array.from(
+            { length: rowCount }, (_, id) => [id * 8, id * 8 + 1] as const,
+        ));
+        const navigator = createRecordedContext();
+        const width = rowCount * 8;
+        drawInstructionNavigator(
+            trace, DEFAULT_KONATA_RENDER_SPEC,
+            createCanvas(navigator.context, width, height), 1,
+        );
+        const bars = navigator.fillRects.filter((_, index) =>
+            navigator.fillStyles[index] === "hsl(0,0%,70%)");
+        assert.equal(bars.length, rowCount);
+        for (const [x, top, , barHeight] of bars) {
+            for (let y = top; y < top + barHeight; y++) {
+                assert.deepEqual(getInstructionNavigatorPosition(
+                    trace, DEFAULT_KONATA_RENDER_SPEC, height, y,
+                ), [x, x / 8], `Row ${y} of ${height} pixels / ${rowCount} ops`);
+            }
+        }
+        trace.close();
+    }
+});
+
+test("Instruction navigator restores the selected fetch cycle from any view", () => {
+    const trace = createLatencyTrace([[100, 1000], [200, 220], [300, 300]]);
+    for (const hideFlushedOps of [false, true]) {
+        const spec = {
+            ...DEFAULT_KONATA_RENDER_SPEC,
+            position: [900, -10] as const,
+            zoomLevel: 8,
+            hideFlushedOps,
+        };
+        for (const [y, cycle, row] of [
+            [-10, 100, 0], [0, 100, 0], [10, 200, 1], [29, 300, 2], [50, 300, 2],
+        ]) {
+            assert.deepEqual(getInstructionNavigatorPosition(trace, spec, 30, y), [cycle, row]);
+        }
+        assert.equal(getInstructionNavigatorPosition(trace, spec, 0, 0), null);
+    }
+    trace.close();
+});
+
+test("Instruction navigator draws and selects coarse-page samples without decoding full pages", async () => {
+    const store = new PagedOpStore({ maxCachedOps: 1, maxDecodedPages: 1 });
+    for (let id = 0; id < 1024; id++) {
+        const op = new Op();
+        op.id = id;
+        op.rid = Math.floor(id / 2);
+        op.flush = id % 2 !== 0;
+        op.retired = !op.flush;
+        op.fetchedCycle = id;
+        op.retiredCycle = id + 1;
+        store.setOp(id, op);
+        if (op.retired) store.setRetiredOp(op.rid, op);
+    }
+    await store.waitForPendingCompression();
+    const trace = new ParsedTrace("coarse.log", store, new StageLevelMap(), 1024);
+    for (const [hideFlushedOps, height] of [[false, 128], [true, 128], [false, 768]] as const) {
+        const spec = { ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps };
+        const before = store.levelMetrics[0];
+        const navigator = createRecordedContext();
+        drawInstructionNavigator(trace, spec, createCanvas(navigator.context, 32, height), 400);
+        assert.equal(navigator.fillStyles.filter(color => color === "hsl(0,0%,70%)").length, height);
+        for (let y = 0; y < height; y++) {
+            const position = getInstructionNavigatorPosition(trace, spec, height, y);
+            assert.ok(position !== null);
+            assert.equal(position[0] % 8, 0);
+            assert.equal(position[1], position[0] / (hideFlushedOps ? 2 : 1));
+            const rowsPerPixel = (hideFlushedOps ? 512 : 1024) / height;
+            assert.ok(Math.abs(position[1] / rowsPerPixel - (y + 0.5)) < 8);
+        }
+        assert.equal(store.levelMetrics[0].decodeCount, before.decodeCount);
+        assert.equal(store.levelMetrics[0].serializeCount, before.serializeCount);
+    }
     trace.close();
 });
 
@@ -887,6 +1110,61 @@ test("Top-down-like analysis fixes its trace range while a live trace grows", as
     const activity = await building;
     assert.ok(activity !== null && activity.topDown !== null);
     assert.equal(activity.topDown.allocationWidth, 2);
+    trace.close();
+});
+
+test("Cycle navigator yields by elapsed time even below the initial sample size", async (t) => {
+    const trace = createTopDownBreakdownTrace();
+    const getOp = trace.getOpForScan.bind(trace);
+    let clock = 0;
+    let reads = 0;
+    let canceled = false;
+    t.mock.method(performance, "now", () => clock);
+    t.mock.method(trace, "getOpForScan", (id: number) => {
+        reads++;
+        clock += 10;
+        return getOp(id);
+    });
+    const building = buildCycleNavigatorData(trace, { isCanceled: () => canceled });
+    assert.equal(reads, 1);
+    canceled = true;
+    assert.equal(await building, null);
+    trace.close();
+});
+
+test("Cycle navigator resumes bounded updates without sealing unfinished cycles", async () => {
+    const trace = createTopDownBreakdownTrace();
+    let incremental = await buildCycleNavigatorData(trace, { live: true });
+    const initial = await buildCycleNavigatorData(trace, { live: true });
+    assert.ok(incremental !== null && initial !== null);
+    for (let id = 4; id < 64; id++) {
+        const cycle = id * 10;
+        appendTopDownBreakdownOp(trace, id, [
+            ["arbitrary-source", cycle, cycle + 1],
+            ["arbitrary-reservoir", cycle + 1, cycle + 3],
+            ["arbitrary-event", cycle + 3, cycle + 4],
+            ["arbitrary-tail", cycle + 4, cycle + 5],
+        ]);
+    }
+    const complete = updateCycleNavigatorData(initial, trace, true, Infinity);
+    while (incremental.sourceLastID < trace.lastID) {
+        const next = updateCycleNavigatorData(incremental, trace, true, 0);
+        assert.equal(next.sourceLastID, incremental.sourceLastID + 1);
+        if (next.sourceLastID < trace.lastID) {
+            assert.ok(next.confirmedCycle < trace.lastCycle);
+        }
+        incremental = next;
+    }
+    assert.deepEqual(
+        getCycleNavigatorTopDown(incremental, 0, trace.lastCycle),
+        getCycleNavigatorTopDown(complete, 0, trace.lastCycle),
+    );
+    for (const mode of ["fetch", "issue", "commit", "flush", "latency"] as const) {
+        assert.deepEqual(
+            getCycleNavigatorActivity(incremental, mode, 0, trace.lastCycle),
+            getCycleNavigatorActivity(complete, mode, 0, trace.lastCycle),
+        );
+    }
     trace.close();
 });
 

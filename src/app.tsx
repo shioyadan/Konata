@@ -58,6 +58,7 @@ import {
     DEFAULT_TRACE_NAVIGATOR_SETTINGS,
     getZoomSpeedFromFactor,
     MIN_TRACE_NAVIGATOR_HEIGHT,
+    MIN_INSTRUCTION_NAVIGATOR_WIDTH,
     type MinimumLaneHeightKey,
     type Operation,
     type PersistedViewSettings,
@@ -172,13 +173,13 @@ function parseTraceNavigatorSettings(value: unknown): Readonly<TraceNavigatorSet
     if (typeof value !== "object" || value === null) {
         return DEFAULT_TRACE_NAVIGATOR_SETTINGS;
     }
-    const settings = value as Partial<Record<keyof TraceNavigatorSettings, unknown>>;
+    const settings = value as Partial<Record<keyof TraceNavigatorSettings | "visible", unknown>>;
     const mode = settings.mode;
     const rangeMode = settings.rangeMode;
     return {
-        visible: typeof settings.visible === "boolean"
-            ? settings.visible
-            : DEFAULT_TRACE_NAVIGATOR_SETTINGS.visible,
+        display: settings.display === "expanded" || settings.display === "compact" || settings.display === "hidden"
+            ? settings.display
+            : settings.visible === true ? "expanded" : DEFAULT_TRACE_NAVIGATOR_SETTINGS.display,
         mode: mode === "top-down" || mode === "fetch" || mode === "issue" ||
             mode === "commit" || mode === "flush" || mode === "latency"
             ? mode
@@ -190,6 +191,13 @@ function parseTraceNavigatorSettings(value: unknown): Readonly<TraceNavigatorSet
             settings.height >= MIN_TRACE_NAVIGATOR_HEIGHT
             ? Math.round(settings.height)
             : DEFAULT_TRACE_NAVIGATOR_SETTINGS.height,
+        instructionVisible: typeof settings.instructionVisible === "boolean"
+            ? settings.instructionVisible
+            : DEFAULT_TRACE_NAVIGATOR_SETTINGS.instructionVisible,
+        instructionWidth: isPositiveFiniteNumber(settings.instructionWidth) &&
+            settings.instructionWidth >= MIN_INSTRUCTION_NAVIGATOR_WIDTH
+            ? Math.round(settings.instructionWidth)
+            : DEFAULT_TRACE_NAVIGATOR_SETTINGS.instructionWidth,
     };
 }
 

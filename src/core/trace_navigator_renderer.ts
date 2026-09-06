@@ -1,4 +1,4 @@
-/** Top-down-like分類またはcycle activityをNavigatorのcycle方向Canvasへ描画する。 */
+/** Trace navigatorのcycle／instruction方向を集計済みdataまたはOpから描画する。 */
 import darkStyle from "../../theme/dark/style.json";
 import lightStyle from "../../theme/light/style.json";
 import {
@@ -13,12 +13,15 @@ import {
 import {
     getKonataZoomScale,
     KONATA_OP_WIDTH,
+    KonataRenderMetrics,
     type KonataRenderSpec,
 } from "./konata_renderer";
+import type { ParsedTrace } from "./model";
 
 // 縮小表示ではOp描画と同じくglobal cycleへ揃えた代表点だけを見る。各cycle内では
 // 全allocation slotを数えるため、slot位置によるcategory比率の偏りは作らない。
-const MIN_VIEWPORT_WIDTH = 8;
+const MIN_VIEWPORT_SIZE = 8;
+const INSTRUCTION_LATENCY_MAGNIFICATION = 8;
 const styles = { light: lightStyle, dark: darkStyle };
 
 export type CycleNavigatorRangeMode = "follow" | "overview";
@@ -38,6 +41,16 @@ export interface CycleNavigatorSource {
 export interface CycleNavigatorComparison {
     readonly baseline: Readonly<CycleNavigatorSource>;
     readonly candidate: Readonly<CycleNavigatorSource>;
+}
+
+export interface InstructionNavigatorSource {
+    readonly trace: ParsedTrace;
+    readonly spec: Readonly<KonataRenderSpec>;
+}
+
+export interface InstructionNavigatorComparison {
+    readonly baseline: Readonly<InstructionNavigatorSource>;
+    readonly candidate: Readonly<InstructionNavigatorSource>;
 }
 
 interface CycleScale {
@@ -69,21 +82,11 @@ interface StageColorTone {
 }
 
 const activityInfo = {
-    fetch: {
-        title: "Fetch throughput", unit: " ops/cycle", color: "frontendBound",
-    },
-    issue: {
-        title: "Issue throughput", unit: " ops/cycle", color: "backendBound",
-    },
-    commit: {
-        title: "Commit throughput (retired ops)", unit: " ops/cycle", color: "retiring",
-    },
-    flush: {
-        title: "Flushed work (at allocation)", unit: " ops/cycle", color: "flush",
-    },
-    latency: {
-        title: "Issue-to-completion latency", unit: " cycles", color: "latency",
-    },
+    fetch: { unit: " ops/cycle", color: "frontendBound" },
+    issue: { unit: " ops/cycle", color: "backendBound" },
+    commit: { unit: " ops/cycle", color: "retiring" },
+    flush: { unit: " ops/cycle", color: "flush" },
+    latency: { unit: " cycles", color: "latency" },
 } as const;
 
 function prepareCanvas(canvas: HTMLCanvasElement): PreparedCanvas {
@@ -162,13 +165,14 @@ function drawBreakdown(
 
 function drawViewport(
     context: CanvasRenderingContext2D,
-    viewport: Readonly<CycleNavigatorViewport>,
+    viewport: Readonly<CycleNavigatorViewport> | null,
     width: number,
     top: number,
     height: number,
     shadeColor: string,
     borderColor: string,
 ): void {
+    if (viewport === null) return;
     const right = Math.min(width, viewport.left + viewport.width);
     context.fillStyle = shadeColor;
     context.fillRect(0, top, viewport.left, height);
@@ -281,7 +285,7 @@ function drawLabels(
 }
 
 function getCycleScale(
-    data: Readonly<CycleNavigatorData>,
+    cycleCount: number,
     spec: Readonly<KonataRenderSpec>,
     width: number,
     rangeMode: CycleNavigatorRangeMode,
@@ -289,7 +293,7 @@ function getCycleScale(
     if (rangeMode === "overview") {
         return {
             leftCycle: 0,
-            pixelsPerCycle: width / Math.max(1, data.cycleCount),
+            pixelsPerCycle: width / Math.max(1, cycleCount),
         };
     }
     return {
@@ -299,80 +303,90 @@ function getCycleScale(
 }
 
 function getViewport(
-    leftCycle: number,
-    rightCycle: number,
+    start: number,
+    end: number,
     position: number,
-    visibleCycles: number,
-    width: number,
+    visibleLength: number,
+    trackLength: number,
 ): CycleNavigatorViewport | null {
-    const cycleCount = rightCycle - leftCycle;
-    if (width <= 0 || cycleCount <= 0) {
+    const range = end - start;
+    if (trackLength <= 0 || range <= 0) {
         return null;
     }
-    if (visibleCycles >= cycleCount) {
-        return { left: 0, width };
+    if (visibleLength >= range) {
+        return { left: 0, width: trackLength };
     }
-    const viewportWidth = Math.min(
-        width,
-        Math.max(MIN_VIEWPORT_WIDTH, width * visibleCycles / cycleCount),
+    const viewportLength = Math.min(
+        trackLength,
+        Math.max(MIN_VIEWPORT_SIZE, trackLength * visibleLength / range),
     );
-    const maximumPosition = rightCycle - visibleCycles;
-    const clampedPosition = Math.min(Math.max(position, leftCycle), maximumPosition);
+    const maximumPosition = end - visibleLength;
+    const clampedPosition = Math.min(Math.max(position, start), maximumPosition);
     return {
-        left: (clampedPosition - leftCycle) / (maximumPosition - leftCycle) *
-            (width - viewportWidth),
-        width: viewportWidth,
+        left: (clampedPosition - start) / (maximumPosition - start) *
+            (trackLength - viewportLength),
+        width: viewportLength,
     };
 }
 
 function getScrollPosition(
-    leftCycle: number,
-    rightCycle: number,
-    visibleCycles: number,
-    width: number,
-    viewportLeft: number,
+    start: number,
+    end: number,
+    visibleLength: number,
+    trackLength: number,
+    viewportOffset: number,
     viewport: Readonly<CycleNavigatorViewport>,
 ): number {
-    const trackWidth = width - viewport.width;
-    if (trackWidth <= 0) {
-        return leftCycle;
+    const movableLength = trackLength - viewport.width;
+    if (movableLength <= 0) {
+        return start;
     }
-    const maximumPosition = rightCycle - visibleCycles;
-    return leftCycle + Math.min(Math.max(viewportLeft, 0), trackWidth) / trackWidth *
-        (maximumPosition - leftCycle);
+    const maximumPosition = end - visibleLength;
+    return start + Math.min(Math.max(viewportOffset, 0), movableLength) / movableLength *
+        (maximumPosition - start);
 }
 
 /** Overview上で、現在のPipeline表示範囲に対応するscrollbar thumbを返す。 */
 export function getCycleNavigatorViewport(
-    data: Readonly<CycleNavigatorData>,
+    cycleCount: number,
     spec: Readonly<KonataRenderSpec>,
     width: number,
 ): CycleNavigatorViewport | null {
     const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
     const visibleCycles = width / pixelsPerCycle;
-    return getViewport(0, data.cycleCount, spec.position[0], visibleCycles, width);
+    return getViewport(0, cycleCount, spec.position[0], visibleCycles, width);
 }
 
 /** Overviewのthumb左端を、Pipeline左端のcycleへ戻す。 */
 export function getCycleNavigatorScrollPosition(
-    data: Readonly<CycleNavigatorData>,
+    cycleCount: number,
     spec: Readonly<KonataRenderSpec>,
     width: number,
     viewportLeft: number,
 ): number | null {
-    const viewport = getCycleNavigatorViewport(data, spec, width);
+    const viewport = getCycleNavigatorViewport(cycleCount, spec, width);
     if (viewport === null) {
         return null;
     }
     const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
     return getScrollPosition(
         0,
-        data.cycleCount,
+        cycleCount,
         width / pixelsPerCycle,
         width,
         viewportLeft,
         viewport,
     );
+}
+
+// 比較Overviewの軸長は描画・thumb・dragで共用し、片側を動かしても変えない。
+function getComparisonCycleCount(
+    comparison: Readonly<CycleNavigatorComparison>,
+    mode: CycleNavigatorComparisonMode,
+): number {
+    return mode === "overlay"
+        ? Math.max(comparison.baseline.data.cycleCount, comparison.candidate.data.cycleCount)
+        : comparison[mode].data.cycleCount;
 }
 
 /** 比較Overview上で、指定したA/BそれぞれのPipeline表示範囲を返す。 */
@@ -382,17 +396,9 @@ export function getComparisonCycleNavigatorViewport(
     track: CycleNavigatorComparisonTrack,
     width: number,
 ): CycleNavigatorViewport | null {
-    const selectedTrack = mode === "overlay" ? track : mode;
-    const source = comparison[selectedTrack];
-    const cycleCount = mode === "overlay"
-        ? Math.max(comparison.baseline.data.cycleCount, comparison.candidate.data.cycleCount)
-        : source.data.cycleCount;
-    const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(source.spec.zoomLevel);
-    return getViewport(
-        0,
-        cycleCount,
-        source.spec.position[0],
-        width / pixelsPerCycle,
+    return getCycleNavigatorViewport(
+        getComparisonCycleCount(comparison, mode),
+        comparison[mode === "overlay" ? track : mode].spec,
         width,
     );
 }
@@ -404,36 +410,39 @@ export function getComparisonCycleNavigatorScrollPosition(
     track: CycleNavigatorComparisonTrack,
     width: number,
     viewportLeft: number,
-) {
-    const selectedTrack = mode === "overlay" ? track : mode;
-    const source = comparison[selectedTrack];
-    const cycleCount = mode === "overlay"
-        ? Math.max(comparison.baseline.data.cycleCount, comparison.candidate.data.cycleCount)
-        : source.data.cycleCount;
-    const viewport = getComparisonCycleNavigatorViewport(
-        comparison, mode, selectedTrack, width,
-    );
-    if (viewport === null) {
-        return null;
-    }
-    const pixelsPerCycle = KONATA_OP_WIDTH *
-        getKonataZoomScale(source.spec.zoomLevel);
-    const position = getScrollPosition(
-        0,
-        cycleCount,
-        width / pixelsPerCycle,
+): number | null {
+    // Rendererは選択側の座標だけを返す。両viewへの反映はUI／Controllerに任せる。
+    return getCycleNavigatorScrollPosition(
+        getComparisonCycleCount(comparison, mode),
+        comparison[mode === "overlay" ? track : mode].spec,
         width,
         viewportLeft,
-        viewport,
     );
-    return {
-        baseline: selectedTrack === "baseline"
-            ? position
-            : comparison.baseline.spec.position[0],
-        candidate: selectedTrack === "candidate"
-            ? position
-            : comparison.candidate.spec.position[0],
-    };
+}
+
+/** 描画と同じ代表命令を選び、fetchがPipeline左端に見える位置へ補正する。 */
+export function getInstructionNavigatorPosition(
+    trace: ParsedTrace,
+    spec: Readonly<KonataRenderSpec>,
+    height: number,
+    y: number,
+): readonly [number, number] | null {
+    const trackHeight = Math.floor(height);
+    const metrics = new KonataRenderMetrics(trace, spec);
+    const rowCount = metrics.getVisibleBottom() + 1;
+    if (trackHeight <= 0 || rowCount <= 0) {
+        return null;
+    }
+    const pixelRow = Math.min(trackHeight - 1, Math.max(0, Math.floor(y)));
+    const sampleCount = Math.min(rowCount, trackHeight);
+    // 描画時のfloor境界を逆算し、複数pixelに広がった同じbarからは同じOpを選ぶ。
+    const sample = Math.ceil((pixelRow + 1) * sampleCount / trackHeight) - 1;
+    const op = getInstructionSample(metrics, sampleCount, sample);
+    if (op === undefined || op.fetchedCycle < 0) {
+        return null;
+    }
+    // 折り返し位置や強調したbar長は実時間とは異なるため、横座標の逆変換には使わない。
+    return [op.fetchedCycle, metrics.getPositionYFromOp(op)];
 }
 
 function clearNavigator(
@@ -539,27 +548,6 @@ function drawCycleTrack(
     }
 }
 
-function drawNavigatorViewport(
-    canvas: Readonly<PreparedCanvas>,
-    viewport: Readonly<CycleNavigatorViewport> | null,
-    top: number,
-    height: number,
-    shadeColor: string,
-    borderColor: string,
-): void {
-    if (viewport !== null) {
-        drawViewport(
-            canvas.context,
-            viewport,
-            canvas.width,
-            top,
-            height,
-            shadeColor,
-            borderColor,
-        );
-    }
-}
-
 export function drawCycleNavigator(
     data: Readonly<CycleNavigatorData>,
     spec: Readonly<KonataRenderSpec>,
@@ -620,16 +608,7 @@ export function drawComparisonCycleNavigator(
         activityMaximum,
     );
 
-    const overviewCycleCount = overlay
-        ? Math.max(baseline.data.cycleCount, candidate.data.cycleCount)
-        : selected.data.cycleCount;
-    const overviewScale = rangeMode === "overview"
-        ? {
-            leftCycle: 0,
-            pixelsPerCycle: cycleNavigator.width /
-                Math.max(1, overviewCycleCount),
-        }
-        : null;
+    const cycleCount = getComparisonCycleCount(comparison, comparisonMode);
     const baselineHeight = Math.floor(cycleNavigator.height / 2);
     const tracks = overlay ? [
         {
@@ -651,8 +630,8 @@ export function drawComparisonCycleNavigator(
         drawCycleTrack(
             track.source.data,
             cycleNavigator,
-            overviewScale ?? getCycleScale(
-                track.source.data,
+            getCycleScale(
+                cycleCount,
                 track.source.spec,
                 cycleNavigator.width,
                 rangeMode,
@@ -667,11 +646,12 @@ export function drawComparisonCycleNavigator(
     }
     if (rangeMode === "overview") {
         for (const track of tracks) {
-            drawNavigatorViewport(
-                cycleNavigator,
+            drawViewport(
+                cycleNavigator.context,
                 getComparisonCycleNavigatorViewport(
                     comparison, comparisonMode, track.track, cycleNavigator.width,
                 ),
+                cycleNavigator.width,
                 track.top,
                 track.height,
                 style.traceNavigator.viewportShadeColor,
@@ -692,4 +672,191 @@ export function drawComparisonCycleNavigator(
             );
         }
     }
+}
+
+function getInstructionScale(
+    metrics: Readonly<KonataRenderMetrics>,
+    height: number,
+): number {
+    const rowsPerPixel = (metrics.getVisibleBottom() + 1) / Math.max(1, height);
+    // 縦1pxが縮めるPipeline上の高さと同じ比率でcycle幅も縮める。
+    return Math.max(1, rowsPerPixel * metrics.opHeight / metrics.opWidth);
+}
+
+function getInstructionSample(
+    metrics: Readonly<KonataRenderMetrics>,
+    sampleCount: number,
+    sample: number,
+) {
+    const rowCount = metrics.getVisibleBottom() + 1;
+    const rowsPerSample = rowCount / sampleCount;
+    const row = Math.min(rowCount - 1, Math.floor((sample + 0.5) * rowsPerSample));
+    // 描画とdragは同じ位置・解像度を渡し、代表命令の選択はOpStoreへ任せる。
+    return metrics.getVisibleOp(row, Math.log2(rowsPerSample));
+}
+
+function drawInstructionTrack(
+    metrics: Readonly<KonataRenderMetrics>,
+    canvas: Readonly<PreparedCanvas>,
+    left: number,
+    width: number,
+    cyclesPerPixel: number,
+    instructionColor: string,
+    instructionEndpointColor: string,
+    flushedColor: string,
+): void {
+    const height = canvas.height;
+    const rowCount = metrics.getVisibleBottom() + 1;
+    if (rowCount <= 0 || height <= 0 || width <= 0) {
+        return;
+    }
+    const sampleCount = Math.min(rowCount, height);
+    for (let sample = 0; sample < sampleCount; sample++) {
+        const op = getInstructionSample(metrics, sampleCount, sample);
+        if (op === undefined || op.fetchedCycle < 0 || op.retiredCycle < op.fetchedCycle) {
+            continue;
+        }
+        const top = Math.floor(sample * height / sampleCount);
+        const bottom = Math.max(
+            top + 1, Math.floor((sample + 1) * height / sampleCount),
+        );
+        const rowHeight = bottom - top;
+        canvas.context.fillStyle = !metrics.spec.hideFlushedOps && op.flush
+            ? flushedColor
+            : instructionColor;
+        const startCycle = Math.floor(op.fetchedCycle / cyclesPerPixel);
+        const start = ((startCycle % width) + width) % width;
+        // fetch位相は全体scaleに保ち、latencyだけを固定倍率で強調する。
+        const length = Math.max(
+            1,
+            Math.ceil(
+                (op.retiredCycle - op.fetchedCycle) *
+                INSTRUCTION_LATENCY_MAGNIFICATION / cyclesPerPixel,
+            ),
+        );
+        if (length >= width) {
+            canvas.context.fillRect(left, top, width, rowHeight);
+            continue;
+        }
+        const firstLength = Math.min(length, width - start);
+        canvas.context.fillRect(left + start, top, firstLength, rowHeight);
+        if (firstLength < length) {
+            canvas.context.fillRect(left, top, length - firstLength, rowHeight);
+        }
+        // 両端だけ明暗差を付け、色に意味を増やさずfetch-retire間の長さを際立たせる。
+        canvas.context.fillStyle = instructionEndpointColor;
+        canvas.context.fillRect(left + start, top, 1, rowHeight);
+        canvas.context.fillRect(
+            left + (start + length - 1) % width, top, 1, rowHeight,
+        );
+    }
+}
+
+function getInstructionViewport(
+    metrics: Readonly<KonataRenderMetrics>,
+    height: number,
+    pipelineHeight: number,
+): CycleNavigatorViewport | null {
+    const rowCount = metrics.getVisibleBottom() + 1;
+    return getViewport(
+        0,
+        rowCount,
+        metrics.spec.position[1],
+        pipelineHeight / metrics.opHeight,
+        height,
+    );
+}
+
+function drawInstructionViewport(
+    canvas: Readonly<PreparedCanvas>,
+    viewport: Readonly<CycleNavigatorViewport> | null,
+    left: number,
+    width: number,
+    shadeColor: string,
+    borderColor: string,
+): void {
+    if (viewport === null) {
+        return;
+    }
+    canvas.context.fillStyle = shadeColor;
+    canvas.context.fillRect(left, 0, width, viewport.left);
+    canvas.context.fillRect(
+        left,
+        viewport.left + viewport.width,
+        width,
+        canvas.height - viewport.left - viewport.width,
+    );
+    canvas.context.fillStyle = borderColor;
+    canvas.context.fillRect(left, viewport.left, width, 1);
+    canvas.context.fillRect(left, viewport.left + viewport.width - 1, width, 1);
+    canvas.context.fillRect(left, viewport.left, 1, viewport.width);
+    canvas.context.fillRect(left + width - 1, viewport.left, 1, viewport.width);
+}
+
+export function drawInstructionNavigator(
+    trace: ParsedTrace,
+    spec: Readonly<KonataRenderSpec>,
+    canvas: HTMLCanvasElement,
+    pipelineHeight = canvas.clientHeight,
+): number {
+    const source = { trace, spec };
+    return drawComparisonInstructionNavigator(
+        { baseline: source, candidate: source }, canvas, "candidate", pipelineHeight,
+    );
+}
+
+/** 比較時はA/B単独を全幅、Overlayを左右2列の独立した命令列として描く。 */
+export function drawComparisonInstructionNavigator(
+    comparison: Readonly<InstructionNavigatorComparison>,
+    canvasElement: HTMLCanvasElement,
+    mode: CycleNavigatorComparisonMode,
+    pipelineHeight = canvasElement.clientHeight,
+): number {
+    const canvas = prepareCanvas(canvasElement);
+    const selected = mode === "baseline" ? comparison.baseline : comparison.candidate;
+    const style = styles[selected.spec.theme];
+    canvas.context.fillStyle = style.pipelinePane.backgroundColor;
+    canvas.context.fillRect(0, 0, canvas.width, canvas.height);
+    const middle = Math.floor(canvas.width / 2);
+    const sources = mode === "overlay"
+        ? [comparison.baseline, comparison.candidate]
+        : [selected];
+    // 同じframeの縮尺・bar・表示範囲で、各Traceの描画寸法を共有する。
+    const tracks = sources.map((source, index) => ({
+        metrics: new KonataRenderMetrics(source.trace, source.spec),
+        left: index === 0 ? 0 : middle,
+        width: mode !== "overlay" ? canvas.width
+            : index === 0 ? middle : canvas.width - middle,
+    }));
+    const cyclesPerPixel = Math.max(...tracks.map((track) =>
+        getInstructionScale(track.metrics, canvas.height)));
+    tracks.forEach((track) => {
+        drawInstructionTrack(
+            track.metrics,
+            canvas,
+            track.left,
+            track.width,
+            cyclesPerPixel,
+            style.traceNavigator.instructionColor,
+            style.traceNavigator.instructionEndpointColor,
+            style.traceNavigator.flushedColor,
+        );
+        drawInstructionViewport(
+            canvas,
+            getInstructionViewport(
+                track.metrics,
+                canvas.height,
+                pipelineHeight,
+            ),
+            track.left,
+            track.width,
+            style.traceNavigator.instructionViewportShadeColor,
+            style.traceNavigator.viewportBorderColor,
+        );
+    });
+    if (mode === "overlay") {
+        canvas.context.fillStyle = style.pipelinePane.borderColor;
+        canvas.context.fillRect(middle, 0, 1, canvas.height);
+    }
+    return cyclesPerPixel;
 }

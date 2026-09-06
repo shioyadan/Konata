@@ -964,12 +964,17 @@ button:disabled {
 }
 
 .viewer {
+    --instruction-navigator-width: 0px;
     position: relative;
     display: grid;
     grid-template-columns:
-        minmax(0, min(var(--label-pane-width), calc(100% - 10px)))
+        minmax(0, min(
+            var(--label-pane-width),
+            calc(100% - 10px - var(--instruction-navigator-width))
+        ))
         10px
-        minmax(0, 1fr);
+        minmax(0, 1fr)
+        var(--instruction-navigator-width);
     min-height: 0;
     flex: 1;
     cursor: grab;
@@ -984,17 +989,25 @@ button:disabled {
 
 .viewer.has-trace-navigator {
     --trace-navigator-default-height: 64px;
-    --trace-navigator-collapsed-height: 22px;
+    --trace-navigator-effective-height: 0px;
+    grid-template-rows: minmax(0, 1fr) var(--trace-navigator-effective-height);
+}
+
+.viewer.is-instruction-navigator-visible {
+    /* 広い画面の保存幅は残し、狭い画面でもNavigatorだけで横幅を占有させない。 */
+    --instruction-navigator-width: clamp(32px, var(--instruction-navigator-saved-width), 25%);
+}
+
+.viewer.is-trace-navigator-expanded {
     --trace-navigator-effective-height: clamp(
         64px,
         var(--trace-navigator-height, var(--trace-navigator-default-height)),
         calc(100% - 96px)
     );
-    grid-template-rows: minmax(0, 1fr) var(--trace-navigator-collapsed-height);
 }
 
-.viewer.is-trace-navigator-expanded {
-    grid-template-rows: minmax(0, 1fr) var(--trace-navigator-effective-height);
+.viewer.is-trace-navigator-compact {
+    --trace-navigator-effective-height: var(--trace-navigator-compact-height);
 }
 
 .viewer.is-panning {
@@ -1033,6 +1046,21 @@ button:disabled {
     background: #262930;
 }
 
+.instruction-navigator-pane {
+    grid-column: 4;
+    grid-row: 1;
+    border-left: 1px solid #555b68;
+    background: #262930;
+}
+
+.instruction-navigator-pane canvas {
+    cursor: grab;
+}
+
+.instruction-navigator-pane canvas:active {
+    cursor: grabbing;
+}
+
 .trace-navigator-cycle-label-pane,
 .trace-navigator-cycle-divider,
 .trace-navigator-cycle-pane {
@@ -1042,7 +1070,6 @@ button:disabled {
 
 .trace-navigator-cycle-label-pane {
     grid-column: 1;
-    overflow: visible;
 }
 
 .trace-navigator-cycle-divider {
@@ -1053,69 +1080,145 @@ button:disabled {
     grid-column: 3;
 }
 
-/* 簡易表示では開閉button以外の左側を隠し、OverviewだけをPipeline列へ残す。 */
-.viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-label-pane > :not(.trace-navigator-toggle),
-.viewer.has-trace-navigator:not(.is-trace-navigator-expanded) .trace-navigator-cycle-status {
+/* コンパクト表示はPipeline列のgraphだけを残し、凡例・操作欄・状態表示は隠す。 */
+.viewer.is-trace-navigator-compact .trace-navigator-cycle-label-pane > *,
+.viewer.is-trace-navigator-compact .trace-navigator-cycle-status {
     display: none;
 }
 
 /* rowを増やさず境界へ重ね、既定のNavigator高さとpipeline領域を変えない。 */
-.trace-navigator-resizer {
+.navigator-resizer {
     position: absolute;
     z-index: 1;
-    right: 0;
-    bottom: calc(var(--trace-navigator-effective-height) - 5px);
-    left: 0;
-    height: 10px;
-    cursor: row-resize;
     touch-action: none;
 }
 
-.trace-navigator-resizer::after {
-    position: absolute;
-    top: 4px;
-    left: calc(50% - 20px);
-    width: 40px;
-    border-top: 2px solid #697181;
-    content: "";
+.trace-navigator-resizer {
+    right: var(--instruction-navigator-width);
+    bottom: max(0px, calc(var(--trace-navigator-effective-height) - 5px));
+    left: 0;
+    height: 10px;
+    cursor: row-resize;
 }
 
-/* 左paneの中央をdrawer handleとし、label幅の変更にも横位置を追随させる。 */
-.trace-navigator-toggle {
+/* 開閉を境界のgripへ統合する。見た目は小さく、keyboardでも操作できるbuttonにする。 */
+.navigator-grip {
+    --navigator-grip-length: 32px;
+    --navigator-grip-thickness: 3px;
     position: absolute;
-    z-index: 2;
-    top: 1px;
-    left: 50%;
-    display: grid;
-    width: 28px;
-    height: 20px;
     padding: 0;
-    border-color: #555b68;
-    background: rgb(38 41 48 / 88%);
-    color: #aeb5bf;
-    box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
-    place-items: center;
+    border: 0;
+    cursor: inherit;
+}
+
+.trace-navigator-toggle {
+    top: 0;
+    left: 50%;
+    width: calc(var(--navigator-grip-length) + 12px);
+    height: 100%;
     transform: translateX(-50%);
 }
 
-.viewer.is-trace-navigator-expanded .trace-navigator-toggle {
-    top: -10px;
+.navigator-resizer .navigator-grip,
+.navigator-resizer .navigator-grip:hover:not(:disabled) {
+    background: transparent;
 }
 
-.trace-navigator-toggle svg {
-    width: 14px;
-    height: 14px;
+.navigator-grip::after {
+    position: absolute;
+    border-radius: 2px;
+    background: #697181;
+    content: "";
 }
 
-.trace-navigator-toggle:hover:not(:disabled) {
-    border-color: #697181;
-    background: #3a3e4b;
-    color: #fff;
+.trace-navigator-toggle::after {
+    bottom: 4px;
+    left: 6px;
+    width: var(--navigator-grip-length);
+    height: var(--navigator-grip-thickness);
+}
+
+.navigator-resizer:hover .navigator-grip::after,
+.navigator-resizer.is-resizing .navigator-grip::after {
+    background: #aeb5bf;
 }
 
 .viewer.is-resizing-trace-navigator,
 .viewer.is-resizing-trace-navigator .trace-navigator-resizer {
     cursor: row-resize;
+}
+
+.instruction-navigator-resizer {
+    top: 0;
+    right: max(0px, calc(var(--instruction-navigator-width) - 5px));
+    bottom: var(--trace-navigator-effective-height);
+    width: 10px;
+    cursor: col-resize;
+}
+
+.instruction-navigator-toggle {
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: calc(var(--navigator-grip-length) + 12px);
+    transform: translateY(-50%);
+}
+
+.instruction-navigator-toggle::after {
+    top: 6px;
+    right: 4px;
+    width: var(--navigator-grip-thickness);
+    height: var(--navigator-grip-length);
+}
+
+/* 非表示時だけ画面端から小さな取っ手を出す。背景はthemeの文字色を薄く使う。 */
+.navigator-grip[data-display="hidden"] {
+    --navigator-grip-length: 44px;
+    --navigator-grip-thickness: 4px;
+}
+
+.navigator-grip[data-display="hidden"]::before {
+    position: absolute;
+    background: currentColor;
+    opacity: 0.12;
+    content: "";
+}
+
+.navigator-grip[data-display="hidden"]:hover::before,
+.navigator-grip[data-display="hidden"]:focus-visible::before {
+    opacity: 0.2;
+}
+
+.trace-navigator-toggle[data-display="hidden"] {
+    top: auto;
+    bottom: 0;
+    height: max(100%, 12px);
+}
+
+.trace-navigator-toggle::before {
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 12px;
+    border-radius: 6px 6px 0 0;
+}
+
+.instruction-navigator-toggle[data-display="hidden"] {
+    right: 0;
+    left: auto;
+    width: max(100%, 12px);
+}
+
+.instruction-navigator-toggle::before {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    border-radius: 6px 0 0 6px;
+}
+
+.viewer.is-resizing-instruction-navigator {
+    cursor: col-resize;
 }
 
 .trace-navigator-cycle-label-pane,
@@ -2152,27 +2255,24 @@ button:disabled {
     background: #fff;
 }
 
+.theme-light .instruction-navigator-pane {
+    border-left-color: #b7bcc5;
+    background: #fff;
+}
+
 .theme-light .trace-navigator-cycle-label-pane,
 .theme-light .trace-navigator-cycle-divider,
 .theme-light .trace-navigator-cycle-pane {
     border-top-color: #b7bcc5;
 }
 
-.theme-light .trace-navigator-resizer::after {
-    border-top-color: #8c929c;
+.theme-light .navigator-grip::after {
+    background: #8c929c;
 }
 
-.theme-light .trace-navigator-toggle {
-    border-color: #aeb4be;
-    background: rgb(244 244 244 / 92%);
-    color: #596273;
-    box-shadow: 0 1px 4px rgb(0 0 0 / 16%);
-}
-
-.theme-light .trace-navigator-toggle:hover:not(:disabled) {
-    border-color: #8c929c;
-    background: #e7e9ed;
-    color: #20242b;
+.theme-light .navigator-resizer:hover .navigator-grip::after,
+.theme-light .navigator-resizer.is-resizing .navigator-grip::after {
+    background: #596273;
 }
 
 .theme-light .trace-navigator-cycle-label-pane,
@@ -2606,16 +2706,18 @@ button:disabled {
         grid-template-columns:
             minmax(0, min(var(--label-pane-width), 40%))
             10px
-            minmax(0, 1fr);
+            minmax(0, 1fr)
+            var(--instruction-navigator-width);
     }
 
     .trace-navigator-resizer {
-        bottom: calc(var(--trace-navigator-effective-height) - 12px);
+        /* 閉時も画面内へhit領域を残し、開時はgraph中央を覆わず上側へ広げる。 */
         height: 24px;
     }
 
-    .trace-navigator-resizer::after {
-        top: 11px;
+    .instruction-navigator-resizer {
+        /* 閉時も画面内へhit領域を残し、開時はNavigator中央を覆わず左側へ広げる。 */
+        width: 24px;
     }
 
     /* 見た目の10px幅は保ちつつ、指でつかめる範囲だけを左右へ広げる。 */
