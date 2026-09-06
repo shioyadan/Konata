@@ -165,13 +165,14 @@ function drawBreakdown(
 
 function drawViewport(
     context: CanvasRenderingContext2D,
-    viewport: Readonly<CycleNavigatorViewport>,
+    viewport: Readonly<CycleNavigatorViewport> | null,
     width: number,
     top: number,
     height: number,
     shadeColor: string,
     borderColor: string,
 ): void {
+    if (viewport === null) return;
     const right = Math.min(width, viewport.left + viewport.width);
     context.fillStyle = shadeColor;
     context.fillRect(0, top, viewport.left, height);
@@ -284,7 +285,7 @@ function drawLabels(
 }
 
 function getCycleScale(
-    data: Readonly<CycleNavigatorData>,
+    cycleCount: number,
     spec: Readonly<KonataRenderSpec>,
     width: number,
     rangeMode: CycleNavigatorRangeMode,
@@ -292,7 +293,7 @@ function getCycleScale(
     if (rangeMode === "overview") {
         return {
             leftCycle: 0,
-            pixelsPerCycle: width / Math.max(1, data.cycleCount),
+            pixelsPerCycle: width / Math.max(1, cycleCount),
         };
     }
     return {
@@ -347,35 +348,45 @@ function getScrollPosition(
 
 /** Overview上で、現在のPipeline表示範囲に対応するscrollbar thumbを返す。 */
 export function getCycleNavigatorViewport(
-    data: Readonly<CycleNavigatorData>,
+    cycleCount: number,
     spec: Readonly<KonataRenderSpec>,
     width: number,
 ): CycleNavigatorViewport | null {
     const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
     const visibleCycles = width / pixelsPerCycle;
-    return getViewport(0, data.cycleCount, spec.position[0], visibleCycles, width);
+    return getViewport(0, cycleCount, spec.position[0], visibleCycles, width);
 }
 
 /** Overviewのthumb左端を、Pipeline左端のcycleへ戻す。 */
 export function getCycleNavigatorScrollPosition(
-    data: Readonly<CycleNavigatorData>,
+    cycleCount: number,
     spec: Readonly<KonataRenderSpec>,
     width: number,
     viewportLeft: number,
 ): number | null {
-    const viewport = getCycleNavigatorViewport(data, spec, width);
+    const viewport = getCycleNavigatorViewport(cycleCount, spec, width);
     if (viewport === null) {
         return null;
     }
     const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(spec.zoomLevel);
     return getScrollPosition(
         0,
-        data.cycleCount,
+        cycleCount,
         width / pixelsPerCycle,
         width,
         viewportLeft,
         viewport,
     );
+}
+
+// 比較Overviewの軸長は描画・thumb・dragで共用し、片側を動かしても変えない。
+function getComparisonCycleCount(
+    comparison: Readonly<CycleNavigatorComparison>,
+    mode: CycleNavigatorComparisonMode,
+): number {
+    return mode === "overlay"
+        ? Math.max(comparison.baseline.data.cycleCount, comparison.candidate.data.cycleCount)
+        : comparison[mode].data.cycleCount;
 }
 
 /** 比較Overview上で、指定したA/BそれぞれのPipeline表示範囲を返す。 */
@@ -385,17 +396,9 @@ export function getComparisonCycleNavigatorViewport(
     track: CycleNavigatorComparisonTrack,
     width: number,
 ): CycleNavigatorViewport | null {
-    const selectedTrack = mode === "overlay" ? track : mode;
-    const source = comparison[selectedTrack];
-    const cycleCount = mode === "overlay"
-        ? Math.max(comparison.baseline.data.cycleCount, comparison.candidate.data.cycleCount)
-        : source.data.cycleCount;
-    const pixelsPerCycle = KONATA_OP_WIDTH * getKonataZoomScale(source.spec.zoomLevel);
-    return getViewport(
-        0,
-        cycleCount,
-        source.spec.position[0],
-        width / pixelsPerCycle,
+    return getCycleNavigatorViewport(
+        getComparisonCycleCount(comparison, mode),
+        comparison[mode === "overlay" ? track : mode].spec,
         width,
     );
 }
@@ -407,36 +410,14 @@ export function getComparisonCycleNavigatorScrollPosition(
     track: CycleNavigatorComparisonTrack,
     width: number,
     viewportLeft: number,
-) {
-    const selectedTrack = mode === "overlay" ? track : mode;
-    const source = comparison[selectedTrack];
-    const cycleCount = mode === "overlay"
-        ? Math.max(comparison.baseline.data.cycleCount, comparison.candidate.data.cycleCount)
-        : source.data.cycleCount;
-    const viewport = getComparisonCycleNavigatorViewport(
-        comparison, mode, selectedTrack, width,
-    );
-    if (viewport === null) {
-        return null;
-    }
-    const pixelsPerCycle = KONATA_OP_WIDTH *
-        getKonataZoomScale(source.spec.zoomLevel);
-    const position = getScrollPosition(
-        0,
-        cycleCount,
-        width / pixelsPerCycle,
+): number | null {
+    // Rendererは選択側の座標だけを返す。両viewへの反映はUI／Controllerに任せる。
+    return getCycleNavigatorScrollPosition(
+        getComparisonCycleCount(comparison, mode),
+        comparison[mode === "overlay" ? track : mode].spec,
         width,
         viewportLeft,
-        viewport,
     );
-    return {
-        baseline: selectedTrack === "baseline"
-            ? position
-            : comparison.baseline.spec.position[0],
-        candidate: selectedTrack === "candidate"
-            ? position
-            : comparison.candidate.spec.position[0],
-    };
 }
 
 /** 描画と同じ代表命令を選び、fetchがPipeline左端に見える位置へ補正する。 */
@@ -567,27 +548,6 @@ function drawCycleTrack(
     }
 }
 
-function drawNavigatorViewport(
-    canvas: Readonly<PreparedCanvas>,
-    viewport: Readonly<CycleNavigatorViewport> | null,
-    top: number,
-    height: number,
-    shadeColor: string,
-    borderColor: string,
-): void {
-    if (viewport !== null) {
-        drawViewport(
-            canvas.context,
-            viewport,
-            canvas.width,
-            top,
-            height,
-            shadeColor,
-            borderColor,
-        );
-    }
-}
-
 export function drawCycleNavigator(
     data: Readonly<CycleNavigatorData>,
     spec: Readonly<KonataRenderSpec>,
@@ -648,16 +608,7 @@ export function drawComparisonCycleNavigator(
         activityMaximum,
     );
 
-    const overviewCycleCount = overlay
-        ? Math.max(baseline.data.cycleCount, candidate.data.cycleCount)
-        : selected.data.cycleCount;
-    const overviewScale = rangeMode === "overview"
-        ? {
-            leftCycle: 0,
-            pixelsPerCycle: cycleNavigator.width /
-                Math.max(1, overviewCycleCount),
-        }
-        : null;
+    const cycleCount = getComparisonCycleCount(comparison, comparisonMode);
     const baselineHeight = Math.floor(cycleNavigator.height / 2);
     const tracks = overlay ? [
         {
@@ -679,8 +630,8 @@ export function drawComparisonCycleNavigator(
         drawCycleTrack(
             track.source.data,
             cycleNavigator,
-            overviewScale ?? getCycleScale(
-                track.source.data,
+            getCycleScale(
+                cycleCount,
                 track.source.spec,
                 cycleNavigator.width,
                 rangeMode,
@@ -695,11 +646,12 @@ export function drawComparisonCycleNavigator(
     }
     if (rangeMode === "overview") {
         for (const track of tracks) {
-            drawNavigatorViewport(
-                cycleNavigator,
+            drawViewport(
+                cycleNavigator.context,
                 getComparisonCycleNavigatorViewport(
                     comparison, comparisonMode, track.track, cycleNavigator.width,
                 ),
+                cycleNavigator.width,
                 track.top,
                 track.height,
                 style.traceNavigator.viewportShadeColor,

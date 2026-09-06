@@ -570,10 +570,10 @@ test("Top-down-like view classifies allocation slots without stage names", async
     assert.equal(fullAllocation.backendBound, 0);
     const overviewSpec = { ...DEFAULT_KONATA_RENDER_SPEC, position: [3, 0] } as const;
     const overviewWidth = 320;
-    const viewport = getCycleNavigatorViewport(activity, overviewSpec, overviewWidth);
+    const viewport = getCycleNavigatorViewport(activity.cycleCount, overviewSpec, overviewWidth);
     assert.ok(viewport !== null && viewport.width < overviewWidth);
     assert.ok(Math.abs((getCycleNavigatorScrollPosition(
-        activity,
+        activity.cycleCount,
         overviewSpec,
         overviewWidth,
         viewport.left,
@@ -606,8 +606,7 @@ test("Top-down-like view classifies allocation slots without stage names", async
         baselineViewport.left,
     );
     assert.ok(baselinePosition !== null);
-    assert.ok(Math.abs(baselinePosition.baseline - 2) < 0.001);
-    assert.ok(Math.abs(baselinePosition.candidate - 3) < 0.001);
+    assert.ok(Math.abs(baselinePosition - 2) < 0.001);
     const candidatePosition = getComparisonCycleNavigatorScrollPosition(
         comparison,
         "overlay",
@@ -616,8 +615,25 @@ test("Top-down-like view classifies allocation slots without stage names", async
         candidateViewport.left,
     );
     assert.ok(candidatePosition !== null);
-    assert.ok(Math.abs(candidatePosition.baseline - 2) < 0.001);
-    assert.ok(Math.abs(candidatePosition.candidate - 3) < 0.001);
+    assert.ok(Math.abs(candidatePosition - 3) < 0.001);
+
+    // 全長・zoom・位置が異なるA/Bでも、描画とdragが同じ軸を使う。
+    const unequalComparison = {
+        baseline: { data: { ...activity, cycleCount: 1000 }, spec: { ...baselineSpec, zoomLevel: -2 } },
+        candidate: { data: { ...activity, cycleCount: 100 }, spec: overviewSpec },
+    };
+    for (const mode of ["baseline", "candidate", "overlay"] as const) {
+        for (const track of ["baseline", "candidate"] as const) {
+            const source = unequalComparison[mode === "overlay" ? track : mode];
+            const count = mode === "overlay" ? 1000 : source.data.cycleCount;
+            const viewport = getComparisonCycleNavigatorViewport(unequalComparison, mode, track, overviewWidth);
+            assert.deepEqual(viewport, getCycleNavigatorViewport(count, source.spec, overviewWidth));
+            assert.ok(viewport !== null);
+            assert.ok(Math.abs((getComparisonCycleNavigatorScrollPosition(
+                unequalComparison, mode, track, overviewWidth, viewport.left,
+            ) ?? -1) - source.spec.position[0]) < 0.001);
+        }
+    }
 
     const partialAllocation = getCycleNavigatorTopDown(activity, 4, 5);
     assert.ok(partialAllocation !== null);

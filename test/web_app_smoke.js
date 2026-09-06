@@ -2736,6 +2736,30 @@ async function run() {
             dispatchInstructionPointer("pointermove", currentInstructionRect.bottom - 2, 1),
             dispatchInstructionPointer("pointerup", currentInstructionRect.bottom - 2, 0)
         ].every((dispatched) => !dispatched);
+        // 共通handlerでも別pointerの縦・横操作を維持し、cancelは該当する方だけを解放する。
+        const cycleCaptured = new Set();
+        Object.defineProperties(navigatorCanvas, {
+            setPointerCapture: {configurable: true, value: (id) => cycleCaptured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => cycleCaptured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => cycleCaptured.delete(id)}
+        });
+        dispatchInstructionPointer("pointerdown", currentInstructionRect.top + 2, 1);
+        const cycleRect = navigatorCanvas.getBoundingClientRect();
+        navigatorCanvas.dispatchEvent(new PointerEvent("pointerdown", {
+            pointerId: 4, pointerType: "touch", button: 0, bubbles: true,
+            clientX: cycleRect.left + cycleRect.width / 2, clientY: cycleRect.top + 10
+        }));
+        if (instructionCaptured.size !== 1 || cycleCaptured.size !== 1) {
+            throw new Error("Both navigators must accept independent pointers.");
+        }
+        navigatorCanvas.dispatchEvent(new PointerEvent("pointercancel", {pointerId: 4, bubbles: true}));
+        if (cycleCaptured.size !== 0 || instructionCaptured.size !== 1) {
+            throw new Error("Canceling one navigator drag must not release the other.");
+        }
+        dispatchInstructionPointer("pointerup", currentInstructionRect.top + 2, 0);
+        delete navigatorCanvas.setPointerCapture;
+        delete navigatorCanvas.hasPointerCapture;
+        delete navigatorCanvas.releasePointerCapture;
         delete instructionCanvas.setPointerCapture;
         delete instructionCanvas.hasPointerCapture;
         delete instructionCanvas.releasePointerCapture;

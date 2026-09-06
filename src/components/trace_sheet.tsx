@@ -24,15 +24,10 @@ import {
 import {
     drawComparisonInstructionNavigator,
     drawComparisonCycleNavigator,
-    drawCycleNavigator,
-    drawInstructionNavigator,
     getComparisonCycleNavigatorScrollPosition,
     getComparisonCycleNavigatorViewport,
-    getCycleNavigatorScrollPosition,
-    getCycleNavigatorViewport,
     getInstructionNavigatorPosition,
     type CycleNavigatorComparison,
-    type CycleNavigatorComparisonTrack,
 } from "../core/trace_navigator_renderer";
 import {
     COMPARISON_COLOR_SCHEME,
@@ -75,6 +70,21 @@ interface PointerPosition {
 
 type NavigatorAxis = "cycle" | "instruction";
 
+interface NavigatorPointer {
+    readonly axis: NavigatorAxis;
+    readonly baselineSelected: boolean;
+    readonly grabOffset: number;
+}
+
+// CSSで拡縮されたCanvasでも、RendererへはCSS pixel単位で渡す。
+function getCanvasPoint(canvas: HTMLCanvasElement, clientX: number, clientY: number): PointerPosition {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: rect.width === 0 ? 0 : (clientX - rect.left) * canvas.clientWidth / rect.width,
+        y: rect.height === 0 ? 0 : (clientY - rect.top) * canvas.clientHeight / rect.height,
+    };
+}
+
 interface CanvasToolTip {
     readonly left: number;
     readonly top: number;
@@ -116,13 +126,14 @@ function createCycleNavigatorComparison(
     candidateData: Readonly<CycleNavigatorData>,
     baselineSpec: Readonly<KonataRenderSpec> | undefined,
     candidateSpec: Readonly<KonataRenderSpec>,
-): CycleNavigatorComparison | null {
-    return baselineData === null || baselineSpec === undefined
-        ? null
-        : {
-            baseline: { data: baselineData, spec: baselineSpec },
-            candidate: { data: candidateData, spec: candidateSpec },
-        };
+): CycleNavigatorComparison {
+    // 単独Traceもcandidate一段として扱い、描画と操作に別の経路を作らない。
+    const candidate = { data: candidateData, spec: candidateSpec };
+    return {
+        baseline: baselineData === null || baselineSpec === undefined
+            ? candidate : { data: baselineData, spec: baselineSpec },
+        candidate,
+    };
 }
 
 export interface TraceSheetHandle {
@@ -218,15 +229,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
     const instructionNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorDetailsVisibleRef = useRef(false);
-    const cycleNavigatorPointerRef = useRef<{
-        readonly pointerID: number;
-        readonly grabOffset: number;
-        readonly comparisonTrack: CycleNavigatorComparisonTrack | null;
-    } | null>(null);
-    const instructionNavigatorPointerRef = useRef<{
-        readonly pointerID: number;
-        readonly baselineSelected: boolean;
-    } | null>(null);
+    // 処理は共通化しても、別の指による縦・横の操作は互いに取り消さない。
+    const navigatorPointersRef = useRef(new Map<number, NavigatorPointer>());
     const baselineLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const candidateLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const findResultRef = useRef<HTMLDivElement>(null);
@@ -576,23 +580,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         } as const;
         if (traceNavigatorAvailable && trace !== null && instructionNavigatorCanvas !== null) {
             const pipelineHeight = pipelineCanvas?.clientHeight ?? instructionNavigatorCanvas.clientHeight;
-            if (comparisonMode !== null && baselineTrace !== null &&
-                currentBaselineSpec !== undefined) {
-                drawComparisonInstructionNavigator(
-                    {
-                        baseline: { trace: baselineTrace, spec: currentBaselineSpec },
-                        candidate: { trace, spec: candidateSpec },
-                    },
-                    instructionNavigatorCanvas,
-                    comparisonMode,
-                    pipelineHeight,
-                );
-            }
-            else {
-                drawInstructionNavigator(
-                    trace, candidateSpec, instructionNavigatorCanvas, pipelineHeight,
-                );
-            }
+            const candidate = { trace, spec: candidateSpec };
+            drawComparisonInstructionNavigator(
+                { candidate, baseline: baselineTrace === null || currentBaselineSpec === undefined
+                    ? candidate : { trace: baselineTrace, spec: currentBaselineSpec } },
+                instructionNavigatorCanvas, comparisonMode ?? "candidate", pipelineHeight,
+            );
         }
         const navigatorLabelCanvas = cycleNavigatorLabelCanvasRef.current;
         const navigatorCanvas = cycleNavigatorCanvasRef.current;
@@ -601,18 +594,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             const navigatorComparison = createCycleNavigatorComparison(
                 baselineNavigatorData, navigatorData, currentBaselineSpec, candidateSpec,
             );
-            if (comparisonMode !== null && navigatorComparison !== null) {
-                drawComparisonCycleNavigator(
-                    navigatorComparison, navigatorLabelCanvas, navigatorCanvas,
-                    comparisonMode, cycleNavigatorMode,
-                    cycleNavigatorDetailsVisibleRef.current, cycleNavigatorRangeMode,
-                );
-            } else {
-                drawCycleNavigator(
-                    navigatorData, candidateSpec, navigatorLabelCanvas, navigatorCanvas,
-                    cycleNavigatorMode, cycleNavigatorDetailsVisibleRef.current, cycleNavigatorRangeMode,
-                );
-            }
+            drawComparisonCycleNavigator(
+                navigatorComparison, navigatorLabelCanvas, navigatorCanvas,
+                comparisonMode ?? "candidate", cycleNavigatorMode,
+                cycleNavigatorDetailsVisibleRef.current, cycleNavigatorRangeMode,
+            );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
             if (baselineRenderer === null || comparisonMode === null || currentBaselineSpec === undefined) {
@@ -1253,159 +1239,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
     };
 
-    const moveCycleNavigatorViewport = (
+    // 軸ごとの座標計算はRendererへ任せ、選択した片側のviewだけをControllerへ反映する。
+    const moveNavigatorPosition = (
         canvas: HTMLCanvasElement,
-        clientX: number,
-        grabOffset: number,
-        comparisonTrack: CycleNavigatorComparisonTrack | null,
+        point: Readonly<PointerPosition>,
+        pointer: Readonly<NavigatorPointer>,
     ) => {
-        if (navigatorData === null) {
-            return;
-        }
-        const rect = canvas.getBoundingClientRect();
-        const width = canvas.clientWidth;
-        const x = rect.width === 0 ? 0 : (clientX - rect.left) * width / rect.width;
-        const candidateSpec = viewController.currentSpec;
-        const baselineSpec = viewController.currentBaselineSpec;
-        const navigatorComparison = createCycleNavigatorComparison(
-            baselineNavigatorData, navigatorData, baselineSpec, candidateSpec,
-        );
-        const position = comparisonMode === null
-            ? getCycleNavigatorScrollPosition(
-                navigatorData, candidateSpec, width, x - grabOffset,
-            )
-            : navigatorComparison === null
-                ? null
-                : getComparisonCycleNavigatorScrollPosition(
-                    navigatorComparison,
-                    comparisonMode,
-                    comparisonTrack ?? "candidate",
-                    width,
-                    x - grabOffset,
-                );
-        if (position === null) {
-            return;
-        }
-        const candidateCycle = typeof position === "number"
-            ? position
-            : position.candidate;
-        const baselineCycle = typeof position === "number"
-            ? baselineSpec?.position[0]
-            : position.baseline;
-        const candidateY = comparisonTrack === "baseline"
-            ? candidateSpec.position[1]
-            : new KonataRenderMetrics(trace, candidateSpec)
-                .getPositionYFromCycle(candidateCycle) ?? candidateSpec.position[1];
-        const baselineY = baselineSpec === undefined || baselineCycle === undefined ||
-            comparisonTrack !== "baseline"
-            ? baselineSpec?.position[1]
-            : new KonataRenderMetrics(baselineTrace, baselineSpec)
-                .getPositionYFromCycle(baselineCycle) ?? baselineSpec.position[1];
-        setToolTip(null);
-        viewController.setImmediately(
-            {
-                position: [candidateCycle, candidateY],
-                zoomLevel: candidateSpec.zoomLevel,
-            },
-            baselineSpec === undefined || baselineCycle === undefined
-                ? undefined
-                : {
-                    position: [baselineCycle, baselineY ?? baselineSpec.position[1]],
-                    zoomLevel: baselineSpec.zoomLevel,
-                },
-        );
-    };
-
-    const handleCycleNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
-        if (event.button !== 0 || cycleNavigatorRangeMode !== "overview" ||
-            navigatorData === null || cycleNavigatorPointerRef.current !== null) {
-            return;
-        }
-        const canvas = event.currentTarget;
-        const rect = canvas.getBoundingClientRect();
-        const width = canvas.clientWidth;
-        const x = rect.width === 0 ? 0 : (event.clientX - rect.left) * width / rect.width;
-        const y = rect.height === 0
-            ? 0
-            : (event.clientY - rect.top) * canvas.clientHeight / rect.height;
-        const candidateSpec = viewController.currentSpec;
-        const baselineSpec = viewController.currentBaselineSpec;
-        const navigatorComparison = createCycleNavigatorComparison(
-            baselineNavigatorData, navigatorData, baselineSpec, candidateSpec,
-        );
-        const comparisonTrack: CycleNavigatorComparisonTrack | null = comparisonMode === null
-            ? null
-            : comparisonMode === "overlay"
-                ? y < canvas.clientHeight / 2 ? "baseline" : "candidate"
-                : comparisonMode;
-        const viewport = comparisonMode === null
-            ? getCycleNavigatorViewport(navigatorData, candidateSpec, width)
-            : navigatorComparison === null
-                ? null
-                : getComparisonCycleNavigatorViewport(
-                    navigatorComparison,
-                    comparisonMode,
-                    comparisonTrack ?? "candidate",
-                    width,
-                );
-        if (viewport === null) {
-            return;
-        }
-        const insideViewport = x >= viewport.left && x <= viewport.left + viewport.width;
-        const grabOffset = insideViewport ? x - viewport.left : viewport.width / 2;
-        cycleNavigatorPointerRef.current = {
-            pointerID: event.pointerId,
-            grabOffset,
-            comparisonTrack,
-        };
-        canvas.setPointerCapture(event.pointerId);
-        if (!insideViewport) {
-            moveCycleNavigatorViewport(
-                canvas, event.clientX, grabOffset, comparisonTrack,
-            );
-        }
-        event.preventDefault();
-        event.stopPropagation();
-    };
-
-    const handleCycleNavigatorPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
-        const pointer = cycleNavigatorPointerRef.current;
-        if (pointer?.pointerID !== event.pointerId) {
-            return;
-        }
-        moveCycleNavigatorViewport(
-            event.currentTarget,
-            event.clientX,
-            pointer.grabOffset,
-            pointer.comparisonTrack,
-        );
-        event.preventDefault();
-        event.stopPropagation();
-    };
-
-    const handleCycleNavigatorPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
-        if (cycleNavigatorPointerRef.current?.pointerID !== event.pointerId) {
-            return;
-        }
-        cycleNavigatorPointerRef.current = null;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        event.preventDefault();
-        event.stopPropagation();
-    };
-
-    const moveInstructionNavigatorPosition = (
-        canvas: HTMLCanvasElement,
-        clientY: number,
-        baselineSelected: boolean,
-    ) => {
-        if (trace === null) {
-            return;
-        }
-        const rect = canvas.getBoundingClientRect();
-        const height = canvas.clientHeight;
-        const y = rect.height === 0 ? 0 : (clientY - rect.top) * height / rect.height;
+        const { baselineSelected } = pointer;
         const candidateSpec = viewController.currentSpec;
         const baselineSpec = viewController.currentBaselineSpec;
         const selectedTrace = baselineSelected ? baselineTrace : trace;
@@ -1413,9 +1253,22 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (selectedTrace === null || selectedSpec === undefined) {
             return;
         }
-        const position = getInstructionNavigatorPosition(
-            selectedTrace, selectedSpec, height, y,
-        );
+        let position: readonly [number, number] | null;
+        if (pointer.axis === "instruction") {
+            position = getInstructionNavigatorPosition(selectedTrace, selectedSpec, canvas.clientHeight, point.y);
+        } else {
+            if (navigatorData === null || !traceNavigatorDataReady) return;
+            const cycle = getComparisonCycleNavigatorScrollPosition(
+                createCycleNavigatorComparison(baselineNavigatorData, navigatorData, baselineSpec, candidateSpec),
+                comparisonMode ?? "candidate", baselineSelected ? "baseline" : "candidate",
+                canvas.clientWidth, point.x - pointer.grabOffset,
+            );
+            position = cycle === null ? null : [
+                cycle,
+                new KonataRenderMetrics(selectedTrace, selectedSpec)
+                    .getPositionYFromCycle(cycle) ?? selectedSpec.position[1],
+            ];
+        }
         if (position === null) {
             return;
         }
@@ -1432,48 +1285,56 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         );
     };
 
-    const handleInstructionNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
+    const handleNavigatorPointerDown = (event: PointerEvent<HTMLCanvasElement>, axis: NavigatorAxis) => {
         if (event.button !== 0 || trace === null ||
-            instructionNavigatorPointerRef.current !== null) {
+            [...navigatorPointersRef.current.values()].some((pointer) => pointer.axis === axis)) {
             return;
         }
         const canvas = event.currentTarget;
-        const rect = canvas.getBoundingClientRect();
-        const width = canvas.clientWidth;
-        const x = rect.width === 0 ? 0 : (event.clientX - rect.left) * width / rect.width;
+        const point = getCanvasPoint(canvas, event.clientX, event.clientY);
         const baselineSelected = comparisonMode === "baseline" ||
-            (comparisonMode === "overlay" && x < Math.floor(width / 2));
-        instructionNavigatorPointerRef.current = {
-            pointerID: event.pointerId,
-            baselineSelected,
-        };
+            (comparisonMode === "overlay" && (axis === "cycle"
+                ? point.y < Math.floor(canvas.clientHeight / 2)
+                : point.x < Math.floor(canvas.clientWidth / 2)));
+        let grabOffset = 0;
+        let moveOnPress = true;
+        if (axis === "cycle") {
+            if (cycleNavigatorRangeMode !== "overview" || navigatorData === null || !traceNavigatorDataReady) return;
+            const viewport = getComparisonCycleNavigatorViewport(
+                createCycleNavigatorComparison(baselineNavigatorData, navigatorData,
+                    viewController.currentBaselineSpec, viewController.currentSpec),
+                comparisonMode ?? "candidate", baselineSelected ? "baseline" : "candidate", canvas.clientWidth,
+            );
+            if (viewport === null) return;
+            moveOnPress = point.x < viewport.left || point.x > viewport.left + viewport.width;
+            grabOffset = moveOnPress ? viewport.width / 2 : point.x - viewport.left;
+        }
+        const pointer = { axis, baselineSelected, grabOffset };
+        navigatorPointersRef.current.set(event.pointerId, pointer);
         canvas.setPointerCapture(event.pointerId);
-        moveInstructionNavigatorPosition(
-            canvas, event.clientY, baselineSelected,
-        );
+        if (moveOnPress) moveNavigatorPosition(canvas, point, pointer);
         event.preventDefault();
         event.stopPropagation();
     };
 
-    const handleInstructionNavigatorPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
-        const pointer = instructionNavigatorPointerRef.current;
-        if (pointer?.pointerID !== event.pointerId) {
+    const handleNavigatorPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
+        const pointer = navigatorPointersRef.current.get(event.pointerId);
+        if (pointer === undefined) {
             return;
         }
-        moveInstructionNavigatorPosition(
+        moveNavigatorPosition(
             event.currentTarget,
-            event.clientY,
-            pointer.baselineSelected,
+            getCanvasPoint(event.currentTarget, event.clientX, event.clientY),
+            pointer,
         );
         event.preventDefault();
         event.stopPropagation();
     };
 
-    const handleInstructionNavigatorPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
-        if (instructionNavigatorPointerRef.current?.pointerID !== event.pointerId) {
+    const handleNavigatorPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
+        if (!navigatorPointersRef.current.delete(event.pointerId)) {
             return;
         }
-        instructionNavigatorPointerRef.current = null;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
         }
@@ -1588,11 +1449,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     <canvas
                         ref={instructionNavigatorCanvasRef}
                         aria-label="Instruction navigator canvas"
-                        onPointerDown={handleInstructionNavigatorPointerDown}
-                        onPointerMove={handleInstructionNavigatorPointerMove}
-                        onPointerUp={handleInstructionNavigatorPointerUp}
-                        onPointerCancel={handleInstructionNavigatorPointerUp}
-                        onLostPointerCapture={handleInstructionNavigatorPointerUp}
+                        onPointerDown={(event) => handleNavigatorPointerDown(event, "instruction")}
+                        onPointerMove={handleNavigatorPointerMove}
+                        onPointerUp={handleNavigatorPointerUp}
+                        onPointerCancel={handleNavigatorPointerUp}
+                        onLostPointerCapture={handleNavigatorPointerUp}
                     />
                 </section>
             )}
@@ -1736,11 +1597,11 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         <canvas
                             ref={cycleNavigatorCanvasRef}
                             aria-label="Cycle navigator canvas"
-                            onPointerDown={handleCycleNavigatorPointerDown}
-                            onPointerMove={handleCycleNavigatorPointerMove}
-                            onPointerUp={handleCycleNavigatorPointerUp}
-                            onPointerCancel={handleCycleNavigatorPointerUp}
-                            onLostPointerCapture={handleCycleNavigatorPointerUp}
+                            onPointerDown={(event) => handleNavigatorPointerDown(event, "cycle")}
+                            onPointerMove={handleNavigatorPointerMove}
+                            onPointerUp={handleNavigatorPointerUp}
+                            onPointerCancel={handleNavigatorPointerUp}
+                            onLostPointerCapture={handleNavigatorPointerUp}
                         />
                         {!traceNavigatorDataReady && (
                             <span className="trace-navigator-cycle-status">
