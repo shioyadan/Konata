@@ -1,17 +1,5 @@
 import type { Op } from "./model";
 
-// 旧BigKeyValueStoreは縮小表示時にIDをblock先頭へ丸め、cache汚染を抑えていた。
-// bit演算の32-bit制限を避け、同じ2^(level+1)単位の丸めを算術で表す。
-export function resolveOpID(id: number, resolutionLevel: number): number {
-    const normalizedLevel = Number.isFinite(resolutionLevel) ? Math.floor(resolutionLevel) : 0;
-    const level = Math.max(0, normalizedLevel);
-    if (level < 1) {
-        return id;
-    }
-    const blockSize = 2 ** (level + 1);
-    return Math.floor(id / blockSize) * blockSize;
-}
-
 // Rendererや検索処理は同期取得だけに依存させ、背後の圧縮・先読み方式を隠す。
 export interface OpStore {
     readonly lastID: number;
@@ -19,6 +7,8 @@ export interface OpStore {
     readonly opCount: number;
 
     // パースが終わって表示可能なopを返す。将来のページstoreでは複製を返してよい。
+    // resolutionLevelは希望する代表命令間隔のlog2。0以下は指定ID、正値は近傍の代表Opを
+    // 許容する。実際の丸め方はstoreが決め、RIDもIDへ変換した後に同じ規則を使う。
     getOp(id: number, resolutionLevel?: number): Op | undefined;
     // 検索・統計の全走査では、描画用のOp LRUへ大量の命令を残さず取得する。
     getOpForScan(id: number): Op | undefined;
@@ -67,11 +57,12 @@ export class ArrayOpStore implements MutableOpStore {
         this.lastID_ = Math.max(this.lastID_, id);
     }
 
-    getOp(id: number, resolutionLevel = 0): Op | undefined {
+    // 配列はpage復元が不要なので、解像度の指定によらず正確な命令を返せる。
+    getOp(id: number, _resolutionLevel = 0): Op | undefined {
         if (id < 0 || id > this.lastID_) {
             return undefined;
         }
-        return this.ops_[resolveOpID(id, resolutionLevel)];
+        return this.ops_[id];
     }
 
     getOpForScan(id: number): Op | undefined {

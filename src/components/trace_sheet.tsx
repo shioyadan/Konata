@@ -538,8 +538,6 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     ) => {
         const labelCanvas = labelCanvasRef.current;
         const pipelineCanvas = pipelineCanvasRef.current;
-        const cycleNavigatorLabelCanvas = cycleNavigatorLabelCanvasRef.current;
-        const cycleNavigatorCanvas = cycleNavigatorCanvasRef.current;
         const instructionNavigatorCanvas = instructionNavigatorCanvasRef.current;
         const candidateMetrics = new KonataRenderMetrics(trace, candidateSpec);
         const currentBaselineMetrics = currentBaselineSpec === undefined
@@ -587,31 +585,23 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 );
             }
         }
+        const navigatorLabelCanvas = cycleNavigatorLabelCanvasRef.current;
+        const navigatorCanvas = cycleNavigatorCanvasRef.current;
         if (traceNavigatorAvailable && traceNavigatorDataReady && navigatorData !== null &&
-            cycleNavigatorLabelCanvas !== null && cycleNavigatorCanvas !== null) {
+            navigatorLabelCanvas !== null && navigatorCanvas !== null) {
             const navigatorComparison = createCycleNavigatorComparison(
                 baselineNavigatorData, navigatorData, currentBaselineSpec, candidateSpec,
             );
             if (comparisonMode !== null && navigatorComparison !== null) {
                 drawComparisonCycleNavigator(
-                    navigatorComparison,
-                    cycleNavigatorLabelCanvas,
-                    cycleNavigatorCanvas,
-                    comparisonMode,
-                    cycleNavigatorMode,
-                    cycleNavigatorDetailsVisibleRef.current,
-                    cycleNavigatorRangeMode,
+                    navigatorComparison, navigatorLabelCanvas, navigatorCanvas,
+                    comparisonMode, cycleNavigatorMode,
+                    cycleNavigatorDetailsVisibleRef.current, cycleNavigatorRangeMode,
                 );
-            }
-            else {
+            } else {
                 drawCycleNavigator(
-                    navigatorData,
-                    candidateSpec,
-                    cycleNavigatorLabelCanvas,
-                    cycleNavigatorCanvas,
-                    cycleNavigatorMode,
-                    cycleNavigatorDetailsVisibleRef.current,
-                    cycleNavigatorRangeMode,
+                    navigatorData, candidateSpec, navigatorLabelCanvas, navigatorCanvas,
+                    cycleNavigatorMode, cycleNavigatorDetailsVisibleRef.current, cycleNavigatorRangeMode,
                 );
             }
         }
@@ -679,24 +669,23 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
     }, [
         baselineRenderer,
+        baselineNavigatorData,
         baselineTrace,
         comparisonMode,
         comparisonOpacity,
+        cycleNavigatorMode,
+        cycleNavigatorRangeMode,
         displayRenderer,
         findResult,
         loadState,
-        renderer,
-        cycleNavigatorRangeMode,
-        cycleNavigatorMode,
-        baselineNavigatorData,
         navigatorData,
+        renderer,
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
         trace,
         traceNavigatorAvailable,
         traceNavigatorDataReady,
-        traceNavigator,
         webGLEnabled,
     ]);
 
@@ -742,15 +731,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         })
             .then((data) => {
                 if (!canceled && data !== null) {
-                    // 初期解析中にParserが公開した分も、最初の表示へまとめて追記する。
-                    // stage構造が不明でもFetch／Commitのlive更新には同じ参照を使う。
-                    const currentData = updateCycleNavigatorData(
-                        data,
-                        trace,
-                        loadStateRef.current === "ready",
-                    );
-                    navigatorLiveDataRef.current = { trace, data: currentData };
-                    setNavigatorData(currentData);
+                    // 初期解析中に公開された分は下の増分更新で時間を区切って追記する。
+                    navigatorLiveDataRef.current = { trace, data };
+                    setNavigatorData(data);
                 }
             })
             .catch((error: unknown) => {
@@ -796,23 +779,27 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         if (!traceNavigatorAvailable || trace === null || live?.trace !== trace) {
             return;
         }
-        const data = updateCycleNavigatorData(live.data, trace, loadState === "ready");
-        live.data = data;
-        setNavigatorData((current) => current === data ? current : data);
-    }, [loadState, renderVersion, trace, traceNavigatorAvailable]);
+        // 途中結果の公開はPipelineの更新へ合わせる。各sliceで再描画するとGPU側が詰まる。
+        setNavigatorData(live.data);
+        const update = () => {
+            const previous = live.data;
+            const data = updateCycleNavigatorData(previous, trace, loadState === "ready");
+            live.data = data;
+            if (data.sourceLastID > previous.sourceLastID && data.sourceLastID < trace.lastID) {
+                timer = setTimeout(update, 0);
+            } else {
+                setNavigatorData(data);
+            }
+        };
+        // 読込み完了後も残りを消化するが、未公開IDで進まなければ次の公開通知を待つ。
+        let timer = setTimeout(update, 0);
+        return () => clearTimeout(timer);
+    }, [loadState, renderVersion, trace, traceNavigatorAvailable, navigatorData === null]);
 
     useLayoutEffect(() => {
-        if (traceNavigatorAvailable && traceNavigatorDataReady) {
-            redraw();
-        }
-    }, [
-        baselineNavigatorData,
-        redraw,
-        navigatorData,
-        traceNavigator,
-        traceNavigatorAvailable,
-        traceNavigatorDataReady,
-    ]);
+        // 読込み中はPipelineの再描画に同乗する。EOF後に残った解析が終わった場合も反映する。
+        if (loadState === "ready") redraw();
+    }, [redraw, loadState, navigatorData, baselineNavigatorData]);
 
     useLayoutEffect(() => {
         const element = toolTipRef.current;
@@ -831,9 +818,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     }, [toolTip]);
 
     useLayoutEffect(() => {
-        // viewer外形は変わらないため、子paneのrow変更後は明示的にCanvasを再描画する。
+        // 初期解析の完了・設定・paneの大きさ変更も共通の描画frameへまとめる。
         redraw();
-    }, [redraw, traceNavigator.height, traceNavigator.visible, traceNavigatorAvailable]);
+    }, [redraw, traceNavigator, traceNavigatorAvailable, traceNavigatorDataReady]);
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),

@@ -456,15 +456,7 @@ export function getInstructionNavigatorPosition(
     const sampleCount = Math.min(rowCount, trackHeight);
     // 描画時のfloor境界を逆算し、複数pixelに広がった同じbarからは同じOpを選ぶ。
     const sample = Math.ceil((pixelRow + 1) * sampleCount / trackHeight) - 1;
-    const rowsPerSample = rowCount / sampleCount;
-    const row = Math.min(
-        rowCount - 1,
-        Math.floor((sample + 0.5) * rowsPerSample),
-    );
-    const resolution = rowsPerSample < 4
-        ? 0
-        : Math.max(1, Math.floor(Math.log2(rowsPerSample)) - 1);
-    const op = metrics.getVisibleOp(row, resolution);
+    const op = getInstructionSample(metrics, sampleCount, sample);
     if (op === undefined || op.fetchedCycle < 0) {
         return null;
     }
@@ -739,6 +731,18 @@ function getInstructionScale(
     return Math.max(1, rowsPerPixel * metrics.opHeight / metrics.opWidth);
 }
 
+function getInstructionSample(
+    metrics: Readonly<KonataRenderMetrics>,
+    sampleCount: number,
+    sample: number,
+) {
+    const rowCount = metrics.getVisibleBottom() + 1;
+    const rowsPerSample = rowCount / sampleCount;
+    const row = Math.min(rowCount - 1, Math.floor((sample + 0.5) * rowsPerSample));
+    // 描画とdragは同じ位置・解像度を渡し、代表命令の選択はOpStoreへ任せる。
+    return metrics.getVisibleOp(row, Math.log2(rowsPerSample));
+}
+
 function drawInstructionTrack(
     metrics: Readonly<KonataRenderMetrics>,
     canvas: Readonly<PreparedCanvas>,
@@ -755,16 +759,8 @@ function drawInstructionTrack(
         return;
     }
     const sampleCount = Math.min(rowCount, height);
-    const rowsPerSample = rowCount / sampleCount;
-    // 1 pixel行につき代表Opを一つだけ取得し、集計dataを作らずその場で描く。
-    const resolution = rowsPerSample < 4
-        ? 0
-        : Math.max(1, Math.floor(Math.log2(rowsPerSample)) - 1);
     for (let sample = 0; sample < sampleCount; sample++) {
-        const row = Math.min(
-            rowCount - 1, Math.floor((sample + 0.5) * rowsPerSample),
-        );
-        const op = metrics.getVisibleOp(row, resolution);
+        const op = getInstructionSample(metrics, sampleCount, sample);
         if (op === undefined || op.fetchedCycle < 0 || op.retiredCycle < op.fetchedCycle) {
             continue;
         }

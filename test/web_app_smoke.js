@@ -2672,6 +2672,24 @@ async function run() {
         const followSelected = followRange.getAttribute("aria-pressed");
         overviewRange.click();
         await nextFrame();
+        await nextFrame();
+        // Navigatorの設定変更もPipelineと共通の描画frameへ反映する。
+        const pipelineLabelsContext = document.querySelector(
+            'canvas[aria-label="Instruction labels canvas"]'
+        ).getContext("2d");
+        const cycleContext = navigatorCanvas.getContext("2d");
+        let pipelineDraws = 0;
+        let cycleDraws = 0;
+        const labelFill = pipelineLabelsContext.fillRect;
+        const cycleFill = cycleContext.fillRect;
+        pipelineLabelsContext.fillRect = function(...args) {
+            pipelineDraws++;
+            return labelFill.apply(this, args);
+        };
+        cycleContext.fillRect = function(...args) {
+            cycleDraws++;
+            return cycleFill.apply(this, args);
+        };
         navigatorMode.value = "fetch";
         navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
         await nextFrame();
@@ -2680,6 +2698,12 @@ async function run() {
         navigatorMode.dispatchEvent(new Event("change", {bubbles: true}));
         await nextFrame();
         await nextFrame();
+        pipelineLabelsContext.fillRect = labelFill;
+        cycleContext.fillRect = cycleFill;
+        if (pipelineDraws === 0 || cycleDraws === 0) {
+            throw new Error("Navigator settings must redraw the shared frame: " +
+                JSON.stringify({pipelineDraws, cycleDraws}));
+        }
         reset.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         const navigatorRect = navigatorCanvas.getBoundingClientRect();

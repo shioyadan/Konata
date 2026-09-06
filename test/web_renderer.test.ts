@@ -3,10 +3,12 @@ import test from "node:test";
 
 import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
+import { PagedOpStore } from "../src/core/paged_op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
 import { getCycleActivity } from "../src/core/cycle_activity_analysis";
 import {
     buildCycleNavigatorData,
+    getCycleNavigatorActivity,
     getCycleNavigatorTopDown,
     updateCycleNavigatorData,
 } from "../src/core/trace_navigator_analysis";
@@ -870,7 +872,7 @@ test("Instruction navigator magnifies and wraps instruction lifetimes", () => {
     for (let y = 0; y < 4; y++) {
         assert.deepEqual(getInstructionNavigatorPosition(
             pipelineAspectTrace, DEFAULT_KONATA_RENDER_SPEC, 4, y,
-        ), [y * 4, y * 16]);
+        ), [y * 4 + 2, y * 16 + 8]);
     }
     pipelineAspectTrace.close();
 });
@@ -915,6 +917,41 @@ test("Instruction navigator restores the selected fetch cycle from any view", ()
             assert.deepEqual(getInstructionNavigatorPosition(trace, spec, 30, y), [cycle, row]);
         }
         assert.equal(getInstructionNavigatorPosition(trace, spec, 0, 0), null);
+    }
+    trace.close();
+});
+
+test("Instruction navigator draws and selects coarse-page samples without decoding full pages", async () => {
+    const store = new PagedOpStore({ maxCachedOps: 1, maxDecodedPages: 1 });
+    for (let id = 0; id < 1024; id++) {
+        const op = new Op();
+        op.id = id;
+        op.rid = Math.floor(id / 2);
+        op.flush = id % 2 !== 0;
+        op.retired = !op.flush;
+        op.fetchedCycle = id;
+        op.retiredCycle = id + 1;
+        store.setOp(id, op);
+        if (op.retired) store.setRetiredOp(op.rid, op);
+    }
+    await store.waitForPendingCompression();
+    const trace = new ParsedTrace("coarse.log", store, new StageLevelMap(), 1024);
+    for (const [hideFlushedOps, height] of [[false, 128], [true, 128], [false, 768]] as const) {
+        const spec = { ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps };
+        const before = store.levelMetrics[0];
+        const navigator = createRecordedContext();
+        drawInstructionNavigator(trace, spec, createCanvas(navigator.context, 32, height), 400);
+        assert.equal(navigator.fillStyles.filter(color => color === "hsl(0,0%,70%)").length, height);
+        for (let y = 0; y < height; y++) {
+            const position = getInstructionNavigatorPosition(trace, spec, height, y);
+            assert.ok(position !== null);
+            assert.equal(position[0] % 8, 0);
+            assert.equal(position[1], position[0] / (hideFlushedOps ? 2 : 1));
+            const rowsPerPixel = (hideFlushedOps ? 512 : 1024) / height;
+            assert.ok(Math.abs(position[1] / rowsPerPixel - (y + 0.5)) < 8);
+        }
+        assert.equal(store.levelMetrics[0].decodeCount, before.decodeCount);
+        assert.equal(store.levelMetrics[0].serializeCount, before.serializeCount);
     }
     trace.close();
 });
@@ -1057,6 +1094,61 @@ test("Top-down-like analysis fixes its trace range while a live trace grows", as
     const activity = await building;
     assert.ok(activity !== null && activity.topDown !== null);
     assert.equal(activity.topDown.allocationWidth, 2);
+    trace.close();
+});
+
+test("Cycle navigator yields by elapsed time even below the initial sample size", async (t) => {
+    const trace = createTopDownBreakdownTrace();
+    const getOp = trace.getOpForScan.bind(trace);
+    let clock = 0;
+    let reads = 0;
+    let canceled = false;
+    t.mock.method(performance, "now", () => clock);
+    t.mock.method(trace, "getOpForScan", (id: number) => {
+        reads++;
+        clock += 10;
+        return getOp(id);
+    });
+    const building = buildCycleNavigatorData(trace, { isCanceled: () => canceled });
+    assert.equal(reads, 1);
+    canceled = true;
+    assert.equal(await building, null);
+    trace.close();
+});
+
+test("Cycle navigator resumes bounded updates without sealing unfinished cycles", async () => {
+    const trace = createTopDownBreakdownTrace();
+    let incremental = await buildCycleNavigatorData(trace, { live: true });
+    const initial = await buildCycleNavigatorData(trace, { live: true });
+    assert.ok(incremental !== null && initial !== null);
+    for (let id = 4; id < 64; id++) {
+        const cycle = id * 10;
+        appendTopDownBreakdownOp(trace, id, [
+            ["arbitrary-source", cycle, cycle + 1],
+            ["arbitrary-reservoir", cycle + 1, cycle + 3],
+            ["arbitrary-event", cycle + 3, cycle + 4],
+            ["arbitrary-tail", cycle + 4, cycle + 5],
+        ]);
+    }
+    const complete = updateCycleNavigatorData(initial, trace, true, Infinity);
+    while (incremental.sourceLastID < trace.lastID) {
+        const next = updateCycleNavigatorData(incremental, trace, true, 0);
+        assert.equal(next.sourceLastID, incremental.sourceLastID + 1);
+        if (next.sourceLastID < trace.lastID) {
+            assert.ok(next.confirmedCycle < trace.lastCycle);
+        }
+        incremental = next;
+    }
+    assert.deepEqual(
+        getCycleNavigatorTopDown(incremental, 0, trace.lastCycle),
+        getCycleNavigatorTopDown(complete, 0, trace.lastCycle),
+    );
+    for (const mode of ["fetch", "issue", "commit", "flush", "latency"] as const) {
+        assert.deepEqual(
+            getCycleNavigatorActivity(incremental, mode, 0, trace.lastCycle),
+            getCycleNavigatorActivity(complete, mode, 0, trace.lastCycle),
+        );
+    }
     trace.close();
 });
 

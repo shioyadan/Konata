@@ -17,14 +17,13 @@
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
 import { type Op } from "./model";
-import { resolveOpID, type MutableOpStore } from "./op_store";
+import type { MutableOpStore } from "./op_store";
 import {
     createKonataZstdPageCompressor,
     type KonataZstdPageCompressor,
 } from "./zstd_stream";
 
-// 各levelが保持する命令IDの間隔。level 0は全命令を持ち、以降は8命令ごとに間引くことで、
-// 縮小表示時に細かいpageを大量に展開せず、粗いlevelだけから命令を取得できるようにする。
+// 各levelが保持するID間隔。描画側はこの保存構造を知らず、必要な解像度だけを指定する。
 const DEFAULT_LEVEL_SPANS = [1, 8, 64, 512, 4096] as const;
 // 描画で復元したOpをpage cacheとは別に保持するLRUの上限。panやzoomで同じ命令を繰り返し
 // 復元するcostを抑えつつ、大きなtraceでも未圧縮Opが増え続けない旧実装の値を維持する。
@@ -471,7 +470,19 @@ export class PagedOpStore implements MutableOpStore {
         if (id < 0 || id > this.lastID_) {
             return undefined;
         }
-        const resolvedID = resolveOpID(id, resolutionLevel);
+        let resolvedID = id;
+        if (resolutionLevel > 0 && Number.isFinite(resolutionLevel)) {
+            // 希望する間隔の約2倍までで、実際に保持する最も粗いlevelへ代表IDを揃える。
+            // 縮小開始直後も最初の間引きlevelを使い、細かいpageの大量展開を避ける。
+            const maxSpan = Math.max(this.levels_[1]?.span ?? 1, 2 ** (resolutionLevel + 1));
+            let span = 1;
+            for (const level of this.levels_) {
+                if (level.span > maxSpan || level.span > this.lastID_) break;
+                span = level.span;
+            }
+            // 末尾に最寄りの代表IDがない場合は、範囲内の最後の代表IDを使う。
+            resolvedID = Math.min(Math.floor(this.lastID_ / span), Math.round(id / span)) * span;
+        }
         this.opCacheAccessCount_++;
         const cached = this.opCache_.get(resolvedID);
         if (cached !== undefined) {

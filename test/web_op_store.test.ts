@@ -37,16 +37,16 @@ test("ArrayOpStore keeps sparse IDs and the retired-op index", () => {
     assert.equal(store.getOp(8)?.labelName, "updated");
 });
 
-test("ArrayOpStore preserves synchronous resolution lookup behind its interface", () => {
+test("ArrayOpStore keeps exact lookup when approximate resolution is allowed", () => {
     const mutableStore = new ArrayOpStore();
     const blockHead = createOp(4);
     mutableStore.setOp(blockHead.id, blockHead);
-    // 旧OpListは丸める前にlastID範囲を検査するため、照会IDより後ろの命令も置く。
     mutableStore.setOp(8, createOp(8));
 
-    // 旧OpListと同様、resolution=1では4命令単位の先頭へIDを丸める。
+    // page展開を持たないstoreは、近似が許可されても指定IDをそのまま参照できる。
     const store: OpStore = mutableStore;
-    assert.equal(store.getOp(6, 1), blockHead);
+    assert.equal(store.getOp(4, 1), blockHead);
+    assert.equal(store.getOp(6, 1), undefined);
     assert.equal(store.getOp(6, 0), undefined);
 
     // close後はtabから参照されていたOpと索引を解放し、初期状態へ戻る。

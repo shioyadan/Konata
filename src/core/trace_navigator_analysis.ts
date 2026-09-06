@@ -22,6 +22,7 @@ import {
 } from "./stage_structure_detector";
 
 const DEFAULT_YIELD_INTERVAL = 50_000;
+const ANALYSIS_SLICE_MS = 8;
 const MAX_EXACT_CYCLE_COUNT = 4 * 1024 * 1024;
 const MAX_WORKING_BYTES = 128 * 1024 * 1024;
 const SLOT_CLASS_COUNT = 6;
@@ -105,6 +106,21 @@ function yieldToBrowser(): Promise<void> {
         };
         channel.port2.postMessage(undefined);
     });
+}
+
+// 命令数だけではstage数やpage復元costを制限できないため、各走査を時間でも区切る。
+function createScanYield(interval: number): () => Promise<void> | null {
+    let work = 0;
+    let deadline = performance.now() + ANALYSIS_SLICE_MS;
+    return () => {
+        if (++work < interval && performance.now() < deadline) {
+            return null;
+        }
+        work = 0;
+        return yieldToBrowser().then(() => {
+            deadline = performance.now() + ANALYSIS_SLICE_MS;
+        });
+    };
 }
 
 function formatStage(trace: ParsedTrace, stage: Readonly<DetectedStage>): NavigatorStage {
@@ -305,9 +321,13 @@ async function buildTopDown(
     const recoveryWindows: Array<readonly [number, number]> = [];
     const recoveryLatencies = new Map<number, number>();
     let recoveryWindowCount = 0;
-    let workSinceYield = 0;
+    const scanYield = createScanYield(yieldInterval);
 
     for (let id = 0; id <= lastID; id++) {
+        const pause = scanYield();
+        if (pause !== null) {
+            await pause;
+        }
         if (isCanceled?.()) {
             return null;
         }
@@ -345,11 +365,6 @@ async function buildTopDown(
             observation.completionCycle > observation.allocationCycle &&
             isLikelyControlFlowLabel(op.labelName)) {
             previousRecoveryStart.set(tid, observation.completionCycle);
-        }
-
-        if (++workSinceYield >= yieldInterval) {
-            await yieldToBrowser();
-            workSinceYield = 0;
         }
     }
 
@@ -478,10 +493,14 @@ export async function buildCycleNavigatorData(
         observedCycleCount,
         options.binCycleCount ?? TRACE_NAVIGATOR_BIN_CYCLE_COUNT,
     );
-    let workSinceYield = 0;
+    const scanYield = createScanYield(yieldInterval);
 
     // 一回目: stage構造候補と、構造非依存のFetch／Commitを同時に観測する。
     for (let id = 0; id <= lastID; id++) {
+        const pause = scanYield();
+        if (pause !== null) {
+            await pause;
+        }
         if (options.isCanceled?.()) {
             return null;
         }
@@ -497,10 +516,6 @@ export async function buildCycleNavigatorData(
                 confirmedCycle = op.fetchedCycle;
             }
         }
-        if (++workSinceYield >= yieldInterval) {
-            await yieldToBrowser();
-            workSinceYield = 0;
-        }
     }
     if (options.isCanceled?.()) {
         return null;
@@ -508,19 +523,18 @@ export async function buildCycleNavigatorData(
 
     // 二回目: Detector自身が複合frontierと観測幅を検証する。
     const measurement = detector.finish();
-    workSinceYield = 0;
     if (measurement !== null) {
         for (let id = 0; id <= lastID; id++) {
+            const pause = scanYield();
+            if (pause !== null) {
+                await pause;
+            }
             if (options.isCanceled?.()) {
                 return null;
             }
             const op = trace.getOpForScan(id);
             if (op !== undefined) {
                 measurement.observe(op);
-            }
-            if (++workSinceYield >= yieldInterval) {
-                await yieldToBrowser();
-                workSinceYield = 0;
             }
         }
     }
@@ -551,12 +565,17 @@ export async function buildCycleNavigatorData(
     });
 }
 
-/** 初期sample以後に公開されたOpだけを反映し、完成したprefixをbinへ移す。 */
+/**
+ * 初期sample以後のOpを時間budgetまで反映し、完成したprefixだけをbinへ移す。
+ * sourceLastIDが進んだまま末尾へ届かなければ、呼出し側が別taskで続きを実行する。
+ */
 export function updateCycleNavigatorData(
     data: Readonly<CycleNavigatorData>,
     trace: ParsedTrace,
     finished = false,
+    timeBudgetMs = ANALYSIS_SLICE_MS,
 ): CycleNavigatorData {
+    const deadline = performance.now() + timeBudgetMs;
     const observedCycleCount = Math.max(
         data.observedCycleCount,
         Math.ceil(trace.lastCycle) + 1,
@@ -582,7 +601,13 @@ export function updateCycleNavigatorData(
 
     let sourceLastID = data.sourceLastID;
     let confirmedCycle = data.confirmedCycle;
+    let paused = false;
     for (let id = data.sourceLastID + 1; id <= trace.lastID; id++) {
+        // 少なくとも一命令は進める。残りはSheetが次のtaskで再開する。
+        if (id > data.sourceLastID + 1 && performance.now() >= deadline) {
+            paused = true;
+            break;
+        }
         const op = trace.getOpForScan(id);
         if (op === undefined) {
             break;
@@ -601,7 +626,7 @@ export function updateCycleNavigatorData(
             );
         }
     }
-    const confirmedEnd = finished
+    const confirmedEnd = finished && !paused
         ? Math.max(1, Math.ceil(trace.lastCycle))
         : confirmedCycle;
     if (sourceLastID === data.sourceLastID &&

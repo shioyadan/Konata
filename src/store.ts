@@ -1118,10 +1118,12 @@ export class Store {
             return;
         }
         case "KONATA_SET_TRACE_NAVIGATOR": {
-            this.setGlobalViewSettings_({
+            // Navigator設定はPipelineのRenderSpecへ入らない。全Tabの再描画を要求しない。
+            this.settings_ = {
                 ...this.settings_,
                 traceNavigator: action.settings,
-            }, false, true);
+            };
+            this.publish_(this.snapshot_.activeTabID, [{ type: "VIEW_SETTINGS_UPDATE" }]);
             return;
         }
         case "KONATA_SET_DEP_ARROW_TYPE": {
