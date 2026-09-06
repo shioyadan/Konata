@@ -2606,7 +2606,7 @@ async function run() {
                 collapsedToggleRect.left + collapsedToggleRect.width / 2,
                 collapsedToggleRect.bottom - 5
             ) === toggle,
-            toggleLeft: Math.round(collapsedToggleRect.left - viewerRectBeforeOpen.left),
+            toggleCenter: Math.round(collapsedToggleRect.left + collapsedToggleRect.width / 2 - viewerRectBeforeOpen.left),
             instructionWidth: Math.round(instructionRect.width),
             instructionAligned: Math.round(instructionRect.height) ===
                 Math.round(pipelineRectBeforeOpen.height) &&
@@ -2746,8 +2746,9 @@ async function run() {
             toggleWidth: Math.round(toggle.getBoundingClientRect().width),
             toggleHeight: Math.round(toggle.getBoundingClientRect().height),
             gripBackground: getComputedStyle(toggle).backgroundColor,
-            openToggleLeft: Math.round(
-                toggle.getBoundingClientRect().left - viewer.getBoundingClientRect().left
+            openToggleCenter: Math.round(
+                toggle.getBoundingClientRect().left + toggle.getBoundingClientRect().width / 2 -
+                viewer.getBoundingClientRect().left
             ),
             collapsedState,
             openAtBoundary: Math.abs(
@@ -2928,7 +2929,7 @@ async function run() {
         navigatorState.collapsedState.instructionWidth !== 31 ||
         !navigatorState.collapsedState.instructionAligned ||
         navigatorState.collapsedState.instructionCursor !== "grab" ||
-        navigatorState.openToggleLeft !== navigatorState.collapsedState.toggleLeft ||
+        navigatorState.openToggleCenter !== navigatorState.collapsedState.toggleCenter ||
         !navigatorState.openAtBoundary || !navigatorState.hasClass ||
         !navigatorState.hasExpandedClass ||
         navigatorState.paneHeight < 63 || navigatorState.paneHeight > 64 ||
@@ -4773,6 +4774,48 @@ async function run() {
         delete resizer.setPointerCapture;
         delete resizer.hasPointerCapture;
         delete resizer.releasePointerCapture;
+    })()`);
+
+    // 非表示の取っ手は両軸・両themeで目立たせ、表示中は元の細い線だけへ戻す。
+    await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        const originalTheme = theme.value;
+        for (const value of ['dark', 'light']) {
+            theme.value = value;
+            theme.dispatchEvent(new Event('change', {bubbles: true}));
+            await nextFrame();
+            for (const grip of document.querySelectorAll('.navigator-grip')) {
+                const cycle = grip.classList.contains('trace-navigator-toggle');
+                const background = getComputedStyle(grip, '::before');
+                const line = getComputedStyle(grip, '::after');
+                if (grip.dataset.display !== 'hidden' || background.opacity !== '0.12' ||
+                    background.backgroundColor !== getComputedStyle(grip).color ||
+                    background.width !== (cycle ? '56px' : '12px') ||
+                    background.height !== (cycle ? '12px' : '56px') ||
+                    line.width !== (cycle ? '44px' : '4px') || line.height !== (cycle ? '4px' : '44px')) {
+                    throw new Error('Hidden navigator grips must have matching themed handles.');
+                }
+                grip.focus();
+                if (getComputedStyle(grip, '::before').opacity !== '0.2') {
+                    throw new Error('Keyboard focus must highlight the hidden navigator handle.');
+                }
+                grip.blur();
+                grip.click();
+                await nextFrame();
+                if (getComputedStyle(grip, '::before').content !== 'none' ||
+                    getComputedStyle(grip, '::after').width !== (cycle ? '32px' : '3px')) {
+                    throw new Error('Visible navigators must keep their unobtrusive grips.');
+                }
+                do {
+                    grip.click();
+                    await nextFrame();
+                } while (grip.dataset.display !== 'hidden');
+            }
+        }
+        theme.value = originalTheme;
+        theme.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextFrame();
     })()`);
 
     // 非既定のthemeとWebGL設定を保存し、Tab表示だけのlane分割は保存値へ混ぜない。

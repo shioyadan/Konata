@@ -1103,6 +1103,8 @@ button:disabled {
 
 /* 開閉を境界のgripへ統合する。見た目は小さく、keyboardでも操作できるbuttonにする。 */
 .navigator-grip {
+    --navigator-grip-length: 32px;
+    --navigator-grip-thickness: 3px;
     position: absolute;
     padding: 0;
     border: 0;
@@ -1112,7 +1114,7 @@ button:disabled {
 .trace-navigator-toggle {
     top: 0;
     left: 50%;
-    width: 44px;
+    width: calc(var(--navigator-grip-length) + 12px);
     height: 100%;
     transform: translateX(-50%);
 }
@@ -1132,8 +1134,8 @@ button:disabled {
 .trace-navigator-toggle::after {
     bottom: 4px;
     left: 6px;
-    width: 32px;
-    height: 3px;
+    width: var(--navigator-grip-length);
+    height: var(--navigator-grip-thickness);
 }
 
 .navigator-resizer:hover .navigator-grip::after,
@@ -1158,15 +1160,61 @@ button:disabled {
     top: 50%;
     left: 0;
     width: 100%;
-    height: 44px;
+    height: calc(var(--navigator-grip-length) + 12px);
     transform: translateY(-50%);
 }
 
 .instruction-navigator-toggle::after {
     top: 6px;
     right: 4px;
-    width: 3px;
-    height: 32px;
+    width: var(--navigator-grip-thickness);
+    height: var(--navigator-grip-length);
+}
+
+/* 非表示時だけ画面端から小さな取っ手を出す。背景はthemeの文字色を薄く使う。 */
+.navigator-grip[data-display="hidden"] {
+    --navigator-grip-length: 44px;
+    --navigator-grip-thickness: 4px;
+}
+
+.navigator-grip[data-display="hidden"]::before {
+    position: absolute;
+    background: currentColor;
+    opacity: 0.12;
+    content: "";
+}
+
+.navigator-grip[data-display="hidden"]:hover::before,
+.navigator-grip[data-display="hidden"]:focus-visible::before {
+    opacity: 0.2;
+}
+
+.trace-navigator-toggle[data-display="hidden"] {
+    top: auto;
+    bottom: 0;
+    height: max(100%, 12px);
+}
+
+.trace-navigator-toggle::before {
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 12px;
+    border-radius: 6px 6px 0 0;
+}
+
+.instruction-navigator-toggle[data-display="hidden"] {
+    right: 0;
+    left: auto;
+    width: max(100%, 12px);
+}
+
+.instruction-navigator-toggle::before {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    border-radius: 6px 0 0 6px;
 }
 
 .viewer.is-resizing-instruction-navigator {
