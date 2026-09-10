@@ -163,6 +163,7 @@ interface TraceSheetProps {
     readonly renderVersion: number;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    readonly textCacheEnabled: boolean;
     readonly traceNavigator: Readonly<TraceNavigatorSettings>;
     readonly zoomStep: number;
     readonly findResult: FindResult | null;
@@ -211,6 +212,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     renderVersion,
     webGLEnabled,
     tiledRenderingEnabled,
+    textCacheEnabled,
     traceNavigator,
     zoomStep,
     findResult,
@@ -569,6 +571,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             // Parser追記中と互換設定での無効時は、raster tileを介さず直接描画する。
             cacheEnabled: tiledRenderingEnabled && loadState === "ready",
             webGLEnabled,
+            textCacheEnabled,
         } as const;
         const candidateTileOptions = {
             ...tileOptions,
@@ -678,6 +681,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         tiledRenderer,
         baselineTiledRenderer,
         tiledRenderingEnabled,
+        textCacheEnabled,
         trace,
         traceNavigatorAvailable,
         traceNavigatorDataReady,

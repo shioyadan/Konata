@@ -23,6 +23,7 @@ export interface TiledPipelineRenderOptions {
     readonly colorScheme?: string;
     readonly referenceOnly?: boolean;
     readonly webGLEnabled: boolean;
+    readonly textCacheEnabled: boolean;
     // 現在の表示と異なる既知のSpecがあれば、その倍率のtileを先読みする。
     readonly prefetchSpec?: Readonly<KonataRenderSpec>;
     // 比較用offscreen layerが更新された時に、表示Canvasの再合成を依頼する。
@@ -75,6 +76,7 @@ interface RenderRequest {
     readonly colorScheme?: string;
     readonly referenceOnly: boolean;
     readonly webGLEnabled: boolean;
+    readonly textCacheEnabled: boolean;
     readonly onUpdate?: () => void;
 }
 
@@ -148,6 +150,8 @@ export class TiledPipelineRenderer {
                 options.colorScheme,
                 options.referenceOnly ?? false,
                 options.webGLEnabled,
+                "all",
+                options.textCacheEnabled,
             );
             return;
         }
@@ -191,6 +195,7 @@ export class TiledPipelineRenderer {
             colorScheme: options.colorScheme,
             referenceOnly: options.referenceOnly ?? false,
             webGLEnabled: options.webGLEnabled,
+            textCacheEnabled: options.textCacheEnabled,
             onUpdate: options.onUpdate,
         };
         this.current_ = current;
@@ -254,6 +259,7 @@ export class TiledPipelineRenderer {
             renderingColorScheme: options.colorScheme ?? null,
             referenceOnly: options.referenceOnly ?? false,
             webGLEnabled: options.webGLEnabled,
+            textCacheEnabled: options.textCacheEnabled,
             pixelRatio,
         });
     }
@@ -350,6 +356,7 @@ export class TiledPipelineRenderer {
                 request.referenceOnly,
                 request.webGLEnabled,
                 "base",
+                request.textCacheEnabled,
             );
         }
         // dependency passを含む画像を保存すると次のframeで古い矢印が残るため、ここでbaseだけを退避する。
@@ -367,6 +374,7 @@ export class TiledPipelineRenderer {
                 false,
                 request.webGLEnabled,
                 "dependencies",
+                request.textCacheEnabled,
             );
         }
         // 範囲外色を空tileごとにclipすると、subpixel上の境界が背景と混ざって格子に見える。
@@ -752,6 +760,7 @@ export class TiledPipelineRenderer {
             request.referenceOnly,
             request.webGLEnabled,
             "base",
+            request.textCacheEnabled,
         );
         if (generation !== this.generation_ || this.build_?.namespaceKey !== request.namespaceKey) {
             canvas.width = 1;

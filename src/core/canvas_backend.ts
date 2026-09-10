@@ -334,6 +334,7 @@ export class CanvasBackend implements CanvasDrawContext {
     private colorContext_: CanvasRenderingContext2D | null = null;
     private readonly colorCache_ = new Map<string, readonly [number, number, number, number]>();
     private readonly textAtlas_ = new TextAtlas();
+    private textCacheEnabled_ = true;
     private textContext_: CanvasRenderingContext2D | null = null;
     private textDisplayFont_ = "";
     private textFont_ = "";
@@ -426,6 +427,7 @@ export class CanvasBackend implements CanvasDrawContext {
         fontFamily: string,
         color: string,
         scale: number,
+        textCacheEnabled = true,
     ): void {
         const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
         const displayFont = `${fontStyle} ${baseFontSize * scale}px ${fontFamily}`;
@@ -440,6 +442,7 @@ export class CanvasBackend implements CanvasDrawContext {
         this.textColor_ = color;
         this.textPixelRatio_ = pixelRatio;
         this.textScale_ = atlasScale;
+        this.textCacheEnabled_ = textCacheEnabled;
         context.font = displayFont;
         context.fillStyle = color;
         // 等倍BLTでは半pixel配置を再補間せず、縮小時だけ滑らかにsamplingする。
@@ -675,12 +678,14 @@ export class CanvasBackend implements CanvasDrawContext {
         const index = this.count_;
         const offset = index * 4;
         const textOffset = index * 2;
-        const entry = this.textAtlas_.getEntry(
+        // cache無効時もcommand順を保ち、既存のCanvas fallbackで表示サイズの文字を直接描く。
+        // 文字を含まない縮小表示では、引き続きWebGLを利用できる。
+        const entry = this.textCacheEnabled_ ? this.textAtlas_.getEntry(
             text,
             this.textFont_,
             this.textColor_,
             this.textPixelRatio_,
-        );
+        ) : null;
         if (entry === null || !Number.isFinite(this.textScale_) || this.textScale_ <= 0) {
             this.rects_.fill(0, offset, offset + 4);
             this.textureRects_.fill(0, offset, offset + 4);
@@ -720,12 +725,12 @@ export class CanvasBackend implements CanvasDrawContext {
         x: number,
         baselineY: number,
     ): void {
-        const entry = this.textAtlas_.getEntry(
+        const entry = this.textCacheEnabled_ ? this.textAtlas_.getEntry(
             text,
             this.textFont_,
             this.textColor_,
             this.textPixelRatio_,
-        );
+        ) : null;
         if (entry !== null && Number.isFinite(this.textScale_) && this.textScale_ > 0) {
             this.textAtlas_.drawEntry(context, entry, x, baselineY, this.textScale_);
             return;

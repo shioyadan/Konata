@@ -91,6 +91,7 @@ export interface GlobalViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    readonly textCacheEnabled: boolean;
     // 集計済みCycleNavigatorDataはTraceSheetが所有し、軽量な表示設定だけをStoreへ置く。
     readonly traceNavigator: Readonly<TraceNavigatorSettings>;
     readonly customColorScheme: Readonly<CustomColorScheme>;
@@ -108,6 +109,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
     theme: "dark",
     webGLEnabled: true,
     tiledRenderingEnabled: true,
+    textCacheEnabled: true,
     traceNavigator: DEFAULT_TRACE_NAVIGATOR_SETTINGS,
     customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
@@ -125,6 +127,7 @@ export interface PersistedViewSettings {
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
+    readonly textCacheEnabled: boolean;
     readonly traceNavigator: Readonly<TraceNavigatorSettings>;
     readonly colorScheme: string;
     readonly customColorScheme: Readonly<CustomColorScheme>;
@@ -141,6 +144,7 @@ export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = 
     theme: DEFAULT_GLOBAL_VIEW_SETTINGS.theme,
     webGLEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.webGLEnabled,
     tiledRenderingEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.tiledRenderingEnabled,
+    textCacheEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.textCacheEnabled,
     traceNavigator: DEFAULT_GLOBAL_VIEW_SETTINGS.traceNavigator,
     colorScheme: "Unique",
     customColorScheme: DEFAULT_GLOBAL_VIEW_SETTINGS.customColorScheme,
@@ -257,6 +261,7 @@ export type Action =
     | { readonly type: "KONATA_CHANGE_UI_COLOR_THEME"; readonly theme: RendererTheme }
     | { readonly type: "KONATA_SET_WEBGL_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_TILED_RENDERING_ENABLED"; readonly enabled: boolean }
+    | { readonly type: "KONATA_SET_TEXT_CACHE_ENABLED"; readonly enabled: boolean }
     | {
         readonly type: "KONATA_SET_TRACE_NAVIGATOR";
         readonly settings: Readonly<TraceNavigatorSettings>;
@@ -559,6 +564,7 @@ export class Store {
             theme: viewSettings.theme,
             webGLEnabled: viewSettings.webGLEnabled,
             tiledRenderingEnabled: viewSettings.tiledRenderingEnabled,
+            textCacheEnabled: viewSettings.textCacheEnabled,
             traceNavigator: viewSettings.traceNavigator,
             customColorScheme: viewSettings.customColorScheme,
             dependencyArrowType: viewSettings.dependencyArrowType,
@@ -607,6 +613,7 @@ export class Store {
             theme: this.settings_.theme,
             webGLEnabled: this.settings_.webGLEnabled,
             tiledRenderingEnabled: this.settings_.tiledRenderingEnabled,
+            textCacheEnabled: this.settings_.textCacheEnabled,
             traceNavigator: this.settings_.traceNavigator,
             colorScheme: this.defaultColorScheme_,
             customColorScheme: this.settings_.customColorScheme,
@@ -1122,6 +1129,10 @@ export class Store {
                 ...this.settings_,
                 tiledRenderingEnabled: action.enabled,
             }, false, true);
+            return;
+        }
+        case "KONATA_SET_TEXT_CACHE_ENABLED": {
+            this.setGlobalViewSettings_({ ...this.settings_, textCacheEnabled: action.enabled }, false, true);
             return;
         }
         case "KONATA_SET_TRACE_NAVIGATOR": {

@@ -3969,6 +3969,8 @@ async function run() {
         const colorScheme = document.querySelector('select[aria-label="Pipeline color scheme"]');
         const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
+        const tiled = document.querySelector('input[aria-label="Tiled rendering"]');
+        const textCaching = document.querySelector('input[aria-label="Text caching"]');
         const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
         const reset = document.querySelector('button[aria-label="Reset view"]');
         if (!(pipeline instanceof HTMLCanvasElement) ||
@@ -3976,6 +3978,8 @@ async function run() {
             !(colorScheme instanceof HTMLSelectElement) ||
             !(zoomSpeed instanceof HTMLSelectElement) ||
             !(webGL instanceof HTMLInputElement) ||
+            !(tiled instanceof HTMLInputElement) ||
+            !(textCaching instanceof HTMLInputElement) ||
             !(zoomOut instanceof HTMLButtonElement) ||
             !(reset instanceof HTMLButtonElement)) {
             throw new Error("The text atlas controls were not found.");
@@ -3984,6 +3988,8 @@ async function run() {
         const originalColorScheme = colorScheme.value;
         const originalZoomSpeed = zoomSpeed.value;
         const originalWebGL = webGL.checked;
+        const originalTiled = tiled.checked;
+        const originalTextCaching = textCaching.checked;
         zoomSpeed.value = "normal";
         zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         // Canvas fallbackでも文字atlasのBLTを維持する。
@@ -3999,7 +4005,15 @@ async function run() {
         const generatedTileCanvases = new Set();
         const tileBackingSize = Math.round(256 * devicePixelRatio);
         const blitScales = [];
+        let directTextCalls = 0;
+        let textBlits = 0;
+        const directFonts = new Set();
         observeMethod(prototype, "fillText", function() {
+            if (this.canvas === pipeline ||
+                (this.canvas.width === tileBackingSize && this.canvas.height === tileBackingSize)) {
+                directTextCalls++;
+                directFonts.add(this.font);
+            }
             if (this.canvas === pipeline) {
                 pipelineFillTexts++;
             }
@@ -4014,6 +4028,9 @@ async function run() {
             }
         });
         observeMethod(prototype, "drawImage", function(args) {
+            if (args.length === 9) {
+                textBlits++;
+            }
             if (this.canvas === pipeline && args[0] instanceof HTMLCanvasElement &&
                 !args[0].isConnected) {
                 pipelineBlits++;
@@ -4070,10 +4087,38 @@ async function run() {
             colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
             await nextFrame();
             const recolored = {atlasFillTexts, pipelineFillTexts, pipelineBlits};
+            // tile／WebGLの各組合せで、OFFは直接文字描画、ONはatlas利用へ戻る。
+            // 同じ位置・倍率のまま切り替え、完成tileも設定変更で失効することを確かめる。
+            for (const useTiles of [true, false]) {
+                for (const useWebGL of [false, true]) {
+                    if (tiled.checked !== useTiles) tiled.click();
+                    if (webGL.checked !== useWebGL) webGL.click();
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                    directFonts.clear();
+                    const before = {directTextCalls, textBlits};
+                    textCaching.click();
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                    if (textCaching.checked || directTextCalls <= before.directTextCalls ||
+                        textBlits !== before.textBlits || directFonts.size === 0 ||
+                        [...directFonts].some((font) => Math.abs(parseFloat(font) - 14 / Math.sqrt(2)) > 0.01)) {
+                        throw new Error('Disabled text caching must draw text directly at the zoomed font size: ' +
+                            JSON.stringify({useTiles, useWebGL, directTextCalls, textBlits, before, fonts: [...directFonts]}));
+                    }
+                    const disabledTextCalls = directTextCalls;
+                    textCaching.click();
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                    if (!textCaching.checked || directTextCalls !== disabledTextCalls ||
+                        (!useWebGL && textBlits <= before.textBlits)) {
+                        throw new Error('Reenabled text caching must reuse text images.');
+                    }
+                }
+            }
             return {first, scaled, recolored};
         }
         finally {
             restoreObservedMethods();
+            if (tiled.checked !== originalTiled) tiled.click();
+            if (textCaching.checked !== originalTextCaching) textCaching.click();
             theme.value = originalTheme;
             theme.dispatchEvent(new Event("change", {bubbles: true}));
             colorScheme.value = originalColorScheme;
@@ -4861,12 +4906,14 @@ async function run() {
         const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
         const webGL = document.querySelector('input[aria-label="WebGL rendering"]');
         const tiledRendering = document.querySelector('input[aria-label="Tiled rendering"]');
+        const textCaching = document.querySelector('input[aria-label="Text caching"]');
         const navigator = document.querySelector(".trace-navigator-toggle");
         if (!(theme instanceof HTMLSelectElement) ||
             !(split instanceof HTMLInputElement) ||
             !(zoomSpeed instanceof HTMLSelectElement) ||
             !(webGL instanceof HTMLInputElement) ||
             !(tiledRendering instanceof HTMLInputElement) ||
+            !(textCaching instanceof HTMLInputElement) ||
             !(navigator instanceof HTMLButtonElement)) {
             throw new Error("The view settings controls were not found.");
         }
@@ -4877,6 +4924,7 @@ async function run() {
         zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
         webGL.click();
         tiledRendering.click();
+        textCaching.click();
         navigator.click();
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
@@ -4886,6 +4934,7 @@ async function run() {
                 zoomSpeed: zoomSpeed.value,
                 webGL: webGL.checked,
                 tiledRendering: tiledRendering.checked,
+                textCaching: textCaching.checked,
                 navigator: navigator.getAttribute("aria-expanded"),
                 stored,
                 storesSplitLanes: stored !== null && "splitLanes" in stored,
@@ -4898,11 +4947,13 @@ async function run() {
         viewSettingsSetupState.zoomSpeed !== "normal" ||
         viewSettingsSetupState.webGL ||
         viewSettingsSetupState.tiledRendering ||
+        viewSettingsSetupState.textCaching ||
         viewSettingsSetupState.navigator !== "true" ||
         viewSettingsSetupState.stored?.theme !== "light" ||
         viewSettingsSetupState.stored?.drawZoomFactor !== 2 ||
         viewSettingsSetupState.stored?.webGLEnabled !== false ||
         viewSettingsSetupState.stored?.tiledRenderingEnabled !== false ||
+        viewSettingsSetupState.stored?.textCacheEnabled !== false ||
         viewSettingsSetupState.stored?.traceNavigator?.display !== "expanded" ||
         viewSettingsSetupState.stored?.traceNavigator?.mode !== "commit" ||
         viewSettingsSetupState.stored?.traceNavigator?.rangeMode !== "overview" ||
@@ -4940,6 +4991,7 @@ async function run() {
             split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
+            textCaching: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
             navigator: document.querySelector(".trace-navigator-toggle")?.getAttribute(
                 "aria-expanded"
             ) ?? null,
@@ -4959,6 +5011,7 @@ async function run() {
         persistedViewSettingsState.split ||
         persistedViewSettingsState.webGL ||
         persistedViewSettingsState.tiledRendering ||
+        persistedViewSettingsState.textCaching !== false ||
         persistedViewSettingsState.navigator !== "true" ||
         persistedViewSettingsState.navigatorMode !== "commit" ||
         persistedViewSettingsState.navigatorOverview !== "Overview" ||
@@ -5003,6 +5056,7 @@ async function run() {
         delete stored.drawZoomFactor;
         delete stored.webGLEnabled;
         delete stored.tiledRenderingEnabled;
+        delete stored.textCacheEnabled;
         delete stored.traceNavigator;
         stored.colorScheme = "Auto";
         stored.customColorScheme.defaultColor.h = 999;
@@ -5038,6 +5092,7 @@ async function run() {
             zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
+            textCaching: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
             navigator: document.querySelector(".trace-navigator-toggle")?.getAttribute(
                 "aria-expanded"
             ) ?? null,
@@ -5056,6 +5111,7 @@ async function run() {
         recoveredCustomColorState.zoomSpeed !== "normal" ||
         !recoveredCustomColorState.webGL ||
         !recoveredCustomColorState.tiledRendering ||
+        recoveredCustomColorState.textCaching !== true ||
         recoveredCustomColorState.navigator !== "false" ||
         recoveredCustomColorState.defaultHue !== "100" ||
         recoveredCustomColorState.migratedLaneHeight !== 3 ||

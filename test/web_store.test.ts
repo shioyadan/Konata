@@ -693,6 +693,7 @@ test("Store restores and publishes persistent view settings", () => {
         theme: "light",
         webGLEnabled: true,
         tiledRenderingEnabled: true,
+        textCacheEnabled: true,
         traceNavigator: {
             display: "expanded",
             mode: "issue",
@@ -717,6 +718,7 @@ test("Store restores and publishes persistent view settings", () => {
     assert.equal(restored.theme, "light");
     assert.equal(restored.webGLEnabled, true);
     assert.equal(restored.tiledRenderingEnabled, true);
+    assert.equal(restored.textCacheEnabled, true);
     assert.equal(restored.dependencyArrowType, DEP_ARROW_TYPE.LEFT_SIDE_CURVE);
     assert.equal(restored.textLabelMinimumLaneHeight, 11);
     assert.equal(restored.drawZoomFactor, 1);
@@ -742,6 +744,7 @@ test("Store restores and publishes persistent view settings", () => {
     store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "dark" });
     store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: false });
     store.dispatch({ type: "KONATA_SET_TILED_RENDERING_ENABLED", enabled: false });
+    store.dispatch({ type: "KONATA_SET_TEXT_CACHE_ENABLED", enabled: false });
     store.dispatch({ type: "KONATA_SET_DEP_ARROW_TYPE", arrowType: DEP_ARROW_TYPE.NOT_SHOW });
     store.dispatch({
         type: "KONATA_CHANGE_MINIMUM_LANE_HEIGHT",
@@ -775,6 +778,7 @@ test("Store restores and publishes persistent view settings", () => {
         theme: "dark",
         webGLEnabled: false,
         tiledRenderingEnabled: false,
+        textCacheEnabled: false,
         traceNavigator: {
             display: "compact",
             mode: "commit",
@@ -794,7 +798,7 @@ test("Store restores and publishes persistent view settings", () => {
         drawZoomFactor: 2,
     });
     // Tab固有設定やsession内だけの設定では、永続化通知を増やさない。
-    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 10);
+    assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 11);
     assert.deepEqual(store.getSnapshot().settings.traceNavigator, {
         display: "compact",
         mode: "commit",
@@ -909,6 +913,7 @@ test("Store restores View defaults without moving the trace or discarding custom
     store.dispatch({ type: "PANE_SPLITTER_MOVE", tabID: tab.id, position: 333 });
     store.dispatch({ type: "KONATA_CHANGE_UI_COLOR_THEME", theme: "light" });
     store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: false });
+    store.dispatch({ type: "KONATA_SET_TEXT_CACHE_ENABLED", enabled: false });
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({
         type: "KONATA_SET_TRACE_NAVIGATOR",

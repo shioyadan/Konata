@@ -235,6 +235,9 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
     const tiledRenderingEnabled = settings.tiledRenderingEnabled === undefined
         ? DEFAULT_PERSISTED_VIEW_SETTINGS.tiledRenderingEnabled
         : settings.tiledRenderingEnabled;
+    const textCacheEnabled = settings.textCacheEnabled === undefined
+        ? DEFAULT_PERSISTED_VIEW_SETTINGS.textCacheEnabled
+        : settings.textCacheEnabled;
     // Autoは現在のDepthと同じ動作だったため、保存済み設定だけを読み替える。
     const colorScheme = settings.colorScheme === "Auto" ? "Depth" : settings.colorScheme;
     if ((settings.theme !== "dark" && settings.theme !== "light") ||
@@ -250,13 +253,15 @@ function parsePersistedViewSettings(value: unknown): PersistedViewSettings | nul
         !isNonNegativeFiniteNumber(stageBorderMinimumLaneHeight) ||
         !isPositiveFiniteNumber(drawZoomFactor) ||
         typeof webGLEnabled !== "boolean" ||
-        typeof tiledRenderingEnabled !== "boolean") {
+        typeof tiledRenderingEnabled !== "boolean" ||
+        typeof textCacheEnabled !== "boolean") {
         return null;
     }
     return {
         theme: settings.theme,
         webGLEnabled,
         tiledRenderingEnabled,
+        textCacheEnabled,
         traceNavigator: parseTraceNavigatorSettings(settings.traceNavigator),
         colorScheme,
         // 旧Web版の保存値にはこのfieldがないため、他の設定を捨てず既定配色で補う。
@@ -1587,6 +1592,18 @@ export function App() {
                                     })}
                                 />
                             </label>
+                            <label title="Disable to draw text directly at the current font size. May reduce rendering performance.">
+                                Text caching
+                                <input
+                                    type="checkbox"
+                                    aria-label="Text caching"
+                                    checked={settings.textCacheEnabled}
+                                    onChange={(event) => store.dispatch({
+                                        type: "KONATA_SET_TEXT_CACHE_ENABLED",
+                                        enabled: event.target.checked,
+                                    })}
+                                />
+                            </label>
                         </details>
                     </div>
                 </details>
@@ -1738,6 +1755,7 @@ export function App() {
                 renderVersion={renderVersion}
                 webGLEnabled={settings.webGLEnabled}
                 tiledRenderingEnabled={settings.tiledRenderingEnabled}
+                textCacheEnabled={settings.textCacheEnabled}
                 traceNavigator={settings.traceNavigator}
                 zoomStep={1 / settings.drawZoomFactor}
                 findResult={findResult}

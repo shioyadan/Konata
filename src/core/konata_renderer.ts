@@ -551,11 +551,12 @@ export class KonataRenderer {
         labelCanvas: HTMLCanvasElement,
         pipelineCanvas: HTMLCanvasElement,
         webGLEnabled: boolean,
+        textCacheEnabled: boolean,
     ): void {
         const labelSize = this.prepareCanvas_(labelCanvas);
         const pipelineSize = this.prepareCanvas_(pipelineCanvas);
         this.drawLabel_(labelCanvas, labelSize);
-        this.drawPipeline_(pipelineCanvas, pipelineSize, webGLEnabled, "all");
+        this.drawPipeline_(pipelineCanvas, pipelineSize, webGLEnabled, "all", textCacheEnabled);
     }
 
     drawSpec(
@@ -564,9 +565,10 @@ export class KonataRenderer {
         labelCanvas: HTMLCanvasElement,
         pipelineCanvas: HTMLCanvasElement,
         webGLEnabled = true,
+        textCacheEnabled = true,
     ): void {
         this.setInput_(trace, spec);
-        this.draw_(labelCanvas, pipelineCanvas, webGLEnabled);
+        this.draw_(labelCanvas, pipelineCanvas, webGLEnabled, textCacheEnabled);
     }
 
     private drawLabelCanvas_(labelCanvas: HTMLCanvasElement): void {
@@ -591,6 +593,7 @@ export class KonataRenderer {
         referenceOnly = false,
         webGLEnabled = true,
         pass: KonataPipelinePass = "all",
+        textCacheEnabled = true,
     ): void {
         const pipelineSize = this.prepareCanvas_(pipelineCanvas, width, height);
         const previousColorScheme = this.renderingColorScheme_;
@@ -599,7 +602,7 @@ export class KonataRenderer {
         this.renderingReference_ = referenceOnly;
         try {
             // 比較色と参照表示は一時的な描画条件に留め、通常のView設定を変更しない。
-            this.drawPipeline_(pipelineCanvas, pipelineSize, webGLEnabled, pass);
+            this.drawPipeline_(pipelineCanvas, pipelineSize, webGLEnabled, pass, textCacheEnabled);
         }
         finally {
             this.renderingColorScheme_ = previousColorScheme;
@@ -617,6 +620,7 @@ export class KonataRenderer {
         referenceOnly = false,
         webGLEnabled = true,
         pass: KonataPipelinePass = "all",
+        textCacheEnabled = true,
     ): void {
         this.setInput_(trace, spec);
         this.drawPipelineCanvas_(
@@ -627,6 +631,7 @@ export class KonataRenderer {
             referenceOnly,
             webGLEnabled,
             pass,
+            textCacheEnabled,
         );
     }
 
@@ -745,6 +750,7 @@ export class KonataRenderer {
         size: CanvasSize,
         webGLEnabled: boolean,
         pass: KonataPipelinePass,
+        textCacheEnabled: boolean,
     ): void {
         const context = canvas.getContext("2d");
         if (context === null) {
@@ -773,6 +779,7 @@ export class KonataRenderer {
                 this.style_.fontFamily,
                 this.style_.pipelinePane.fontColor,
                 this.metrics_.zoomScale,
+                textCacheEnabled,
             );
         }
 
