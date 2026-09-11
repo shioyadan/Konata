@@ -1058,6 +1058,7 @@ export class CanvasBackend implements CanvasDrawContext {
                 v_stroke_width = a_stroke_width;
             }
         `);
+        // 枠の境界coverageをsmoothstepで補間し、縮小時も階段状のaliasを出さない。
         const fragmentShader = this.compileShader_(gl.FRAGMENT_SHADER, `#version 300 es
             precision highp float;
             uniform sampler2D u_text_atlas;
@@ -1089,7 +1090,6 @@ export class CanvasBackend implements CanvasDrawContext {
                     float inner_edge = min(inner_distance.x, inner_distance.y);
                     float outer_aa = max(fwidth(outer_edge), 0.0001);
                     float inner_aa = max(fwidth(inner_edge), 0.0001);
-                    // 境界のcoverageを滑らかに補間し、縮小時も枠へ階段状のaliasを出さない。
                     float outer_coverage = smoothstep(-outer_aa * 0.5, outer_aa * 0.5, outer_edge);
                     float inner_coverage = smoothstep(-inner_aa * 0.5, inner_aa * 0.5, inner_edge);
                     float coverage = outer_coverage * (1.0 - inner_coverage);

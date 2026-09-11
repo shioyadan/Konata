@@ -86,7 +86,12 @@ module.exports = (_env, argv) => {
                 },
                 {
                     test: /\.css$/,
-                    use: ["style-loader", "css-loader"],
+                    // JS文字列になる前にCSSのコメントと空白を除去する。開発時の可読性は保つ。
+                    use: [
+                        "style-loader",
+                        "css-loader",
+                        ...(isProduction ? [path.resolve(__dirname, "tools/minify_css_loader.js")] : []),
+                    ],
                 },
                 {
                     // 単一HTMLを壊さないよう、将来追加する画像とフォントもbundle内へ埋め込む。

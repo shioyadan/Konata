@@ -17,10 +17,14 @@ assert.match(html, /<script(?:\s[^>]*)?>[\s\S]+<\/script>/i);
 assert.doesNotMatch(html, /<script[^>]+\bsrc\s*=/i);
 assert.doesNotMatch(html, /<link[^>]+\brel=["']?stylesheet/i);
 
+// CSSやshaderをJS文字列へ内包しても、開発用コメントをproductionへ持ち込まない。
+assert(!html.includes("Canvasの旧配色は変えず"));
+assert(!html.includes("境界のcoverageを滑らかに補間"));
+
 // 単一HTMLだけを渡しても、npm外で内包されたcomponentを含む通知が失われないことを確認する。
 assert.match(html, /Copyright \(C\) 2016-2026 Ryota Shioya/);
 assert.match(html, /Third-Party Licenses/);
 assert.match(html, /Copyright \(c\) 2020 Arjun Barrett/);
 assert.match(html, /For Zstandard software/);
 
-console.log(`Single HTML smoke test passed: ${outputFiles[0]} (${html.length} bytes)`);
+console.log(`Single HTML smoke test passed: ${outputFiles[0]} (${Buffer.byteLength(html)} bytes)`);
