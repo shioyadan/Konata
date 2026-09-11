@@ -4087,7 +4087,8 @@ async function run() {
             colorScheme.dispatchEvent(new Event("change", {bubbles: true}));
             await nextFrame();
             const recolored = {atlasFillTexts, pipelineFillTexts, pipelineBlits};
-            // tile／WebGLの各組合せで、OFFは直接文字描画、ONはatlas利用へ戻る。
+            // tile／WebGLの各初期状態から、文字cache OFFでWebGLもOFFになり、
+            // cache ONへ戻してもWebGLは手動で有効にするまでOFFを保つ。
             // 同じ位置・倍率のまま切り替え、完成tileも設定変更で失効することを確かめる。
             for (const useTiles of [true, false]) {
                 for (const useWebGL of [false, true]) {
@@ -4098,18 +4099,33 @@ async function run() {
                     const before = {directTextCalls, textBlits};
                     textCaching.click();
                     await new Promise((resolve) => setTimeout(resolve, 200));
-                    if (textCaching.checked || directTextCalls <= before.directTextCalls ||
+                    if (textCaching.checked || webGL.checked || !webGL.disabled ||
+                        tiled.checked !== useTiles ||
+                        webGL.parentElement.title !== 'Enable text caching to use WebGL rendering.' ||
+                        directTextCalls <= before.directTextCalls ||
                         textBlits !== before.textBlits || directFonts.size === 0 ||
                         [...directFonts].some((font) => Math.abs(parseFloat(font) - 14 / Math.sqrt(2)) > 0.01)) {
                         throw new Error('Disabled text caching must draw text directly at the zoomed font size: ' +
                             JSON.stringify({useTiles, useWebGL, directTextCalls, textBlits, before, fonts: [...directFonts]}));
                     }
                     const disabledTextCalls = directTextCalls;
+                    webGL.click();
+                    await nextFrame();
+                    if (webGL.checked) {
+                        throw new Error('WebGL must remain disabled while text caching is off.');
+                    }
                     textCaching.click();
                     await new Promise((resolve) => setTimeout(resolve, 200));
-                    if (!textCaching.checked || directTextCalls !== disabledTextCalls ||
-                        (!useWebGL && textBlits <= before.textBlits)) {
+                    if (!textCaching.checked || webGL.checked || webGL.disabled ||
+                        directTextCalls !== disabledTextCalls || textBlits <= before.textBlits) {
                         throw new Error('Reenabled text caching must reuse text images.');
+                    }
+                    if (useWebGL) {
+                        webGL.click();
+                        await nextFrame();
+                        if (!webGL.checked) {
+                            throw new Error('WebGL must be available after text caching is enabled.');
+                        }
                     }
                 }
             }
@@ -4990,6 +5006,7 @@ async function run() {
             theme: document.querySelector(".trace-app")?.dataset.theme ?? null,
             split: document.querySelector('input[aria-label="Split lanes"]')?.checked ?? null,
             webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
+            webGLDisabled: document.querySelector('input[aria-label="WebGL rendering"]')?.disabled ?? null,
             tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
             textCaching: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
             navigator: document.querySelector(".trace-navigator-toggle")?.getAttribute(
@@ -5010,6 +5027,7 @@ async function run() {
     if (persistedViewSettingsState.theme !== "light" ||
         persistedViewSettingsState.split ||
         persistedViewSettingsState.webGL ||
+        persistedViewSettingsState.webGLDisabled !== true ||
         persistedViewSettingsState.tiledRendering ||
         persistedViewSettingsState.textCaching !== false ||
         persistedViewSettingsState.navigator !== "true" ||

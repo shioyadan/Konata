@@ -1568,12 +1568,15 @@ export function App() {
                             <summary title="Rendering options for compatibility and troubleshooting.">
                                 Compatibility
                             </summary>
-                            <label title="Disable WebGL if rendering problems occur.">
+                            <label title={settings.textCacheEnabled
+                                ? "Disable WebGL if rendering problems occur."
+                                : "Enable text caching to use WebGL rendering."}>
                                 WebGL rendering
                                 <input
                                     type="checkbox"
                                     aria-label="WebGL rendering"
                                     checked={settings.webGLEnabled}
+                                    disabled={!settings.textCacheEnabled}
                                     onChange={(event) => store.dispatch({
                                         type: "KONATA_SET_WEBGL_ENABLED",
                                         enabled: event.target.checked,
@@ -1592,7 +1595,7 @@ export function App() {
                                     })}
                                 />
                             </label>
-                            <label title="Disable to draw text directly at the current font size. May reduce rendering performance.">
+                            <label title="Disable to draw text directly at the current font size. Also turns off WebGL and may reduce rendering performance.">
                                 Text caching
                                 <input
                                     type="checkbox"

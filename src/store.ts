@@ -562,7 +562,7 @@ export class Store {
         this.settings_ = {
             ...DEFAULT_GLOBAL_VIEW_SETTINGS,
             theme: viewSettings.theme,
-            webGLEnabled: viewSettings.webGLEnabled,
+            webGLEnabled: viewSettings.webGLEnabled && viewSettings.textCacheEnabled,
             tiledRenderingEnabled: viewSettings.tiledRenderingEnabled,
             textCacheEnabled: viewSettings.textCacheEnabled,
             traceNavigator: viewSettings.traceNavigator,
@@ -1664,7 +1664,11 @@ export class Store {
         windowCSS = false,
         persist = false,
     ): void {
-        this.settings_ = settings;
+        // 互換設定の表示と実際の経路を揃える。文字cacheを戻してもWebGLは自動復元しない。
+        this.settings_ = {
+            ...settings,
+            webGLEnabled: settings.webGLEnabled && settings.textCacheEnabled,
+        };
         for (const tab of this.tabs_.values()) {
             this.updateTabRenderSpecs_(tab, (_trace, spec) => this.applyGlobalViewSettings_(spec));
         }

@@ -811,6 +811,36 @@ test("Store restores and publishes persistent view settings", () => {
     store.dispatch({ type: "STORE_CLOSE" });
 });
 
+test("Store requires text caching for WebGL without automatically restoring WebGL", () => {
+    const store = new Store();
+    store.dispatch({ type: "KONATA_SET_TEXT_CACHE_ENABLED", enabled: false });
+    assert.equal(store.getSnapshot().settings.webGLEnabled, false);
+    assert.equal(store.persistedViewSettings.webGLEnabled, false);
+    assert.equal(store.persistedViewSettings.textCacheEnabled, false);
+    assert.equal(store.getSnapshot().settings.tiledRenderingEnabled, true);
+
+    // UIを介さないActionでも、無効化中のWebGLを有効にはできない。
+    store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: true });
+    assert.equal(store.getSnapshot().settings.webGLEnabled, false);
+    store.dispatch({ type: "KONATA_SET_TEXT_CACHE_ENABLED", enabled: true });
+    assert.equal(store.getSnapshot().settings.webGLEnabled, false);
+    store.dispatch({ type: "KONATA_SET_WEBGL_ENABLED", enabled: true });
+    assert.equal(store.getSnapshot().settings.webGLEnabled, true);
+
+    // 以前は保存できた組合せも、読み込み時に同じ制約へ揃える。他の設定は保持する。
+    const restored = new Store({ ...store.persistedViewSettings, textCacheEnabled: false });
+    assert.equal(restored.getSnapshot().settings.webGLEnabled, false);
+    assert.equal(restored.persistedViewSettings.webGLEnabled, false);
+    assert.equal(restored.getSnapshot().settings.tiledRenderingEnabled, true);
+    restored.dispatch({ type: "KONATA_SET_TEXT_CACHE_ENABLED", enabled: true });
+    assert.equal(restored.getSnapshot().settings.webGLEnabled, false);
+    restored.dispatch({ type: "KONATA_RESTORE_VIEW_DEFAULTS" });
+    assert.equal(restored.getSnapshot().settings.webGLEnabled, true);
+    assert.equal(restored.getSnapshot().settings.textCacheEnabled, true);
+    restored.dispatch({ type: "STORE_CLOSE" });
+    store.dispatch({ type: "STORE_CLOSE" });
+});
+
 test("Store separates global view settings from tab-specific settings", () => {
     const store = new Store();
     const changes: Change[] = [];
