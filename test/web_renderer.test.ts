@@ -2174,6 +2174,82 @@ test("Canvas backend batches dependency arrow paths in the Canvas fallback", () 
     assert.deepEqual(recorded.pathLineWidths, [2]);
 });
 
+test("Canvas backend aligns cached text to device pixels only at native text scale", () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const atlas = createRecordedContext();
+    Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: { createElement: () => createCanvas(atlas.context) },
+    });
+    try {
+        for (const ratio of [1, 1.25, 1.3, 1.5, 2]) {
+            Object.defineProperty(globalThis, "window", {
+                configurable: true,
+                value: { devicePixelRatio: ratio },
+            });
+            for (const scale of [0.75, 1, 1.5, 2]) {
+                for (const queued of [false, true]) {
+                    const recorded = createRecordedContext();
+                    const blits: number[][] = [];
+                    recorded.context.drawImage = ((...args: unknown[]) => {
+                        blits.push(args.slice(1) as number[]);
+                    }) as CanvasRenderingContext2D["drawImage"];
+                    const backend = new CanvasBackend();
+                    if (queued) {
+                        backend.begin(createCanvas(recorded.context), recorded.context, 257, 131, false);
+                    }
+                    backend.setTextStyle(recorded.context, "normal", 14, "monospace", "#ffffff", scale, true);
+                    // Float32で半pixelのどちら側かが変わる位置、負座標も含める。
+                    const xs = [12.5 - 1e-8, 12.5, 12.5 + 1e-8, -1.5];
+                    for (const x of xs) {
+                        backend.fillText("10", x / ratio, 35.5 / ratio);
+                    }
+                    if (queued) backend.end();
+                    assert.equal(blits.length, xs.length);
+                    assert.equal(recorded.context.imageSmoothingEnabled, scale < 1);
+                    for (const [index, blit] of blits.entries()) {
+                        const [, , sw, sh, dx, dy, dw, dh] = blit;
+                        const atlasScale = Math.min(1, scale);
+                        assert.ok(Math.abs(dw * ratio - sw * atlasScale) < 1e-6);
+                        assert.ok(Math.abs(dh * ratio - sh * atlasScale) < 1e-6);
+                        // mockのleft=0、padding=2なのでX offsetは-2物理px。
+                        const expectedX = scale >= 1
+                            ? Math.round(xs[index]) - 2
+                            : xs[index] - 2 * scale;
+                        assert.ok(Math.abs(dx * ratio - expectedX) < 1e-5,
+                            JSON.stringify({ratio, scale, queued, dx, expectedX}));
+                        if (scale >= 1) {
+                            assert.ok(Math.abs(dy * ratio - Math.round(dy * ratio)) < 1e-6);
+                        }
+                    }
+                    backend.dispose();
+                }
+            }
+        }
+    }
+    finally {
+        if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+        else Reflect.deleteProperty(globalThis, "document");
+        if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+        else Reflect.deleteProperty(globalThis, "window");
+    }
+});
+
+test("Canvas backend keeps uncached text and rectangle coordinates unsnapped", () => {
+    const recorded = createRecordedContext();
+    const backend = new CanvasBackend();
+    backend.begin(createCanvas(recorded.context), recorded.context, 257, 131, false);
+    backend.setTextStyle(recorded.context, "normal", 14, "monospace", "#ffffff", 2, false);
+    backend.fillRect(0.25, 0.5, 12.75, 20.5);
+    backend.fillText("10", 12.5, 35.5);
+    backend.strokeRect(0.5, 1.5, 12.25, 21.75);
+    backend.end();
+    assert.deepEqual(recorded.fillTexts, [["10", 12.5, 35.5]]);
+    assert.deepEqual(recorded.fillRects, [[0.25, 0.5, 12.75, 20.5]]);
+    assert.deepEqual(recorded.strokeRects, [[0.5, 1.5, 12.25, 21.75]]);
+});
+
 test("View controller publishes targets immediately and keeps intermediate frames private", () => {
     let now = 0;
     let pendingFrame: FrameRequestCallback | null = null;

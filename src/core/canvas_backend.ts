@@ -113,6 +113,12 @@ class TextAtlas {
         if (this.canvas_ === null) {
             return;
         }
+        // 等倍ではbaselineを物理pixelへ揃える。entryのoffsetも整数物理pixelなので、
+        // 半pixel境界で最近傍samplingの参照行／列が揺れるのを避けられる。
+        if (scale === 1) {
+            x = Math.round(x * this.pixelRatio_) / this.pixelRatio_;
+            baselineY = Math.round(baselineY * this.pixelRatio_) / this.pixelRatio_;
+        }
         target.drawImage(
             this.canvas_,
             entry.sourceX,
@@ -320,6 +326,7 @@ export class CanvasBackend implements CanvasDrawContext {
     private textureRectBuffer_: WebGLBuffer | null = null;
     private textTexture_: WebGLTexture | null = null;
     private resolutionUniform_: WebGLUniformLocation | null = null;
+    private textResolutionUniform_: WebGLUniformLocation | null = null;
     private textAtlasUniform_: WebGLUniformLocation | null = null;
     private arrowProgram_: WebGLProgram | null = null;
     private arrowVertexArray_: WebGLVertexArrayObject | null = null;
@@ -431,7 +438,7 @@ export class CanvasBackend implements CanvasDrawContext {
     ): void {
         const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
         const displayFont = `${fontStyle} ${baseFontSize * scale}px ${fontFamily}`;
-        // 100%以下では基準glyphを縮小し、zoom animation中の毎frame再生成を避ける。
+        // 100%未満では基準glyphを縮小し、zoom animation中の毎frame再生成を避ける。
         // 拡大時はbitmap拡大でぼかさず、実際の表示サイズでrasterizeする。
         const atlasScale = Math.min(1, scale);
         this.textContext_ = context;
@@ -445,7 +452,7 @@ export class CanvasBackend implements CanvasDrawContext {
         this.textCacheEnabled_ = textCacheEnabled;
         context.font = displayFont;
         context.fillStyle = color;
-        // 等倍BLTでは半pixel配置を再補間せず、縮小時だけ滑らかにsamplingする。
+        // 等倍BLTは物理pixelへ整列して再補間せず、縮小時だけ滑らかにsamplingする。
         context.imageSmoothingEnabled = atlasScale < 1;
     }
 
@@ -700,10 +707,26 @@ export class CanvasBackend implements CanvasDrawContext {
                 // atlasが同じframe中に一周した場合、先に記録したUVは無効なのでCanvasへ戻す。
                 this.textBatchValid_ = false;
             }
-            this.rects_[offset] = x + entry.offsetX * this.textScale_;
-            this.rects_[offset + 1] = baselineY + entry.offsetY * this.textScale_;
-            this.rects_[offset + 2] = entry.sourceWidth / this.textPixelRatio_ * this.textScale_;
-            this.rects_[offset + 3] = entry.sourceHeight / this.textPixelRatio_ * this.textScale_;
+            if (this.textScale_ === 1) {
+                const pixelX = Math.round(x * this.textPixelRatio_);
+                const pixelY = Math.round(baselineY * this.textPixelRatio_);
+                // GLの等倍文字だけは整数のbacking座標で保持し、viewport寸法の丸めで
+                // 再び端数や微小な拡縮が入るのを防ぐ。矩形／縮小文字はCSS座標のまま。
+                this.rects_[offset] = pixelX + Math.round(entry.offsetX * this.textPixelRatio_);
+                this.rects_[offset + 1] = pixelY + Math.round(entry.offsetY * this.textPixelRatio_);
+                this.rects_[offset + 2] = entry.sourceWidth;
+                this.rects_[offset + 3] = entry.sourceHeight;
+                // fallback用Float32へ詰める前に丸め、半pixel付近の精度落ちで
+                // GLとCanvasが別のpixelを選ばないようにする。
+                x = pixelX / this.textPixelRatio_;
+                baselineY = pixelY / this.textPixelRatio_;
+            }
+            else {
+                this.rects_[offset] = x + entry.offsetX * this.textScale_;
+                this.rects_[offset + 1] = baselineY + entry.offsetY * this.textScale_;
+                this.rects_[offset + 2] = entry.sourceWidth / this.textPixelRatio_ * this.textScale_;
+                this.rects_[offset + 3] = entry.sourceHeight / this.textPixelRatio_ * this.textScale_;
+            }
             this.textureRects_[offset] = entry.sourceX / this.textAtlas_.width;
             this.textureRects_[offset + 1] = entry.sourceY / this.textAtlas_.height;
             this.textureRects_[offset + 2] = entry.sourceWidth / this.textAtlas_.width;
@@ -1039,6 +1062,7 @@ export class CanvasBackend implements CanvasDrawContext {
             layout(location=4) in float a_stroke_width;
             layout(location=5) in vec4 a_texture_rect;
             uniform vec2 u_resolution;
+            uniform vec2 u_text_resolution;
             out vec4 v_color;
             out vec2 v_position;
             out vec2 v_texture_position;
@@ -1048,7 +1072,8 @@ export class CanvasBackend implements CanvasDrawContext {
                 float padding = a_stroke_width > 0.0 ? a_stroke_width * 0.5 + 1.0 : 0.0;
                 vec2 size = a_rect.zw + vec2(padding * 2.0);
                 vec2 position = a_rect.xy - vec2(padding) + a_unit * size;
-                vec2 clip = position / u_resolution * 2.0 - 1.0;
+                vec2 resolution = a_stroke_width < 0.0 ? u_text_resolution : u_resolution;
+                vec2 clip = position / resolution * 2.0 - 1.0;
                 gl_Position = vec4(clip * vec2(1.0, -1.0), 0.0, 1.0);
                 float color_position = mix(a_texture_rect.x, a_texture_rect.y, a_unit.y);
                 v_color = mix(a_color_top, a_color_bottom, color_position);
@@ -1137,6 +1162,7 @@ export class CanvasBackend implements CanvasDrawContext {
         this.textureRectBuffer_ = textureRectBuffer;
         this.textTexture_ = textTexture;
         this.resolutionUniform_ = gl.getUniformLocation(program, "u_resolution");
+        this.textResolutionUniform_ = gl.getUniformLocation(program, "u_text_resolution");
         this.textAtlasUniform_ = gl.getUniformLocation(program, "u_text_atlas");
         this.uploadedTextAtlasRevision_ = -1;
 
@@ -1482,6 +1508,11 @@ export class CanvasBackend implements CanvasDrawContext {
             if (this.count_ > 0) {
                 gl.useProgram(this.program_);
                 gl.uniform2f(this.resolutionUniform_, this.width_, this.height_);
+                gl.uniform2f(
+                    this.textResolutionUniform_,
+                    this.textScale_ === 1 ? overlay.width : this.width_,
+                    this.textScale_ === 1 ? overlay.height : this.height_,
+                );
                 gl.uniform1i(this.textAtlasUniform_, 0);
                 if (!this.prepareTextTexture_()) {
                     return false;
@@ -1697,6 +1728,7 @@ export class CanvasBackend implements CanvasDrawContext {
         this.textureRectBuffer_ = null;
         this.textTexture_ = null;
         this.resolutionUniform_ = null;
+        this.textResolutionUniform_ = null;
         this.textAtlasUniform_ = null;
         this.arrowProgram_ = null;
         this.arrowVertexArray_ = null;

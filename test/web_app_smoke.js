@@ -39,6 +39,110 @@ const METHOD_OBSERVER_HELPER = `
     };
 `;
 
+async function verifyNativeTextPixels(window) {
+    // UIの倍率／viewportに依存せず、実装そのものを奇数寸法・端数DPRで実描画する。
+    // Node APIやtest専用exportは製品へ追加せず、この検査内だけでmoduleを読み込む。
+    const ts = require("typescript");
+    const source = ts.transpileModule(
+        fs.readFileSync(path.join(__dirname, "..", "src", "core", "canvas_backend.ts"), "utf8"),
+        {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}},
+    ).outputText;
+    return window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const exports = {};
+        new Function("exports", ${JSON.stringify(source)})(exports);
+        const {CanvasBackend} = exports;
+        const originalDPR = Object.getOwnPropertyDescriptor(window, "devicePixelRatio");
+        let warmupBlits = null;
+        observeMethod(CanvasRenderingContext2D.prototype, "drawImage", function(args) {
+            if (warmupBlits !== null && args.length === 9) warmupBlits.push(args);
+        });
+        let drawCalls = 0;
+        observeMethod(WebGL2RenderingContext.prototype, "drawArraysInstanced", function() {
+            drawCalls++;
+        });
+        let cases = 0;
+        let maximumAlphaDifference = 0;
+        const backend = new CanvasBackend();
+        try {
+            for (const ratio of [1, 1.25, 1.3, 1.5, 2]) {
+                Object.defineProperty(window, "devicePixelRatio", {configurable: true, value: ratio});
+                const target = document.createElement("canvas");
+                target.width = Math.round(257 * ratio);
+                target.height = Math.round(131 * ratio);
+                const context = target.getContext("2d");
+                const reference = document.createElement("canvas");
+                reference.width = target.width;
+                reference.height = target.height;
+                const referenceContext = reference.getContext("2d");
+                referenceContext.imageSmoothingEnabled = false;
+                const labels = [["F", 12, 45], ["10", 75, 90], ["Mt", 145, 120]];
+                for (const scale of [1, 1.5, 2]) {
+                    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+                    backend.setTextStyle(context, "normal", 14, "monospace", "#ffffff", scale, true);
+                    // 整数物理位置での転写からsource画像とoffsetを得て、基準像を作る。
+                    // 製品に診断APIを設けず、Canvas APIの呼び出しだけを観測する。
+                    warmupBlits = [];
+                    for (const [text] of labels) backend.fillText(text, -1000, -1000);
+                    const blits = warmupBlits;
+                    warmupBlits = null;
+                    if (blits.length !== labels.length) throw new Error("Text atlas blits were not captured.");
+                    // 半pixelの直前／境界／直後と整数を、fallbackと実GLで同じ画素へ写す。
+                    for (const phase of [0, 0.5 - 1e-8, 0.5, 0.5 + 1e-8]) {
+                        referenceContext.clearRect(0, 0, reference.width, reference.height);
+                        for (const [index, [, px, py]] of labels.entries()) {
+                            const [atlas, sx, sy, sw, sh, dx, dy] = blits[index];
+                            referenceContext.drawImage(atlas, sx, sy, sw, sh,
+                                Math.round(px + phase) + Math.round((dx + 1000) * ratio),
+                                Math.round(py + phase) + Math.round((dy + 1000) * ratio), sw, sh);
+                        }
+                        const expected = referenceContext.getImageData(0, 0, target.width, target.height).data;
+                        for (const mode of ["immediate", "queued", "webgl"]) {
+                            context.setTransform(1, 0, 0, 1, 0, 0);
+                            context.clearRect(0, 0, target.width, target.height);
+                            context.setTransform(ratio, 0, 0, ratio, 0, 0);
+                            const callsBefore = drawCalls;
+                            if (mode !== "immediate") {
+                                backend.begin(target, context, 257, 131, mode === "webgl");
+                                // 小さいbatchのCanvas fallbackでGLの検査を誤って通さない。
+                                for (let index = 0; index < 64; index++) {
+                                    backend.fillText("F", -1000, -1000);
+                                }
+                            }
+                            for (const [text, px, py] of labels) {
+                                backend.fillText(text, (px + phase) / ratio, (py + phase) / ratio);
+                            }
+                            if (mode !== "immediate") backend.end();
+                            if (drawCalls - callsBefore !== (mode === "webgl" ? 1 : 0)) {
+                                throw new Error("The expected text backend was not used: " + mode);
+                            }
+                            const actual = context.getImageData(0, 0, target.width, target.height).data;
+                            let ink = 0;
+                            let difference = 0;
+                            for (let index = 3; index < actual.length; index += 4) {
+                                ink += expected[index];
+                                difference = Math.max(difference, Math.abs(actual[index] - expected[index]));
+                            }
+                            maximumAlphaDifference = Math.max(maximumAlphaDifference, difference);
+                            if (ink === 0 || difference > 1) {
+                                throw new Error("Native text pixels differ: " + JSON.stringify({ratio, scale, phase, mode, difference}));
+                            }
+                            cases++;
+                        }
+                    }
+                }
+            }
+        }
+        finally {
+            backend.dispose();
+            restoreObservedMethods();
+            if (originalDPR) Object.defineProperty(window, "devicePixelRatio", originalDPR);
+            else delete window.devicePixelRatio;
+        }
+        return {cases, maximumAlphaDifference};
+    })()`);
+}
+
 async function dropContents(window, contents, fileName, mimeType, verifyProgressBar = false) {
     const encodedContents = contents.toString("base64");
 
@@ -5196,7 +5300,9 @@ async function run() {
         throw new Error(`Remote trace workflow is incomplete: ${JSON.stringify(remoteTraceState)}`);
     }
 
+    const nativeTextPixels = await verifyNativeTextPixels(window);
     console.log(`Web smoke test passed: ${JSON.stringify({
+        nativeTextPixels,
         tileReuseState,
         textAtlasState,
         webGLState,
