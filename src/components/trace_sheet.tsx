@@ -107,6 +107,7 @@ const TRACKPAD_DELTA_PER_ZOOM_LEVEL = 100;
 const MAX_TRACKPAD_ZOOM_PER_FRAME = 0.25;
 const MIN_PIPELINE_HEIGHT = 96;
 const COMPACT_TRACE_NAVIGATOR_HEIGHT = 22;
+const INSTRUCTION_NAVIGATOR_COLLAPSE_MARGIN = 16;
 const TOOLTIP_BELOW_POINTER_OFFSET = 20;
 const TOOLTIP_ABOVE_POINTER_GAP = 8;
 
@@ -915,7 +916,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const cycle = axis === "cycle";
         const minimum = cycle ? MIN_TRACE_NAVIGATOR_HEIGHT : MIN_INSTRUCTION_NAVIGATOR_WIDTH;
         const maximum = cycle ? viewer.clientHeight - MIN_PIPELINE_HEIGHT : viewer.clientWidth / 4;
-        const expanded = size >= minimum;
+        // 右側は最小幅で止めやすいよう、さらに16 CSS px縮めるまで最小幅を維持する。
+        const expanded = size >= minimum - (cycle ? 0 : INSTRUCTION_NAVIGATOR_COLLAPSE_MARGIN);
         const expandedSize = Math.round(Math.max(minimum, Math.min(size, maximum)));
         onSetTraceNavigator({
             ...traceNavigator,

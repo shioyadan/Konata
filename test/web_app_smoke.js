@@ -4885,7 +4885,7 @@ async function run() {
         throw new Error(`Zoom rendering is incomplete: ${JSON.stringify(zoomedState)}`);
     }
 
-    // 右Navigatorは最小幅未満でCanvasを外し、境界だけで再展開できるようにする。
+    // 右Navigatorは最小幅に16pxの遊びを設け、それを越えて縮めるとCanvasを外す。
     await window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
         const resizer = document.querySelector('.instruction-navigator-resizer');
@@ -4931,8 +4931,18 @@ async function run() {
         pointer('pointerdown', start);
         pointer('pointermove', start + 32);
         await nextFrame();
-        pointer('pointermove', start + 64);
-        pointer('pointerup', start + 64);
+        // 最小幅へ吸着する範囲と、逆向きに戻したときの通常resize復帰を確認する。
+        for (const requestedWidth of [32, 31, 24, 16, 24, 32, 40, 16]) {
+            pointer('pointermove', start + 80 - requestedWidth);
+            await nextFrame();
+            const expected = Math.max(32, requestedWidth);
+            check(width() === expected && settings().instructionWidth === expected &&
+                grip.getAttribute('aria-expanded') === 'true' &&
+                resizer.getAttribute('aria-valuenow') === String(expected) && captured.has(6),
+                'Resizing within the detent must keep the minimum width: ' + requestedWidth);
+        }
+        pointer('pointermove', start + 65);
+        pointer('pointerup', start + 65);
         resizer.dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 1}));
         await nextFrame();
         check(pane() === null && grip.getAttribute('aria-expanded') === 'false' &&
@@ -4958,6 +4968,35 @@ async function run() {
         grip.click();
         await nextFrame();
         check(width() === 80, 'The instruction navigator grip must restore the saved width.');
+        start = edge();
+        pointer('pointerdown', start);
+        pointer('pointermove', start + 56);
+        await nextFrame();
+        pointer('pointercancel', start + 56);
+        await nextFrame();
+        check(width() === 80 && settings().instructionWidth === 80 && captured.size === 0,
+            'Canceling within the detent must restore the original expanded width.');
+        start = edge();
+        pointer('pointerdown', start);
+        pointer('pointerup', start + 56);
+        resizer.dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 1}));
+        await nextFrame();
+        check(width() === 32 && settings().instructionWidth === 32 && captured.size === 0,
+            'Releasing within the detent must save the minimum width and ignore the trailing click.');
+        grip.click();
+        await nextFrame();
+        grip.click();
+        await nextFrame();
+        check(width() === 32, 'The grip must restore the minimum width saved within the detent.');
+        for (const [key, expected] of [
+            ['ArrowRight', 0], ['ArrowLeft', 32], ['ArrowLeft', 48], ['ArrowLeft', 64], ['ArrowLeft', 80]
+        ]) {
+            const event = new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true});
+            grip.dispatchEvent(event);
+            await nextFrame();
+            check(event.defaultPrevented && width() === expected,
+                'Keyboard resizing must still hide and reopen the minimum-width navigator.');
+        }
         for (const [key, expected] of [['ArrowLeft', 96], ['ArrowRight', 80]]) {
             const event = new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true});
             grip.dispatchEvent(event);
