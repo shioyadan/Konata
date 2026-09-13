@@ -39,6 +39,8 @@ function getShortcuts(platform: string): ReadonlyArray<readonly [string, string]
         ["Zoom out", `− · ${commandKey}+↓ · Shift+double-click`],
         ["Zoom gesture", `${commandKey}+wheel · Pinch`],
         ["Align fetch cycle", "Click instruction label"],
+        ["Pin cycle and instruction guides", `${commandKey}+click pipeline`],
+        ["Clear pinned guides", "Esc"],
         ["Go to bookmark", "0–9"],
         ["Set bookmark", `${commandKey}+0–9`],
         ["Close tab", "Middle-click tab"],

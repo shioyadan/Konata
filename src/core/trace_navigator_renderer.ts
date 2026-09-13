@@ -11,9 +11,11 @@ import {
     type CycleNavigatorTopDownSample,
 } from "./trace_navigator_analysis";
 import {
+    drawReferenceGuideLines,
     getKonataZoomScale,
     KONATA_OP_WIDTH,
     KonataRenderMetrics,
+    type KonataReferenceGuide,
     type KonataRenderSpec,
 } from "./konata_renderer";
 import type { ParsedTrace } from "./model";
@@ -556,6 +558,7 @@ export function drawCycleNavigator(
     mode: CycleNavigatorMode = "top-down",
     showDetails = false,
     rangeMode: CycleNavigatorRangeMode = "follow",
+    guide: Readonly<KonataReferenceGuide> | null = null,
 ): void {
     const source = { data, spec };
     drawComparisonCycleNavigator(
@@ -566,6 +569,7 @@ export function drawCycleNavigator(
         mode,
         showDetails,
         rangeMode,
+        guide,
     );
 }
 
@@ -578,6 +582,7 @@ export function drawComparisonCycleNavigator(
     mode: CycleNavigatorMode = "top-down",
     showDetails = false,
     rangeMode: CycleNavigatorRangeMode = "follow",
+    guide: Readonly<KonataReferenceGuide> | null = null,
 ): void {
     const { baseline, candidate } = comparison;
     const overlay = comparisonMode === "overlay";
@@ -671,6 +676,14 @@ export function drawComparisonCycleNavigator(
                 track.label, 4, track.top + track.height / 2,
             );
         }
+    }
+    if (guide !== null) {
+        // Overlayでも固定元はcandidate。thumbの最小幅ではなく実際のcycle縮尺へ写す。
+        const track = tracks[tracks.length - 1];
+        const scale = getCycleScale(cycleCount, track.source.spec, cycleNavigator.width, rangeMode);
+        drawReferenceGuideLines(cycleNavigator.context, track.source.spec.theme, {
+            x: 0, y: track.top, width: cycleNavigator.width, height: track.height,
+        }, { x: (guide.cycle - scale.leftCycle) * scale.pixelsPerCycle });
     }
 }
 
@@ -798,10 +811,11 @@ export function drawInstructionNavigator(
     spec: Readonly<KonataRenderSpec>,
     canvas: HTMLCanvasElement,
     pipelineHeight = canvas.clientHeight,
+    guide: Readonly<KonataReferenceGuide> | null = null,
 ): number {
     const source = { trace, spec };
     return drawComparisonInstructionNavigator(
-        { baseline: source, candidate: source }, canvas, "candidate", pipelineHeight,
+        { baseline: source, candidate: source }, canvas, "candidate", pipelineHeight, guide,
     );
 }
 
@@ -811,6 +825,7 @@ export function drawComparisonInstructionNavigator(
     canvasElement: HTMLCanvasElement,
     mode: CycleNavigatorComparisonMode,
     pipelineHeight = canvasElement.clientHeight,
+    guide: Readonly<KonataReferenceGuide> | null = null,
 ): number {
     const canvas = prepareCanvas(canvasElement);
     const selected = mode === "baseline" ? comparison.baseline : comparison.candidate;
@@ -857,6 +872,18 @@ export function drawComparisonInstructionNavigator(
     if (mode === "overlay") {
         canvas.context.fillStyle = style.pipelinePane.borderColor;
         canvas.context.fillRect(middle, 0, 1, canvas.height);
+    }
+    if (guide !== null) {
+        const track = tracks[tracks.length - 1];
+        const op = track.metrics.getOpFromID(guide.opID);
+        if (op !== undefined && (!track.metrics.spec.hideFlushedOps || !op.flush)) {
+            // 保持したIDを現在の表示行へ変換し、全命令のbarと同じ切り下げで位置を示す。
+            const row = track.metrics.getPositionYFromOp(op);
+            const rowCount = track.metrics.getVisibleBottom() + 1;
+            drawReferenceGuideLines(canvas.context, track.metrics.spec.theme, {
+                x: track.left, y: 0, width: track.width, height: canvas.height,
+            }, { y: Math.floor(row * canvas.height / rowCount) });
+        }
     }
     return cyclesPerPixel;
 }

@@ -993,6 +993,7 @@ export function App() {
             }
             else if (event.key === "Escape" || event.key === "Enter") {
                 hideSearchResult();
+                if (event.key === "Escape") traceSheetRef.current?.clearReferenceGuide();
             }
             else if (event.key === "ArrowUp") {
                 zoomKey ? zoomWithKeyboard(2) : moveVertical(-1, !event.shiftKey);

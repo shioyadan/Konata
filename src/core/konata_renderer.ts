@@ -168,10 +168,45 @@ function mapCycleBetweenOps(cycle: number, from: Op, to: Op): number {
     return to.fetchedCycle + (cycle - from.fetchedCycle) * toLength / fromLength;
 }
 
+export interface KonataReferenceGuide {
+    readonly cycle: number;
+    readonly opID: number;
+}
+
+// Pipeline／label／navigatorで線の色と物理pixel境界を共有する。
+export function drawReferenceGuideLines(
+    context: CanvasRenderingContext2D,
+    theme: KonataRenderSpec["theme"],
+    bounds: Readonly<{ x: number; y: number; width: number; height: number }>,
+    position: Readonly<{ x?: number; y?: number }>,
+): void {
+    const pixelRatio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+    const snap = (value: number) => Math.round(value * pixelRatio) / pixelRatio;
+    const thickness = 1 / pixelRatio;
+    const left = snap(bounds.x);
+    const top = snap(bounds.y);
+    const right = snap(bounds.x + bounds.width);
+    const bottom = snap(bounds.y + bounds.height);
+    const previousFill = context.fillStyle;
+    const previousAlpha = context.globalAlpha;
+    context.fillStyle = theme === "light" ? "#20242c" : "#ffffff";
+    context.globalAlpha = 0.85;
+    context.beginPath();
+    // overviewの末尾が端へ丸められても、範囲内の目印を消さない。
+    if (position.y !== undefined && position.y >= bounds.y && position.y < bounds.y + bounds.height) {
+        context.rect(left, Math.min(snap(position.y), bottom - thickness), right - left, thickness);
+    }
+    if (position.x !== undefined && position.x >= bounds.x && position.x < bounds.x + bounds.width) {
+        context.rect(Math.min(snap(position.x), right - thickness), top, thickness, bottom - top);
+    }
+    // 同じpathを一度だけ塗り、交点にalphaを二重適用しない。
+    context.fill();
+    context.fillStyle = previousFill;
+    context.globalAlpha = previousAlpha;
+}
+
 // TraceとKonataRenderSpecから、描画寸法・座標変換・hit testを純粋に計算する。
 // CanvasやDOMを参照せず、同じ入力から常に同じ結果を返す派生値だけを持つ。
-
-
 export class KonataRenderMetrics {
     readonly zoomLevel: number;
     readonly zoomScale: number;
@@ -286,6 +321,13 @@ export class KonataRenderMetrics {
 
     getCycleFromPixelPositionX(x: number): number {
         return Math.floor(this.spec.position[0] + x / this.opWidth);
+    }
+
+    getReferenceGuideFromPixelPosition(x: number, y: number): KonataReferenceGuide | null {
+        const op = this.getOpFromPixelPositionY(y);
+        const cycle = this.getCycleFromPixelPositionX(x);
+        // RIDや画面上の行番号ではなく、表示切替後も同じ命令を指すIDを保持する。
+        return op === undefined || cycle < 0 ? null : { cycle, opID: op.id };
     }
 
     getAdjustedViewPosition(): readonly [number, number] | null {
@@ -571,18 +613,30 @@ export class KonataRenderer {
         this.draw_(labelCanvas, pipelineCanvas, webGLEnabled, textCacheEnabled);
     }
 
-    private drawLabelCanvas_(labelCanvas: HTMLCanvasElement): void {
+    private drawLabelCanvas_(
+        labelCanvas: HTMLCanvasElement,
+        guide: Readonly<KonataReferenceGuide> | null,
+    ): void {
         const labelSize = this.prepareCanvas_(labelCanvas);
         this.drawLabel_(labelCanvas, labelSize);
+        const op = guide === null ? undefined : this.metrics_.getOpFromID(guide.opID);
+        if (op !== undefined && (!this.metrics_.spec.hideFlushedOps || !op.flush)) {
+            drawReferenceGuideLines(
+                labelCanvas.getContext("2d")!, this.metrics_.spec.theme,
+                { x: 0, y: 0, ...labelSize },
+                { y: this.metrics_.getPixelPositionYFromOp(op) },
+            );
+        }
     }
 
     drawLabelSpec(
         trace: ParsedTrace | null,
         spec: Readonly<KonataRenderSpec>,
         labelCanvas: HTMLCanvasElement,
+        guide: Readonly<KonataReferenceGuide> | null = null,
     ): void {
         this.setInput_(trace, spec);
-        this.drawLabelCanvas_(labelCanvas);
+        this.drawLabelCanvas_(labelCanvas, guide);
     }
 
     private drawPipelineCanvas_(
@@ -633,6 +687,28 @@ export class KonataRenderer {
             pass,
             textCacheEnabled,
         );
+    }
+
+    drawReferenceGuideSpec(
+        trace: ParsedTrace | null,
+        spec: Readonly<KonataRenderSpec>,
+        canvas: HTMLCanvasElement,
+        guide: Readonly<KonataReferenceGuide> | null,
+    ): void {
+        // 一時的な基準線はtileへ焼き込まず、独立した透明面へ描く。
+        const { width, height } = this.prepareCanvas_(canvas);
+        const context = canvas.getContext("2d")!;
+        context.clearRect(0, 0, width, height);
+        if (guide === null || trace === null) return;
+        const metrics = new KonataRenderMetrics(trace, spec);
+        const op = metrics.getOpFromID(guide.opID);
+        if (op === undefined) return;
+        // 両軸ともcellの先頭を同じ1物理pixel線で示し、文字の中央は横切らない。
+        // flush非表示時は代わりの命令を示さず、cycleの基準線だけを残す。
+        drawReferenceGuideLines(context, spec.theme, { x: 0, y: 0, width, height }, {
+            x: (guide.cycle - spec.position[0]) * metrics.opWidth,
+            y: spec.hideFlushedOps && op.flush ? undefined : metrics.getPixelPositionYFromOp(op),
+        });
     }
 
     composePipelineLayers(

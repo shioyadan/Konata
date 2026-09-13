@@ -1046,6 +1046,12 @@ button:disabled {
     background: #262930;
 }
 
+.pipeline-reference-guides {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
 .instruction-navigator-pane {
     grid-column: 4;
     grid-row: 1;

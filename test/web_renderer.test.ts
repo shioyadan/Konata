@@ -61,6 +61,8 @@ interface RecordedContext {
     readonly commands: string[];
     readonly pathStrokeStyles: string[];
     readonly pathFillStyles: string[];
+    readonly pathFillAlphas: number[];
+    readonly pathRects: Array<[number, number, number, number]>;
     readonly pathLineWidths: number[];
     readonly context: CanvasRenderingContext2D;
 }
@@ -78,6 +80,8 @@ function createRecordedContext(): RecordedContext {
     const commands: string[] = [];
     const pathStrokeStyles: string[] = [];
     const pathFillStyles: string[] = [];
+    const pathFillAlphas: number[] = [];
+    const pathRects: Array<[number, number, number, number]> = [];
     const pathLineWidths: number[] = [];
     const context = {
         fillStyle: "",
@@ -131,6 +135,10 @@ function createRecordedContext(): RecordedContext {
         fill() {
             commands.push("fill");
             pathFillStyles.push(String(this.fillStyle));
+            pathFillAlphas.push(this.globalAlpha);
+        },
+        rect(x: number, y: number, width: number, height: number) {
+            pathRects.push([x, y, width, height]);
         },
         fillText(text: string, x: number, y: number) {
             commands.push(`text:${text}`);
@@ -162,6 +170,8 @@ function createRecordedContext(): RecordedContext {
         commands,
         pathStrokeStyles,
         pathFillStyles,
+        pathFillAlphas,
+        pathRects,
         pathLineWidths,
         context,
     };
@@ -226,6 +236,239 @@ function createLatencyTrace(ranges: readonly (readonly [number, number])[]): Par
     });
     return new ParsedTrace("latency.log", store, new StageLevelMap(), 1000);
 }
+
+test("Reference guides retain instruction IDs across hidden rows and lane layouts", () => {
+    const trace = createLatencyTrace([[0, 10], [1, 10], [2, 10]]);
+    const flushed = trace.getOp(0)!;
+    flushed.flush = true;
+    const op = trace.getOp(2)!;
+    op.rid = 1;
+    trace.stageLevelMap.getOrCreateLaneID("0");
+    trace.stageLevelMap.getOrCreateLaneID("1");
+    const spec = { ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps: true };
+    // RID 1とID 2が異なるTraceで、取得と描画の双方を検査する。
+    trace.getOpFromRID = (rid) => rid === 1 ? op : undefined;
+    const metrics = new KonataRenderMetrics(trace, spec);
+    const guide = metrics.getReferenceGuideFromPixelPosition(metrics.opWidth * 3.25, metrics.opHeight * 1.5);
+    assert.deepEqual(guide, { cycle: 3, opID: 2 });
+    assert.equal(metrics.getReferenceGuideFromPixelPosition(0, metrics.opHeight * 20), null);
+    assert.equal(metrics.getReferenceGuideFromPixelPosition(-1, metrics.opHeight * 1.5), null);
+
+    for (const hideFlushedOps of [false, true]) {
+        for (const splitLanes of [false, true]) {
+            for (const fixOpHeight of [false, true]) {
+                for (const zoomLevel of [-1, 0, 0.5, 2]) {
+                    const current = { ...spec, hideFlushedOps, splitLanes, fixOpHeight, zoomLevel,
+                        position: [0.25, 0.125] as const };
+                    const currentMetrics = new KonataRenderMetrics(trace, current);
+                    const recorded = createRecordedContext();
+                    new KonataRenderer().drawReferenceGuideSpec(
+                        trace, current, createCanvas(recorded.context, 500, 500), guide,
+                    );
+                    const expected = [
+                        [0, Math.round(((hideFlushedOps ? 1 : 2) - 0.125) * currentMetrics.opHeight),
+                            500, 1],
+                        [Math.round(2.75 * currentMetrics.opWidth), 0, 1, 500],
+                    ];
+                    assert.equal(recorded.pathRects.length, expected.length);
+                    recorded.pathRects.forEach((rect, index) => rect.forEach((value, axis) => {
+                        assert.ok(Math.abs(value - expected[index][axis]) < 1e-10);
+                    }));
+                    assert.deepEqual(recorded.pathFillAlphas, [0.85]);
+                    assert.equal(recorded.commands.filter((command) => command === "fill").length, 1);
+                    assert.equal(recorded.context.globalAlpha, 1);
+                    const labels = createRecordedContext();
+                    new KonataRenderer().drawLabelSpec(
+                        trace, current, createCanvas(labels.context, 200, 500), guide,
+                    );
+                    assert.deepEqual(labels.pathRects, [[0, expected[0][1], 200, 1]]);
+                    assert.deepEqual(labels.pathFillAlphas, [0.85]);
+                    assert.equal(labels.commands.at(-1), "fill");
+                }
+            }
+        }
+    }
+    const hidden = createRecordedContext();
+    new KonataRenderer().drawReferenceGuideSpec(
+        trace, spec, createCanvas(hidden.context), { cycle: 3, opID: 0 },
+    );
+    assert.deepEqual(hidden.pathRects, [[3 * metrics.opWidth, 0, 1, 96]]);
+});
+
+test("Reference guides align both axes to physical pixels at every zoom", () => {
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const { trace } = createTrace();
+    try {
+        for (const ratio of [1, 1.25, 1.5, 2]) {
+            Object.defineProperty(globalThis, "window", {
+                configurable: true,
+                value: { devicePixelRatio: ratio },
+            });
+            for (const zoomLevel of [-1, 0, 0.5, 4]) {
+                const spec = { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel,
+                    position: [0.123, -0.321] as const };
+                const recorded = createRecordedContext();
+                new KonataRenderer().drawReferenceGuideSpec(
+                    trace, spec, createCanvas(recorded.context), { cycle: 2, opID: 0 },
+                );
+                const [, y, , height] = recorded.pathRects[0];
+                const [x, , width] = recorded.pathRects[1];
+                const metrics = new KonataRenderMetrics(trace, spec);
+                assert.ok(Math.abs(x * ratio - Math.round(1.877 * metrics.opWidth * ratio)) < 1e-10);
+                assert.ok(Math.abs(y * ratio - Math.round(0.321 * metrics.opHeight * ratio)) < 1e-10);
+                assert.equal(width * ratio, 1);
+                assert.equal(height * ratio, 1);
+                const labels = createRecordedContext();
+                new KonataRenderer().drawLabelSpec(
+                    trace, spec, createCanvas(labels.context, 200, 96), { cycle: 2, opID: 0 },
+                );
+                assert.deepEqual(labels.pathRects, [[0, y, 200, height]]);
+            }
+        }
+    }
+    finally {
+        if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+        else Reflect.deleteProperty(globalThis, "window");
+    }
+});
+
+test("Reference guides clip to the viewport and clear without touching pipeline resources", () => {
+    const { trace } = createTrace();
+    for (const theme of ["dark", "light"] as const) {
+        const spec = { ...DEFAULT_KONATA_RENDER_SPEC, theme, position: [2, 0] as const };
+        const renderer = new KonataRenderer();
+        const recorded = createRecordedContext();
+        const canvas = createCanvas(recorded.context);
+        renderer.drawReferenceGuideSpec(trace, spec, canvas, { cycle: 1, opID: 0 });
+        assert.deepEqual(recorded.pathRects, [[0, 0, 320, 1]]);
+        assert.deepEqual(recorded.pathFillAlphas, [0.85]);
+        assert.deepEqual(recorded.pathFillStyles, [theme === "light" ? "#20242c" : "#ffffff"]);
+        recorded.pathRects.length = 0;
+        // 選択行の一部が見えていても、画面外の基準線を端へ吸着させない。
+        for (const position of [[2, 0.5], [-20, -20]] as const) {
+            renderer.drawReferenceGuideSpec(trace, { ...spec, position }, canvas, { cycle: 1, opID: 0 });
+        }
+        renderer.drawReferenceGuideSpec(trace, spec, canvas, null);
+        renderer.drawReferenceGuideSpec(trace, spec, canvas, { cycle: 2, opID: 999 });
+        renderer.drawReferenceGuideSpec(null, spec, canvas, { cycle: 2, opID: 0 });
+        assert.deepEqual(recorded.pathRects, []);
+        assert.deepEqual(recorded.fillRects, []);
+        assert.equal(recorded.clearRects.length, 6);
+        assert.equal(recorded.fillTexts.length, 0);
+    }
+});
+
+test("Reference guides disappear from labels when cleared, offscreen, or hidden", () => {
+    const { trace, op } = createTrace();
+    op.flush = true;
+    for (const [spec, guide] of [
+        [DEFAULT_KONATA_RENDER_SPEC, null],
+        [DEFAULT_KONATA_RENDER_SPEC, { cycle: 2, opID: 999 }],
+        [{ ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps: true }, { cycle: 2, opID: 0 }],
+        [{ ...DEFAULT_KONATA_RENDER_SPEC, position: [0, 0.5] as const }, { cycle: 2, opID: 0 }],
+    ] as const) {
+        const recorded = createRecordedContext();
+        new KonataRenderer().drawLabelSpec(trace, spec, createCanvas(recorded.context), guide);
+        assert.deepEqual(recorded.pathRects, []);
+        assert.deepEqual(recorded.fillRects[0], [0, 0, 320, 96]);
+    }
+});
+
+test("Reference guides locate exact instruction IDs in full-range navigator tracks", () => {
+    const store = new ArrayOpStore();
+    for (let id = 0; id < 4; id++) {
+        const op = new Op();
+        op.id = id;
+        op.rid = Math.max(0, id - 1);
+        op.flush = id === 0;
+        op.retired = !op.flush;
+        op.fetchedCycle = id;
+        op.retiredCycle = id + 4;
+        store.setOp(id, op);
+        if (!op.flush) store.setRetiredOp(op.rid, op);
+    }
+    const trace = new ParsedTrace("guides.log", store, new StageLevelMap(), 8);
+    for (const theme of ["light", "dark"] as const) {
+        for (const hideFlushedOps of [false, true]) {
+            for (const zoomLevel of [-1, 0, 2]) {
+                // Pipelineでは画面外でも、navigator上の位置はpan／zoomに影響されない。
+                const spec = { ...DEFAULT_KONATA_RENDER_SPEC, theme, hideFlushedOps, zoomLevel,
+                    position: [100, 20] as const };
+                const source = { trace, spec };
+                for (const mode of ["baseline", "candidate", "overlay"] as const) {
+                    const recorded = createRecordedContext();
+                    drawComparisonInstructionNavigator(
+                        { baseline: { trace: createTrace().trace, spec }, candidate: source },
+                        createCanvas(recorded.context, 100, 96), mode, 48,
+                        { cycle: 3, opID: mode === "baseline" ? 0 : 2 },
+                    );
+                    const y = mode === "baseline" ? 0 : hideFlushedOps ? 32 : 48;
+                    assert.deepEqual(recorded.pathRects, [[mode === "overlay" ? 50 : 0, y,
+                        mode === "overlay" ? 50 : 100, 1]]);
+                    assert.deepEqual(recorded.pathFillAlphas, [0.85]);
+                    assert.deepEqual(recorded.pathFillStyles, [theme === "light" ? "#20242c" : "#ffffff"]);
+                    assert.equal(recorded.commands.at(-1), "fill");
+                }
+            }
+        }
+    }
+    for (const guide of [null, { cycle: 3, opID: 0 }, { cycle: 3, opID: 999 }]) {
+        const recorded = createRecordedContext();
+        drawInstructionNavigator(trace, { ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps: true },
+            createCanvas(recorded.context, 100, 96), 48, guide);
+        assert.deepEqual(recorded.pathRects, []);
+        assert.deepEqual(recorded.fillRects[0], [0, 0, 100, 96]);
+    }
+});
+
+test("Reference guides use navigator cycle scales and stay inside the selected track", async () => {
+    const data = await buildCycleNavigatorData(createTrace().trace);
+    assert.ok(data !== null);
+    const baseline = { data: { ...data, cycleCount: 100 },
+        spec: { ...DEFAULT_KONATA_RENDER_SPEC, position: [1, 0] as const } };
+    const candidate = { data: { ...data, cycleCount: 200 },
+        spec: { ...DEFAULT_KONATA_RENDER_SPEC, position: [2, 0] as const } };
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    try {
+        for (const ratio of [1, 1.25, 1.5, 2]) {
+            Object.defineProperty(globalThis, "window", {
+                configurable: true, value: { devicePixelRatio: ratio },
+            });
+            for (const mode of ["baseline", "candidate", "overlay"] as const) {
+                for (const range of ["follow", "overview"] as const) {
+                    const recorded = createRecordedContext();
+                    const labels = createRecordedContext();
+                    drawComparisonCycleNavigator({ baseline, candidate }, createCanvas(labels.context),
+                        createCanvas(recorded.context, 200, 80), mode, "fetch", false, range,
+                        { cycle: 3, opID: 0 });
+                    const x = range === "follow" ? (mode === "baseline" ? 64 : 32)
+                        : mode === "baseline" ? 6 : 3;
+                    assert.deepEqual(recorded.pathRects, [[Math.round(x * ratio) / ratio,
+                        mode === "overlay" ? 40 : 0, 1 / ratio, mode === "overlay" ? 40 : 80]]);
+                    assert.deepEqual(recorded.pathFillAlphas, [0.85]);
+                    assert.equal(recorded.commands.at(-1), "fill");
+                    assert.deepEqual(labels.pathRects, []);
+                }
+            }
+            const last = createRecordedContext();
+            drawCycleNavigator({ ...data, cycleCount: 10000 }, candidate.spec,
+                createCanvas(createRecordedContext().context), createCanvas(last.context, 200, 80),
+                "fetch", false, "overview", { cycle: 9999, opID: 0 });
+            assert.deepEqual(last.pathRects, [[200 - 1 / ratio, 0, 1 / ratio, 80]]);
+            for (const guide of [null, { cycle: 1, opID: 0 }, { cycle: 10000, opID: 0 }]) {
+                const recorded = createRecordedContext();
+                drawCycleNavigator(data, candidate.spec, createCanvas(createRecordedContext().context),
+                    createCanvas(recorded.context, 200, 80), "fetch", false, "follow", guide);
+                assert.deepEqual(recorded.pathRects, []);
+                assert.deepEqual(recorded.fillRects[0], [0, 0, 200, 80]);
+            }
+        }
+    }
+    finally {
+        if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+        else Reflect.deleteProperty(globalThis, "window");
+    }
+});
 
 function createTopDownCancellationTrace(cycleCount = 8): ParsedTrace {
     const store = new ArrayOpStore();

@@ -36,6 +36,7 @@ import {
     KonataRenderMetrics,
     KonataRenderer,
     moveSynchronizedRenderSpecs,
+    type KonataReferenceGuide,
     type KonataRenderSpec,
     type KonataView,
 } from "../core/konata_renderer";
@@ -110,6 +111,7 @@ const COMPACT_TRACE_NAVIGATOR_HEIGHT = 22;
 const INSTRUCTION_NAVIGATOR_COLLAPSE_MARGIN = 16;
 const TOOLTIP_BELOW_POINTER_OFFSET = 20;
 const TOOLTIP_ABOVE_POINTER_GAP = 8;
+const REFERENCE_GUIDE_CLICK_DISTANCE = 4;
 
 function normalizeWheelDelta(event: WheelEvent): number {
     // deltaの単位はdevice／OS依存なので、主要map rendererと同じ尺度へ先に揃える。
@@ -139,6 +141,7 @@ function createCycleNavigatorComparison(
 
 export interface TraceSheetHandle {
     clearToolTip(): void;
+    clearReferenceGuide(): void;
     resetPipelineCanvas(): void;
     finishViewTransition(): void;
     scrollTo(
@@ -228,6 +231,16 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
     const pipelineCanvasRef = useRef<HTMLCanvasElement>(null);
+    const referenceGuideCanvasRef = useRef<HTMLCanvasElement>(null);
+    const [referenceGuide, setReferenceGuide] = useState<{
+        readonly trace: ParsedTrace;
+        readonly guide: KonataReferenceGuide;
+    } | null>(null);
+    const referenceGuidePointerRef = useRef<{
+        readonly pointerID: number;
+        readonly start: PointerPosition;
+        readonly trace: ParsedTrace | null;
+    } | null>(null);
     const cycleNavigatorLabelCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
     const instructionNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -356,6 +369,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         : metrics;
     const displayMetricsRef = useRef(displayMetrics);
     displayMetricsRef.current = displayMetrics;
+    const displayTrace = comparisonMode === "baseline" ? baselineTrace : trace;
+
+    const clearReferenceGuide = useCallback(() => {
+        referenceGuidePointerRef.current = null;
+        setReferenceGuide(null);
+    }, []);
+
+    useLayoutEffect(clearReferenceGuide, [clearReferenceGuide, displayTrace]);
 
     const startViewTransition = useCallback((
         target: KonataView,
@@ -532,6 +553,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         baselineRenderer?.releaseCanvasResources();
         for (const canvas of [
             pipelineCanvasRef.current,
+            referenceGuideCanvasRef.current,
             baselineLayerCanvasRef.current,
             candidateLayerCanvasRef.current,
             cycleNavigatorLabelCanvasRef.current,
@@ -562,6 +584,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         displayMetricsRef.current = comparisonMode === "baseline" && currentBaselineMetrics !== null
             ? currentBaselineMetrics
             : candidateMetrics;
+        const guideMetrics = displayMetricsRef.current;
+        const guide = referenceGuide?.trace === guideMetrics.trace ? referenceGuide.guide : null;
+        if (referenceGuideCanvasRef.current !== null) {
+            renderer.drawReferenceGuideSpec(
+                guideMetrics.trace, guideMetrics.spec, referenceGuideCanvasRef.current,
+                guide,
+            );
+        }
         if (findResult !== null && findResultRef.current !== null) {
             findResultRef.current.style.top = `${
                 Math.floor(candidateMetrics.getPixelPositionYFromID(findResult.anchorID)) +
@@ -588,7 +618,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             drawComparisonInstructionNavigator(
                 { candidate, baseline: baselineTrace === null || currentBaselineSpec === undefined
                     ? candidate : { trace: baselineTrace, spec: currentBaselineSpec } },
-                instructionNavigatorCanvas, comparisonMode ?? "candidate", pipelineHeight,
+                instructionNavigatorCanvas, comparisonMode ?? "candidate", pipelineHeight, guide,
             );
         }
         const navigatorLabelCanvas = cycleNavigatorLabelCanvasRef.current;
@@ -602,11 +632,12 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 navigatorComparison, navigatorLabelCanvas, navigatorCanvas,
                 comparisonMode ?? "candidate", cycleNavigatorMode,
                 cycleNavigatorDetailsVisibleRef.current, cycleNavigatorRangeMode,
+                guide,
             );
         }
         if (labelCanvas !== null && pipelineCanvas !== null) {
             if (baselineRenderer === null || comparisonMode === null || currentBaselineSpec === undefined) {
-                renderer.drawLabelSpec(trace, candidateSpec, labelCanvas);
+                renderer.drawLabelSpec(trace, candidateSpec, labelCanvas, guide);
                 tiledRenderer.drawPipelineSpec(trace, candidateSpec, pipelineCanvas, candidateTileOptions);
                 delete pipelineCanvas.dataset.comparisonMode;
                 return;
@@ -614,7 +645,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
             const displayTrace = comparisonMode === "baseline" ? baselineTrace : trace;
             const displaySpec = comparisonMode === "baseline" ? currentBaselineSpec : candidateSpec;
-            displayRenderer.drawLabelSpec(displayTrace, displaySpec, labelCanvas);
+            displayRenderer.drawLabelSpec(displayTrace, displaySpec, labelCanvas, guide);
             pipelineCanvas.dataset.comparisonMode = comparisonMode;
             // A/Bをそれぞれ不透明な完成画像にしてから、表示Canvasへ全体を一度だけ合成する。
             const baselineLayer = baselineLayerCanvasRef.current ?? document.createElement("canvas");
@@ -678,6 +709,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         findResult,
         loadState,
         navigatorData,
+        referenceGuide,
         renderer,
         tiledRenderer,
         baselineTiledRenderer,
@@ -699,6 +731,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const redraw = useCallback(() => {
         viewController.redraw();
     }, [viewController]);
+
+    useLayoutEffect(redraw, [redraw, referenceGuide]);
 
     const showCycleNavigatorDetails = (visible: boolean) => {
         if (cycleNavigatorDetailsVisibleRef.current !== visible) {
@@ -824,6 +858,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
     useImperativeHandle(ref, () => ({
         clearToolTip: () => setToolTip(null),
+        clearReferenceGuide,
         resetPipelineCanvas: resetPipelineCanvases,
         finishViewTransition,
         scrollTo,
@@ -836,7 +871,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             pipelineHeight: pipelineCanvasRef.current?.clientHeight ?? 400,
             labelHeight: labelCanvasRef.current?.clientHeight ?? 400,
         }),
-    }), [finishViewTransition, goToView, moveView, resetPipelineCanvases, resetView, scrollTo, zoomAt]);
+    }), [clearReferenceGuide, finishViewTransition, goToView, moveView, resetPipelineCanvases, resetView, scrollTo, zoomAt]);
 
     useLayoutEffect(() => () => {
         viewController.dispose();
@@ -1121,6 +1156,16 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             return;
         }
         const positions = pointerPositionsRef.current;
+        // 固定はPipeline内で始まった修飾clickだけ。2本目のpointerは候補を取り消す。
+        referenceGuidePointerRef.current = positions.size === 0 &&
+            (event.ctrlKey || event.metaKey) && event.pointerType !== "touch" &&
+            event.target === pipelineCanvasRef.current
+            ? {
+                pointerID: event.pointerId,
+                start: { x: event.clientX, y: event.clientY },
+                trace: displayTrace,
+            }
+            : null;
         // 3本目以降はgestureへ影響させず、1本panと2本pinchだけを扱う。
         if (positions.size >= 2) {
             return;
@@ -1135,6 +1180,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const previous = positions.get(event.pointerId);
         if (previous === undefined) {
             return;
+        }
+        const pendingGuide = referenceGuidePointerRef.current;
+        if (pendingGuide?.pointerID === event.pointerId) {
+            // click中の微小な揺れではpanせず、閾値を越えたら通常dragへ移る。
+            // 一度dragになれば、開始位置へ戻っても固定しない。
+            if (Math.hypot(event.clientX - pendingGuide.start.x, event.clientY - pendingGuide.start.y) <
+                REFERENCE_GUIDE_CLICK_DISTANCE) return;
+            referenceGuidePointerRef.current = null;
         }
         if (positions.size === 1) {
             // 紙を掴む感覚に合わせ、pointer移動と逆向きへviewを進める。
@@ -1198,6 +1251,24 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
     const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
         const positions = pointerPositionsRef.current;
+        const pendingGuide = referenceGuidePointerRef.current;
+        referenceGuidePointerRef.current = null;
+        const canvas = pipelineCanvasRef.current;
+        if (event.type === "pointerup" && positions.has(event.pointerId) &&
+            pendingGuide?.pointerID === event.pointerId && canvas !== null &&
+            pendingGuide.trace === displayTrace && displayTrace !== null &&
+            (event.ctrlKey || event.metaKey) &&
+            Math.hypot(event.clientX - pendingGuide.start.x, event.clientY - pendingGuide.start.y) <
+                REFERENCE_GUIDE_CLICK_DISTANCE) {
+            const point = getCanvasPoint(canvas, event.clientX, event.clientY);
+            if (point.x >= 0 && point.x < canvas.clientWidth && point.y >= 0 && point.y < canvas.clientHeight) {
+                const guide = displayMetricsRef.current.getReferenceGuideFromPixelPosition(point.x, point.y);
+                if (guide !== null) {
+                    setToolTip(null);
+                    setReferenceGuide({ trace: displayTrace, guide });
+                }
+            }
+        }
         positions.delete(event.pointerId);
         setIsPanning(positions.size > 0);
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -1208,7 +1279,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const handlePipelineClick = (event: ReactMouseEvent<HTMLDivElement>) => {
         // native dblclickは3回目以降も続くmulti-click中に再発火しないため、偶数clickを各ペアの終端とする。
         // これにより素早い4連打、6連打でもズーム入力を落とさず、既存の目標倍率へ積み上げられる。
-        if (trace === null || event.detail % 2 !== 0) {
+        if (trace === null || event.ctrlKey || event.metaKey || event.detail % 2 !== 0) {
             return;
         }
         const pipeline = pipelineCanvasRef.current;
@@ -1405,6 +1476,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            onLostPointerCapture={handlePointerUp}
             onClick={handlePipelineClick}
         >
             <section className="viewer-pane label-pane" aria-label="Instruction labels">
@@ -1444,6 +1516,13 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 >
                     The pipeline chart requires canvas support.
                 </canvas>
+                {referenceGuide !== null && (
+                    <canvas
+                        ref={referenceGuideCanvasRef}
+                        className="pipeline-reference-guides"
+                        aria-label={`Pinned reference: cycle ${referenceGuide.guide.cycle}, instruction ID ${referenceGuide.guide.opID}`}
+                    />
+                )}
             </section>
             {traceNavigatorAvailable && traceNavigator.instructionVisible && (
                 <section

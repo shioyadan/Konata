@@ -81,6 +81,11 @@ legacy SE script to run an arbitrary binary:
 - Use Ctrl/Command+wheel, `+`/`-`, or Ctrl/Command+Up/Down to zoom.
 - Double-click to zoom in. Shift+double-click to zoom out. Pinch with two pointers to zoom.
 - Click an instruction label to align its fetch cycle with the left edge.
+- Ctrl/Command+click the pipeline to pin matching vertical and horizontal guides
+  at the start of the selected cycle and instruction row.
+  Matching markers appear in the instruction labels and both navigators.
+  Repeat to move the guides; press Esc to clear them. Modified drags still pan normally.
+  Guides are temporary and cleared when switching tabs.
 - Use Adjust position (the crosshair beside Reset) when the pipeline is outside the viewport.
   Adjust position preserves the zoom. Reset restores both the position and zoom.
 - Click a tab to switch to it. Middle-click a tab to close it.

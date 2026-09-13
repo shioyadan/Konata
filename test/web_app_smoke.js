@@ -1131,6 +1131,204 @@ async function waitForViewAnimation(window, delay = 300) {
     })`);
 }
 
+async function verifyReferenceGuides(window) {
+    const point = await window.webContents.executeJavaScript(`(() => {
+        const canvas = document.querySelector('.pipeline-pane canvas');
+        const rect = canvas.getBoundingClientRect();
+        return {x: Math.round(rect.left + 80), y: Math.round(rect.top + 12)};
+    })()`);
+    // 実際のpointer captureを経たCtrl clickでも、固定とdouble-click抑制が両立する。
+    for (const clickCount of [1, 2]) {
+        for (const type of ["mouseDown", "mouseUp"]) {
+            window.webContents.sendInputEvent({type, button: "left", clickCount,
+                modifiers: ["control"], ...point});
+        }
+    }
+    await waitForViewAnimation(window, 100);
+    return window.webContents.executeJavaScript(`(async () => {
+        const check = (condition, message) => { if (!condition) throw new Error(message); };
+        const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const viewer = document.querySelector('.viewer');
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const guide = () => document.querySelector('.pipeline-reference-guides');
+        const label = () => guide()?.getAttribute('aria-label');
+        const zoom = () => document.querySelector('.zoom-controls output').textContent;
+        const reset = [...document.querySelectorAll('.zoom-controls button')]
+            .find((button) => button.textContent.trim() === 'Reset');
+        const clear = async () => {
+            document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+            await frame();
+            check(guide() === null, 'Esc must remove the reference guide canvas.');
+        };
+        check(label() === 'Pinned reference: cycle 2, instruction ID 0', 'Ctrl click did not pin the selected cell.');
+        check(zoom() === '100%', 'Ctrl double-click must not zoom.');
+        check(getComputedStyle(guide()).pointerEvents === 'none', 'Guides must not intercept pointer events.');
+        check(document.elementFromPoint(${point.x}, ${point.y}) === pipeline, 'Guides blocked the pipeline.');
+        const alphaAt = (x, y) => guide().getContext('2d').getImageData(
+            Math.round(x * devicePixelRatio), Math.round(y * devicePixelRatio), 1, 1).data[3];
+        const guideAlpha = alphaAt(64, 60);
+        check(guideAlpha > 180 && alphaAt(10, 0) === guideAlpha && alphaAt(64, 0) === guideAlpha,
+            'Both guides and their intersection must have the same opacity.');
+        check(alphaAt(10, 12) === 0 && alphaAt(65, 60) === 0 && alphaAt(10, 1) === 0,
+            'Guides must be thin lines without a filled row.');
+        await clear();
+
+        // 合成eventではcaptureの寿命だけを模擬し、drag/cancel/複数pointerを細かく検査する。
+        const captured = new Set();
+        Object.defineProperties(viewer, {
+            setPointerCapture: {configurable: true, value: (id) => captured.add(id)},
+            hasPointerCapture: {configurable: true, value: (id) => captured.has(id)},
+            releasePointerCapture: {configurable: true, value: (id) => captured.delete(id)}
+        });
+        const rect = pipeline.getBoundingClientRect();
+        const pointer = (type, x = 80, y = 12, extra = {}, target = pipeline) =>
+            target.dispatchEvent(new PointerEvent(type, {
+                bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse',
+                button: 0, buttons: type === 'pointerup' ? 0 : 1,
+                clientX: rect.left + x, clientY: rect.top + y, ctrlKey: true, ...extra
+            }));
+        const click = async (x = 80, y = 12, extra = {}) => {
+            pointer('pointerdown', x, y, extra);
+            pointer('pointerup', x, y, extra);
+            await frame();
+        };
+        const verifyMarkers = async () => {
+            const toggle = document.querySelector('.trace-navigator-toggle');
+            toggle.click();
+            try {
+                const deadline = performance.now() + 2000;
+                while (performance.now() < deadline &&
+                    (document.querySelector('.trace-navigator-cycle-status') !== null ||
+                    !(document.querySelector('canvas[aria-label="Cycle navigator canvas"]')?.width > 1))) {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                await frame();
+                const labels = document.querySelector('.label-pane canvas');
+                const instructions = document.querySelector('canvas[aria-label="Instruction navigator canvas"]');
+                const cycles = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
+                const rangeButtons = [...document.querySelectorAll('[aria-label="Navigator view"] button')];
+                const originalRange = rangeButtons.find((button) => button.getAttribute('aria-pressed') === 'true');
+                const pixels = (canvas, x, y) => [...canvas.getContext('2d').getImageData(
+                    Math.round(x * devicePixelRatio), Math.round(y * devicePixelRatio), 2, 2).data];
+                try {
+                    for (const range of ['Detail', 'Overview']) {
+                        rangeButtons.find((button) => button.textContent.trim() === range).click();
+                        await frame();
+                        await clear();
+                        // fixtureは2命令・5cycle。全体縮尺と表示追従の双方で同じ固定位置を確認する。
+                        const points = [
+                            [labels, 10, 24, [0, 1]],
+                            [instructions, 10, Math.floor(instructions.clientHeight / 2), [0, 1]],
+                            [cycles, range === 'Detail' ? 96 : 3 * cycles.clientWidth / 5, 10, [1, 0]]
+                        ];
+                        const before = points.map(([canvas, x, y]) => pixels(canvas, x, y));
+                        await click(112, 36);
+                        for (const [index, [canvas, x, y, neighbor]] of points.entries()) {
+                            const after = pixels(canvas, x, y);
+                            check(after.slice(0, 4).some((value, i) => value !== before[index][i]),
+                                'Missing reference marker: ' + canvas.getAttribute('aria-label') + ' ' + range);
+                            const offset = (neighbor[1] * 2 + neighbor[0]) * 4;
+                            check(after.slice(offset, offset + 4).every((value, i) => value === before[index][offset + i]),
+                                'Navigator and label markers must stay one physical pixel wide.');
+                            const bounds = canvas.getBoundingClientRect();
+                            check(document.elementFromPoint(bounds.left + 10, bounds.top + 10) === canvas,
+                                'Reference markers must not block existing canvas input.');
+                        }
+                        await clear();
+                        points.forEach(([canvas, x, y], index) => {
+                            check(JSON.stringify(pixels(canvas, x, y)) === JSON.stringify(before[index]),
+                                'Clearing must restore label and navigator pixels.');
+                        });
+                    }
+                }
+                finally {
+                    originalRange.click();
+                    await frame();
+                }
+            }
+            finally {
+                for (let i = 0; i < 3 && toggle.dataset.display !== 'hidden'; i++) {
+                    toggle.click();
+                    await frame();
+                }
+            }
+        };
+        try {
+            await verifyMarkers();
+            await click(80, 12, {ctrlKey: false});
+            check(guide() === null, 'An ordinary click must not pin a guide.');
+            pointer('pointerdown');
+            pointer('pointermove', 82);
+            pointer('pointerup', 82);
+            await frame();
+            check(label() === 'Pinned reference: cycle 2, instruction ID 0' && alphaAt(64, 60) > 180,
+                'Small pointer jitter must pin without panning.');
+            await click(112, 36, {ctrlKey: false, metaKey: true});
+            check(label() === 'Pinned reference: cycle 3, instruction ID 1', 'Command click must move the guides.');
+            const pinnedLabel = label();
+            pipeline.dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 2, metaKey: true,
+                clientX: rect.left + 112, clientY: rect.top + 36}));
+            await frame();
+            check(zoom() === '100%', 'Command double-click must not zoom.');
+            const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
+            hideFlushed.click();
+            await frame();
+            check(label() === pinnedLabel && alphaAt(10, 24) === 0 && alphaAt(96, 60) > 180,
+                'A hidden flushed instruction must not mark a different row.');
+            hideFlushed.click();
+            await frame();
+            check(alphaAt(10, 24) === guideAlpha && alphaAt(96, 24) === guideAlpha,
+                'Showing flushed instructions must restore the matching horizontal guide.');
+            document.querySelector('button[aria-label="Zoom in"]').click();
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            await frame();
+            check(label() === pinnedLabel && zoom() !== '100%', 'Zoom must preserve the logical guide.');
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            await clear();
+            for (const end of ['pointercancel', 'lostpointercapture']) {
+                pointer('pointerdown');
+                pointer(end);
+                pointer('pointerup');
+                await frame();
+                check(guide() === null, 'Canceled gestures must not pin guides: ' + end);
+            }
+            pointer('pointerdown');
+            pointer('pointerdown', 120, 12, {pointerId: 2, pointerType: 'touch'});
+            pointer('pointerup', 120, 12, {pointerId: 2, pointerType: 'touch'});
+            pointer('pointerup');
+            await frame();
+            check(guide() === null, 'A multi-pointer gesture must not pin guides.');
+            pointer('pointerdown', 144);
+            pointer('pointermove', 80);
+            pointer('pointerup', 80);
+            await frame();
+            check(guide() === null, 'Ctrl drag must pan without pinning.');
+            await click();
+            check(label() === 'Pinned reference: cycle 4, instruction ID 0', 'Ctrl drag did not move the view.');
+            await clear();
+            pointer('pointerdown');
+            pointer('pointermove', 144);
+            pointer('pointermove', 80);
+            pointer('pointerup');
+            await frame();
+            check(guide() === null, 'Returning a drag to its start must not turn it into a click.');
+            pointer('pointerdown', 80, 12, {}, document.querySelector('.label-pane canvas'));
+            pointer('pointerup');
+            await frame();
+            check(guide() === null, 'A gesture starting on a label must not pin guides.');
+            check(captured.size === 0, 'Guide gestures leaked pointer capture.');
+        }
+        finally {
+            for (const method of ['setPointerCapture', 'hasPointerCapture', 'releasePointerCapture']) delete viewer[method];
+            await clear();
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return {nativeClick: true, gestures: true, hiddenFlushedRow: true, navigatorAndLabelMarkers: true};
+    })()`);
+}
+
 async function verifyApplicationMenu(window) {
     return window.webContents.executeJavaScript(`(async () => {
         const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
@@ -1861,6 +2059,8 @@ async function run() {
         doubleClickZoomState.resetZoom !== "100%") {
         throw new Error(`Double click zoom is incomplete: ${JSON.stringify(doubleClickZoomState)}`);
     }
+
+    await verifyReferenceGuides(window);
 
     // shortcut一覧に示すCtrl/Command+上下が、browser scrollではなくKonataのzoomになることを確認する。
     const keyboardZoomState = await window.webContents.executeJavaScript(`(async () => {
