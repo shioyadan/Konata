@@ -3769,6 +3769,72 @@ async function run() {
         throw new Error(`Gzip trace rendering is incomplete: ${JSON.stringify(gzipState)}`);
     }
 
+    // issue #19の入力で、RID表示中もF3が同じ命令へ戻らず、Shift+F3で逆順へ進む。
+    await window.webContents.executeJavaScript(`(async () => {
+        const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        const search = document.querySelector('button[aria-label="Search trace"]');
+        if (!(hideFlushed instanceof HTMLInputElement) ||
+            !(reset instanceof HTMLButtonElement) || !(search instanceof HTMLButtonElement)) {
+            throw new Error("The hidden-op search controls were not found.");
+        }
+        const wasHidden = hideFlushed.checked;
+        const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const key = (key, shiftKey = false) => document.dispatchEvent(new KeyboardEvent(
+            "keydown", {key, shiftKey, bubbles: true, cancelable: true}
+        ));
+        const execute = async (command) => {
+            search.click();
+            await pause(10);
+            const input = document.querySelector('.command-palette input');
+            if (!(input instanceof HTMLInputElement)) {
+                throw new Error("The hidden-op search palette was not opened.");
+            }
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+            setter?.call(input, command);
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+            await pause(10);
+            input.dispatchEvent(new KeyboardEvent("keydown", {
+                key: "Enter", bubbles: true, cancelable: true
+            }));
+        };
+        const expectResult = async (opID) => {
+            const deadline = performance.now() + 2000;
+            while (performance.now() < deadline) {
+                if (document.querySelector('.find-result')?.dataset.opId === String(opID)) return;
+                await pause(5);
+            }
+            throw new Error("Hidden-op search expected ID " + opID + ", found " +
+                document.querySelector('.find-result')?.dataset.opId);
+        };
+
+        if (!wasHidden) hideFlushed.click();
+        await pause(10);
+        reset.click();
+        await pause(250);
+        await execute("f 2110");
+        await expectResult(88);
+        for (const opID of [98, 103, 108]) {
+            key("F3");
+            await expectResult(opID);
+        }
+        for (const opID of [103, 98, 88]) {
+            key("F3", true);
+            await expectResult(opID);
+        }
+        // 初回検索も表示行73を命令ID88へ変換して、その次から検索する。
+        await execute("j 73");
+        await pause(250);
+        await execute("f 2110");
+        await expectResult(98);
+
+        key("Escape");
+        if (!wasHidden) hideFlushed.click();
+        await pause(10);
+        reset.click();
+        await pause(250);
+    })()`);
+
     const tileReuseState = await window.webContents.executeJavaScript(`(async () => {
         ${METHOD_OBSERVER_HELPER}
         const prototype = CanvasRenderingContext2D.prototype;

@@ -22,6 +22,27 @@ function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpSt
     };
 }
 
+function createSearchTrace(): ParsedTrace {
+    const opStore = new ArrayOpStore();
+    let rid = 0;
+    // 通常命令0, 3, 6が表示行0, 1, 2へ詰まる。4, 5は同じ表示先を持つ連続したflush命令。
+    for (let id = 0; id <= 6; id++) {
+        const op = new Op();
+        op.id = id;
+        op.flush = id % 3 !== 0;
+        op.retired = !op.flush;
+        op.fetchedCycle = id;
+        op.retiredCycle = id + 1;
+        op.labelName = id === 1 || id === 2 ? "other" : `needle ${id}`;
+        if (op.retired) {
+            op.rid = rid++;
+            opStore.setRetiredOp(op.rid, op);
+        }
+        opStore.setOp(id, op);
+    }
+    return new ParsedTrace("search-flushed.log", opStore, new StageLevelMap(), 7);
+}
+
 async function waitFor(predicate: () => boolean, message: string): Promise<void> {
     const deadline = performance.now() + 5000;
     while (!predicate()) {
@@ -632,7 +653,7 @@ test("Store searches and jumps without exposing Ops in its UI result", () => {
         type: "KONATA_FIND_REQUEST",
         tabID: tab.id,
         targetPattern: "needle",
-        basePosition: 0,
+        baseRow: 0,
         reverse: false,
         viewport: { pipelineWidth: 800, labelHeight: 400 },
     });
@@ -649,7 +670,7 @@ test("Store searches and jumps without exposing Ops in its UI result", () => {
         type: "KONATA_FIND_REQUEST",
         tabID: tab.id,
         targetPattern: "[",
-        basePosition: 0,
+        baseRow: 0,
         reverse: false,
     });
     assert.match(tab.findContext.message, /invalid regular expression/);
@@ -661,6 +682,98 @@ test("Store searches and jumps without exposing Ops in its UI result", () => {
     store.dispatch({ type: "KONATA_JUMP_REQUEST", tabID: tab.id, target: "rid", value: 99 });
     assert.ok(changes.some((change) =>
         change.type === "COMMAND_MESSAGE_UPDATE" && change.message === "Retired op 99 was not found."));
+
+    store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("Store repeats searches by instruction ID with flushed ops shown or hidden", () => {
+    for (const hideFlushedOps of [false, true]) {
+        const store = new Store();
+        store.dispatch({ type: "FILE_OPEN", fileName: "search-flushed.log" });
+        const tab = store.activeTab;
+        assert.ok(tab !== null);
+        store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: createSearchTrace() });
+        store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: hideFlushedOps });
+        store.dispatch({
+            type: "KONATA_FIND_REQUEST",
+            tabID: tab.id,
+            targetPattern: "needle",
+            baseRow: 0,
+            reverse: false,
+        });
+        assert.equal(tab.findContext.result?.opID, 3);
+
+        for (const [reverse, expectedIDs] of [
+            [false, [4, 5, 6, 0, 3]],
+            [true, [0, 6, 5, 4, 3]],
+        ] as const) {
+            for (const opID of expectedIDs) {
+                store.dispatch({ type: "KONATA_FIND_REPEAT_REQUEST", tabID: tab.id, reverse });
+                assert.equal(tab.findContext.result?.opID, opID,
+                    `hideFlushedOps=${hideFlushedOps}, reverse=${reverse}`);
+                assert.equal(tab.findContext.result?.anchorID,
+                    hideFlushedOps && (opID === 4 || opID === 5) ? 3 : opID);
+                assert.equal(tab.findContext.result?.flushed, opID === 4 || opID === 5);
+            }
+        }
+        store.dispatch({ type: "STORE_CLOSE" });
+    }
+});
+
+test("Store starts searches from the instruction at the current display row", () => {
+    for (const hideFlushedOps of [false, true]) {
+        const store = new Store();
+        store.dispatch({ type: "FILE_OPEN", fileName: "search-flushed.log" });
+        const tab = store.activeTab;
+        assert.ok(tab !== null);
+        store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: createSearchTrace() });
+        store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: hideFlushedOps });
+        const baseRow = hideFlushedOps ? 1 : 3;
+        store.dispatch({
+            type: "KONATA_SET_VIEW",
+            tabID: tab.id,
+            view: { position: [0, baseRow + 0.5], zoomLevel: 0 },
+        });
+        for (const reverse of [false, true]) {
+            store.dispatch({
+                type: "KONATA_FIND_REQUEST",
+                tabID: tab.id,
+                targetPattern: "needle",
+                baseRow,
+                reverse,
+            });
+            assert.equal(tab.findContext.result?.opID, reverse ? 0 : 4,
+                `hideFlushedOps=${hideFlushedOps}, reverse=${reverse}`);
+        }
+        store.dispatch({ type: "STORE_CLOSE" });
+    }
+});
+
+test("Store keeps the search cursor when flushed-op visibility changes", () => {
+    const store = new Store();
+    store.dispatch({ type: "FILE_OPEN", fileName: "search-flushed.log" });
+    const tab = store.activeTab;
+    assert.ok(tab !== null);
+    store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: createSearchTrace() });
+    store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
+    store.dispatch({
+        type: "KONATA_FIND_REQUEST",
+        tabID: tab.id,
+        targetPattern: "needle [45]",
+        baseRow: 0,
+        reverse: false,
+    });
+    assert.equal(tab.findContext.result?.opID, 4);
+    assert.equal(tab.findContext.result?.anchorID, 3);
+
+    store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: false });
+    store.dispatch({ type: "KONATA_FIND_REPEAT_REQUEST", tabID: tab.id, reverse: false });
+    assert.equal(tab.findContext.result?.opID, 5);
+    assert.equal(tab.findContext.result?.anchorID, 5);
+    store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
+    store.dispatch({ type: "KONATA_FIND_REPEAT_REQUEST", tabID: tab.id, reverse: true });
+    assert.equal(tab.findContext.result?.opID, 4);
+    assert.equal(tab.findContext.result?.anchorID, 3);
 
     store.dispatch({ type: "STORE_CLOSE" });
 });
@@ -678,7 +791,7 @@ test("Store searches the currently loaded portion of a trace", () => {
         type: "KONATA_FIND_REQUEST",
         tabID: tab.id,
         targetPattern: "missing",
-        basePosition: 0,
+        baseRow: 0,
         reverse: false,
     });
 

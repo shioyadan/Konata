@@ -715,7 +715,7 @@ export function App() {
         setCommandPaletteInitial(initialCommand);
     }, [isCustomColorDialogOpen, isStatsDialogOpen]);
 
-    const findString = useCallback((target: string, basePosition: number, reverse: boolean): void => {
+    const findString = useCallback((target: string, baseRow: number, reverse: boolean): void => {
         const searchedTab = store.activeTab;
         if (searchedTab === null || searchedTab.trace === null) {
             setCommandMessage("No trace is open.");
@@ -727,7 +727,7 @@ export function App() {
             type: "KONATA_FIND_REQUEST",
             tabID: searchedTab.id,
             targetPattern: target,
-            basePosition,
+            baseRow,
             reverse,
             // viewportは検索開始時の対象Tabの値を固定し、途中のTab切替と混同しない。
             viewport: traceSheetRef.current?.getViewportSize(),

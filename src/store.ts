@@ -226,7 +226,7 @@ export type Action =
         readonly type: "KONATA_FIND_REQUEST";
         readonly tabID: number;
         readonly targetPattern: string;
-        readonly basePosition: number;
+        readonly baseRow: number;
         readonly reverse: boolean;
         readonly viewport?: FindViewport;
     }
@@ -960,48 +960,46 @@ export class Store {
             ]);
             return;
         }
-        case "KONATA_FIND_REQUEST": {
+        case "KONATA_FIND_REQUEST":
+        case "KONATA_FIND_REPEAT_REQUEST": {
             const tab = this.tabs_.get(action.tabID);
             const trace = tab?.trace ?? null;
             if (tab === undefined || trace === null) {
                 return;
             }
+            let targetPattern: string;
+            let baseOpID: number;
+            if (action.type === "KONATA_FIND_REPEAT_REQUEST") {
+                const result = tab.findContext.result;
+                if (result === null) {
+                    return;
+                }
+                targetPattern = result.targetPattern;
+                // 非表示のflush命令も走査するので、表示先のanchorIDではなく一致したIDから続ける。
+                baseOpID = result.opID;
+            }
+            else {
+                targetPattern = action.targetPattern;
+                // 初回だけ表示行をIDへ変換し、RIDとIDを走査中に混在させない。
+                baseOpID = tab.renderSpec.hideFlushedOps
+                    ? new KonataRenderMetrics(trace, tab.renderSpec).getVisibleOp(action.baseRow)?.id ?? 0
+                    : action.baseRow;
+            }
             // 検索開始とrequest ID更新は同期dispatch内で行い、直後の別要求で確実に取消可能にする。
             this.dispatch({
                 type: "KONATA_FIND_START",
                 tabID: tab.id,
-                targetPattern: action.targetPattern,
+                targetPattern,
             });
             void this.find_(
                 tab,
                 trace,
                 tab.findContext.requestID,
-                action.targetPattern,
-                action.basePosition,
+                targetPattern,
+                baseOpID,
                 action.reverse,
                 action.viewport,
             );
-            return;
-        }
-        case "KONATA_FIND_REPEAT_REQUEST": {
-            const tab = this.tabs_.get(action.tabID);
-            const result = tab?.findContext.result ?? null;
-            if (tab === undefined || result === null) {
-                return;
-            }
-            const metrics = new KonataRenderMetrics(tab.trace, tab.renderSpec);
-            const anchorOp = metrics.getOpFromID(result.anchorID);
-            if (anchorOp === undefined) {
-                return;
-            }
-            this.dispatch({
-                type: "KONATA_FIND_REQUEST",
-                tabID: tab.id,
-                targetPattern: result.targetPattern,
-                basePosition: metrics.getPositionYFromOp(anchorOp),
-                reverse: action.reverse,
-                viewport: action.viewport,
-            });
             return;
         }
         case "KONATA_JUMP_REQUEST": {
@@ -1278,7 +1276,7 @@ export class Store {
         trace: ParsedTrace,
         requestID: number,
         target: string,
-        basePosition: number,
+        baseOpID: number,
         reverse: boolean,
         viewport?: FindViewport,
     ): Promise<void> {
@@ -1306,7 +1304,7 @@ export class Store {
 
             // 旧検索と同じく現在位置の次から始め、末尾では先頭へ折り返す。
             const lastOpID = trace.lastID;
-            let current = Number.isFinite(basePosition) ? basePosition : 0;
+            let current = Number.isFinite(baseOpID) ? baseOpID : 0;
             if (current < 0 || current > lastOpID) {
                 current = 0;
             }
