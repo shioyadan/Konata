@@ -7,7 +7,7 @@ TSC := ./node_modules/.bin/tsc
 TSX := ./node_modules/.bin/tsx
 TEST_FILES ?= test/*.test.ts
 TEST_NAME ?=
-SMOKE_GROUPS ?= all
+REGRESSION_GROUPS ?= all
 BENCHMARK_OPS ?= 100000
 BENCHMARK_TRACE ?=
 PACKAGE_VERSION := $(shell node -p 'require("./package.json").version')
@@ -17,8 +17,8 @@ ARCHIVE_ROOT := dist-release
 ARCHIVE_DIR := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME)
 ARCHIVE_PATH := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME).zip
 
-.PHONY: all production check versions init test typecheck license-check launcher-check serve web-render-smoke \
-	web-smoke production-smoke benchmark-rendering benchmark-op-store release-version-check archive release-archive \
+.PHONY: all production check versions init test typecheck license-check launcher-check serve browser-regression \
+	web-regression production-regression benchmark-rendering benchmark-op-store release-version-check archive release-archive \
 	latest-archive clean distclean
 
 all:
@@ -27,14 +27,14 @@ all:
 production: license-check
 	$(WEBPACK) --mode production
 
-# 型・Parser・単一HTML・Web描画を順番に検証する正式な確認入口。
+# 型・単体・起動script・単一HTML・browser回帰を順番に検証する正式な確認入口。
 check:
 	$(MAKE) typecheck
 	$(MAKE) test TEST_FILES='test/*.test.ts' TEST_NAME=
 	$(MAKE) launcher-check
-	$(MAKE) production-smoke SMOKE_GROUPS=all
+	$(MAKE) production-regression REGRESSION_GROUPS=all
 
-# ElectronはWeb smoke testの実行器なので、開発環境の確認値には残す。
+# Electronはbrowser回帰testの実行器なので、開発環境の確認値には残す。
 versions:
 	node --version
 	npm --version
@@ -69,25 +69,26 @@ benchmark-op-store:
 serve:
 	$(WEBPACK) serve --mode development
 
-# ビルド方式に依存しないRenderer検証を共通化し、developmentとproductionの両方で使う。
+# ビルド方式に依存しないUI・描画の回帰検査を共通化し、developmentとproductionの両方で使う。
 # CIではElectron初回取得と一連のUI検査に30秒以上かかるため、全体には余裕を持たせる。
-web-render-smoke:
+browser-regression:
 	ELECTRON_ENABLE_LOGGING=1 KONATA_TEST_WEBGL=1 \
 		dbus-run-session -- xvfb-run -a timeout 90s \
-		$(ELECTRON) test/web_app_smoke.js --no-sandbox --groups=$(SMOKE_GROUPS)
+		$(ELECTRON) test/browser_regression.js --no-sandbox --groups=$(REGRESSION_GROUPS)
 
 # 時間閾値は環境負荷に左右されるため、通常checkとは分けて同じ描画シナリオで測る。
 benchmark-rendering:
-	$(MAKE) web-render-smoke SMOKE_GROUPS=performance
+	$(MAKE) browser-regression REGRESSION_GROUPS=performance
 
-# Web版をElectronのsandboxed Chromiumで読み込み、ReactのmountとCSS適用までを検証する。
+# Web版を再buildしてから、Electronのsandboxed Chromiumで操作と描画の回帰を検証する。
 # Electron APIはテスト側だけで使い、src/やproduction成果物には含めない。
-web-smoke: all
-	$(MAKE) web-render-smoke
+web-regression: all
+	$(MAKE) browser-regression
 
-production-smoke: production
+# 配布形式の軽量smoke検査に加え、production成果物のbrowser回帰も確認する。
+production-regression: production
 	node test/single_html_smoke.js
-	$(MAKE) web-render-smoke
+	$(MAKE) browser-regression
 
 # package.jsonをバージョンの基準とし、lockfileとの不一致を配布前に検出する。
 release-version-check:

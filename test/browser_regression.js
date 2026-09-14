@@ -822,7 +822,7 @@ async function verifyLoadErrorRecovery(window) {
                     configurable: true,
                     value: async () => {
                         pickerRequestCount++;
-                        throw new DOMException("Canceled by smoke test", "AbortError");
+                        throw new DOMException("Canceled by regression test", "AbortError");
                     }
                 });
                 chooseButton.click();
@@ -898,11 +898,11 @@ async function verifyPersistentFileWorkflow(window, webFile) {
         };
 
         const root = await navigator.storage.getDirectory();
-        const handle = await root.getFileHandle("recent-reload-smoke.log", {create: true});
+        const handle = await root.getFileHandle("recent-reload-regression.log", {create: true});
         await writeTrace(handle, 1);
         let observerCallback = null;
         let observerCount = 0;
-        class SmokeFileSystemObserver {
+        class RegressionFileSystemObserver {
             constructor(callback) {
                 observerCount++;
                 observerCallback = callback;
@@ -912,7 +912,7 @@ async function verifyPersistentFileWorkflow(window, webFile) {
         }
         Object.defineProperty(window, "FileSystemObserver", {
             configurable: true,
-            value: SmokeFileSystemObserver
+            value: RegressionFileSystemObserver
         });
         Object.defineProperty(window, "showOpenFilePicker", {
             configurable: true,
@@ -1689,11 +1689,11 @@ async function verifyLogPane(window) {
         await nextFrame();
         const initialViewerHeight = viewer.getBoundingClientRect().height;
 
-        console.log("Log pane smoke info");
+        console.log("Log pane regression info");
         await nextFrame();
         const infoOnlyWarningBadge = document.querySelector(".application-menu-warning-badge") !== null;
-        console.warn("Log pane smoke warning");
-        console.error("Log pane smoke error");
+        console.warn("Log pane regression warning");
+        console.error("Log pane regression error");
         await nextFrame();
         const unread = document.querySelector(".application-menu-count")?.textContent ?? null;
         const warningBadge = document.querySelector(".application-menu-warning-badge")?.textContent ?? null;
@@ -2021,9 +2021,9 @@ async function verifyLoading(window) {
         logPaneState.warningMenuLabel !== "Application menu, unread warnings in application log" ||
         !logPaneState.warningBadgeCleared ||
         JSON.stringify(logPaneState.entries) !== JSON.stringify([
-            {level: "info", message: "Log pane smoke info"},
-            {level: "warning", message: "Log pane smoke warning"},
-            {level: "error", message: "Log pane smoke error"}
+            {level: "info", message: "Log pane regression info"},
+            {level: "warning", message: "Log pane regression warning"},
+            {level: "error", message: "Log pane regression error"}
         ]) ||
         !logPaneState.copyEnabled ||
         !logPaneState.unreadCleared ||
@@ -5788,15 +5788,15 @@ async function verifySettings(window) {
 async function verifyFiles(window) {
     const persistentFileState = await verifyPersistentFileWorkflow(window, webFile);
     if (persistentFileState.firstPage.changedRole !== "status" ||
-        persistentFileState.firstPage.changedMessage !== "recent-reload-smoke.log changed on disk." ||
+        persistentFileState.firstPage.changedMessage !== "recent-reload-regression.log changed on disk." ||
         !persistentFileState.firstPage.sameTab ||
         persistentFileState.firstPage.tabCount !== 1 ||
         persistentFileState.firstPage.opCount !== "3" ||
-        persistentFileState.firstPage.recentName !== "recent-reload-smoke.log" ||
+        persistentFileState.firstPage.recentName !== "recent-reload-regression.log" ||
         !persistentFileState.firstPage.reloadEnabled ||
         !persistentFileState.firstPage.menuClosedAfterReload ||
-        persistentFileState.secondPage.recentName !== "recent-reload-smoke.log" ||
-        persistentFileState.secondPage.fileName !== "recent-reload-smoke.log" ||
+        persistentFileState.secondPage.recentName !== "recent-reload-regression.log" ||
+        persistentFileState.secondPage.fileName !== "recent-reload-regression.log" ||
         persistentFileState.secondPage.opCount !== "3" ||
         persistentFileState.secondPage.tabCount !== 1) {
         throw new Error(`Persistent file workflow is incomplete: ${JSON.stringify(persistentFileState)}`);
@@ -5838,7 +5838,7 @@ async function run() {
         : [...new Set(selected.split(","))];
     for (const name of names) {
         if (!Object.hasOwn(groups, name)) {
-            throw new Error(`Unknown smoke group "${name}". Choose: all,${Object.keys(groups).join(",")}`);
+            throw new Error(`Unknown regression group "${name}". Choose: all,${Object.keys(groups).join(",")}`);
         }
     }
     // グループ間のwindow破棄で終了せず、最後の結果を出してから明示的に終了する。
@@ -5855,29 +5855,29 @@ async function run() {
                 contextIsolation: true,
                 sandbox: true,
                 // 保存値とbrowser内のmethod observerを、グループごとに隔離する。
-                partition: `web-smoke-${name}`,
+                partition: `browser-regression-${name}`,
             },
         });
         try {
             await window.loadFile(webFile);
             const result = await groups[name](window);
-            console.log(`Web smoke [${name}] passed (${Date.now() - started} ms)`,
+            console.log(`Browser regression [${name}] passed (${Date.now() - started} ms)`,
                 result === undefined ? "" : JSON.stringify(result));
         }
         catch (error) {
-            throw new Error(`Web smoke [${name}] failed`, {cause: error});
+            throw new Error(`Browser regression [${name}] failed`, {cause: error});
         }
         finally {
             window.destroy();
         }
     }
-    console.log(`Web smoke test passed: ${names.join(", ")}`);
+    console.log(`Browser regression tests passed: ${names.join(", ")}`);
 }
 
 app.whenReady()
     .then(run)
     .then(() => app.exit(0))
     .catch((error) => {
-        console.error("Web smoke test failed:", error);
+        console.error("Browser regression tests failed:", error);
         app.exit(1);
     });

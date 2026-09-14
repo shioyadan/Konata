@@ -243,7 +243,7 @@ test("Web Onikiri parser streams concurrent Zstandard traces", async () => {
     const secondFile = new File([compressed], "kanata-basic.txt.zstd", { type: "application/zstd" });
     const progressValues: number[] = [];
     // Node.jsテストではsingletonを安全に直列化する。browserでは各streamを別Workerへ分離し、
-    // 同じ呼出し方のまま2ファイルを並行して展開できることをbrowser smokeで確認する。
+    // 同じ呼出し方のまま2ファイルを並行して展開できることをbrowser回帰testで確認する。
     const [trace, secondTrace] = await Promise.all([
         new OnikiriParser().parse(reader(file), (progress) => progressValues.push(progress)),
         new OnikiriParser().parse(reader(secondFile)),
