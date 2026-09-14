@@ -330,6 +330,32 @@ export class KonataRenderMetrics {
         return op === undefined || cycle < 0 ? null : { cycle, opID: op.id };
     }
 
+    getReferenceGuideViewPosition(guide: Readonly<KonataReferenceGuide>): readonly [number, number] | null {
+        const op = this.getOpFromID(guide.opID);
+        if (op === undefined) return null;
+        // 非表示flushを別の命令へ置き換えず、cycleだけへ戻る。
+        return [guide.cycle, this.spec.hideFlushedOps && op.flush
+            ? this.spec.position[1] : this.getPositionYFromOp(op)];
+    }
+
+    getInstructionInfoText(opID: number, cycle: number): string | null {
+        const op = this.getOpFromID(opID);
+        if (op === undefined) return null;
+        return [
+            `Cycle: ${cycle}`,
+            `Op ID: ${op.id}`,
+            op.labelName,
+            op.labelDetail,
+            `Line: ${op.line}`,
+            `Serial ID: ${op.gid}`,
+            `Thread ID: ${op.tid}`,
+            `Retire ID: ${op.rid}`,
+            `Fetch cycle: ${op.fetchedCycle}`,
+            `Retire cycle: ${op.retiredCycle}`,
+            ...(op.flush ? ["# This op is flushed."] : []),
+        ].filter((line) => line !== "").join("\n");
+    }
+
     getAdjustedViewPosition(): readonly [number, number] | null {
         if (this.trace === null) {
             return null;
@@ -469,14 +495,29 @@ export class KonataRenderMetrics {
         return text;
     }
 
-    getPipelineToolTipText(x: number, y: number): string | null {
-        const op = this.getOpFromPixelPositionY(y, this.opResolution);
+    getPipelineToolTipText(
+        x: number,
+        y: number,
+        guide: Readonly<KonataReferenceGuide> | null = null,
+    ): string | null {
+        // 測定中は縮小表示用の代表命令ではなく、pointer直下の正確な行を参照する。
+        const op = this.getOpFromPixelPositionY(y, guide === null ? this.opResolution : 0);
+        const cycle = this.getCycleFromPixelPositionX(x);
+        let text = "";
+        const referenceOp = guide === null ? undefined : this.getOpFromID(guide.opID);
+        if (guide !== null && referenceOp !== undefined) {
+            const signed = (value: number) => value > 0 ? `+${value}` : `${value}`;
+            text = `Cycle: ${signed(cycle - guide.cycle)}`;
+            // 非表示のflushは別のRIDへ寄せず、cycle差だけを残す。
+            if (op !== undefined && !(this.spec.hideFlushedOps && referenceOp.flush)) {
+                text += `  Op: ${signed(this.getPositionYFromOp(op) - this.getPositionYFromOp(referenceOp))}`;
+            }
+        }
         if (op === undefined) {
-            return null;
+            return text === "" ? null : text;
         }
 
-        const cycle = this.getCycleFromPixelPositionX(x);
-        let text = `[${cycle}, ${op.id}] `;
+        text += `${text === "" ? "" : "\n"}[${cycle}, ${op.id}] `;
         if (cycle < op.fetchedCycle || cycle > op.retiredCycle) {
             return text;
         }

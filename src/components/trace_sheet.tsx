@@ -11,6 +11,7 @@ import {
     useState,
 } from "react";
 import { BsX } from "react-icons/bs";
+import { PipelineContextMenu } from "./pipeline_context_menu";
 
 import type { ParsedTrace } from "../core/model";
 import {
@@ -91,6 +92,7 @@ interface CanvasToolTip {
     readonly top: number;
     readonly text: string;
     readonly bottomBoundary?: number;
+    readonly rightBoundary?: number;
 }
 
 // A/B単独表示では、位置合わせ用の反対側だけを控えめに重ねる。
@@ -241,6 +243,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         readonly start: PointerPosition;
         readonly trace: ParsedTrace | null;
     } | null>(null);
+    const [contextMenu, setContextMenu] = useState<{
+        readonly left: number;
+        readonly top: number;
+        readonly trace: ParsedTrace;
+        readonly guide: KonataReferenceGuide | null;
+        readonly copyText: string | null;
+        readonly fetchedCycle: number | null;
+    } | null>(null);
+    const closeContextMenu = useCallback(() => setContextMenu(null), []);
     const cycleNavigatorLabelCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
     const instructionNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -377,6 +388,14 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     }, []);
 
     useLayoutEffect(clearReferenceGuide, [clearReferenceGuide, displayTrace]);
+
+    useLayoutEffect(() => {
+        // 固定解除・移動・表示行の切替後に、前の基準で計算した差分を残さない。
+        setToolTip(null);
+    }, [referenceGuide, displayTrace, renderSpec, baselineRenderSpec]);
+
+    useLayoutEffect(closeContextMenu, [closeContextMenu, displayTrace, renderSpec,
+        baselineRenderSpec, comparisonMode, splitterPosition, traceNavigator]);
 
     const startViewTransition = useCallback((
         target: KonataView,
@@ -837,9 +856,15 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
 
     useLayoutEffect(() => {
         const element = toolTipRef.current;
-        if (element === null || toolTip?.bottomBoundary === undefined) {
+        if (element === null || toolTip === null) {
             return;
         }
+        if (toolTip.rightBoundary !== undefined) {
+            element.style.left = `${Math.max(0, Math.min(
+                toolTip.left, toolTip.rightBoundary - element.offsetWidth,
+            ))}px`;
+        }
+        if (toolTip.bottomBoundary === undefined) return;
         // Pipeline下端を越える場合だけpointer上へ返し、Navigatorを覆わない。
         element.style.top = `${toolTip.top}px`;
         if (toolTip.top + element.offsetHeight > toolTip.bottomBoundary) {
@@ -916,6 +941,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         splitterPointerIDRef.current = event.pointerId;
         event.currentTarget.setPointerCapture(event.pointerId);
+        setToolTip(null);
         setIsResizing(true);
         event.preventDefault();
         event.stopPropagation();
@@ -1172,6 +1198,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
         event.currentTarget.setPointerCapture(event.pointerId);
         positions.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        setToolTip(null);
         setIsPanning(true);
     };
 
@@ -1316,6 +1343,30 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         }
     };
 
+    const openContextMenu = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
+        if (displayTrace === null || pointerPositionsRef.current.size > 0 ||
+            splitterPointerIDRef.current !== null || traceNavigatorResizeRef.current.pointerID !== null ||
+            navigatorPointersRef.current.size > 0) return;
+        const point = getCanvasPoint(canvas, clientX, clientY);
+        const currentMetrics = displayMetricsRef.current;
+        const op = currentMetrics.getOpFromPixelPositionY(point.y);
+        const cycle = currentMetrics.getCycleFromPixelPositionX(point.x);
+        // menu選択位置や後続frameではなく、右click時のworld座標と情報を保持する。
+        setContextMenu({
+            left: clientX, top: clientY, trace: displayTrace,
+            guide: currentMetrics.getReferenceGuideFromPixelPosition(point.x, point.y),
+            copyText: op === undefined ? null : currentMetrics.getInstructionInfoText(op.id, cycle),
+            fetchedCycle: op?.fetchedCycle ?? null,
+        });
+        setToolTip(null);
+        canvas.focus({ preventScroll: true });
+    };
+
+    const scrollToContextPosition = (position: readonly [number, number]) => {
+        // A単独ではcandidateを動かさず、選択中のbaselineへ明示的に渡す。
+        scrollTo(position, comparisonMode === "baseline" ? position : undefined);
+    };
+
     // 軸ごとの座標計算はRendererへ任せ、選択した片側のviewだけをControllerへ反映する。
     const moveNavigatorPosition = (
         canvas: HTMLCanvasElement,
@@ -1389,6 +1440,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const pointer = { axis, baselineSelected, grabOffset };
         navigatorPointersRef.current.set(event.pointerId, pointer);
         canvas.setPointerCapture(event.pointerId);
+        setToolTip(null);
         if (moveOnPress) moveNavigatorPosition(canvas, point, pointer);
         event.preventDefault();
         event.stopPropagation();
@@ -1423,7 +1475,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         pane: "label" | "pipeline",
         event: ReactMouseEvent<HTMLCanvasElement>,
     ) => {
-        if (trace === null || pointerPositionsRef.current.size > 0) {
+        if (trace === null || contextMenu !== null || pointerPositionsRef.current.size > 0 ||
+            splitterPointerIDRef.current !== null || traceNavigatorResizeRef.current.pointerID !== null ||
+            navigatorPointersRef.current.size > 0) {
             setToolTip(null);
             return;
         }
@@ -1435,9 +1489,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         const x = event.clientX - canvasRect.left;
         const y = event.clientY - canvasRect.top;
         const currentMetrics = displayMetricsRef.current;
+        const guide = referenceGuide?.trace === currentMetrics.trace ? referenceGuide.guide : null;
         const text = pane === "label"
             ? currentMetrics.getLabelToolTipText(y)
-            : currentMetrics.getPipelineToolTipText(x, y);
+            : currentMetrics.getPipelineToolTipText(x, y, guide);
         if (text === null) {
             setToolTip(null);
             return;
@@ -1450,6 +1505,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             bottomBoundary: pane === "pipeline"
                 ? canvasRect.bottom - viewerRect.top
                 : undefined,
+            rightBoundary: pane === "pipeline"
+                ? canvasRect.right - viewerRect.left
+                : viewerRect.width,
         });
     };
 
@@ -1460,6 +1518,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const findResultTop = findResult === null
         ? 0
         : Math.floor(metrics.getPixelPositionYFromID(findResult.anchorID)) + metrics.opHeight;
+    const referencePosition = contextMenu !== null && referenceGuide?.trace === displayTrace
+        ? displayMetrics.getReferenceGuideViewPosition(referenceGuide.guide) : null;
 
     return (
         <div
@@ -1511,6 +1571,20 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                     ref={pipelineCanvasRef}
                     className={comparison === null ? undefined : "comparison-result-canvas"}
                     aria-label="Pipeline canvas"
+                    tabIndex={0}
+                    aria-haspopup="menu"
+                    onContextMenu={(event) => {
+                        if (displayTrace === null) return;
+                        event.preventDefault();
+                        openContextMenu(event.currentTarget, event.clientX, event.clientY);
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        openContextMenu(event.currentTarget, rect.left + rect.width / 2, rect.top + rect.height / 2);
+                    }}
                     onMouseMove={(event) => updateToolTip("pipeline", event)}
                     onMouseLeave={() => setToolTip(null)}
                 >
@@ -1712,6 +1786,22 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         Version {__KONATA_VERSION__} · Commit {__KONATA_COMMIT__} · {__KONATA_COMMIT_DATE__}
                     </small>
                 </div>
+            )}
+            {contextMenu !== null && contextMenu.trace === displayTrace && (
+                <PipelineContextMenu
+                    left={contextMenu.left}
+                    top={contextMenu.top}
+                    copyText={contextMenu.copyText}
+                    onClose={closeContextMenu}
+                    onPin={contextMenu.guide === null ? null : () => {
+                        setReferenceGuide({ trace: contextMenu.trace, guide: contextMenu.guide! });
+                    }}
+                    onClear={referenceGuide === null ? null : clearReferenceGuide}
+                    onGoToFetch={contextMenu.fetchedCycle === null ? null : () => {
+                        scrollToContextPosition([contextMenu.fetchedCycle!, displayMetricsRef.current.spec.position[1]]);
+                    }}
+                    onGoToReference={referencePosition === null ? null : () => scrollToContextPosition(referencePosition)}
+                />
             )}
             {toolTip !== null && (
                 <pre

@@ -295,6 +295,104 @@ test("Reference guides retain instruction IDs across hidden rows and lane layout
     assert.deepEqual(hidden.pathRects, [[3 * metrics.opWidth, 0, 1, 96]]);
 });
 
+test("Instruction context copies exact IDs and details independently of visible row order", () => {
+    const { trace, op } = createTrace();
+    const metrics = new KonataRenderMetrics(trace, { ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps: true });
+    op.rid = 12;
+    assert.equal(metrics.getInstructionInfoText(0, 5), [
+        "Cycle: 5", "Op ID: 0", "add x1, x2, x3", "detail", "Line: 12",
+        "Serial ID: 100", "Thread ID: 1", "Retire ID: 12", "Fetch cycle: 2", "Retire cycle: 9",
+    ].join("\n"));
+    op.flush = true;
+    assert.ok(metrics.getInstructionInfoText(0, 5)?.endsWith("# This op is flushed."));
+    assert.equal(metrics.getInstructionInfoText(99, 5), null);
+    assert.equal(new KonataRenderMetrics(null, DEFAULT_KONATA_RENDER_SPEC).getInstructionInfoText(0, 5), null);
+});
+
+test("Reference navigation restores ID or RID without selecting a hidden flushed op's neighbor", () => {
+    const { trace, op } = createTrace();
+    op.rid = 12;
+    const guide = { cycle: 4, opID: 0 };
+    for (const hideFlushedOps of [false, true]) {
+        const metrics = new KonataRenderMetrics(trace, {
+            ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps, position: [30, 6], zoomLevel: 8,
+        });
+        op.flush = false;
+        assert.deepEqual(metrics.getReferenceGuideViewPosition(guide), [4, hideFlushedOps ? 12 : 0]);
+        op.flush = true;
+        assert.deepEqual(metrics.getReferenceGuideViewPosition(guide), [4, hideFlushedOps ? 6 : 0]);
+        assert.equal(metrics.getReferenceGuideViewPosition({ cycle: 4, opID: 99 }), null);
+    }
+});
+
+test("Reference guide tooltips count visible rows across zoom, scrolling, and lane layouts", () => {
+    const trace = createLatencyTrace([[0, 10], [1, 10], [2, 10], [3, 10]]);
+    trace.getOp(1)!.flush = true;
+    trace.getOp(2)!.rid = 1;
+    trace.getOp(3)!.rid = 2;
+    trace.getOpFromRID = (rid) => trace.getOp([0, 2, 3][rid]);
+    trace.stageLevelMap.getOrCreateLaneID("0");
+    trace.stageLevelMap.getOrCreateLaneID("1");
+    const guide = { cycle: 5, opID: 2 };
+    for (const hideFlushedOps of [false, true]) {
+        for (const splitLanes of [false, true]) {
+            for (const fixOpHeight of [false, true]) {
+                for (const zoomLevel of [-1, 0, 0.5, 8]) {
+                    const spec = { ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps,
+                        splitLanes, fixOpHeight, zoomLevel, position: [-2.25, -0.375] as const };
+                    const metrics = new KonataRenderMetrics(trace, spec);
+                    for (const [cycle, id, deltaCycle, deltaRow] of [
+                        [5, 2, "0", "0"],
+                        [8, 3, "+3", "+1"],
+                        [2, 0, "-3", hideFlushedOps ? "-1" : "-2"],
+                    ] as const) {
+                        const op = trace.getOp(id)!;
+                        const text = metrics.getPipelineToolTipText(
+                            (cycle + 0.25 - spec.position[0]) * metrics.opWidth,
+                            metrics.getPixelPositionYFromOp(op) + metrics.opHeight / 2,
+                            guide,
+                        );
+                        assert.ok(text?.startsWith(`Cycle: ${deltaCycle}  Op: ${deltaRow}\n[${cycle}, ${id}]`), text);
+                    }
+                }
+            }
+        }
+    }
+});
+
+test("Reference guide tooltips preserve stage details and allow cycle-only measurements", () => {
+    const { trace, op } = createTrace();
+    const metrics = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
+    const guide = { cycle: 4, opID: 0 };
+    const x = 3.25 * metrics.opWidth;
+    const original = metrics.getPipelineToolTipText(x, 0);
+    assert.ok(original?.includes("executing"));
+    assert.equal(metrics.getPipelineToolTipText(x, 0, guide), `Cycle: -1  Op: 0\n${original}`);
+    assert.equal(metrics.getPipelineToolTipText(x, 0, null), original);
+    assert.equal(metrics.getPipelineToolTipText(x, 0, { ...guide, opID: 99 }), original);
+    assert.equal(metrics.getPipelineToolTipText(x, metrics.opHeight * 10, guide), "Cycle: -1");
+    assert.equal(metrics.getPipelineToolTipText(x, metrics.opHeight * 10), null);
+    assert.equal(new KonataRenderMetrics(null, DEFAULT_KONATA_RENDER_SPEC)
+        .getPipelineToolTipText(x, 0, guide), null);
+    // 隠れた基準命令を近隣のretire済み命令へ読み替えない。
+    op.flush = true;
+    const hidden = new KonataRenderMetrics(trace, { ...DEFAULT_KONATA_RENDER_SPEC, hideFlushedOps: true });
+    assert.ok(hidden.getPipelineToolTipText(x, 0, guide)?.startsWith("Cycle: -1\n"));
+});
+
+test("Reference guide tooltips use exact lookups even at overview zoom", () => {
+    const trace = createLatencyTrace([[0, 10], [1, 10], [2, 10]]);
+    const getOp = trace.getOp.bind(trace);
+    trace.getOp = (id, resolution = 0) => {
+        assert.equal(resolution, 0);
+        return getOp(id);
+    };
+    const metrics = new KonataRenderMetrics(trace, { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 8 });
+    assert.ok(metrics.opResolution > 0);
+    assert.equal(metrics.getPipelineToolTipText(metrics.opWidth * 2.5, metrics.opHeight * 1.5,
+        { cycle: 1, opID: 0 }), "Cycle: +1  Op: +1\n[2, 1] ");
+});
+
 test("Reference guides align both axes to physical pixels at every zoom", () => {
     const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
     const { trace } = createTrace();

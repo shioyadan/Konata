@@ -1192,6 +1192,67 @@ async function verifyReferenceGuides(window) {
             pointer('pointerup', x, y, extra);
             await frame();
         };
+        const tooltip = () => document.querySelector('.canvas-tooltip');
+        const hover = async (x, y, target = pipeline) => {
+            const bounds = target.getBoundingClientRect();
+            target.dispatchEvent(new MouseEvent('mousemove', {bubbles: true,
+                clientX: bounds.left + x, clientY: bounds.top + y}));
+            await frame();
+            return tooltip()?.textContent ?? null;
+        };
+        const verifyToolTip = async () => {
+            await click();
+            check((await hover(112, 36))?.startsWith('Cycle: +1  Op: +1\\n[3, 1]'),
+                'Pinned tooltips must show signed differences above existing details immediately.');
+            check(document.querySelectorAll('.canvas-tooltip').length === 1 &&
+                getComputedStyle(tooltip()).pointerEvents === 'none',
+                'Reference measurements must share a non-interactive tooltip.');
+            const before = tooltip().getBoundingClientRect();
+            check((await hover(48, 12))?.startsWith('Cycle: -1  Op: 0\\n[1, 0]'),
+                'Differences must update while moving across the reference.');
+            check(tooltip().getBoundingClientRect().left !== before.left,
+                'The tooltip must follow the pointer.');
+            check((await hover(80, 12))?.startsWith('Cycle: 0  Op: 0\\n'),
+                'The pinned cell must report zero differences.');
+            check(await hover(80, 80) === 'Cycle: 0',
+                'Empty rows must retain only the cycle measurement.');
+            await hover(pipeline.clientWidth - 2, pipeline.clientHeight - 2);
+            const bounds = pipeline.getBoundingClientRect();
+            const tooltipBounds = tooltip().getBoundingClientRect();
+            check(tooltipBounds.right <= bounds.right + 1 && tooltipBounds.bottom <= bounds.bottom + 1,
+                'The tooltip must stay above and to the left of the navigator boundaries: ' +
+                JSON.stringify({tooltip: tooltipBounds.toJSON(), pipeline: bounds.toJSON()}));
+            await hover(80, 12);
+            pointer('pointerdown', 80, 12, {ctrlKey: false});
+            await frame();
+            check(tooltip() === null, 'Pressing to pan must hide measurements immediately.');
+            check(await hover(112, 36) === null, 'Measurements must stay hidden during dragging.');
+            pointer('pointerup', 80, 12, {ctrlKey: false});
+            await frame();
+            await hover(80, 12);
+            pipeline.dispatchEvent(new MouseEvent('mouseout', {bubbles: true,
+                relatedTarget: document.querySelector('.label-pane canvas')}));
+            await frame();
+            check(tooltip() === null, 'Leaving the pipeline must hide measurements.');
+            check(!(await hover(8, 12, document.querySelector('.label-pane canvas')))?.includes('Cycle:'),
+                'Instruction label details must remain unchanged.');
+            await click(112, 36);
+            check((await hover(80, 12))?.startsWith('Cycle: -1  Op: -1\\n'),
+                'Repinning must use the new reference for both axes.');
+            const hideFlushed = document.querySelector('input[aria-label="Hide flushed ops"]');
+            hideFlushed.click();
+            await frame();
+            check(tooltip() === null, 'Changing visible rows must clear stale measurements.');
+            check((await hover(80, 12))?.startsWith('Cycle: -1\\n[2, 0]'),
+                'A hidden flushed reference must omit its row difference.');
+            hideFlushed.click();
+            await frame();
+            await hover(80, 12);
+            await clear();
+            check(tooltip() === null, 'Esc must clear the reference measurement immediately.');
+            check((await hover(80, 12))?.startsWith('[2, 0]'),
+                'Cleared references must restore the original tooltip.');
+        };
         const verifyMarkers = async () => {
             const toggle = document.querySelector('.trace-navigator-toggle');
             toggle.click();
@@ -1255,6 +1316,7 @@ async function verifyReferenceGuides(window) {
         };
         try {
             await verifyMarkers();
+            await verifyToolTip();
             await click(80, 12, {ctrlKey: false});
             check(guide() === null, 'An ordinary click must not pin a guide.');
             pointer('pointerdown');
@@ -1326,6 +1388,162 @@ async function verifyReferenceGuides(window) {
             await new Promise((resolve) => setTimeout(resolve, 250));
         }
         return {nativeClick: true, gestures: true, hiddenFlushedRow: true, navigatorAndLabelMarkers: true};
+    })()`);
+}
+
+async function verifyPipelineContextMenu(window) {
+    const point = await window.webContents.executeJavaScript(`(() => {
+        const rect = document.querySelector('.pipeline-pane canvas').getBoundingClientRect();
+        return {x: Math.round(rect.left + 112), y: Math.round(rect.top + 36)};
+    })()`);
+    for (const type of ["mouseDown", "mouseUp"]) {
+        window.webContents.sendInputEvent({type, button: "right", clickCount: 1, ...point});
+    }
+    await waitForViewAnimation(window, 100);
+    await window.webContents.executeJavaScript(`(() => {
+        const menu = document.querySelector('[role="menu"][aria-label="Pipeline actions"]');
+        if (menu?.querySelectorAll('[role="menuitem"]').length !== 5 ||
+            !document.activeElement?.textContent.startsWith('Pin reference here') ||
+            document.querySelector('.pipeline-reference-guides') !== null) {
+            throw new Error('Right-click must open and focus the menu without pinning or panning.');
+        }
+    })()`);
+    window.webContents.sendInputEvent({type: "keyDown", keyCode: "Return"});
+    window.webContents.sendInputEvent({type: "char", keyCode: "\r"});
+    window.webContents.sendInputEvent({type: "keyUp", keyCode: "Return"});
+    await waitForViewAnimation(window, 100);
+    return window.webContents.executeJavaScript(`(async () => {
+        const check = (condition, message) => { if (!condition) throw new Error(message); };
+        const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const viewer = document.querySelector('.viewer');
+        const menu = () => document.querySelector('.pipeline-context-menu');
+        const guide = () => document.querySelector('.pipeline-reference-guides');
+        const pinned = 'Pinned reference: cycle 3, instruction ID 1';
+        const button = (label) => [...menu().querySelectorAll('button')]
+            .find((item) => item.textContent.startsWith(label));
+        const key = (key) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true, cancelable: true, key,
+        }));
+        const open = async (x = 112, y = 36) => {
+            const rect = pipeline.getBoundingClientRect();
+            const event = new MouseEvent('contextmenu', {bubbles: true, cancelable: true,
+                button: 2, clientX: rect.left + x, clientY: rect.top + y});
+            pipeline.dispatchEvent(event);
+            await frame();
+            check(event.defaultPrevented && menu() !== null, 'The pipeline must open its own context menu.');
+            check(document.querySelector('.canvas-tooltip') === null, 'Menus must suppress tooltips.');
+        };
+        const choose = async (label) => { button(label).click(); await frame(); };
+        const hover = async (x = 8, y = 8) => {
+            const rect = pipeline.getBoundingClientRect();
+            pipeline.dispatchEvent(new MouseEvent('mousemove', {bubbles: true,
+                clientX: rect.left + x, clientY: rect.top + y}));
+            await frame();
+            return document.querySelector('.canvas-tooltip')?.textContent ?? '';
+        };
+        const reset = [...document.querySelectorAll('.zoom-controls button')]
+            .find((item) => item.textContent.trim() === 'Reset');
+        const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+        const clipboardTexts = [];
+        Object.defineProperty(navigator, 'clipboard', {configurable: true,
+            value: {writeText: async (text) => {clipboardTexts.push(text);}}});
+        try {
+            check(menu() === null && guide()?.getAttribute('aria-label') === pinned,
+                'Enter must pin the original right-click cell, not a menu coordinate: ' +
+                JSON.stringify({menu: menu() !== null, guide: guide()?.getAttribute('aria-label')}));
+            check(document.activeElement === pipeline, 'Closing must restore focus to the pipeline.');
+            await open();
+            key('Escape');
+            await frame();
+            check(menu() === null && guide()?.getAttribute('aria-label') === pinned,
+                'Esc must close only the menu, leaving the reference intact.');
+            check((await hover()).includes('[0, 0]'), 'Menu activation must not pan or zoom.');
+            await open();
+            await hover(80, 12);
+            check(document.querySelector('.canvas-tooltip') === null, 'Hover must not reopen tooltips under the menu.');
+            for (const ctrlKey of [false, true]) {
+                const wheel = new WheelEvent('wheel', {bubbles: true, cancelable: true, deltaY: 120, ctrlKey});
+                menu().dispatchEvent(wheel);
+                await settle();
+                check(menu() !== null && (!ctrlKey || wheel.defaultPrevented),
+                    'Wheeling inside the menu must not move the viewer or zoom the browser.');
+            }
+            await choose('Copy instruction info');
+            check(menu() === null && clipboardTexts.length === 1 &&
+                clipboardTexts[0].startsWith('Cycle: 3\\nOp ID: 1\\nconsumer') &&
+                clipboardTexts[0].includes('Thread ID: 1') && clipboardTexts[0].includes('This op is flushed'),
+                'Copy must use the captured instruction and cycle.');
+            await open();
+            await choose('Go to fetch');
+            await settle();
+            check((await hover()).includes('[3, 0]'), 'Fetch navigation must move to the clicked op, retaining vertical position.');
+            await open(8, 12);
+            await choose('Go to reference');
+            await settle();
+            check((await hover()).startsWith('Cycle: 0  Op: 0\\n[3, 1]'),
+                'Reference navigation must return to both the cycle and instruction.');
+            reset.click();
+            await settle();
+            await open();
+            await choose('Clear reference');
+            check(guide() === null, 'Clear reference must remove the guide.');
+            await open();
+            check(button('Clear reference').disabled && button('Go to reference').disabled,
+                'Unset references must disable reference navigation and clearing.');
+            key('ArrowDown');
+            check(document.activeElement === button('Copy instruction info'), 'Arrows must skip disabled menu items.');
+            key('End');
+            check(document.activeElement === button('Go to fetch'), 'End must focus the last enabled item.');
+            key('Home');
+            check(document.activeElement === button('Pin reference here'), 'Home must focus the first enabled item.');
+            key('Tab');
+            await frame();
+            check(menu() === null && document.activeElement === pipeline, 'Tab must dismiss and restore focus.');
+            await open(pipeline.clientWidth - 2, pipeline.clientHeight - 2);
+            const bounds = menu().getBoundingClientRect();
+            check(bounds.left >= 0 && bounds.top >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight,
+                'The menu must remain inside the viewport at the bottom-right edge.');
+            check(button('Pin reference here').disabled && button('Copy instruction info').disabled &&
+                button('Go to fetch').disabled, 'Empty rows must disable instruction actions.');
+            key('Escape');
+            await frame();
+            pipeline.dispatchEvent(new KeyboardEvent('keydown', {key: 'F10', shiftKey: true,
+                bubbles: true, cancelable: true}));
+            await frame();
+            check(menu() !== null, 'Shift+F10 must open the pipeline menu when focused.');
+            key('Escape');
+            await frame();
+            await open();
+            document.querySelector('.app-toolbar').dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
+            await frame();
+            check(menu() === null, 'Outside pointer presses must close the menu.');
+            await open();
+            viewer.dispatchEvent(new WheelEvent('wheel', {bubbles: true, cancelable: true, deltaX: 1}));
+            await frame();
+            check(menu() === null, 'Scrolling must dismiss stale menu targets.');
+            await settle();
+            reset.click();
+            await settle();
+            for (const clipboard of [undefined, {writeText: async () => {throw new Error('denied');}}]) {
+                Object.defineProperty(navigator, 'clipboard', {configurable: true, value: clipboard});
+                await open();
+                await choose('Copy instruction info');
+                check(menu()?.querySelector('[role="alert"]') != null, 'Clipboard failure must be visible.');
+                key('Escape');
+                await frame();
+            }
+        }
+        finally {
+            if (menu() !== null) key('Escape');
+            if (clipboardDescriptor === undefined) delete navigator.clipboard;
+            else Object.defineProperty(navigator, 'clipboard', clipboardDescriptor);
+            document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+            reset.click();
+            await settle();
+        }
+        return {nativeRightClick: true, keyboard: true, copy: true, navigation: true};
     })()`);
 }
 
@@ -2061,6 +2279,7 @@ async function run() {
     }
 
     await verifyReferenceGuides(window);
+    await verifyPipelineContextMenu(window);
 
     // shortcut一覧に示すCtrl/Command+上下が、browser scrollではなくKonataのzoomになることを確認する。
     const keyboardZoomState = await window.webContents.executeJavaScript(`(async () => {

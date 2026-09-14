@@ -450,7 +450,8 @@ button:disabled {
 }
 
 /* 補助情報は右端のmenuにまとめ、通常の描画領域を狭めない。 */
-.application-menu-panel {
+.application-menu-panel,
+.pipeline-context-menu {
     position: absolute;
     z-index: 10;
     top: calc(100% + 0.5rem);
@@ -465,7 +466,8 @@ button:disabled {
     box-shadow: var(--ui-panel-shadow);
 }
 
-.application-menu-panel button {
+.application-menu-panel button,
+.pipeline-context-menu button {
     display: flex;
     width: 100%;
     align-items: center;
@@ -480,8 +482,47 @@ button:disabled {
     white-space: nowrap;
 }
 
-.application-menu-panel button:hover {
+.application-menu-panel button:hover,
+.pipeline-context-menu button:not(:disabled):is(:hover, :focus-visible) {
     background: #38404d;
+}
+
+.pipeline-context-menu {
+    position: fixed;
+    z-index: 20;
+    right: auto;
+    min-width: 0;
+    max-width: calc(100vw - 8px);
+    max-height: calc(100dvh - 8px);
+    overflow: auto;
+    cursor: default;
+    color: #f1f2f4;
+    font-size: 0.85rem;
+}
+
+.pipeline-context-menu kbd {
+    margin-left: auto;
+    color: inherit;
+    opacity: 0.65;
+    font: inherit;
+    font-size: 0.75rem;
+}
+
+.pipeline-context-menu hr {
+    width: 100%;
+    margin: 0.25rem 0;
+    border: 0;
+    border-top: 1px solid #515b6a;
+}
+
+.pipeline-context-menu p {
+    max-width: 17rem;
+    margin: 0.5rem 0.6rem;
+}
+
+.pipeline-context-menu button:disabled {
+    opacity: 0.4;
+    cursor: default;
 }
 
 .application-menu-panel svg {
@@ -1439,6 +1480,7 @@ button:disabled {
 .canvas-tooltip {
     position: absolute;
     z-index: 8;
+    width: max-content;
     max-width: min(42rem, 70%);
     max-height: 18rem;
     margin: 0;
@@ -2109,7 +2151,8 @@ button:disabled {
 .theme-light .view-controls-panel,
 .theme-light .bookmark-controls-panel,
 .theme-light .comparison-controls-panel,
-.theme-light .application-menu-panel {
+.theme-light .application-menu-panel,
+.theme-light .pipeline-context-menu {
     border-color: #b9c0ca;
     background: #f7f8fa;
     box-shadow: 0 1rem 2.8rem rgb(44 50 66 / 24%);
@@ -2184,12 +2227,22 @@ button:disabled {
     color: #fff;
 }
 
-.theme-light .application-menu-panel button {
+.theme-light .application-menu-panel button,
+.theme-light .pipeline-context-menu button {
     background: transparent;
     color: #222;
 }
 
-.theme-light .application-menu-panel button:hover {
+.theme-light .pipeline-context-menu {
+    color: #222;
+}
+
+.theme-light .pipeline-context-menu hr {
+    border-color: #b9c0ca;
+}
+
+.theme-light .application-menu-panel button:hover,
+.theme-light .pipeline-context-menu button:not(:disabled):is(:hover, :focus-visible) {
     background: #e5e8ed;
 }
 
