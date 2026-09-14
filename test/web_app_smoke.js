@@ -1841,24 +1841,49 @@ async function verifyRemoteTraceWorkflow(window, webFile) {
     }
 }
 
-async function run() {
-    // 製品Web版と同じくNode integrationを使わないRendererで検証する。
-    const window = new BrowserWindow({
-        // Xvfb内では表示状態にし、requestAnimationFrameの中間frameまで実際に描画する。
-        show: true,
-        width: 1100,
-        height: 700,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: true,
-            // bookmark検査を実環境の保存値から隔離し、同じprocess内のreloadでは維持する。
-            partition: "web-smoke",
-        },
-    });
-    const webFile = path.join(__dirname, "..", "dist-web", "index.html");
-    await window.loadFile(webFile);
+const webFile = path.join(__dirname, "..", "dist-web", "index.html");
+const plainFixture = path.join(__dirname, "fixtures", "kanata-basic.txt");
+const gem5Fixture = path.join(__dirname, "fixtures", "gem5-basic.txt");
+const gzipFixture = path.join(__dirname, "..", "docs", "kanata-sample-2.log.gz");
 
+// 先行グループの副作用に依存させず、各検査に必要な非既定値を明示する。
+// 既定値はアプリ自身に保存させ、ここで設定の全項目を複製しない。
+async function prepareViewSettings(window, instructionVisible = true) {
+    await window.webContents.executeJavaScript(`(async () => {
+        const nextFrame = () => new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await nextFrame();
+        const theme = document.querySelector('select[aria-label="UI color theme"]');
+        if (!(theme instanceof HTMLSelectElement)) {
+            throw new Error("The view settings fixture could not be initialized.");
+        }
+        theme.value = "light";
+        theme.dispatchEvent(new Event("change", {bubbles: true}));
+        await nextFrame();
+        const stored = JSON.parse(localStorage.getItem("konata.viewSettings"));
+        if (!stored) throw new Error("The default view settings were not saved.");
+        localStorage.setItem("konata.viewSettings", JSON.stringify({
+            ...stored,
+            theme: "dark",
+            colorScheme: "RoyalBlue",
+            dependencyArrowType: "notShow",
+            splitterPosition: 280,
+            textLabelMinimumLaneHeight: 3,
+            traceNavigator: {
+                ...stored.traceNavigator,
+                display: "hidden",
+                mode: "commit",
+                rangeMode: "overview",
+                height: 180,
+                instructionVisible: ${instructionVisible},
+                instructionWidth: ${instructionVisible ? 32 : 80},
+            },
+        }));
+    })()`);
+    await window.loadFile(webFile);
+}
+
+async function verifyLoading(window) {
     // Reactの初期描画とCSS適用を、file読み込み前にも独立して確認する。
     const initialState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -2080,8 +2105,9 @@ async function run() {
         !loadErrorState.shortcutCanceled) {
         throw new Error(`Load error recovery is incomplete: ${JSON.stringify(loadErrorState)}`);
     }
+}
 
-    const plainFixture = path.join(__dirname, "fixtures", "kanata-basic.txt");
+async function verifyInteraction(window) {
     await dropFixture(window, plainFixture, "text/plain");
     const plainState = await readRenderedState(window);
     if (plainState.loadState !== "ready" ||
@@ -2277,9 +2303,6 @@ async function run() {
         doubleClickZoomState.resetZoom !== "100%") {
         throw new Error(`Double click zoom is incomplete: ${JSON.stringify(doubleClickZoomState)}`);
     }
-
-    await verifyReferenceGuides(window);
-    await verifyPipelineContextMenu(window);
 
     // shortcut一覧に示すCtrl/Command+上下が、browser scrollではなくKonataのzoomになることを確認する。
     const keyboardZoomState = await window.webContents.executeJavaScript(`(async () => {
@@ -3662,7 +3685,6 @@ async function run() {
     }
 
     // Kanataとして不一致になった入力をgem5 Parserで開き直し、同じCanvasへ表示できることを確認する。
-    const gem5Fixture = path.join(__dirname, "fixtures", "gem5-basic.txt");
     await dropFixture(window, gem5Fixture, "text/plain");
     const gem5State = await readRenderedState(window);
     if (gem5State.loadState !== "ready" ||
@@ -4174,8 +4196,119 @@ async function run() {
         tabState.remainingLabelWidth !== 280) {
         throw new Error(`Trace tabs are incomplete: ${JSON.stringify(tabState)}`);
     }
+}
 
-    const gzipFixture = path.join(__dirname, "..", "docs", "kanata-sample-2.log.gz");
+async function verifyReferences(window) {
+    await dropFixture(window, plainFixture, "text/plain");
+    await verifyReferenceGuides(window);
+    await verifyPipelineContextMenu(window);
+}
+
+async function verifyExtremeZoom(window, checkPerformance = false) {
+    // key repeatやResetで倍率差が広がっても、旧倍率の空tile座標を画面全体について探索しない。
+    const extremeResetState = await window.webContents.executeJavaScript(`(async () => {
+        ${METHOD_OBSERVER_HELPER}
+        const prototype = CanvasRenderingContext2D.prototype;
+        const pipeline = document.querySelector('.pipeline-pane canvas');
+        const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
+        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
+        const reset = document.querySelector('button[aria-label="Reset view"]');
+        const output = document.querySelector('.zoom-controls output');
+        if (!(pipeline instanceof HTMLCanvasElement) || !(zoomSpeed instanceof HTMLSelectElement) ||
+            !(zoomOut instanceof HTMLButtonElement) ||
+            !(reset instanceof HTMLButtonElement) || !(output instanceof HTMLOutputElement)) {
+            throw new Error("The extreme zoom reset controls were not found.");
+        }
+        const originalZoomSpeed = zoomSpeed.value;
+        const tileBackingSize = Math.round(256 * devicePixelRatio);
+        let overlappedTileBlits = 0;
+        let observing = true;
+        let previousFrame = performance.now();
+        let maximumFrameGap = 0;
+        const observeFrame = (time) => {
+            maximumFrameGap = Math.max(maximumFrameGap, time - previousFrame);
+            previousFrame = time;
+            if (observing) requestAnimationFrame(observeFrame);
+        };
+        requestAnimationFrame(observeFrame);
+        observeMethod(prototype, "drawImage", function(args) {
+            const source = args[0];
+            if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
+                !source.isConnected && source.width === tileBackingSize &&
+                source.height === tileBackingSize && args[3] > 256 && args[4] > 256) {
+                overlappedTileBlits++;
+            }
+        });
+        try {
+            // animation途中のfallback tileを連続して再投影する。
+            zoomSpeed.value = "fast";
+            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            maximumFrameGap = 0;
+            previousFrame = performance.now();
+            const repeatBegin = performance.now();
+            for (let index = 0; index < 10; index++) {
+                zoomOut.click();
+                await new Promise((resolve) => setTimeout(resolve, 33));
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const repeatedZoom = output.textContent;
+            const repeatedZoomDuration = performance.now() - repeatBegin;
+            const repeatedZoomMaximumFrameGap = maximumFrameGap;
+
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            overlappedTileBlits = 0;
+            zoomSpeed.value = "normal";
+            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
+            for (let index = 0; index < 23; index++) {
+                zoomOut.click();
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const zoomBeforeReset = output.textContent;
+            const overlappedBeforeReset = overlappedTileBlits;
+            const begin = performance.now();
+            reset.click();
+            const resetClickDuration = performance.now() - begin;
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            return {
+                zoomBeforeReset,
+                zoomAfterReset: output.textContent,
+                resetClickDuration,
+                overlappedBeforeReset,
+                repeatedZoom,
+                repeatedZoomDuration,
+                repeatedZoomMaximumFrameGap,
+            };
+        }
+        finally {
+            observing = false;
+            restoreObservedMethods();
+            zoomSpeed.value = originalZoomSpeed;
+            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
+            reset.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+    })()`);
+    if (extremeResetState.zoomBeforeReset !== "0.0345%" ||
+        extremeResetState.zoomAfterReset !== "100%" ||
+        extremeResetState.overlappedBeforeReset < 1 ||
+        extremeResetState.repeatedZoom !== "0.0977%") {
+        throw new Error(`Extreme zoom reset is incomplete: ${JSON.stringify(extremeResetState)}`);
+    }
+    if (checkPerformance && (
+        extremeResetState.repeatedZoomDuration >= 2000 ||
+        extremeResetState.repeatedZoomMaximumFrameGap >= 1000 ||
+        extremeResetState.resetClickDuration >= 1000)) {
+        throw new Error(`Extreme zoom reset stalled: ${JSON.stringify(extremeResetState)}`);
+    }
+
+    return extremeResetState;
+}
+
+async function verifyRendering(window) {
+    await prepareViewSettings(window);
     await dropFixture(window, gzipFixture, "application/gzip", true);
     const gzipState = await readRenderedState(window);
     if (gzipState.loadState !== "ready" ||
@@ -4353,101 +4486,7 @@ async function run() {
         throw new Error(`Pipeline tiles were not reused while scrolling: ${JSON.stringify(tileReuseState)}`);
     }
 
-    // key repeatやResetで倍率差が広がっても、旧倍率の空tile座標を画面全体について探索しない。
-    const extremeResetState = await window.webContents.executeJavaScript(`(async () => {
-        ${METHOD_OBSERVER_HELPER}
-        const prototype = CanvasRenderingContext2D.prototype;
-        const pipeline = document.querySelector('.pipeline-pane canvas');
-        const zoomSpeed = document.querySelector('select[aria-label="Zoom speed"]');
-        const zoomOut = document.querySelector('button[aria-label="Zoom out"]');
-        const reset = document.querySelector('button[aria-label="Reset view"]');
-        const output = document.querySelector('.zoom-controls output');
-        if (!(pipeline instanceof HTMLCanvasElement) || !(zoomSpeed instanceof HTMLSelectElement) ||
-            !(zoomOut instanceof HTMLButtonElement) ||
-            !(reset instanceof HTMLButtonElement) || !(output instanceof HTMLOutputElement)) {
-            throw new Error("The extreme zoom reset controls were not found.");
-        }
-        const originalZoomSpeed = zoomSpeed.value;
-        const tileBackingSize = Math.round(256 * devicePixelRatio);
-        let overlappedTileBlits = 0;
-        let observing = true;
-        let previousFrame = performance.now();
-        let maximumFrameGap = 0;
-        const observeFrame = (time) => {
-            maximumFrameGap = Math.max(maximumFrameGap, time - previousFrame);
-            previousFrame = time;
-            if (observing) requestAnimationFrame(observeFrame);
-        };
-        requestAnimationFrame(observeFrame);
-        observeMethod(prototype, "drawImage", function(args) {
-            const source = args[0];
-            if (this.canvas === pipeline && source instanceof HTMLCanvasElement &&
-                !source.isConnected && source.width === tileBackingSize &&
-                source.height === tileBackingSize && args[3] > 256 && args[4] > 256) {
-                overlappedTileBlits++;
-            }
-        });
-        try {
-            // animation途中のfallback tileを連続して再投影する。
-            zoomSpeed.value = "fast";
-            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
-            reset.click();
-            await new Promise((resolve) => setTimeout(resolve, 250));
-            maximumFrameGap = 0;
-            previousFrame = performance.now();
-            const repeatBegin = performance.now();
-            for (let index = 0; index < 10; index++) {
-                zoomOut.click();
-                await new Promise((resolve) => setTimeout(resolve, 33));
-            }
-            await new Promise((resolve) => setTimeout(resolve, 300));
-            const repeatedZoom = output.textContent;
-            const repeatedZoomDuration = performance.now() - repeatBegin;
-            const repeatedZoomMaximumFrameGap = maximumFrameGap;
-
-            reset.click();
-            await new Promise((resolve) => setTimeout(resolve, 250));
-            overlappedTileBlits = 0;
-            zoomSpeed.value = "normal";
-            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
-            for (let index = 0; index < 23; index++) {
-                zoomOut.click();
-            }
-            await new Promise((resolve) => setTimeout(resolve, 300));
-            const zoomBeforeReset = output.textContent;
-            const overlappedBeforeReset = overlappedTileBlits;
-            const begin = performance.now();
-            reset.click();
-            const resetClickDuration = performance.now() - begin;
-            await new Promise((resolve) => setTimeout(resolve, 300));
-            return {
-                zoomBeforeReset,
-                zoomAfterReset: output.textContent,
-                resetClickDuration,
-                overlappedBeforeReset,
-                repeatedZoom,
-                repeatedZoomDuration,
-                repeatedZoomMaximumFrameGap,
-            };
-        }
-        finally {
-            observing = false;
-            restoreObservedMethods();
-            zoomSpeed.value = originalZoomSpeed;
-            zoomSpeed.dispatchEvent(new Event("change", {bubbles: true}));
-            reset.click();
-            await new Promise((resolve) => setTimeout(resolve, 250));
-        }
-    })()`);
-    if (extremeResetState.zoomBeforeReset !== "0.0345%" ||
-        extremeResetState.zoomAfterReset !== "100%" ||
-        extremeResetState.overlappedBeforeReset < 1 ||
-        extremeResetState.repeatedZoom !== "0.0977%" ||
-        extremeResetState.repeatedZoomDuration >= 2000 ||
-        extremeResetState.repeatedZoomMaximumFrameGap >= 1000 ||
-        extremeResetState.resetClickDuration >= 1000) {
-        throw new Error(`Extreme zoom reset stalled: ${JSON.stringify(extremeResetState)}`);
-    }
+    await verifyExtremeZoom(window);
 
     // 互換設定でタイリングを切ると、tile jobを止めて表示Canvasへ直接描画する。
     const tiledRenderingToggleState = await window.webContents.executeJavaScript(`(async () => {
@@ -4679,15 +4718,30 @@ async function run() {
             // tile／WebGLの各初期状態から、文字cache OFFでWebGLもOFFになり、
             // cache ONへ戻してもWebGLは手動で有効にするまでOFFを保つ。
             // 同じ位置・倍率のまま切り替え、完成tileも設定変更で失効することを確かめる。
+            // 一定時間眠るのではなく、必要な文字描画と連続frameの描画終了を観測する。
+            const waitForTextDrawing = async (ready = () => true) => {
+                const deadline = performance.now() + 5000;
+                let previous = -1;
+                let quietFrames = 0;
+                while (quietFrames < 2) {
+                    if (performance.now() >= deadline) {
+                        throw new Error("Text drawing did not settle after changing cache settings.");
+                    }
+                    await new Promise((resolve) => requestAnimationFrame(resolve));
+                    const current = directTextCalls + textBlits + pipelineBlits + atlasFillTexts;
+                    quietFrames = ready() && current === previous ? quietFrames + 1 : 0;
+                    previous = current;
+                }
+            };
             for (const useTiles of [true, false]) {
                 for (const useWebGL of [false, true]) {
                     if (tiled.checked !== useTiles) tiled.click();
                     if (webGL.checked !== useWebGL) webGL.click();
-                    await new Promise((resolve) => setTimeout(resolve, 200));
+                    await waitForTextDrawing();
                     directFonts.clear();
                     const before = {directTextCalls, textBlits};
                     textCaching.click();
-                    await new Promise((resolve) => setTimeout(resolve, 200));
+                    await waitForTextDrawing(() => directTextCalls > before.directTextCalls);
                     if (textCaching.checked || webGL.checked || !webGL.disabled ||
                         tiled.checked !== useTiles ||
                         webGL.parentElement.title !== 'Enable text caching to use WebGL rendering.' ||
@@ -4704,7 +4758,7 @@ async function run() {
                         throw new Error('WebGL must remain disabled while text caching is off.');
                     }
                     textCaching.click();
-                    await new Promise((resolve) => setTimeout(resolve, 200));
+                    await waitForTextDrawing(() => textBlits > before.textBlits);
                     if (!textCaching.checked || webGL.checked || webGL.disabled ||
                         directTextCalls !== disabledTextCalls || textBlits <= before.textBlits) {
                         throw new Error('Reenabled text caching must reuse text images.');
@@ -5543,6 +5597,12 @@ async function run() {
         await nextFrame();
     })()`);
 
+    return {tileReuseState, textAtlasState, webGLState};
+}
+
+async function verifySettings(window) {
+    await prepareViewSettings(window, false);
+    await dropFixture(window, plainFixture, "text/plain");
     // 非既定のthemeとWebGL設定を保存し、Tab表示だけのlane分割は保存値へ混ぜない。
     const viewSettingsSetupState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
         const theme = document.querySelector('select[aria-label="UI color theme"]');
@@ -5694,82 +5754,7 @@ async function run() {
         }
     }
 
-    // 旧Webのthreshold名と新しい設定の欠落、Custom部分の破損が重なっても他の設定を維持する。
-    await window.webContents.executeJavaScript(`(() => {
-        const stored = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
-        stored.drawTextThreshold = stored.textLabelMinimumLaneHeight;
-        delete stored.textLabelMinimumLaneHeight;
-        delete stored.drawZoomFactor;
-        delete stored.webGLEnabled;
-        delete stored.tiledRenderingEnabled;
-        delete stored.textCacheEnabled;
-        delete stored.traceNavigator;
-        stored.colorScheme = "Auto";
-        stored.customColorScheme.defaultColor.h = 999;
-        localStorage.setItem("konata.viewSettings", JSON.stringify(stored));
-    })()`);
-    await window.loadFile(webFile);
-    await dropFixture(window, plainFixture, "text/plain");
-    const recoveredCustomColorState = await window.webContents.executeJavaScript(`(async () => {
-        const nextFrame = () => new Promise((resolve) =>
-            requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        const color = document.querySelector('select[aria-label="Pipeline color scheme"]');
-        if (!(color instanceof HTMLSelectElement)) {
-            throw new Error("The pipeline color selector was not restored.");
-        }
-        const theme = document.querySelector(".trace-app")?.dataset.theme ?? null;
-        const restoredColor = color.value;
-        color.value = "Custom";
-        color.dispatchEvent(new Event("change", {bubbles: true}));
-        await nextFrame();
-        const edit = document.querySelector(".custom-color-control button");
-        if (!(edit instanceof HTMLButtonElement)) {
-            throw new Error("The restored custom color edit button was not found.");
-        }
-        edit.click();
-        await nextFrame();
-        const migrated = JSON.parse(localStorage.getItem("konata.viewSettings") ?? "null");
-        const result = {
-            theme,
-            restoredColor,
-            textVisibility: document.querySelector(
-                'input[aria-label="Text labels visibility level"]',
-            )?.value ?? null,
-            zoomSpeed: document.querySelector('select[aria-label="Zoom speed"]')?.value ?? null,
-            webGL: document.querySelector('input[aria-label="WebGL rendering"]')?.checked ?? null,
-            tiledRendering: document.querySelector('input[aria-label="Tiled rendering"]')?.checked ?? null,
-            textCaching: document.querySelector('input[aria-label="Text caching"]')?.checked ?? null,
-            navigator: document.querySelector(".trace-navigator-toggle")?.getAttribute(
-                "aria-expanded"
-            ) ?? null,
-            defaultHue: document.querySelector('input[aria-label="Default hue"]')?.value ?? null,
-            migratedLaneHeight: migrated?.textLabelMinimumLaneHeight ?? null,
-            migratedNavigator: migrated?.traceNavigator ?? null,
-            removedLegacyLaneHeight: migrated !== null && !("drawTextThreshold" in migrated)
-        };
-        document.querySelector('.custom-color-dialog button[aria-label="Close custom colors"]')?.click();
-        await nextFrame();
-        return result;
-    })()`);
-    if (recoveredCustomColorState.theme !== "light" ||
-        recoveredCustomColorState.restoredColor !== "Depth" ||
-        recoveredCustomColorState.textVisibility !== "6" ||
-        recoveredCustomColorState.zoomSpeed !== "normal" ||
-        !recoveredCustomColorState.webGL ||
-        !recoveredCustomColorState.tiledRendering ||
-        recoveredCustomColorState.textCaching !== true ||
-        recoveredCustomColorState.navigator !== "false" ||
-        recoveredCustomColorState.defaultHue !== "100" ||
-        recoveredCustomColorState.migratedLaneHeight !== 3 ||
-        recoveredCustomColorState.migratedNavigator?.display !== "hidden" ||
-        recoveredCustomColorState.migratedNavigator?.mode !== "top-down" ||
-        recoveredCustomColorState.migratedNavigator?.rangeMode !== "overview" ||
-        recoveredCustomColorState.migratedNavigator?.height !== 64 ||
-        recoveredCustomColorState.migratedNavigator?.instructionVisible !== true ||
-        recoveredCustomColorState.migratedNavigator?.instructionWidth !== 32 ||
-        !recoveredCustomColorState.removedLegacyLaneHeight) {
-        throw new Error(`Custom color recovery is incomplete: ${JSON.stringify(recoveredCustomColorState)}`);
-    }
+    // 形式ごとの移行は単体testへ置き、browserでは壊れたJSONからの起動を代表例として残す。
 
     await window.webContents.executeJavaScript(
         `localStorage.setItem("konata.viewSettings", "{broken")`,
@@ -5798,7 +5783,9 @@ async function run() {
         recoveredViewSettingsState.labelWidth !== 450) {
         throw new Error(`View settings recovery is incomplete: ${JSON.stringify(recoveredViewSettingsState)}`);
     }
+}
 
+async function verifyFiles(window) {
     const persistentFileState = await verifyPersistentFileWorkflow(window, webFile);
     if (persistentFileState.firstPage.changedRole !== "status" ||
         persistentFileState.firstPage.changedMessage !== "recent-reload-smoke.log changed on disk." ||
@@ -5824,15 +5811,67 @@ async function run() {
         throw new Error(`Remote trace workflow is incomplete: ${JSON.stringify(remoteTraceState)}`);
     }
 
-    const nativeTextPixels = await verifyNativeTextPixels(window);
-    console.log(`Web smoke test passed: ${JSON.stringify({
-        nativeTextPixels,
-        tileReuseState,
-        textAtlasState,
-        webGLState,
-        persistentFileState,
-        remoteTraceState,
-    })}`);
+    return {persistentFileState, remoteTraceState};
+}
+
+async function verifyPerformance(window) {
+    await prepareViewSettings(window);
+    await dropFixture(window, gzipFixture, "application/gzip");
+    return verifyExtremeZoom(window, true);
+}
+
+const groups = {
+    loading: verifyLoading,
+    interaction: verifyInteraction,
+    references: verifyReferences,
+    rendering: verifyRendering,
+    settings: verifySettings,
+    files: verifyFiles,
+    pixels: verifyNativeTextPixels,
+    performance: verifyPerformance,
+};
+
+async function run() {
+    const selected = process.argv.find((arg) => arg.startsWith("--groups="))?.slice(9) ?? "all";
+    const names = selected === "all"
+        ? Object.keys(groups).filter((name) => name !== "performance")
+        : [...new Set(selected.split(","))];
+    for (const name of names) {
+        if (!Object.hasOwn(groups, name)) {
+            throw new Error(`Unknown smoke group "${name}". Choose: all,${Object.keys(groups).join(",")}`);
+        }
+    }
+    // グループ間のwindow破棄で終了せず、最後の結果を出してから明示的に終了する。
+    app.on("window-all-closed", () => {});
+    for (const name of names) {
+        const started = Date.now();
+        const window = new BrowserWindow({
+            // Xvfb内でも表示状態にし、中間frameを含めて実描画する。
+            show: true,
+            width: 1100,
+            height: 700,
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                sandbox: true,
+                // 保存値とbrowser内のmethod observerを、グループごとに隔離する。
+                partition: `web-smoke-${name}`,
+            },
+        });
+        try {
+            await window.loadFile(webFile);
+            const result = await groups[name](window);
+            console.log(`Web smoke [${name}] passed (${Date.now() - started} ms)`,
+                result === undefined ? "" : JSON.stringify(result));
+        }
+        catch (error) {
+            throw new Error(`Web smoke [${name}] failed`, {cause: error});
+        }
+        finally {
+            window.destroy();
+        }
+    }
+    console.log(`Web smoke test passed: ${names.join(", ")}`);
 }
 
 app.whenReady()

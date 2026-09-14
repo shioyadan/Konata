@@ -5,6 +5,9 @@ ELECTRON := ./node_modules/.bin/electron
 WEBPACK := ./node_modules/.bin/webpack
 TSC := ./node_modules/.bin/tsc
 TSX := ./node_modules/.bin/tsx
+TEST_FILES ?= test/*.test.ts
+TEST_NAME ?=
+SMOKE_GROUPS ?= all
 BENCHMARK_OPS ?= 100000
 BENCHMARK_TRACE ?=
 PACKAGE_VERSION := $(shell node -p 'require("./package.json").version')
@@ -15,7 +18,7 @@ ARCHIVE_DIR := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME)
 ARCHIVE_PATH := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME).zip
 
 .PHONY: all production check versions init test typecheck license-check launcher-check serve web-render-smoke \
-	web-smoke production-smoke benchmark-op-store release-version-check archive release-archive \
+	web-smoke production-smoke benchmark-rendering benchmark-op-store release-version-check archive release-archive \
 	latest-archive clean distclean
 
 all:
@@ -27,9 +30,9 @@ production: license-check
 # 型・Parser・単一HTML・Web描画を順番に検証する正式な確認入口。
 check:
 	$(MAKE) typecheck
-	$(MAKE) test
+	$(MAKE) test TEST_FILES='test/*.test.ts' TEST_NAME=
 	$(MAKE) launcher-check
-	$(MAKE) production-smoke
+	$(MAKE) production-smoke SMOKE_GROUPS=all
 
 # ElectronはWeb smoke testの実行器なので、開発環境の確認値には残す。
 versions:
@@ -44,7 +47,7 @@ init:
 
 # Web実装のTypeScriptテストをNode.js上で実行する。
 test:
-	$(TSX) --test test/*.test.ts
+	$(TSX) --test $(if $(TEST_NAME),--test-name-pattern='$(TEST_NAME)') $(TEST_FILES)
 
 typecheck:
 	$(TSC) --project tsconfig.json --noEmit
@@ -71,7 +74,11 @@ serve:
 web-render-smoke:
 	ELECTRON_ENABLE_LOGGING=1 KONATA_TEST_WEBGL=1 \
 		dbus-run-session -- xvfb-run -a timeout 90s \
-		$(ELECTRON) test/web_app_smoke.js --no-sandbox
+		$(ELECTRON) test/web_app_smoke.js --no-sandbox --groups=$(SMOKE_GROUPS)
+
+# 時間閾値は環境負荷に左右されるため、通常checkとは分けて同じ描画シナリオで測る。
+benchmark-rendering:
+	$(MAKE) web-render-smoke SMOKE_GROUPS=performance
 
 # Web版をElectronのsandboxed Chromiumで読み込み、ReactのmountとCSS適用までを検証する。
 # Electron APIはテスト側だけで使い、src/やproduction成果物には含めない。

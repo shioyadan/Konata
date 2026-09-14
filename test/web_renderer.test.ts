@@ -2007,12 +2007,16 @@ test("Web render metrics preserve legacy zoom levels and lane heights", () => {
     trace.stageLevelMap.update("1", "Wb", secondLane);
 
     const base = new KonataRenderMetrics(trace, DEFAULT_KONATA_RENDER_SPEC);
-    assert.deepEqual([
+    const visibilityLevels = [
         base.spec.textLabelMinimumLaneHeight,
         base.spec.stageDetailMinimumLaneHeight,
         base.spec.dependencyArrowMinimumLaneHeight,
         base.spec.stageBorderMinimumLaneHeight,
-    ].map(getVisibilityLevelForMinimumLaneHeight), [3, 11, 5, 5]);
+    ].map(getVisibilityLevelForMinimumLaneHeight);
+    // log2との往復はruntimeにより丸め誤差が出るため、整数との厳密一致は要求しない。
+    [3, 11, 5, 5].forEach((expected, index) => {
+        assert.ok(Math.abs(visibilityLevels[index] - expected) < 1e-12);
+    });
     const zoomedSpec = base.withZoomLevel(-1, 0, 0);
     const zoomed = new KonataRenderMetrics(trace, zoomedSpec);
     assert.equal(zoomed.zoomLevel, -1);
