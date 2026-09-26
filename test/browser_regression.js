@@ -143,6 +143,126 @@ async function verifyNativeTextPixels(window) {
     })()`);
 }
 
+async function verifyInstantStagePixels(window) {
+    // タイル空判定や境界clipも含め、実装を直接読み込んで通常描画と画素比較する。
+    const ts = require("typescript");
+    const sources = {};
+    for (const name of ["model", "op_store", "canvas_backend", "konata_renderer", "tiled_pipeline_renderer"]) {
+        sources[`./${name}`] = ts.transpileModule(
+            fs.readFileSync(path.join(__dirname, "..", "src", "core", `${name}.ts`), "utf8"),
+            {compilerOptions: {
+                module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true,
+            }},
+        ).outputText;
+    }
+    const themes = Object.fromEntries(["dark", "light"].map((theme) => [
+        `../../theme/${theme}/style.json`, require(`../theme/${theme}/style.json`),
+    ]));
+    return window.webContents.executeJavaScript(`(async () => {
+        const sources = ${JSON.stringify(sources)};
+        const modules = ${JSON.stringify(themes)};
+        const load = (name) => {
+            if (!Object.hasOwn(modules, name)) {
+                modules[name] = {};
+                new Function("exports", "require", sources[name])(modules[name], load);
+            }
+            return modules[name];
+        };
+        const {Op, Stage, Lane, StageLevelMap, ParsedTrace} = load("./model");
+        const {ArrayOpStore} = load("./op_store");
+        const {KonataRenderer, KonataRenderMetrics, DEFAULT_KONATA_RENDER_SPEC} = load("./konata_renderer");
+        const {TiledPipelineRenderer} = load("./tiled_pipeline_renderer");
+        const originalDPR = Object.getOwnPropertyDescriptor(window, "devicePixelRatio");
+        let cases = 0;
+        try {
+            for (const ratio of [1, 1.5]) {
+                Object.defineProperty(window, "devicePixelRatio", {configurable: true, value: ratio});
+                for (const theme of ["dark", "light"]) {
+                    for (const [zoomLevel, cycle] of [[0, 8], [0.5, 11], [-0.5, 5]]) {
+                        for (const flush of [false, true]) {
+                            const op = Object.assign(new Op(), {
+                                id: 0, rid: 0, fetchedCycle: cycle, retiredCycle: cycle,
+                                flush, retired: !flush,
+                            });
+                            const lane = new Lane();
+                            lane.stages.push(Object.assign(new Stage(), {
+                                name: flush ? "F" : "Rt", startCycle: cycle, endCycle: cycle,
+                            }));
+                            op.lanes[0] = lane;
+                            const levels = new StageLevelMap();
+                            levels.update("0", lane.stages[0].name, lane);
+                            const store = new ArrayOpStore();
+                            store.setOp(0, op);
+                            if (!flush) store.setRetiredOp(0, op);
+                            const trace = new ParsedTrace("instant.log", store, levels, cycle);
+                            const spec = {...DEFAULT_KONATA_RENDER_SPEC, theme, zoomLevel};
+                            const width = 352;
+                            // 命令行内部のみ比較し、Canvas末端の端数物理画素も避ける。
+                            const height = Math.floor((new KonataRenderMetrics(trace, spec).opHeight - 2) / 2) * 2;
+                            for (const textCacheEnabled of [false, true]) {
+                                const renderer = new KonataRenderer();
+                                const tiled = new TiledPipelineRenderer(renderer);
+                                const direct = document.createElement("canvas");
+                                const target = document.createElement("canvas");
+                                try {
+                                    renderer.drawPipelineSpec(trace, spec, direct, width, height,
+                                        undefined, false, false, "all", textCacheEnabled);
+                                    const expected = direct.getContext("2d").getImageData(
+                                        0, 0, direct.width, direct.height).data;
+                                    const background = Array.from(expected.slice(0, 4));
+                                    if (!expected.some((value, index) => value !== background[index % 4])) {
+                                        throw new Error("The instant stage has no visible text.");
+                                    }
+                                    // 最初のdirect fallbackだけを見て成功させず、tile完成通知後に比較する。
+                                    await new Promise((resolve, reject) => {
+                                        let maximumDifference = 0;
+                                        let differentPixels = 0;
+                                        const timer = setTimeout(() => reject(new Error(
+                                            "Instant stage tiles did not match: " + JSON.stringify({
+                                                ratio, theme, zoomLevel, flush, textCacheEnabled,
+                                                maximumDifference, differentPixels,
+                                            }))), 2000);
+                                        tiled.drawPipelineSpec(trace, spec, target, {
+                                            cacheEnabled: true, width, height,
+                                            webGLEnabled: false, textCacheEnabled,
+                                            onUpdate: () => {
+                                                const actual = target.getContext("2d").getImageData(
+                                                    0, 0, target.width, target.height).data;
+                                                maximumDifference = 0;
+                                                differentPixels = 0;
+                                                actual.forEach((value, index) => {
+                                                    const difference = Math.abs(value - expected[index]);
+                                                    maximumDifference = Math.max(maximumDifference, difference);
+                                                    if (difference !== 0 && index % 4 === 0) differentPixels++;
+                                                });
+                                                if (actual.length === expected.length &&
+                                                    actual.every((value, index) => value === expected[index])) {
+                                                    clearTimeout(timer);
+                                                    resolve();
+                                                }
+                                            },
+                                        });
+                                    });
+                                    cases++;
+                                }
+                                finally {
+                                    tiled.clear();
+                                    renderer.releaseCanvasResources();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        finally {
+            if (originalDPR) Object.defineProperty(window, "devicePixelRatio", originalDPR);
+            else delete window.devicePixelRatio;
+        }
+        return {cases};
+    })()`);
+}
+
 async function dropContents(window, contents, fileName, mimeType, verifyProgressBar = false) {
     const encodedContents = contents.toString("base64");
 
@@ -5828,6 +5948,7 @@ const groups = {
     settings: verifySettings,
     files: verifyFiles,
     pixels: verifyNativeTextPixels,
+    "instant-stages": verifyInstantStagePixels,
     performance: verifyPerformance,
 };
 

@@ -541,14 +541,17 @@ export class TiledPipelineRenderer {
         }
         const left = position.x * size / request.metrics.opWidth;
         const right = (position.x + 1) * size / request.metrics.opWidth;
+        // 終了cycleのゼロ長stage名が載る1-cycle枠も、Renderer本体と同じ範囲に含める。
+        const textMargin = request.metrics.canDrawDetailedly && request.metrics.canDrawText &&
+            !request.referenceOnly ? 1 : 0;
         // Renderer本体と同じ命令だけを調べる。ここだけ全命令を走査すると、最縮小域では
         // 1 tileが数万命令を覆い、実描画より空判定の方が大幅に重くなる。
         const step = request.metrics.drawingStep;
         const firstY = getFirstDrawingRow(top, step);
         for (let y = firstY; y <= bottom; y += step) {
             const op = request.metrics.getVisibleOp(y, request.metrics.opResolution);
-            if (op !== undefined && op.retiredCycle !== op.fetchedCycle &&
-                op.retiredCycle >= left && op.fetchedCycle <= right) {
+            if (op !== undefined && (textMargin > 0 || op.retiredCycle !== op.fetchedCycle) &&
+                op.retiredCycle + textMargin >= left && op.fetchedCycle <= right) {
                 return true;
             }
         }

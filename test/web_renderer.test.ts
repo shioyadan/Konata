@@ -5,6 +5,8 @@ import { Dependency, Lane, Op, ParsedTrace, Stage, StageLevelMap } from "../src/
 import { ArrayOpStore } from "../src/core/op_store";
 import { PagedOpStore } from "../src/core/paged_op_store";
 import { CanvasBackend } from "../src/core/canvas_backend";
+import { FileLineReader } from "../src/core/file_line_reader";
+import { OnikiriParser } from "../src/core/onikiri_parser";
 import { getCycleActivity } from "../src/core/cycle_activity_analysis";
 import {
     buildCycleNavigatorData,
@@ -1905,6 +1907,131 @@ test("Web renderer draws stage names and elapsed cycles like the legacy renderer
     assert.ok(gradientPoints.every((value, index) =>
         Math.abs(value - [0, 0.5, 0, 24.5][index]) < 0.00001));
     assert.equal(pipeline.gradients[0]?.stops.length, 2);
+});
+
+test("Web renderer draws same-cycle retire and flush stages as text without changing timing", async () => {
+    for (const cycle of [0, 7]) {
+        for (const flush of [false, true]) {
+            const name = flush ? "F" : "Rt";
+            const file = new File([[
+                "Kanata\t0004", `C\t${cycle}`, "I\t0\t0\t0",
+                `S\t0\t0\t${name}`, `R\t0\t0\t${flush ? 1 : 0}`, "",
+            ].join("\n")], "same-cycle.log");
+            const trace = await new OnikiriParser().parse(new FileLineReader(file));
+            const op = trace.getOp(0)!;
+            const stage = op.lanes[0]!.stages[0];
+            const before = JSON.stringify(op);
+            assert.equal(op.fetchedCycle, cycle);
+            assert.equal(op.retiredCycle, cycle);
+            assert.equal(stage.startCycle, cycle);
+            assert.equal(stage.endCycle, cycle);
+            for (const theme of ["light", "dark"] as const) {
+                for (const zoomLevel of [-1, 0, 0.5]) {
+                    const spec = {
+                        ...DEFAULT_KONATA_RENDER_SPEC, theme, zoomLevel,
+                        position: [cycle, 0] as const,
+                    };
+                    const pipeline = createRecordedContext();
+                    const renderer = new KonataRenderer();
+                    renderer.drawPipelineSpec(trace, spec, createCanvas(pipeline.context));
+                    // 通常の1-cycle stageと同じ文字配置だが、背景・枠・flush overlayは描かない。
+                    const reference = createTrace();
+                    reference.op.fetchedCycle = cycle;
+                    reference.op.retiredCycle = cycle + 1;
+                    reference.stage.startCycle = cycle;
+                    reference.stage.endCycle = cycle + 1;
+                    reference.stage.name = name;
+                    const normal = createRecordedContext();
+                    renderer.drawPipelineSpec(reference.trace, spec, createCanvas(normal.context));
+                    assert.deepEqual(pipeline.fillTexts, normal.fillTexts);
+                    assert.deepEqual(pipeline.fillTexts.map(([text]) => text), [name]);
+                    assert.deepEqual(pipeline.gradients, []);
+                    assert.deepEqual(pipeline.strokeRects, []);
+                    assert.ok(pipeline.fillRects.every(([x, , width]) => x === 0 && width === 320));
+                    assert.match(new KonataRenderMetrics(trace, spec).getPipelineToolTipText(16, 1)!,
+                        new RegExp(`${name}\\[0\\]`));
+                }
+            }
+            assert.equal(JSON.stringify(op), before);
+        }
+    }
+});
+
+test("Web renderer retains terminal zero-length text at a fractional viewport boundary", () => {
+    const { trace, op, stage } = createTrace();
+    // 命令の寿命が正でも、最終stageだけゼロ長になり得る。
+    stage.endCycle = op.retiredCycle;
+    const terminal = Object.assign(new Stage(), {
+        name: "Rt", startCycle: op.retiredCycle, endCycle: op.retiredCycle,
+    });
+    op.lanes[0]!.stages.push(terminal);
+    const spec = { ...DEFAULT_KONATA_RENDER_SPEC, position: [9.5, 0] as const };
+    const pipeline = createRecordedContext();
+    new KonataRenderer().drawPipelineSpec(trace, spec, createCanvas(pipeline.context));
+    assert.deepEqual(pipeline.fillTexts, [["Rt", -7, 17.5]]);
+    assert.deepEqual(pipeline.gradients, []);
+    assert.deepEqual(pipeline.strokeRects, []);
+
+    for (const position of [[10.1, 0], [-10, 0]] as const) {
+        const offscreen = createRecordedContext();
+        new KonataRenderer().drawPipelineSpec(trace, { ...spec, position },
+            createCanvas(offscreen.context));
+        assert.deepEqual(offscreen.fillTexts, []);
+        assert.deepEqual(offscreen.gradients, []);
+    }
+});
+
+test("Web renderer keeps zero-length stages invisible without text and in reference layers", () => {
+    const { trace, op, stage } = createTrace();
+    op.fetchedCycle = op.retiredCycle = stage.startCycle = stage.endCycle = 7;
+    op.flush = true;
+    const specs = [
+        { ...DEFAULT_KONATA_RENDER_SPEC, textLabelMinimumLaneHeight: 100 },
+        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 2 },
+        { ...DEFAULT_KONATA_RENDER_SPEC, zoomLevel: 16 },
+        { ...DEFAULT_KONATA_RENDER_SPEC, stageDetailMinimumLaneHeight: 100 },
+    ];
+    for (const spec of specs) {
+        for (const referenceOnly of [false, true]) {
+            const pipeline = createRecordedContext();
+            new KonataRenderer().drawPipelineSpec(trace, spec, createCanvas(pipeline.context),
+                undefined, undefined, undefined, referenceOnly);
+            assert.deepEqual(pipeline.fillTexts, []);
+            assert.deepEqual(pipeline.gradients, []);
+            assert.deepEqual(pipeline.strokeRects, []);
+            // overviewやflush overlayへfallbackして偽の滞在時間を描かない。
+            assert.ok(pipeline.fillRects.every(([x, , width]) => x === 0 && width === 320));
+        }
+    }
+    const reference = createRecordedContext();
+    new KonataRenderer().drawPipelineSpec(trace, DEFAULT_KONATA_RENDER_SPEC,
+        createCanvas(reference.context), undefined, undefined, undefined, true);
+    assert.deepEqual(reference.fillTexts, []);
+    assert.deepEqual(reference.fillRects, []);
+});
+
+test("Web renderer skips replaced zero-length stages and places terminal text in split lanes", () => {
+    const { trace, op, stage } = createTrace();
+    stage.startCycle = stage.endCycle = 9;
+    const terminal = Object.assign(new Stage(), { name: "Rt", startCycle: 9, endCycle: 9 });
+    op.lanes[0]!.stages.push(terminal);
+    const lane = new Lane();
+    const laneID = trace.stageLevelMap.getOrCreateLaneID("1");
+    lane.stages.push(Object.assign(new Stage(), { name: "Wb", startCycle: 9, endCycle: 9 }));
+    op.lanes[laneID] = lane;
+    for (const fixOpHeight of [false, true]) {
+        const spec = {
+            ...DEFAULT_KONATA_RENDER_SPEC, splitLanes: true, fixOpHeight,
+            textLabelMinimumLaneHeight: 0,
+        };
+        const pipeline = createRecordedContext();
+        new KonataRenderer().drawPipelineSpec(trace, spec, createCanvas(pipeline.context));
+        assert.deepEqual(pipeline.fillTexts.map(([text]) => text), ["Rt", "Wb"]);
+        assert.equal(pipeline.fillTexts[1][2] - pipeline.fillTexts[0][2],
+            new KonataRenderMetrics(trace, spec).laneHeight);
+        assert.deepEqual(pipeline.gradients, []);
+        assert.deepEqual(pipeline.strokeRects, []);
+    }
 });
 
 test("Web renderer skips elapsed-cycle text left of a long stage viewport", () => {

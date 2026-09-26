@@ -995,13 +995,17 @@ export class KonataRenderer {
         context: CanvasDrawContext,
     ): boolean {
         const top = logicalY * this.metrics_.opHeight + KonataRenderer.PIXEL_ADJUST;
-        if (op.retiredCycle < startCycle) {
+        const detailed = this.metrics_.canDrawDetailedly;
+        // 終了cycleのゼロ長stage名は通常と同じ1-cycle枠へ置く。左端に一部だけ
+        // 残った文字も描けるよう、tileの空判定と同じ余白を持たせる。
+        const textMargin = detailed && this.canDrawText_ && !this.renderingReference_ ? 1 : 0;
+        if (op.retiredCycle + textMargin < startCycle) {
             return true;
         }
         if (endCycle < op.fetchedCycle) {
             return false;
         }
-        if (op.retiredCycle === op.fetchedCycle) {
+        if (op.retiredCycle === op.fetchedCycle && textMargin === 0) {
             return true;
         }
 
@@ -1012,7 +1016,6 @@ export class KonataRenderer {
         const left = leftCycle * this.metrics_.opWidth + KonataRenderer.PIXEL_ADJUST;
         let right = rightCycle * this.metrics_.opWidth + KonataRenderer.PIXEL_ADJUST;
 
-        const detailed = this.metrics_.canDrawDetailedly;
         if (detailed && this.canDrawFrame_) {
             context.strokeStyle = this.style_.pipelinePane.borderColor;
         }
@@ -1075,16 +1078,20 @@ export class KonataRenderer {
 
         for (const stage of lane.stages) {
             const stageEndCycle = stage.endCycle === 0 ? op.retiredCycle : stage.endCycle;
-            if (stageEndCycle < startCycle) {
+            const zeroLength = stageEndCycle === stage.startCycle;
+            // 同cycleに次のstageへ置き換わるものは従来どおり省く。retire／flush時に
+            // 開始した末尾stageだけを、時間幅のないイベントとして文字で残す。
+            if (zeroLength && (stage !== lane.stages[lane.stages.length - 1] ||
+                stage.startCycle !== op.retiredCycle ||
+                this.renderingReference_ || !this.canDrawText_)) {
+                continue;
+            }
+            if (stageEndCycle + (zeroLength ? 1 : 0) < startCycle) {
                 continue;
             }
             if (endCycle < stage.startCycle) {
                 break;
             }
-            if (stageEndCycle === stage.startCycle) {
-                continue;
-            }
-
             const logicalLeft = Math.max(startCycle - 1, stage.startCycle) - startCycle;
             const logicalRight = Math.min(endCycle + 1, stageEndCycle) - startCycle;
             const left = logicalLeft * this.metrics_.opWidth + KonataRenderer.PIXEL_ADJUST;
@@ -1095,19 +1102,21 @@ export class KonataRenderer {
             // stageの開始色と終了色を渡し、最小寸法を保ってgradientを描く。
             right = Math.max(right, left + 1);
             rectHeight = Math.max(rectHeight, 0.5);
-            context.fillVerticalGradientRect(
-                left,
-                rectTop,
-                right - left,
-                rectHeight,
-                this.getStageColor_(laneID, stage.name, true, op),
-                this.getStageColor_(laneID, stage.name, false, op),
-                this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
-                1 - this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
-            );
+            if (!zeroLength) {
+                context.fillVerticalGradientRect(
+                    left,
+                    rectTop,
+                    right - left,
+                    rectHeight,
+                    this.getStageColor_(laneID, stage.name, true, op),
+                    this.getStageColor_(laneID, stage.name, false, op),
+                    this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
+                    1 - this.metrics_.laneHeightMargin / this.metrics_.laneHeight,
+                );
+            }
             drewStage = true;
 
-            if (!this.renderingReference_ && this.canDrawFrame_) {
+            if (!zeroLength && !this.renderingReference_ && this.canDrawFrame_) {
                 context.lineWidth = Number(this.style_.pipelinePane.borderWeight);
                 context.strokeRect(left, rectTop, right - left, rectHeight);
             }
@@ -1150,7 +1159,7 @@ export class KonataRenderer {
                 context.fillText(stage.name, textLeft + margin, textTop);
             }
 
-            if (!this.renderingReference_ && op.flush) {
+            if (!zeroLength && !this.renderingReference_ && op.flush) {
                 context.fillStyle = this.style_.pipelinePane.flushedRegionColor;
                 context.fillRect(left, rectTop, right - left, rectHeight);
             }
