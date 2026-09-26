@@ -10,7 +10,7 @@ export interface CanvasDrawContext {
     lineWidth: number;
     fillRect(x: number, y: number, width: number, height: number): void;
     strokeRect(x: number, y: number, width: number, height: number): void;
-    fillText(text: string, x: number, baselineY: number): void;
+    fillText(text: string, x: number, baselineY: number, color?: string): void;
     fillVerticalGradientRect(
         x: number,
         y: number,
@@ -58,7 +58,6 @@ class TextAtlas {
     private canvas_: HTMLCanvasElement | null = null;
     private context_: CanvasRenderingContext2D | null = null;
     private font_ = "";
-    private color_ = "";
     private pixelRatio_ = 0;
     private cursorX_ = 0;
     private cursorY_ = 0;
@@ -96,11 +95,13 @@ class TextAtlas {
         if (text.length === 0 || typeof document === "undefined") {
             return null;
         }
-        const context = this.prepare_(font, color, pixelRatio);
+        const context = this.prepare_(font, pixelRatio);
         if (context === null || this.canvas_ === null) {
             return null;
         }
-        return this.entries_.get(text) ?? this.add_(text);
+        // flush文字も同じatlasへ保持し、色の切替で先行commandのUVを無効化しない。
+        const key = `${color}\0${text}`;
+        return this.entries_.get(key) ?? this.add_(text, color, key);
     }
 
     drawEntry(
@@ -140,7 +141,6 @@ class TextAtlas {
         this.canvas_ = null;
         this.context_ = null;
         this.font_ = "";
-        this.color_ = "";
         this.pixelRatio_ = 0;
         this.entries_.clear();
         this.revision_++;
@@ -149,7 +149,6 @@ class TextAtlas {
 
     private prepare_(
         font: string,
-        color: string,
         pixelRatio: number,
     ): CanvasRenderingContext2D | null {
         if (!Number.isFinite(pixelRatio) || pixelRatio <= 0) {
@@ -165,9 +164,8 @@ class TextAtlas {
         if (context === null) {
             return null;
         }
-        if (this.font_ !== font || this.color_ !== color || this.pixelRatio_ !== pixelRatio) {
+        if (this.font_ !== font || this.pixelRatio_ !== pixelRatio) {
             this.font_ = font;
-            this.color_ = color;
             this.pixelRatio_ = pixelRatio;
             this.clear_();
         }
@@ -183,7 +181,6 @@ class TextAtlas {
         context.clearRect(0, 0, TextAtlas.WIDTH, TextAtlas.HEIGHT);
         context.setTransform(this.pixelRatio_, 0, 0, this.pixelRatio_, 0, 0);
         context.font = this.font_;
-        context.fillStyle = this.color_;
         context.textBaseline = "alphabetic";
         this.entries_.clear();
         this.cursorX_ = 0;
@@ -193,7 +190,7 @@ class TextAtlas {
         this.generation_++;
     }
 
-    private add_(text: string): AtlasEntry | null {
+    private add_(text: string, color: string, key: string): AtlasEntry | null {
         const context = this.context_;
         if (context === null) {
             return null;
@@ -243,8 +240,9 @@ class TextAtlas {
         };
         const baselineX = (this.cursorX_ - minX) / ratio;
         const baselineY = (this.cursorY_ - minY) / ratio;
+        context.fillStyle = color;
         context.fillText(text, baselineX, baselineY);
-        this.entries_.set(text, entry);
+        this.entries_.set(key, entry);
         this.cursorX_ += width;
         this.rowHeight_ = Math.max(this.rowHeight_, height);
         this.revision_++;
@@ -456,17 +454,17 @@ export class CanvasBackend implements CanvasDrawContext {
         context.imageSmoothingEnabled = atlasScale < 1;
     }
 
-    fillText(text: string, x: number, baselineY: number): void {
+    fillText(text: string, x: number, baselineY: number, color = this.textColor_): void {
         const context = this.textContext_;
         if (context === null) {
             return;
         }
         // pipeline本体は矩形と同じ列へ積む。別Canvasの文字はatlasから直接転送する。
         if (this.targetContext_ === context) {
-            this.queueText_(text, x, baselineY);
+            this.queueText_(text, x, baselineY, color);
             return;
         }
-        this.drawText_(context, text, x, baselineY);
+        this.drawText_(context, text, x, baselineY, color);
     }
 
     fillRect(x: number, y: number, width: number, height: number): void {
@@ -677,7 +675,7 @@ export class CanvasBackend implements CanvasDrawContext {
         this.mergeableFillRight_ = strokeWidth === 0 ? x + width : null;
     }
 
-    private queueText_(text: string, x: number, baselineY: number): void {
+    private queueText_(text: string, x: number, baselineY: number, color: string): void {
         this.mergeableFillRight_ = null;
         if (this.count_ >= this.capacity_) {
             this.grow_();
@@ -690,7 +688,7 @@ export class CanvasBackend implements CanvasDrawContext {
         const entry = this.textCacheEnabled_ ? this.textAtlas_.getEntry(
             text,
             this.textFont_,
-            this.textColor_,
+            color,
             this.textPixelRatio_,
         ) : null;
         if (entry === null || !Number.isFinite(this.textScale_) || this.textScale_ <= 0) {
@@ -732,8 +730,9 @@ export class CanvasBackend implements CanvasDrawContext {
             this.textureRects_[offset + 2] = entry.sourceWidth / this.textAtlas_.width;
             this.textureRects_[offset + 3] = entry.sourceHeight / this.textAtlas_.height;
         }
-        this.styleIndices_[textOffset] = 0;
-        this.styleIndices_[textOffset + 1] = 0;
+        const styleIndex = this.getStyleIndex_(color);
+        this.styleIndices_[textOffset] = styleIndex;
+        this.styleIndices_[textOffset + 1] = styleIndex;
         this.strokeWidths_[index] = -1;
         this.textPositions_[textOffset] = x;
         this.textPositions_[textOffset + 1] = baselineY;
@@ -747,11 +746,12 @@ export class CanvasBackend implements CanvasDrawContext {
         text: string,
         x: number,
         baselineY: number,
+        color: string,
     ): void {
         const entry = this.textCacheEnabled_ ? this.textAtlas_.getEntry(
             text,
             this.textFont_,
-            this.textColor_,
+            color,
             this.textPixelRatio_,
         ) : null;
         if (entry !== null && Number.isFinite(this.textScale_) && this.textScale_ > 0) {
@@ -759,7 +759,7 @@ export class CanvasBackend implements CanvasDrawContext {
             return;
         }
         context.font = this.textDisplayFont_;
-        context.fillStyle = this.textColor_;
+        context.fillStyle = color;
         context.textBaseline = "alphabetic";
         context.fillText(text, x, baselineY);
     }
@@ -867,6 +867,7 @@ export class CanvasBackend implements CanvasDrawContext {
                         text,
                         this.textPositions_[styleOffset],
                         this.textPositions_[styleOffset + 1],
+                        this.styles_[topStyleIndex],
                     );
                 }
                 // 直接fillTextへfallbackした場合に変更されるCanvas stateを次の矩形で再設定する。

@@ -52,6 +52,7 @@ interface RecordedGradient {
 
 interface RecordedContext {
     readonly fillTexts: Array<[string, number, number]>;
+    readonly textColors: string[];
     readonly fillRects: Array<[number, number, number, number]>;
     readonly fillStyles: string[];
     readonly fillAlphas: number[];
@@ -71,6 +72,7 @@ interface RecordedContext {
 
 function createRecordedContext(): RecordedContext {
     const fillTexts: Array<[string, number, number]> = [];
+    const textColors: string[] = [];
     const fillRects: Array<[number, number, number, number]> = [];
     const fillStyles: string[] = [];
     const fillAlphas: number[] = [];
@@ -145,6 +147,7 @@ function createRecordedContext(): RecordedContext {
         fillText(text: string, x: number, y: number) {
             commands.push(`text:${text}`);
             fillTexts.push([text, x, y]);
+            textColors.push(String(this.fillStyle));
         },
         measureText(text: string) {
             return { width: text.length * 6 };
@@ -161,6 +164,7 @@ function createRecordedContext(): RecordedContext {
     } as unknown as CanvasRenderingContext2D;
     return {
         fillTexts,
+        textColors,
         fillRects,
         fillStyles,
         fillAlphas,
@@ -1944,6 +1948,10 @@ test("Web renderer draws same-cycle retire and flush stages as text without chan
                     const normal = createRecordedContext();
                     renderer.drawPipelineSpec(reference.trace, spec, createCanvas(normal.context));
                     assert.deepEqual(pipeline.fillTexts, normal.fillTexts);
+                    assert.deepEqual(normal.textColors, [theme === "dark" ? "#f0f0f0" : "#444444"]);
+                    assert.deepEqual(pipeline.textColors, flush
+                        ? [theme === "dark" ? "#787878" : "#292929"]
+                        : normal.textColors);
                     assert.deepEqual(pipeline.fillTexts.map(([text]) => text), [name]);
                     assert.deepEqual(pipeline.gradients, []);
                     assert.deepEqual(pipeline.strokeRects, []);
@@ -2705,6 +2713,58 @@ test("Canvas backend aligns cached text to device pixels only at native text sca
         else Reflect.deleteProperty(globalThis, "document");
         if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
         else Reflect.deleteProperty(globalThis, "window");
+    }
+});
+
+test("Canvas backend preserves per-text colors without rebuilding the atlas", () => {
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const atlas = createRecordedContext();
+    Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: { createElement: () => createCanvas(atlas.context) },
+    });
+    try {
+        for (const cached of [false, true]) {
+            for (const queued of [false, true]) {
+                const recorded = createRecordedContext();
+                const blits: number[][] = [];
+                recorded.context.drawImage = ((...args: unknown[]) => {
+                    blits.push(args.slice(1) as number[]);
+                }) as CanvasRenderingContext2D["drawImage"];
+                const backend = new CanvasBackend();
+                const clearsBefore = atlas.clearRects.length;
+                const glyphsBefore = atlas.fillTexts.length;
+                backend.setTextStyle(recorded.context, "normal", 14, "monospace", "#f0f0f0", 1, cached);
+                for (let frame = 0; frame < 2; frame++) {
+                    if (queued) backend.begin(createCanvas(recorded.context), recorded.context, 320, 96, false);
+                    backend.fillText("F", 0, 18);
+                    backend.fillText("F", 32, 18, "#787878");
+                    backend.fillText("F", 64, 18);
+                    if (queued) backend.end();
+                }
+                if (cached) {
+                    assert.deepEqual(recorded.fillTexts, []);
+                    assert.equal(atlas.clearRects.length - clearsBefore, 1);
+                    assert.equal(atlas.fillTexts.length - glyphsBefore, 2);
+                    assert.deepEqual(atlas.textColors.slice(glyphsBefore), ["#f0f0f0", "#787878"]);
+                    assert.equal(blits.length, 6);
+                    const sources = blits.map((blit) => blit.slice(0, 4));
+                    assert.notDeepEqual(sources[0], sources[1]);
+                    assert.deepEqual(sources[0], sources[2]);
+                    assert.deepEqual(sources.slice(0, 3), sources.slice(3));
+                }
+                else {
+                    assert.deepEqual(recorded.textColors,
+                        ["#f0f0f0", "#787878", "#f0f0f0", "#f0f0f0", "#787878", "#f0f0f0"]);
+                    assert.equal(atlas.fillTexts.length, glyphsBefore);
+                }
+                backend.dispose();
+            }
+        }
+    }
+    finally {
+        if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+        else Reflect.deleteProperty(globalThis, "document");
     }
 });
 

@@ -1156,7 +1156,10 @@ export class KonataRenderer {
                     0,
                     (this.metrics_.opWidth - stage.name.length * this.stageFontSize_ / 2) / 2,
                 );
-                context.fillText(stage.name, textLeft + margin, textTop);
+                // ゼロ長stageへ矩形overlayを置くと偽の滞在時間に見えるため、
+                // flush時は文字自体を通常のflush overlay相当の色へ落とす。
+                context.fillText(stage.name, textLeft + margin, textTop,
+                    zeroLength && op.flush ? this.style_.pipelinePane.flushedFontColor : undefined);
             }
 
             if (!zeroLength && !this.renderingReference_ && op.flush) {

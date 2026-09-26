@@ -63,6 +63,7 @@ async function verifyNativeTextPixels(window) {
         });
         let cases = 0;
         let maximumAlphaDifference = 0;
+        let maximumColorDifference = 0;
         const backend = new CanvasBackend();
         try {
             for (const ratio of [1, 1.25, 1.3, 1.5, 2]) {
@@ -76,14 +77,18 @@ async function verifyNativeTextPixels(window) {
                 reference.height = target.height;
                 const referenceContext = reference.getContext("2d");
                 referenceContext.imageSmoothingEnabled = false;
-                const labels = [["F", 12, 45], ["10", 75, 90], ["Mt", 145, 120]];
+                // 同じ文字の通常色／flush色を混在させ、atlas切替や色の漏れも検出する。
+                const labels = [
+                    ["F", 12, 45, undefined], ["F", 75, 90, "#787878"],
+                    ["10", 145, 120, "#292929"], ["Mt", 200, 60, undefined],
+                ];
                 for (const scale of [1, 1.5, 2]) {
                     context.setTransform(ratio, 0, 0, ratio, 0, 0);
                     backend.setTextStyle(context, "normal", 14, "monospace", "#ffffff", scale, true);
                     // 整数物理位置での転写からsource画像とoffsetを得て、基準像を作る。
                     // 製品に診断APIを設けず、Canvas APIの呼び出しだけを観測する。
                     warmupBlits = [];
-                    for (const [text] of labels) backend.fillText(text, -1000, -1000);
+                    for (const [text, , , color] of labels) backend.fillText(text, -1000, -1000, color);
                     const blits = warmupBlits;
                     warmupBlits = null;
                     if (blits.length !== labels.length) throw new Error("Text atlas blits were not captured.");
@@ -109,8 +114,8 @@ async function verifyNativeTextPixels(window) {
                                     backend.fillText("F", -1000, -1000);
                                 }
                             }
-                            for (const [text, px, py] of labels) {
-                                backend.fillText(text, (px + phase) / ratio, (py + phase) / ratio);
+                            for (const [text, px, py, color] of labels) {
+                                backend.fillText(text, (px + phase) / ratio, (py + phase) / ratio, color);
                             }
                             if (mode !== "immediate") backend.end();
                             if (drawCalls - callsBefore !== (mode === "webgl" ? 1 : 0)) {
@@ -119,13 +124,21 @@ async function verifyNativeTextPixels(window) {
                             const actual = context.getImageData(0, 0, target.width, target.height).data;
                             let ink = 0;
                             let difference = 0;
+                            let colorDifference = 0;
                             for (let index = 3; index < actual.length; index += 4) {
                                 ink += expected[index];
                                 difference = Math.max(difference, Math.abs(actual[index] - expected[index]));
+                                // 半透明画素のunpremultiply丸めを除き、実際に合成される色を比較する。
+                                for (let channel = 1; channel <= 3; channel++) {
+                                    colorDifference = Math.max(colorDifference, Math.abs(
+                                        actual[index - channel] * actual[index] / 255 -
+                                        expected[index - channel] * expected[index] / 255));
+                                }
                             }
                             maximumAlphaDifference = Math.max(maximumAlphaDifference, difference);
-                            if (ink === 0 || difference > 1) {
-                                throw new Error("Native text pixels differ: " + JSON.stringify({ratio, scale, phase, mode, difference}));
+                            maximumColorDifference = Math.max(maximumColorDifference, colorDifference);
+                            if (ink === 0 || difference > 1 || colorDifference > 1) {
+                                throw new Error("Native text pixels differ: " + JSON.stringify({ratio, scale, phase, mode, difference, colorDifference}));
                             }
                             cases++;
                         }
@@ -139,7 +152,7 @@ async function verifyNativeTextPixels(window) {
             if (originalDPR) Object.defineProperty(window, "devicePixelRatio", originalDPR);
             else delete window.devicePixelRatio;
         }
-        return {cases, maximumAlphaDifference};
+        return {cases, maximumAlphaDifference, maximumColorDifference};
     })()`);
 }
 
