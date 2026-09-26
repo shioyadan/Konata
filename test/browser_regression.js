@@ -5979,6 +5979,7 @@ async function run() {
     app.on("window-all-closed", () => {});
     for (const name of names) {
         const started = Date.now();
+        console.log(`Browser regression [${name}] started`);
         const window = new BrowserWindow({
             // Xvfb内でも表示状態にし、中間frameを含めて実描画する。
             show: true,

@@ -70,10 +70,10 @@ serve:
 	$(WEBPACK) serve --mode development
 
 # ビルド方式に依存しないUI・描画の回帰検査を共通化し、developmentとproductionの両方で使う。
-# CIではElectron初回取得と一連のUI検査に30秒以上かかるため、全体には余裕を持たせる。
+# Electron初回取得も制限時間に含まれるため、CIで全groupを検査できる余裕を持たせる。
 browser-regression:
 	ELECTRON_ENABLE_LOGGING=1 KONATA_TEST_WEBGL=1 \
-		dbus-run-session -- xvfb-run -a timeout 90s \
+		dbus-run-session -- xvfb-run -a timeout 300s \
 		$(ELECTRON) test/browser_regression.js --no-sandbox --groups=$(REGRESSION_GROUPS)
 
 # 時間閾値は環境負荷に左右されるため、通常checkとは分けて同じ描画シナリオで測る。
