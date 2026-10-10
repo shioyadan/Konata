@@ -159,4 +159,75 @@ port="$(sed -n 's|^Konata URL: http://127\.0\.0\.1:\([0-9][0-9]*\)/.*|\1|p' "$te
 test -n "$port"
 grep -q "^SSH tunnel: ssh -L $port:127.0.0.1:$port <host>$" "$test_dir/server.out"
 
+# 表示名にURLの特殊文字があっても、指定順の固定slotだけを配信する。
+trace_paths=()
+for i in {1..10}; do
+    trace_path="$test_dir/trace $i #+日本語.log"
+    printf 'trace %s\n' "$i" > "$trace_path"
+    trace_paths+=("$trace_path")
+done
+python3 - "$server_dir/konata.sh" "${trace_paths[@]}" <<'PY'
+import os
+import pathlib
+import select
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+launcher, *paths = sys.argv[1:]
+env = os.environ.copy()
+env.pop("KONATA_PORT", None)
+for count in (1, 2, 10):
+    with subprocess.Popen(
+        [launcher, *paths[:count]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        env=env, start_new_session=True,
+    ) as process:
+        try:
+            assert select.select([process.stdout], [], [], 10)[0], "No launcher URL was printed."
+            line = process.stdout.readline().decode().strip()
+            assert line.startswith("Konata URL: "), line
+            url = urllib.parse.urlsplit(line.removeprefix("Konata URL: "))
+            assert url.hostname == "127.0.0.1" and url.port > 0, url
+            assert urllib.parse.parse_qs(url.fragment)["name"] == [
+                pathlib.Path(p).name for p in paths[:count]
+            ]
+            origin = urllib.parse.urlunsplit((url.scheme, url.netloc, "/", "", ""))
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    with urllib.request.urlopen(origin, timeout=1) as response:
+                        assert response.read() == pathlib.Path(launcher).with_name("index.html").read_bytes()
+                    break
+                except urllib.error.URLError:
+                    assert process.poll() is None and time.monotonic() < deadline, "The trace server did not start."
+                    time.sleep(0.05)
+            for slot, path in enumerate(paths[:count], 1):
+                with urllib.request.urlopen(origin + f"trace{slot}", timeout=2) as response:
+                    assert response.read() == pathlib.Path(path).read_bytes(), f"Incorrect trace{slot}."
+            for unknown in (f"trace{count + 1}", "konata.sh", "../parent%20trace.log"):
+                try:
+                    urllib.request.urlopen(origin + unknown, timeout=2).close()
+                    raise AssertionError(f"Unexpectedly served {unknown}.")
+                except urllib.error.HTTPError as error:
+                    assert error.code == 404, error.code
+        finally:
+            os.killpg(process.pid, signal.SIGINT)
+            try:
+                process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+
+# 上限外はserverを起動せずUsage errorで終了する。
+for args in ([], paths + [paths[0]]):
+    result = subprocess.run([launcher, *args], capture_output=True, timeout=5, env=env)
+    assert result.returncode == 2, result
+    assert b"up to 10 files" in result.stderr, result.stderr
+    assert b"Konata URL:" not in result.stdout, result.stdout
+PY
+
 echo "Konata launcher test passed."

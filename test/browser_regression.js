@@ -1885,23 +1885,16 @@ async function verifyLogPane(window) {
     })()`);
 }
 
-async function verifyRemoteTraceWorkflow(window, webFile) {
-    const traces = new Map([
-        ["trace1", [
+async function verifyRemoteTraceWorkflow(window, webFile, fileNames) {
+    const traces = new Map(fileNames.map((_, index) =>
+        [`trace${index + 1}`, [
             "Kanata\t0004",
-            "I\t0\t10\t0",
+            `I\t0\t${(index + 1) * 10}\t0`,
             "S\t0\t0\tF",
             "C\t1",
             "R\t0\t0\t0",
         ].join("\n")],
-        ["trace2", [
-            "Kanata\t0004",
-            "I\t0\t20\t0",
-            "S\t0\t0\tF",
-            "C\t1",
-            "R\t0\t0\t0",
-        ].join("\n")],
-    ]);
+    ));
     const html = fs.readFileSync(webFile);
     const requests = [];
     const server = http.createServer((request, response) => {
@@ -1934,9 +1927,8 @@ async function verifyRemoteTraceWorkflow(window, webFile) {
         if (address === null || typeof address === "string") {
             throw new Error("The remote trace test server did not start.");
         }
-        await window.loadURL(
-            `http://127.0.0.1:${address.port}/#name=remote-a.log&name=remote-b.log`,
-        );
+        const fragment = new URLSearchParams(fileNames.map((name) => ["name", name]));
+        await window.loadURL(`http://127.0.0.1:${address.port}/#${fragment}`);
         const state = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
             const deadline = performance.now() + 10000;
             const check = () => {
@@ -1946,7 +1938,8 @@ async function verifyRemoteTraceWorkflow(window, webFile) {
                         "Remote trace loading failed."));
                     return;
                 }
-                if (tabs.length === 2 && tabs.every((tab) => tab.dataset.loadState === "ready")) {
+                if (tabs.length === ${fileNames.length} &&
+                    tabs.every((tab) => tab.dataset.loadState === "ready")) {
                     const open = document.querySelector(".open-controls");
                     open?.querySelector(":scope > summary")?.click();
                     const reload = [...(open?.querySelectorAll("button") ?? [])]
@@ -5935,16 +5928,20 @@ async function verifyFiles(window) {
         throw new Error(`Persistent file workflow is incomplete: ${JSON.stringify(persistentFileState)}`);
     }
 
-    const remoteTraceState = await verifyRemoteTraceWorkflow(window, webFile);
-    if (JSON.stringify(remoteTraceState.names) !== JSON.stringify(["remote-a.log", "remote-b.log"]) ||
-        remoteTraceState.activeOpCount !== "1" ||
-        !remoteTraceState.reloadEnabled ||
-        !remoteTraceState.requests.includes("GET /trace1") ||
-        !remoteTraceState.requests.includes("GET /trace2")) {
-        throw new Error(`Remote trace workflow is incomplete: ${JSON.stringify(remoteTraceState)}`);
+    const remoteTraceStates = [];
+    for (const count of [1, 2, 10]) {
+        const names = Array.from({length: count}, (_, index) => `remote ${index + 1} #+日本語.log`);
+        const state = await verifyRemoteTraceWorkflow(window, webFile, names);
+        if (JSON.stringify(state.names) !== JSON.stringify(names) ||
+            state.activeOpCount !== "1" ||
+            !state.reloadEnabled ||
+            names.some((_, index) => !state.requests.includes(`GET /trace${index + 1}`))) {
+            throw new Error(`Remote trace workflow is incomplete: ${JSON.stringify(state)}`);
+        }
+        remoteTraceStates.push(state);
     }
 
-    return {persistentFileState, remoteTraceState};
+    return {persistentFileState, remoteTraceStates};
 }
 
 async function verifyPerformance(window) {

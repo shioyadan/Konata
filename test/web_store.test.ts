@@ -9,7 +9,7 @@ import {
     getVisibilityLevelForMinimumLaneHeight,
 } from "../src/core/konata_renderer";
 import { type Change, Store } from "../src/store";
-import { getRemoteTraceFileNames, pickTraceFileAccess } from "../src/trace_file_access";
+import { getRemoteTraceFileNames, pickTraceFileAccess, remoteTraceFileAccess } from "../src/trace_file_access";
 
 function createTrace(fileName: string): { trace: ParsedTrace; opStore: ArrayOpStore } {
     const op = new Op();
@@ -204,33 +204,48 @@ test("Store handles a file-open request through parsing result actions", async (
     store.dispatch({ type: "STORE_CLOSE" });
 });
 
-test("remote trace fragment accepts at most two display file names", () => {
+test("remote trace fragment accepts at most ten display file names", () => {
     assert.deepEqual(
         getRemoteTraceFileNames("#name=first.log&name=second%20trace.zst"),
         ["first.log", "second trace.zst"],
     );
+    const names = Array.from({ length: 10 }, (_, index) => `trace ${index + 1} #+日本語.log`);
+    for (const count of [1, 2, 3, 10]) {
+        const selected = names.slice(0, count);
+        const fragment = new URLSearchParams(selected.map((name) => ["name", name]));
+        assert.deepEqual(getRemoteTraceFileNames(`#${fragment}`), selected);
+    }
+    const tooMany = new URLSearchParams([...names, "extra.log"].map((name) => ["name", name]));
+    assert.deepEqual(getRemoteTraceFileNames(`#${tooMany}`), []);
+    assert.deepEqual(getRemoteTraceFileNames(""), []);
+    assert.deepEqual(getRemoteTraceFileNames("#name="), []);
     assert.deepEqual(getRemoteTraceFileNames("#name=../secret.log"), []);
     assert.deepEqual(getRemoteTraceFileNames("#name=https%3A%2F%2Fexample.com%2Ftrace.log"), []);
-    assert.deepEqual(getRemoteTraceFileNames("#name=a.log&name=b.log&name=c.log"), []);
+    assert.deepEqual(getRemoteTraceFileNames("#name=dir%5Csecret.log"), []);
+    assert.deepEqual(getRemoteTraceFileNames("#name=trace%00.log"), []);
 });
 
-test("Store streams and reloads same-origin remote traces", async () => {
-    const sources = new Map([
-        ["/viewer/trace1", [
+test("remote trace access accepts only integer slots from one to ten", () => {
+    const pageURL = "http://127.0.0.1:30080/viewer/index.html";
+    for (const slot of [1, 3, 10]) {
+        assert.doesNotThrow(() => remoteTraceFileAccess("trace.log", slot, pageURL));
+    }
+    for (const slot of [0, -1, 11, 1.5, NaN, Infinity]) {
+        assert.throws(() => remoteTraceFileAccess("trace.log", slot, pageURL), /slot is invalid/);
+    }
+});
+
+test("Store streams ten same-origin remote traces in order and reloads the last slot", async () => {
+    const fileNames = Array.from({ length: 10 }, (_, index) => `remote ${index + 1}.log`);
+    const sources = new Map(fileNames.map((_, index) =>
+        [`/viewer/trace${index + 1}`, [
             "Kanata\t0004",
-            "I\t0\t10\t0",
+            `I\t0\t${(index + 1) * 10}\t0`,
             "S\t0\t0\tF",
             "C\t1",
             "R\t0\t0\t0",
         ].join("\n")],
-        ["/viewer/trace2", [
-            "Kanata\t0004",
-            "I\t0\t20\t0",
-            "S\t0\t0\tF",
-            "C\t1",
-            "R\t0\t0\t0",
-        ].join("\n")],
-    ]);
+    ));
     const requests: Array<{ readonly method: string; readonly url: string }> = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (input, init) => {
@@ -252,31 +267,37 @@ test("Store streams and reloads same-origin remote traces", async () => {
     try {
         store.dispatch({
             type: "FILE_REMOTE_OPEN_REQUEST",
-            fileNames: ["remote first.log", "remote-second.log"],
+            fileNames,
             pageURL: "http://127.0.0.1:30080/viewer/index.html#name=ignored.log",
         });
         await waitFor(
-            () => store.getSnapshot().tabs.length === 2 &&
+            () => store.getSnapshot().tabs.length === fileNames.length &&
                 store.getSnapshot().tabs.every((tab) => tab.loadState === "ready"),
             "Remote traces did not finish parsing.",
         );
 
-        const first = store.getSnapshot().tabs.find((tab) => tab.fileName === "remote first.log");
-        assert.ok(first?.kind === "trace");
-        assert.equal(first.trace?.opCount, 1);
-        assert.ok(store.getSnapshot().reloadableTabIDs.has(first.id));
-        assert.ok(requests.some((request) => request.method === "GET" &&
-            request.url === "http://127.0.0.1:30080/viewer/trace1"));
-        assert.ok(requests.some((request) => request.method === "GET" &&
-            request.url === "http://127.0.0.1:30080/viewer/trace2"));
+        const tabs = store.getSnapshot().tabs;
+        assert.deepEqual(tabs.map((tab) => tab.fileName), fileNames);
+        for (const [index, tab] of tabs.entries()) {
+            assert.ok(tab.kind === "trace");
+            assert.equal(tab.trace?.opCount, 1);
+            assert.equal(tab.trace?.getOp(0)?.gid, (index + 1) * 10);
+            assert.ok(store.getSnapshot().reloadableTabIDs.has(tab.id));
+            assert.ok(requests.some((request) => request.method === "GET" &&
+                request.url === `http://127.0.0.1:30080/viewer/trace${index + 1}`));
+        }
 
+        const last = tabs[tabs.length - 1];
+        assert.ok(last?.kind === "trace");
         const requestCount = requests.length;
-        store.dispatch({ type: "FILE_RELOAD_REQUEST", tabID: first.id });
+        store.dispatch({ type: "FILE_RELOAD_REQUEST", tabID: last.id });
         await waitFor(
-            () => first.loadState === "ready" && requests.length >= requestCount + 1,
+            () => last.loadState === "ready" && requests.length >= requestCount + 1,
             "Remote trace did not reload.",
         );
-        assert.equal(store.getSnapshot().tabs.filter((tab) => tab.id === first.id).length, 1);
+        assert.equal(store.getSnapshot().tabs.filter((tab) => tab.id === last.id).length, 1);
+        assert.equal(last.trace?.getOp(0)?.gid, 100);
+        assert.equal(requests[requests.length - 1]?.url, "http://127.0.0.1:30080/viewer/trace10");
     }
     finally {
         store.dispatch({ type: "STORE_CLOSE" });

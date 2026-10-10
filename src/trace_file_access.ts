@@ -50,8 +50,7 @@ export interface TraceFileAccess {
     observe(onChanged: () => void): () => void;
 }
 
-const MAX_REMOTE_TRACE_FILES = 2;
-const REMOTE_TRACE_PATHS = ["trace1", "trace2"] as const;
+const MAX_REMOTE_TRACE_FILES = 10;
 
 function isRemoteTraceFileName(fileName: string): boolean {
     // 表示名はpathに使わないが、本来のbasenameに見えない文字列はUIに入れない。
@@ -110,8 +109,7 @@ class RemoteTraceFileAccess implements TraceFileAccess {
         if (!isRemoteTraceFileName(name)) {
             throw new Error("The remote trace name is invalid.");
         }
-        const path = REMOTE_TRACE_PATHS[slot - 1];
-        if (path === undefined) {
+        if (!Number.isInteger(slot) || slot < 1 || slot > MAX_REMOTE_TRACE_FILES) {
             throw new Error("The remote trace slot is invalid.");
         }
         const page = new URL(pageURL);
@@ -119,7 +117,7 @@ class RemoteTraceFileAccess implements TraceFileAccess {
             throw new Error("Remote traces require an HTTP page.");
         }
         // 表示名からURLを組み立てず、HTMLと同じdirectoryの固定slotだけを参照する。
-        this.url_ = new URL(path, page).toString();
+        this.url_ = new URL(`trace${slot}`, page).toString();
     }
 
     async read(): Promise<TraceInput> {

@@ -26,6 +26,8 @@ size.
     ./konata.sh trace1.log.zst
     ```
 
+    Pass up to 10 trace paths to open them in separate tabs.
+
     The launcher displays:
 
     ```text

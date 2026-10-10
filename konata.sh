@@ -10,7 +10,7 @@ build=0-source-unknown
 
 usage() {
     echo "Usage:" >&2
-    echo "  $0 TRACE1 [TRACE2]" >&2
+    echo "  $0 TRACE [TRACE ...] (up to 10 files)" >&2
     echo "  $0 --update" >&2
     exit 2
 }
@@ -92,8 +92,8 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
     exit 0
 fi
 
-# traceは比較用を含め2 fileまでに限定する。
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+# browser側のremote入力と同じ上限で受け付ける。
+if [ "$#" -lt 1 ] || [ "$#" -gt 10 ]; then
     usage
 fi
 
