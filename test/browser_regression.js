@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const http = require("node:http");
+const net = require("node:net");
 const path = require("node:path");
 const {app, BrowserWindow} = require("electron");
 
@@ -1922,11 +1923,19 @@ async function verifyRemoteTraceWorkflow(window, webFile, fileNames) {
         server.once("error", reject);
         server.listen(0, "127.0.0.1", resolve);
     });
+    let unusedConnection = null;
     try {
         const address = server.address();
         if (address === null || typeof address === "string") {
             throw new Error("The remote trace test server did not start.");
         }
+        // browserの先行接続を模し、HTTP要求のない接続が残っても後始末できることを検査する。
+        // navigation前にserver側の受理を待ち、接続が存在しないまま検査を通過させない。
+        await new Promise((resolve, reject) => {
+            server.once("connection", resolve);
+            unusedConnection = net.createConnection(address.port, "127.0.0.1");
+            unusedConnection.once("error", reject);
+        });
         const fragment = new URLSearchParams(fileNames.map((name) => ["name", name]));
         await window.loadURL(`http://127.0.0.1:${address.port}/#${fragment}`);
         const state = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
@@ -1960,10 +1969,28 @@ async function verifyRemoteTraceWorkflow(window, webFile, fileNames) {
             };
             check();
         })`);
+        if (unusedConnection.destroyed) {
+            throw new Error("The unused test connection closed before server shutdown.");
+        }
         return { ...state, requests };
     }
     finally {
-        await new Promise((resolve) => server.close(resolve));
+        let shutdownTimer;
+        try {
+            await new Promise((resolve, reject) => {
+                // 後始末の停止を全体timeoutまで隠さず、この検査の失敗として報告する。
+                shutdownTimer = setTimeout(() => reject(new Error(
+                    "Timed out while closing the remote trace test server."
+                )), 5000);
+                server.close((error) => error ? reject(error) : resolve());
+                // closeだけでは要求未送信の接続が残る。新規受付を止めてから全接続を閉じる。
+                server.closeAllConnections();
+            });
+        }
+        finally {
+            clearTimeout(shutdownTimer);
+            unusedConnection?.destroy();
+        }
     }
 }
 
