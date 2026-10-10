@@ -1,3 +1,12 @@
+/**
+ * CLIのデータ・応答契約と、1ログに対する対話状態・command処理をまとめる。
+ * 時間窓、倍率、行位置、選択、filter、検索条件と索引を保持し、構造化した結果を返す。
+ * ファイル読込みは注入された関数へ任せ、Nodeの入出力・端末幅・GUIには依存しない。
+ * テキスト表示とJSON Linesの両方がこの同じ処理を使い、表示方式による操作差を作らない。
+ */
+
+// loaderから受け取る記録値。区間は原則[begin, end)、nullは未記録の終了を表す。
+// begin=endのstageは点eventとして扱い、GUIの表示用幅を実際の滞在時間へ持ち込まない。
 export interface CliStage {
     readonly lane: string;
     readonly name: string;
@@ -66,6 +75,7 @@ export type CliResult =
     | { kind: "help"; commands: readonly string[] }
     | { kind: "quit" };
 
+// 出力方式共通の応答。表示結果だけでなく、状態・失敗理由・省略と続きの位置も返す。
 export interface CliResponse {
     schemaVersion: 1;
     command: string;
@@ -177,6 +187,7 @@ function overlaps(start: number, end: number | null, begin: number, finish: numb
 
 type Search = { kind: "label"; text: string } | { kind: "stage"; name: string; minimum: number };
 
+// 読込み済みログと索引を再利用する操作本体。失敗したcommandで直前の調査状態を失わない。
 export class CliSession {
     private trace_: CliTrace | null = null;
     private intervals_: IntervalNode | null = null;
@@ -381,6 +392,8 @@ export class CliSession {
         return this.state_.filters.thread === undefined || this.state_.filters.thread === op.thread;
     }
 
+    // 窓と交差する命令を索引で集め、filter・paginationとセル化を両出力方式へ共通適用する。
+    // 未終了stageの表示には観測範囲を使うが、記録データのend=nullは変更しない。
     private timeline_(response: CliResponse): CliResult {
         const trace = this.requireTrace_();
         const { begin, end } = this.state_.window;

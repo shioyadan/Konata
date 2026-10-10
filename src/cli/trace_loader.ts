@@ -1,3 +1,9 @@
+/**
+ * Nodeのファイル入力と共有Parserを、CLI用の読取り専用データへつなぐ境界。
+ * 展開・行読込み・Kanata解析はcoreを再利用し、絶対cycle変換と整数検査だけをCLI側で行う。
+ * 疎なIDを一時storeへ保持し、EOFの表示用終端を除いて未知の終了をnullとして返す。
+ * sessionの表示位置・検索・出力形式は扱わず、現段階では1ログを全量memoryへ読み込む。
+ */
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";

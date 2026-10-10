@@ -1,3 +1,9 @@
+/**
+ * Node上でCLIを起動する入口。起動引数、stdinの逐次入力、promptと終了コードを扱う。
+ * 対話・batch・JSON Linesは同じCliSessionへcommandを渡し、ここでは入出力方式だけを選ぶ。
+ * JSONはsessionの応答をそのまま1行で出し、通常表示はtext_outputへ委譲する。
+ * ログ解析や検索の規則は持たず、GUI／Electronを起動しない。
+ */
 import process from "node:process";
 import { createInterface } from "node:readline";
 

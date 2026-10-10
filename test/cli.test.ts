@@ -1,3 +1,8 @@
+/**
+ * 小さい既知ログで、共有Parserとの整合、CLIの状態遷移・区間検索・表示契約を検証する。
+ * 最後の子process testは実際の入口を通し、JSON Lines・stderr・EOF・終了コードも確認する。
+ * GUI起動や巨大ログの性能測定は対象にせず、通常の単体testから実行できるようにする。
+ */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
