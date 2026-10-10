@@ -5,6 +5,7 @@ import { Op, ParsedTrace, StageLevelMap } from "../src/core/model";
 import { ArrayOpStore } from "../src/core/op_store";
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
+    DEFAULT_INSTRUCTION_LABEL_SETTINGS,
     DEP_ARROW_TYPE,
     getVisibilityLevelForMinimumLaneHeight,
 } from "../src/core/konata_renderer";
@@ -824,6 +825,7 @@ test("Store searches the currently loaded portion of a trace", () => {
 
 test("Store restores and publishes persistent view settings", () => {
     const store = new Store({
+        instructionLabels: DEFAULT_INSTRUCTION_LABEL_SETTINGS,
         theme: "light",
         webGLEnabled: true,
         tiledRenderingEnabled: true,
@@ -909,6 +911,7 @@ test("Store restores and publishes persistent view settings", () => {
     store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: tab.id, enabled: true });
 
     assert.deepEqual(store.persistedViewSettings, {
+        instructionLabels: DEFAULT_INSTRUCTION_LABEL_SETTINGS,
         theme: "dark",
         webGLEnabled: false,
         tiledRenderingEnabled: false,
@@ -971,6 +974,42 @@ test("Store requires text caching for WebGL without automatically restoring WebG
     restored.dispatch({ type: "KONATA_RESTORE_VIEW_DEFAULTS" });
     assert.equal(restored.getSnapshot().settings.webGLEnabled, true);
     assert.equal(restored.getSnapshot().settings.textCacheEnabled, true);
+    restored.dispatch({ type: "STORE_CLOSE" });
+    store.dispatch({ type: "STORE_CLOSE" });
+});
+
+test("Store shares and restores instruction labels across existing, new, and comparison tabs", () => {
+    const store = new Store();
+    const tabs = ["first.log", "second.log"].map((fileName) => {
+        store.dispatch({ type: "FILE_OPEN", fileName });
+        const tab = store.activeTab!;
+        store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id, trace: createTrace(fileName).trace });
+        return tab;
+    });
+    store.dispatch({ type: "COMPARISON_OPEN", baselineTabID: tabs[0].id, candidateTabID: tabs[1].id });
+    const comparison = store.activeTab!;
+    assert.equal(comparison.kind, "comparison");
+    const changes: Change[] = [];
+    store.subscribeChange((change) => changes.push(change));
+    const labels = { ...DEFAULT_INSTRUCTION_LABEL_SETTINGS, serialID: false };
+    store.dispatch({ type: "KONATA_SET_INSTRUCTION_LABELS", settings: labels });
+    store.dispatch({ type: "FILE_OPEN", fileName: "third.log" });
+    for (const tab of [...tabs, comparison, store.activeTab!]) {
+        assert.deepEqual(tab.renderSpec.instructionLabels, labels);
+        if (tab.kind === "comparison") assert.deepEqual(tab.baselineRenderSpec.instructionLabels, labels);
+    }
+    assert.ok(changes.some((change) => change.type === "VIEW_SETTINGS_UPDATE"));
+    assert.ok(changes.some((change) => change.type === "PANE_CONTENT_UPDATE" && change.tabID === null));
+    const restored = new Store(store.persistedViewSettings);
+    assert.deepEqual(restored.getSnapshot().settings.instructionLabels, labels);
+    store.dispatch({ type: "KONATA_RESTORE_VIEW_DEFAULTS" });
+    assert.deepEqual(store.persistedViewSettings.instructionLabels, DEFAULT_INSTRUCTION_LABEL_SETTINGS);
+    for (const tab of [...tabs, comparison]) {
+        assert.deepEqual(tab.renderSpec.instructionLabels, DEFAULT_INSTRUCTION_LABEL_SETTINGS);
+        if (tab.kind === "comparison") {
+            assert.deepEqual(tab.baselineRenderSpec.instructionLabels, DEFAULT_INSTRUCTION_LABEL_SETTINGS);
+        }
+    }
     restored.dispatch({ type: "STORE_CLOSE" });
     store.dispatch({ type: "STORE_CLOSE" });
 });

@@ -1645,6 +1645,54 @@ button:disabled {
     width: min(26rem, 100%);
 }
 
+.instruction-label-dialog {
+    width: min(32rem, calc(100% - 2rem));
+    overflow: auto;
+}
+
+.instruction-label-dialog::backdrop {
+    background: rgb(8 10 14 / 66%);
+}
+
+.instruction-label-dialog p {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.instruction-label-dialog footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.instruction-label-fields {
+    display: grid;
+    gap: 0.55rem;
+    margin: 0;
+    border: 1px solid #657080;
+    border-radius: var(--ui-control-radius);
+}
+
+.instruction-label-fields label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.instruction-label-preview {
+    min-width: 0;
+    font-size: 0.85rem;
+}
+
+.instruction-label-preview pre {
+    padding: 0.6rem;
+    margin: 0.35rem 0;
+    border: 1px solid #657080;
+    border-radius: var(--ui-control-radius);
+    overflow: auto;
+}
+
 .shortcuts-dialog {
     width: min(32rem, 100%);
 }

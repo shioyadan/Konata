@@ -5753,7 +5753,130 @@ async function verifyRendering(window) {
     return {tileReuseState, textAtlasState, webGLState};
 }
 
+async function verifyInstructionLabels(window) {
+    await dropFixture(window, plainFixture, "text/plain");
+    await window.webContents.executeJavaScript(`(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const button = (root, text) => [...root.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+        document.querySelector('.view-controls').open = true;
+        document.querySelector('.advanced-settings').open = true;
+        button(document.querySelector('.advanced-settings'), 'Instruction labels…').click();
+        await frame();
+        const dialog = document.querySelector('.instruction-label-dialog');
+        const fields = [...dialog.querySelectorAll('input[type="checkbox"]')];
+        if (!dialog.matches(':modal') || document.activeElement !== fields[0] ||
+            dialog.querySelector('select') !== null || fields.length !== 5 || fields.some(input => !input.checked) ||
+            dialog.querySelectorAll('pre').length !== 1 ||
+            dialog.querySelector('pre').textContent !== '42: s100 (t1: r30): add x1, x2, x3') {
+            throw new Error('Instruction label fields dialog failed.');
+        }
+        ${METHOD_OBSERVER_HELPER}
+        const texts = [];
+        observeMethod(CanvasRenderingContext2D.prototype, 'fillText', function(args) {
+            if (this.canvas.getAttribute('aria-label') === 'Instruction labels canvas') texts.push(args[0]);
+        });
+        try {
+            fields[2].click();
+            await frame();
+            texts.length = 0;
+            fields[3].click();
+            await frame();
+            if (texts.length === 0 || !texts.every(t => t.includes(': s') && !t.includes('(t') && !t.includes('(r'))) {
+                throw new Error('Custom labels were not drawn immediately: ' + JSON.stringify(texts));
+            }
+            // Serial IDだけを残し、不要なseparatorも背景の操作も入らないことを確認する。
+            fields[0].click();
+            await frame();
+            texts.length = 0;
+            fields[4].click();
+            await frame();
+            if (texts.length === 0 || !texts.every(t => /^s[0-9]+$/.test(t)) ||
+                dialog.querySelector('pre').textContent !== 's100') {
+                throw new Error('Serial-only labels or preview failed: ' + JSON.stringify(texts));
+            }
+            const zoom = document.querySelector('.zoom-controls output').textContent;
+            fields[1].dispatchEvent(new WheelEvent('wheel', {bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100}));
+            await frame();
+            if (document.querySelector('.zoom-controls output').textContent !== zoom) {
+                throw new Error('The label dialog changed pipeline zoom.');
+            }
+            button(dialog, 'Close').click();
+            await frame();
+            if (document.activeElement !== document.querySelector('.view-controls > summary')) {
+                throw new Error('Closing instruction labels did not restore View focus.');
+            }
+        } finally { restoreObservedMethods(); }
+    })()`);
+    await window.loadFile(webFile);
+    await dropFixture(window, plainFixture, "text/plain");
+    const rightClickState = await window.webContents.executeJavaScript(`(() => {
+        const canvas = document.querySelector('canvas[aria-label="Instruction labels canvas"]');
+        const rect = canvas.getBoundingClientRect();
+        // 端に重なるNavigatorのresize領域を避け、Canvas自体へ実入力を送る。
+        const x = Math.round(rect.right - 12), y = Math.round(rect.bottom - 12);
+        if (document.elementFromPoint(x, y) !== canvas) throw new Error('Label right-click target is obscured.');
+        return {x, y,
+            before: document.querySelector('.pipeline-pane canvas').toDataURL()};
+    })()`);
+    for (const type of ["mouseDown", "mouseUp"]) {
+        window.webContents.sendInputEvent({type, button: "right", clickCount: 1,
+            x: rightClickState.x, y: rightClickState.y});
+    }
+    await waitForViewAnimation(window, 100);
+    await window.webContents.executeJavaScript(`(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await frame();
+        const menu = document.querySelector('[role="menu"][aria-label="Instruction label actions"]');
+        if (!menu || !menu.contains(document.activeElement) || menu.getBoundingClientRect().bottom > innerHeight) {
+            throw new Error('Label context menu placement or focus failed: ' + JSON.stringify({
+                menu: menu?.outerHTML, active: document.activeElement?.outerHTML,
+                bounds: menu?.getBoundingClientRect(), height: innerHeight,
+            }));
+        }
+        menu.querySelector('button').click();
+        await frame();
+        const dialog = document.querySelector('.instruction-label-dialog');
+        const stored = JSON.parse(localStorage.getItem('konata.viewSettings')).instructionLabels;
+        if (!dialog.matches(':modal') || dialog.querySelector('select') !== null ||
+            dialog.querySelector('pre').textContent !== 's100' || !stored.serialID ||
+            stored.rowNumber || stored.labelText || stored.threadID || stored.retireID || 'mode' in stored ||
+            [...dialog.querySelectorAll('input')].some((input, index) => input.checked !== (index === 1))) {
+            throw new Error('Instruction labels were not restored.');
+        }
+        if (document.querySelector('.pipeline-pane canvas').toDataURL() !== ${JSON.stringify(rightClickState.before)}) {
+            throw new Error('Right-clicking a label moved the pipeline.');
+        }
+    })()`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await window.webContents.executeJavaScript(`(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await frame();
+        const canvas = document.querySelector('canvas[aria-label="Instruction labels canvas"]');
+        if (document.querySelector('.instruction-label-dialog') !== null || document.activeElement !== canvas) {
+            throw new Error('Escape did not close instruction labels or restore label focus.');
+        }
+        canvas.dispatchEvent(new KeyboardEvent('keydown', {key: 'F10', shiftKey: true, bubbles: true, cancelable: true}));
+        await frame();
+        document.querySelector('[role="menu"] button').click();
+        await frame();
+        const dialog = document.querySelector('.instruction-label-dialog');
+        [...dialog.querySelectorAll('button')].find(b => b.textContent === 'Restore defaults').click();
+        await frame();
+        const stored = JSON.parse(localStorage.getItem('konata.viewSettings')).instructionLabels;
+        if (dialog.querySelector('select') !== null ||
+            [...dialog.querySelectorAll('input')].some(input => !input.checked) ||
+            dialog.querySelector('pre').textContent !== '42: s100 (t1: r30): add x1, x2, x3' ||
+            Object.keys(stored).length !== 5 || Object.values(stored).some(value => value !== true)) {
+            throw new Error('Instruction label defaults were not restored.');
+        }
+        dialog.querySelector('button[aria-label="Close instruction labels"]').click();
+        await frame();
+    })()`);
+}
+
 async function verifySettings(window) {
+    await verifyInstructionLabels(window);
     await prepareViewSettings(window, false);
     await dropFixture(window, plainFixture, "text/plain");
     // 非既定のthemeとWebGL設定を保存し、Tab表示だけのlane分割は保存値へ混ぜない。

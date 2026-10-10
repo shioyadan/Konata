@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DEFAULT_CUSTOM_COLOR_SCHEME } from "../src/core/konata_renderer";
+import { DEFAULT_CUSTOM_COLOR_SCHEME, DEFAULT_INSTRUCTION_LABEL_SETTINGS } from "../src/core/konata_renderer";
 import { DEFAULT_PERSISTED_VIEW_SETTINGS, DEFAULT_TRACE_NAVIGATOR_SETTINGS } from "../src/store";
 import { parsePersistedViewSettings } from "../src/view_settings";
 
@@ -47,7 +47,7 @@ test("View settings migrate legacy names and fill missing optional settings", ()
         legacy[previous] = value;
     }
     for (const key of ["drawZoomFactor", "webGLEnabled", "tiledRenderingEnabled",
-        "textCacheEnabled", "traceNavigator"]) {
+        "textCacheEnabled", "traceNavigator", "instructionLabels"]) {
         delete legacy[key];
     }
     const parsed = parsePersistedViewSettings(legacy);
@@ -68,6 +68,24 @@ test("View settings migrate legacy names and fill missing optional settings", ()
         assert.equal(modern[current], 0);
         assert.equal(previous in modern, false);
     }
+});
+
+test("View settings preserve custom labels and recover malformed or missing fields", () => {
+    const settings = { ...DEFAULT_PERSISTED_VIEW_SETTINGS, instructionLabels: {
+        ...DEFAULT_INSTRUCTION_LABEL_SETTINGS, serialID: false, threadID: false,
+    } };
+    assert.deepEqual(parsePersistedViewSettings(settings), settings);
+    for (const value of [undefined, null, [], 42, "custom"]) {
+        assert.deepEqual(parsePersistedViewSettings({ ...settings, instructionLabels: value })?.instructionLabels,
+            DEFAULT_INSTRUCTION_LABEL_SETTINGS);
+    }
+    assert.deepEqual(parsePersistedViewSettings({ ...settings, instructionLabels: {
+        serialID: false, labelText: "false", threadID: 1,
+    } })?.instructionLabels, { ...DEFAULT_INSTRUCTION_LABEL_SETTINGS, serialID: false });
+    // 試作版のmodeなどの未使用fieldを保存値へ引き継がない。
+    assert.deepEqual(parsePersistedViewSettings({ ...settings, instructionLabels: {
+        ...settings.instructionLabels, mode: "custom",
+    } })?.instructionLabels, settings.instructionLabels);
 });
 
 test("View settings reject invalid required fields", () => {

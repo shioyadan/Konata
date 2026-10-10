@@ -27,6 +27,7 @@ import {
 import { ApplicationMenu } from "./components/application_menu";
 import { CommandPalette } from "./components/command_palette";
 import { CustomColorDialog } from "./components/custom_color_dialog";
+import { InstructionLabelDialog } from "./components/instruction_label_dialog";
 import { LogPane, type LogEntry, type LogLevel } from "./components/log_pane";
 import { StatsDialog } from "./components/stats_dialog";
 import { TabBar } from "./components/tab_bar";
@@ -253,6 +254,7 @@ export function App() {
     const [statsPartial, setStatsPartial] = useState(false);
     const [isStatsDialogOpen, setIsStatsDialogOpen] = useState(false);
     const [isCustomColorDialogOpen, setIsCustomColorDialogOpen] = useState(false);
+    const [isInstructionLabelDialogOpen, setIsInstructionLabelDialogOpen] = useState(false);
     const [comparisonCandidateID, setComparisonCandidateID] = useState<number | null>(null);
     const [commandPaletteInitial, setCommandPaletteInitial] = useState<string | null>(null);
     const [commandMessage, setCommandMessage] = useState("");
@@ -546,12 +548,12 @@ export function App() {
     }, [store]);
 
     const openCommandPalette = useCallback((initialCommand: string) => {
-        if (isStatsDialogOpen || isCustomColorDialogOpen) {
+        if (isStatsDialogOpen || isCustomColorDialogOpen || isInstructionLabelDialogOpen) {
             return;
         }
         setCommandMessage("");
         setCommandPaletteInitial(initialCommand);
-    }, [isCustomColorDialogOpen, isStatsDialogOpen]);
+    }, [isCustomColorDialogOpen, isStatsDialogOpen, isInstructionLabelDialogOpen]);
 
     const findString = useCallback((target: string, baseRow: number, reverse: boolean): void => {
         const searchedTab = store.activeTab;
@@ -757,6 +759,7 @@ export function App() {
             if (event.defaultPrevented) {
                 return;
             }
+            if (isInstructionLabelDialogOpen) return;
             if (isCustomColorDialogOpen) {
                 if (event.key === "Escape") {
                     setIsCustomColorDialogOpen(false);
@@ -870,7 +873,7 @@ export function App() {
         };
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [commandPaletteInitial, goToBookmark, hideSearchResult, isCustomColorDialogOpen,
+    }, [commandPaletteInitial, goToBookmark, hideSearchResult, isCustomColorDialogOpen, isInstructionLabelDialogOpen,
         isStatsDialogOpen, moveHorizontal, moveVertical, openCommandPalette, openFilePicker,
         repeatSearch, resetStats, searchProgress, setBookmark, statsProgress, trace, zoomAtCenter]);
 
@@ -1343,9 +1346,22 @@ export function App() {
                             </select>
                         </label>
                         <details className="advanced-settings">
-                            <summary title="Zoom behavior and detail visibility settings.">
+                            <summary title="Instruction labels, zoom behavior, and detail visibility settings.">
                                 Advanced
                             </summary>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (viewControlsRef.current !== null) {
+                                        viewControlsRef.current.open = false;
+                                        viewControlsRef.current.querySelector("summary")?.focus();
+                                    }
+                                    traceSheetRef.current?.clearToolTip();
+                                    setIsInstructionLabelDialogOpen(true);
+                                }}
+                            >
+                                Instruction labels…
+                            </button>
                             <label title="Choose how much buttons, keys, and wheel steps change the zoom.">
                                 Zoom speed
                                 <select
@@ -1616,6 +1632,7 @@ export function App() {
                 onSetView={setView}
                 onCloseFindResult={hideSearchResult}
                 onOpenTrace={openFilePicker}
+                onConfigureInstructionLabels={() => setIsInstructionLabelDialogOpen(true)}
             />
             {isLogPaneOpen && (
                 <LogPane
@@ -1645,6 +1662,13 @@ export function App() {
                         scheme,
                     })}
                     onClose={() => setIsCustomColorDialogOpen(false)}
+                />
+            )}
+            {isInstructionLabelDialogOpen && (
+                <InstructionLabelDialog
+                    settings={settings.instructionLabels}
+                    onChange={(settings) => store.dispatch({ type: "KONATA_SET_INSTRUCTION_LABELS", settings })}
+                    onClose={() => setIsInstructionLabelDialogOpen(false)}
                 />
             )}
         </main>

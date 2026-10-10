@@ -9,10 +9,11 @@ interface PipelineContextMenuProps {
     readonly onGoToFetch: (() => void) | null;
     readonly onGoToReference: (() => void) | null;
     readonly onClose: () => void;
+    readonly onConfigureLabels?: () => void;
 }
 
 export function PipelineContextMenu({
-    left, top, copyText, onPin, onClear, onGoToFetch, onGoToReference, onClose,
+    left, top, copyText, onPin, onClear, onGoToFetch, onGoToReference, onClose, onConfigureLabels,
 }: PipelineContextMenuProps) {
     const menuRef = useRef<HTMLDivElement>(null);
     const [copyError, setCopyError] = useState(false);
@@ -99,30 +100,38 @@ export function PipelineContextMenu({
             ref={menuRef}
             className="pipeline-context-menu"
             role="menu"
-            aria-label="Pipeline actions"
+            aria-label={onConfigureLabels === undefined ? "Pipeline actions" : "Instruction label actions"}
             tabIndex={-1}
             style={{ left, top }}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.preventDefault()}
         >
-            <button role="menuitem" type="button" disabled={onPin === null} onClick={() => select(onPin)}>
-                Pin reference here <kbd>{commandKey}+click</kbd>
-            </button>
-            <button role="menuitem" type="button" disabled={onGoToReference === null} onClick={() => select(onGoToReference)}>
-                Go to reference
-            </button>
-            <button role="menuitem" type="button" disabled={onClear === null} onClick={() => select(onClear)}>
-                Clear reference <kbd>Esc</kbd>
-            </button>
-            <hr role="separator" />
-            <button role="menuitem" type="button" disabled={copyText === null} onClick={() => void copy()}>
-                Copy instruction info
-            </button>
-            <button role="menuitem" type="button" disabled={onGoToFetch === null} onClick={() => select(onGoToFetch)}>
-                Go to fetch
-            </button>
-            {copyError && <p role="alert">Could not copy. Check your browser’s clipboard permissions.</p>}
+            {onConfigureLabels !== undefined ? (
+                <button role="menuitem" type="button" onClick={() => select(onConfigureLabels)}>
+                    Instruction labels…
+                </button>
+            ) : (
+                <>
+                    <button role="menuitem" type="button" disabled={onPin === null} onClick={() => select(onPin)}>
+                        Pin reference here <kbd>{commandKey}+click</kbd>
+                    </button>
+                    <button role="menuitem" type="button" disabled={onGoToReference === null} onClick={() => select(onGoToReference)}>
+                        Go to reference
+                    </button>
+                    <button role="menuitem" type="button" disabled={onClear === null} onClick={() => select(onClear)}>
+                        Clear reference <kbd>Esc</kbd>
+                    </button>
+                    <hr role="separator" />
+                    <button role="menuitem" type="button" disabled={copyText === null} onClick={() => void copy()}>
+                        Copy instruction info
+                    </button>
+                    <button role="menuitem" type="button" disabled={onGoToFetch === null} onClick={() => select(onGoToFetch)}>
+                        Go to fetch
+                    </button>
+                    {copyError && <p role="alert">Could not copy. Check your browser’s clipboard permissions.</p>}
+                </>
+            )}
         </div>
     );
 }

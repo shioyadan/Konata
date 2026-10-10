@@ -51,6 +51,22 @@ export const DEFAULT_CUSTOM_COLOR_SCHEME: Readonly<CustomColorScheme> = {
     },
 };
 
+export interface InstructionLabelSettings {
+    readonly rowNumber: boolean;
+    readonly serialID: boolean;
+    readonly threadID: boolean;
+    readonly retireID: boolean;
+    readonly labelText: boolean;
+}
+
+export const DEFAULT_INSTRUCTION_LABEL_SETTINGS: Readonly<InstructionLabelSettings> = {
+    rowNumber: true,
+    serialID: true,
+    threadID: true,
+    retireID: true,
+    labelText: true,
+};
+
 /**
  * KonataRendererへ渡す再現可能な描画指定。
  *
@@ -63,6 +79,7 @@ export interface KonataRenderSpec {
     readonly theme: RendererTheme;
     readonly colorScheme: string;
     readonly customColorScheme: Readonly<CustomColorScheme>;
+    readonly instructionLabels: Readonly<InstructionLabelSettings>;
     readonly dependencyArrowType: DependencyArrowType;
     readonly splitLanes: boolean;
     readonly fixOpHeight: boolean;
@@ -118,6 +135,7 @@ export const DEFAULT_KONATA_RENDER_SPEC: Readonly<KonataRenderSpec> = {
     theme: "dark",
     colorScheme: "Unique",
     customColorScheme: DEFAULT_CUSTOM_COLOR_SCHEME,
+    instructionLabels: DEFAULT_INSTRUCTION_LABEL_SETTINGS,
     dependencyArrowType: DEP_ARROW_TYPE.INSIDE_LINE,
     splitLanes: false,
     fixOpHeight: false,
@@ -591,14 +609,26 @@ export const COMPARISON_COLOR_SCHEME = {
 
 type RendererStyle = typeof darkStyle;
 
-// 旧Rendererのlabel paneと同じ表示形式を、Canvasとテストから共有する。
-export function formatOpLabel(id: number, op: Op): string {
-    return `${id}: s${op.gid} (t${op.tid}: r${op.rid}): ${op.labelName}`;
-}
+type OpLabelData = Pick<Op, "gid" | "tid" | "rid" | "labelName">;
 
-// 狭いpaneでは構造化済みのIDと命令名だけを選び、文字列の途中を推測して切らない。
-export function formatCompactOpLabel(id: number, op: Op): string {
-    return `${id}: ${op.labelName}`;
+// Canvasと設定画面の例で書式を共有し、pane幅によらず選んだ項目を表示する。
+export function formatInstructionLabel(
+    row: number,
+    op: OpLabelData,
+    settings: Readonly<InstructionLabelSettings>,
+): string {
+    const parts: string[] = [];
+    if (settings.rowNumber) parts.push(String(row));
+    const details: string[] = [];
+    if (settings.threadID) details.push(`t${op.tid}`);
+    if (settings.retireID) details.push(`r${op.rid}`);
+    const ids = [
+        ...(settings.serialID ? [`s${op.gid}`] : []),
+        ...(details.length > 0 ? [`(${details.join(": ")})`] : []),
+    ].join(" ");
+    if (ids !== "") parts.push(ids);
+    if (settings.labelText && op.labelName !== "") parts.push(op.labelName);
+    return parts.join(": ");
 }
 
 function isCustomColorDefinition(value: unknown): value is CustomColorDefinition {
@@ -608,7 +638,6 @@ function isCustomColorDefinition(value: unknown): value is CustomColorDefinition
 export class KonataRenderer {
     // Canvasの矩形をpixel境界へ合わせ、ぼけを抑える補正値。
     private static readonly PIXEL_ADJUST = 0.5;
-    private static readonly COMPACT_LABEL_MAX_WIDTH = 240;
 
     private metrics_: KonataRenderMetrics;
     private style_: RendererStyle = darkStyle;
@@ -843,9 +872,6 @@ export class KonataRenderer {
         const marginTop =
             (this.metrics_.laneHeight - this.metrics_.laneHeightMargin * 2 - this.labelFontSize_) / 2 +
             this.labelFontSize_;
-        const formatLabel = size.width <= KonataRenderer.COMPACT_LABEL_MAX_WIDTH
-            ? formatCompactOpLabel
-            : formatOpLabel;
 
         for (
             let logicalY = Math.floor(this.metrics_.spec.position[1]);
@@ -858,7 +884,9 @@ export class KonataRenderer {
             }
             const x = marginLeft;
             const y = (logicalY - this.metrics_.spec.position[1]) * this.metrics_.opHeight + marginTop;
-            context.fillText(formatLabel(logicalY, op), x, y);
+            context.fillText(formatInstructionLabel(
+                logicalY, op, this.metrics_.spec.instructionLabels,
+            ), x, y);
         }
     }
 

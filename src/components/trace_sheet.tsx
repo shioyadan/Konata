@@ -185,6 +185,7 @@ interface TraceSheetProps {
     readonly onSetView: (view: KonataView, baselineView?: KonataView) => void;
     readonly onCloseFindResult: () => void;
     readonly onOpenTrace: () => void;
+    readonly onConfigureInstructionLabels: () => void;
 }
 
 function highlightMatches(line: string, pattern: string): HighlightedText[] {
@@ -229,6 +230,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     onSetView,
     onCloseFindResult,
     onOpenTrace,
+    onConfigureInstructionLabels,
 }, ref) {
     const viewerRef = useRef<HTMLDivElement>(null);
     const labelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -252,6 +254,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         readonly fetchedCycle: number | null;
     } | null>(null);
     const closeContextMenu = useCallback(() => setContextMenu(null), []);
+    const [labelContextMenu, setLabelContextMenu] = useState<PointerPosition | null>(null);
+    const closeLabelContextMenu = useCallback(() => setLabelContextMenu(null), []);
     const cycleNavigatorLabelCanvasRef = useRef<HTMLCanvasElement>(null);
     const cycleNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
     const instructionNavigatorCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -395,6 +399,8 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     }, [referenceGuide, displayTrace, renderSpec, baselineRenderSpec]);
 
     useLayoutEffect(closeContextMenu, [closeContextMenu, displayTrace, renderSpec,
+        baselineRenderSpec, comparisonMode, splitterPosition, traceNavigator]);
+    useLayoutEffect(closeLabelContextMenu, [closeLabelContextMenu, displayTrace, renderSpec,
         baselineRenderSpec, comparisonMode, splitterPosition, traceNavigator]);
 
     const startViewTransition = useCallback((
@@ -1475,7 +1481,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         pane: "label" | "pipeline",
         event: ReactMouseEvent<HTMLCanvasElement>,
     ) => {
-        if (trace === null || contextMenu !== null || pointerPositionsRef.current.size > 0 ||
+        if (trace === null || contextMenu !== null || labelContextMenu !== null || pointerPositionsRef.current.size > 0 ||
             splitterPointerIDRef.current !== null || traceNavigatorResizeRef.current.pointerID !== null ||
             navigatorPointersRef.current.size > 0) {
             setToolTip(null);
@@ -1543,6 +1549,23 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 <canvas
                     ref={labelCanvasRef}
                     aria-label="Instruction labels canvas"
+                    tabIndex={0}
+                    aria-haspopup="menu"
+                    onContextMenu={(event) => {
+                        event.preventDefault();
+                        setToolTip(null);
+                        setContextMenu(null);
+                        event.currentTarget.focus({ preventScroll: true });
+                        setLabelContextMenu({ x: event.clientX, y: event.clientY });
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setToolTip(null);
+                        setLabelContextMenu({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+                    }}
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={handleLabelClick}
                     onMouseMove={(event) => updateToolTip("label", event)}
@@ -1786,6 +1809,22 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                         Version {__KONATA_VERSION__} · Commit {__KONATA_COMMIT__} · {__KONATA_COMMIT_DATE__}
                     </small>
                 </div>
+            )}
+            {labelContextMenu !== null && (
+                <PipelineContextMenu
+                    left={labelContextMenu.x}
+                    top={labelContextMenu.y}
+                    copyText={null}
+                    onPin={null}
+                    onClear={null}
+                    onGoToFetch={null}
+                    onGoToReference={null}
+                    onClose={closeLabelContextMenu}
+                    onConfigureLabels={() => {
+                        labelCanvasRef.current?.focus({ preventScroll: true });
+                        onConfigureInstructionLabels();
+                    }}
+                />
             )}
             {contextMenu !== null && contextMenu.trace === displayTrace && (
                 <PipelineContextMenu

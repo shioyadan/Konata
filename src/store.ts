@@ -18,6 +18,7 @@ import {
     DEP_ARROW_TYPE,
     type CustomColorScheme,
     type DependencyArrowType,
+    type InstructionLabelSettings,
     KonataRenderMetrics,
     type KonataRenderSpec,
     type KonataView,
@@ -88,6 +89,7 @@ export const DEFAULT_TRACE_NAVIGATOR_SETTINGS: Readonly<TraceNavigatorSettings> 
 };
 
 export interface GlobalViewSettings {
+    readonly instructionLabels: Readonly<InstructionLabelSettings>;
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
@@ -106,6 +108,7 @@ export interface GlobalViewSettings {
 }
 
 const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
+    instructionLabels: DEFAULT_KONATA_RENDER_SPEC.instructionLabels,
     theme: "dark",
     webGLEnabled: true,
     tiledRenderingEnabled: true,
@@ -124,6 +127,7 @@ const DEFAULT_GLOBAL_VIEW_SETTINGS: GlobalViewSettings = {
 
 // 再起動後も復元する全体表示設定だけをlocalStorage境界へ公開する。
 export interface PersistedViewSettings {
+    readonly instructionLabels: Readonly<InstructionLabelSettings>;
     readonly theme: RendererTheme;
     readonly webGLEnabled: boolean;
     readonly tiledRenderingEnabled: boolean;
@@ -141,6 +145,7 @@ export interface PersistedViewSettings {
 }
 
 export const DEFAULT_PERSISTED_VIEW_SETTINGS: Readonly<PersistedViewSettings> = {
+    instructionLabels: DEFAULT_GLOBAL_VIEW_SETTINGS.instructionLabels,
     theme: DEFAULT_GLOBAL_VIEW_SETTINGS.theme,
     webGLEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.webGLEnabled,
     tiledRenderingEnabled: DEFAULT_GLOBAL_VIEW_SETTINGS.tiledRenderingEnabled,
@@ -262,6 +267,10 @@ export type Action =
     | { readonly type: "KONATA_SET_WEBGL_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_TILED_RENDERING_ENABLED"; readonly enabled: boolean }
     | { readonly type: "KONATA_SET_TEXT_CACHE_ENABLED"; readonly enabled: boolean }
+    | {
+        readonly type: "KONATA_SET_INSTRUCTION_LABELS";
+        readonly settings: Readonly<InstructionLabelSettings>;
+    }
     | {
         readonly type: "KONATA_SET_TRACE_NAVIGATOR";
         readonly settings: Readonly<TraceNavigatorSettings>;
@@ -566,6 +575,7 @@ export class Store {
             tiledRenderingEnabled: viewSettings.tiledRenderingEnabled,
             textCacheEnabled: viewSettings.textCacheEnabled,
             traceNavigator: viewSettings.traceNavigator,
+            instructionLabels: viewSettings.instructionLabels,
             customColorScheme: viewSettings.customColorScheme,
             dependencyArrowType: viewSettings.dependencyArrowType,
             textLabelMinimumLaneHeight: viewSettings.textLabelMinimumLaneHeight,
@@ -615,6 +625,7 @@ export class Store {
             tiledRenderingEnabled: this.settings_.tiledRenderingEnabled,
             textCacheEnabled: this.settings_.textCacheEnabled,
             traceNavigator: this.settings_.traceNavigator,
+            instructionLabels: this.settings_.instructionLabels,
             colorScheme: this.defaultColorScheme_,
             customColorScheme: this.settings_.customColorScheme,
             splitterPosition: this.defaultSplitterPosition_,
@@ -1140,6 +1151,12 @@ export class Store {
                 traceNavigator: action.settings,
             };
             this.publish_(this.snapshot_.activeTabID, [{ type: "VIEW_SETTINGS_UPDATE" }]);
+            return;
+        }
+        case "KONATA_SET_INSTRUCTION_LABELS": {
+            this.setGlobalViewSettings_({
+                ...this.settings_, instructionLabels: action.settings,
+            }, false, true);
             return;
         }
         case "KONATA_SET_DEP_ARROW_TYPE": {
@@ -1695,6 +1712,7 @@ export class Store {
             ...spec,
             theme: settings.theme,
             customColorScheme: settings.customColorScheme,
+            instructionLabels: settings.instructionLabels,
             dependencyArrowType: settings.dependencyArrowType,
             splitLanes: settings.splitLanes,
             fixOpHeight: settings.fixOpHeight,

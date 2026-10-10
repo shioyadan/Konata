@@ -1,9 +1,11 @@
 import {
     DEFAULT_CUSTOM_COLOR_SCHEME,
+    DEFAULT_INSTRUCTION_LABEL_SETTINGS,
     DEP_ARROW_TYPE,
     type CustomColorComponent,
     type CustomColorDefinition,
     type CustomColorScheme,
+    type InstructionLabelSettings,
 } from "./core/konata_renderer";
 import {
     DEFAULT_PERSISTED_VIEW_SETTINGS,
@@ -94,6 +96,21 @@ function parseTraceNavigatorSettings(value: unknown): Readonly<TraceNavigatorSet
     };
 }
 
+function parseInstructionLabelSettings(value: unknown): Readonly<InstructionLabelSettings> {
+    const defaults = DEFAULT_INSTRUCTION_LABEL_SETTINGS;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return defaults;
+    const settings = value as Partial<Record<keyof InstructionLabelSettings, unknown>>;
+    const boolean = (key: keyof InstructionLabelSettings): boolean =>
+        typeof settings[key] === "boolean" ? settings[key] : defaults[key];
+    return {
+        rowNumber: boolean("rowNumber"),
+        serialID: boolean("serialID"),
+        threadID: boolean("threadID"),
+        retireID: boolean("retireID"),
+        labelText: boolean("labelText"),
+    };
+}
+
 export function parsePersistedViewSettings(value: unknown): PersistedViewSettings | null {
     if (typeof value !== "object" || value === null) {
         return null;
@@ -156,6 +173,7 @@ export function parsePersistedViewSettings(value: unknown): PersistedViewSetting
         tiledRenderingEnabled,
         textCacheEnabled,
         traceNavigator: parseTraceNavigatorSettings(settings.traceNavigator),
+        instructionLabels: parseInstructionLabelSettings(settings.instructionLabels),
         colorScheme,
         // 旧Web版の保存値にはこのfieldがないため、他の設定を捨てず既定配色で補う。
         customColorScheme: isCustomColorScheme(settings.customColorScheme)

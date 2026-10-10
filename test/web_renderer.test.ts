@@ -28,9 +28,9 @@ import {
 import {
     COMPARISON_COLOR_SCHEME,
     DEFAULT_CUSTOM_COLOR_SCHEME,
+    DEFAULT_INSTRUCTION_LABEL_SETTINGS,
     DEFAULT_KONATA_RENDER_SPEC,
-    formatCompactOpLabel,
-    formatOpLabel,
+    formatInstructionLabel,
     formatKonataZoomPercent,
     getFirstDrawingRow,
     getVisibilityLevelForMinimumLaneHeight,
@@ -1872,19 +1872,57 @@ test("Top-down-like analysis stops after yielding when its pane is closed", asyn
 test("Web renderer keeps the legacy instruction label format", () => {
     const { op } = createTrace();
     // 左paneはfile-local ID、global ID、thread、retire ID、命令ラベルの順で表示する。
-    assert.equal(formatOpLabel(op.id, op), "0: s100 (t1: r0): add x1, x2, x3");
-    assert.equal(formatCompactOpLabel(op.id, op), "0: add x1, x2, x3");
+    assert.equal(formatInstructionLabel(op.id, op, DEFAULT_INSTRUCTION_LABEL_SETTINGS),
+        "0: s100 (t1: r0): add x1, x2, x3");
 });
 
-test("Web renderer uses compact instruction labels in a narrow pane", () => {
+test("Web renderer keeps all default instruction label fields at any pane width", () => {
     const { trace } = createTrace();
-    const label = createRecordedContext();
-    new KonataRenderer().drawLabelSpec(
-        trace,
-        DEFAULT_KONATA_RENDER_SPEC,
-        createCanvas(label.context, 160),
-    );
-    assert.deepEqual(label.fillTexts.map(([text]) => text), ["0: add x1, x2, x3"]);
+    for (const width of [160, 240, 241, 450]) {
+        const label = createRecordedContext();
+        new KonataRenderer().drawLabelSpec(
+            trace,
+            DEFAULT_KONATA_RENDER_SPEC,
+            createCanvas(label.context, width),
+        );
+        assert.deepEqual(label.fillTexts.map(([text]) => text), ["0: s100 (t1: r0): add x1, x2, x3"]);
+    }
+});
+
+test("Instruction labels format selected fields without dangling separators", () => {
+    const { op } = createTrace();
+    const defaults = DEFAULT_INSTRUCTION_LABEL_SETTINGS;
+    assert.equal(formatInstructionLabel(42, op, defaults), "42: s100 (t1: r0): add x1, x2, x3");
+    const empty = { rowNumber: false, serialID: false,
+        threadID: false, retireID: false, labelText: false };
+    assert.equal(formatInstructionLabel(42, op, empty), "");
+    for (const [field, expected] of [
+        ["rowNumber", "42"], ["serialID", "s100"], ["threadID", "(t1)"],
+        ["retireID", "(r0)"], ["labelText", op.labelName],
+    ]) {
+        assert.equal(formatInstructionLabel(42, op, { ...empty, [field]: true }), expected);
+    }
+    const selected = { ...defaults, threadID: false, retireID: false };
+    assert.equal(formatInstructionLabel(42, op, selected), "42: s100: add x1, x2, x3");
+    assert.equal(formatInstructionLabel(42, op, { ...empty, rowNumber: true, labelText: true }),
+        "42: add x1, x2, x3");
+    op.labelName = "";
+    assert.equal(formatInstructionLabel(42, op, selected), "42: s100");
+});
+
+test("Web renderer respects custom labels in narrow panes and uses the visible row when hiding flushed ops", () => {
+    const { trace, op } = createTrace();
+    op.id = 99;
+    const settings = { ...DEFAULT_INSTRUCTION_LABEL_SETTINGS, threadID: false, retireID: false };
+    for (const width of [160, 450]) {
+        const label = createRecordedContext();
+        const spec = { ...DEFAULT_KONATA_RENDER_SPEC, instructionLabels: settings, hideFlushedOps: true };
+        new KonataRenderer().drawLabelSpec(trace, spec, createCanvas(label.context, width));
+        assert.deepEqual(label.fillTexts.map(([text]) => text), ["0: s100: add x1, x2, x3"]);
+        assert.equal(new KonataRenderMetrics(trace, spec).getLabelToolTipText(0),
+            new KonataRenderMetrics(trace, { ...spec, instructionLabels: DEFAULT_INSTRUCTION_LABEL_SETTINGS })
+                .getLabelToolTipText(0));
+    }
 });
 
 test("Web renderer draws stage names and elapsed cycles like the legacy renderer", () => {
