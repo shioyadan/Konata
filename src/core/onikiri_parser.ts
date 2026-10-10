@@ -33,7 +33,11 @@ export class OnikiriParser {
     // 壊れた入力でconsoleを埋めないよう、警告表示は先頭だけに制限する。
     private warningCount_ = 0;
 
-    constructor(private readonly opStore_: MutableOpStore = new ArrayOpStore()) {}
+    constructor(
+        private readonly opStore_: MutableOpStore = new ArrayOpStore(),
+        // 必要な呼出し側だけ閉鎖を記録し、cycle 0の終了と未閉鎖を区別する。
+        private readonly closedStages_?: WeakSet<Stage>,
+    ) {}
 
     async parse(
         reader: FileLineReader,
@@ -223,7 +227,7 @@ export class OnikiriParser {
 
         // 同じlaneの最後のstageが閉じられていなければ、新しいSのcycleで自動的に閉じる。
         const previous = lane.stages[lane.stages.length - 1];
-        if (previous !== undefined && previous.endCycle === 0) {
+        if (previous !== undefined && this.isStageOpen_(previous)) {
             this.closeStage_(id, laneName, previous.name, target);
         }
 
@@ -266,6 +270,7 @@ export class OnikiriParser {
         }
 
         stage.endCycle = this.currentCycle_;
+        this.closedStages_?.add(stage);
         // flushで無理に閉じられる場合があるので、StageLevelMapへの登録はS側で行う。
         if (stage.startCycle !== stage.endCycle) {
             lane.level++;
@@ -295,8 +300,9 @@ export class OnikiriParser {
             if (stage === undefined) {
                 continue;
             }
-            if (stage.endCycle === 0) {
+            if (this.isStageOpen_(stage)) {
                 stage.endCycle = this.currentCycle_;
+                this.closedStages_?.add(stage);
             }
             if (/X/.test(stage.name)) {
                 target.prodCycle = this.currentCycle_ - 1;
@@ -396,5 +402,12 @@ export class OnikiriParser {
 
     private fail_(message: string): never {
         throw new TraceCommandError(message);
+    }
+
+    private isStageOpen_(stage: Stage): boolean {
+        // 記録を求めないGUIでは、従来のsentinel規則と保持量を維持する。
+        return this.closedStages_ === undefined
+            ? stage.endCycle === 0
+            : !this.closedStages_.has(stage);
     }
 }

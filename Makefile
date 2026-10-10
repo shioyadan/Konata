@@ -10,6 +10,7 @@ TEST_NAME ?=
 REGRESSION_GROUPS ?= all
 BENCHMARK_OPS ?= 100000
 BENCHMARK_TRACE ?=
+CLI_ARGS ?=
 PACKAGE_VERSION := $(shell node -p 'require("./package.json").version')
 BUILD_ID := $(shell git show -s --format=%ct-%h-%cs HEAD)
 ARCHIVE_NAME := konata-v$(PACKAGE_VERSION)
@@ -17,7 +18,7 @@ ARCHIVE_ROOT := dist-release
 ARCHIVE_DIR := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME)
 ARCHIVE_PATH := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME).zip
 
-.PHONY: all production check versions init test typecheck license-check launcher-check serve browser-regression \
+.PHONY: all production check versions init test typecheck license-check launcher-check serve cli browser-regression \
 	web-regression production-regression benchmark-rendering benchmark-op-store release-version-check archive release-archive \
 	latest-archive clean distclean
 
@@ -51,6 +52,11 @@ test:
 
 typecheck:
 	$(TSC) --project tsconfig.json --noEmit
+	$(TSC) --project tsconfig.cli.json --noEmit
+
+# 試作CLIはNode上で既存Parserを共有し、GUIと単一HTMLの配布内容には含めない。
+cli:
+	@node --import tsx src/cli/main.ts $(CLI_ARGS)
 
 # production依存と配布HTMLへ入るloader runtimeが、監査済み一覧と一致することを確認する。
 license-check:
