@@ -41,7 +41,7 @@ set_build() {
     sed -i "s/^build=0-source-unknown$/build=$2/" "$1"
 }
 
-# 空白を含む配布先でも、同じarchiveのHTMLとscriptを一度に更新できる。
+# 空白を含む配布先でも、同じarchiveのHTML、CLI JS、scriptを一度に更新できる。
 install_dir="$test_dir/installed copy"
 payload_dir="$test_dir/payload"
 mkdir -p "$install_dir" "$payload_dir"
@@ -50,6 +50,7 @@ set_build "$install_dir/konata.sh" "100-aaaaaaa-2026-01-01"
 printf '%s\n' '# installed launcher marker' >> "$install_dir/konata.sh"
 printf '%s\n' '<!doctype html><title>old</title>' > "$install_dir/index.html"
 printf '%s\n' '<!doctype html><title>updated</title>' > "$payload_dir/index.html"
+printf '%s\n' '/*! Konata CLI */' 'console.log("updated");' > "$payload_dir/konata-cli.js"
 cp "$repo_dir/konata.sh" "$payload_dir/konata.sh"
 set_build "$payload_dir/konata.sh" "200-bbbbbbb-2026-02-02"
 archive_path="$test_dir/konata-latest.zip"
@@ -68,6 +69,7 @@ grep -q 'Install this update' "$test_dir/cancel.err"
 grep -q 'Update cancelled' "$test_dir/cancel.out"
 cmp "$install_dir/index.html" "$cancel_dir/index.html"
 cmp "$install_dir/konata.sh" "$cancel_dir/konata.sh"
+test ! -e "$cancel_dir/konata-cli.js"
 
 update_output="$(printf 'y\n' | env KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
     "$install_dir/konata.sh" --update 2> "$test_dir/update.err")"
@@ -76,6 +78,7 @@ Installed build: aaaaaaa (2026-01-01)
 Available build: bbbbbbb (2026-02-02)
 A newer Konata build is available:
   konata.sh
+  konata-cli.js
   index.html
 Konata was updated to the latest development build." ]; then
     echo "Unexpected updater output: $update_output" >&2
@@ -86,6 +89,7 @@ fi
 older_payload="$test_dir/older payload"
 mkdir -p "$older_payload"
 printf '%s\n' '<!doctype html><title>older</title>' > "$older_payload/index.html"
+cp "$payload_dir/konata-cli.js" "$older_payload/konata-cli.js"
 cp "$repo_dir/konata.sh" "$older_payload/konata.sh"
 set_build "$older_payload/konata.sh" "50-ccccccc-2025-12-31"
 older_archive="$test_dir/older.zip"
@@ -98,6 +102,7 @@ grep -q 'Available build: ccccccc (2025-12-31)' "$test_dir/older.out"
 grep -q 'Update cancelled' "$test_dir/older.out"
 cmp "$payload_dir/index.html" "$install_dir/index.html"
 cmp "$payload_dir/konata.sh" "$install_dir/konata.sh"
+cmp "$payload_dir/konata-cli.js" "$install_dir/konata-cli.js"
 grep -q 'Install this update' "$test_dir/update.err"
 cmp "$payload_dir/index.html" "$install_dir/index.html"
 cmp "$payload_dir/konata.sh" "$install_dir/konata.sh"
@@ -113,6 +118,14 @@ Konata is already up to date." ]; then
     echo "Unexpected current-version output: $current_output" >&2
     exit 1
 fi
+
+# CLIだけに差がある場合も最新と誤判定せず、差分を示して確認する。
+printf '%s\n' '// installed CLI marker' >> "$install_dir/konata-cli.js"
+printf 'n\n' | env KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
+    "$install_dir/konata.sh" --update > "$test_dir/cli-update.out" 2> "$test_dir/cli-update.err"
+grep -q '^  konata-cli.js$' "$test_dir/cli-update.out"
+grep -q 'Update cancelled' "$test_dir/cli-update.out"
+grep -q 'Install this update' "$test_dir/cli-update.err"
 
 # 不完全なarchiveは既存配布物を一切置換しない。
 broken_install="$test_dir/broken install"
@@ -134,6 +147,18 @@ grep -q 'Konata update' "$test_dir/broken.err"
 cmp "$test_dir/original-index.html" "$broken_install/index.html"
 cmp "$test_dir/original-konata.sh" "$broken_install/konata.sh"
 
+# CLI bundleが欠けたarchiveも、launcherとHTMLを先に置換せず拒否する。
+cp "$payload_dir/konata.sh" "$broken_payload/konata.sh"
+make_update_archive "$broken_payload" "$broken_archive"
+if KONATA_UPDATE_URL="$(archive_url "$broken_archive")" \
+    "$broken_install/konata.sh" --update > "$test_dir/missing-cli.out" 2> "$test_dir/missing-cli.err"; then
+    echo "An update archive without the CLI bundle was accepted." >&2
+    exit 1
+fi
+grep -q 'Konata update is invalid' "$test_dir/missing-cli.err"
+cmp "$test_dir/original-index.html" "$broken_install/index.html"
+cmp "$test_dir/original-konata.sh" "$broken_install/konata.sh"
+
 # source treeのlauncherは隣に配布HTMLがないため、--updateで生成物を混入させない。
 source_install="$test_dir/source tree"
 mkdir -p "$source_install"
@@ -145,6 +170,42 @@ if KONATA_UPDATE_URL="$(archive_url "$archive_path")" \
 fi
 grep -q 'only an extracted distribution' "$test_dir/source.err"
 test ! -e "$source_install/index.html"
+
+# CLIはHTMLなしで起動でき、引数、stdin、終了codeをNodeへそのまま渡す。
+cli_bin="$test_dir/cli bin"
+mkdir -p "$cli_bin"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$@"' 'while IFS= read -r line; do printf "%s\n" "$line"; done' 'exit 7' > "$cli_bin/node"
+chmod 755 "$cli_bin/node"
+for location in '' 'dist-cli'; do
+    cli_dir="$test_dir/cli $location"
+    mkdir -p "$cli_dir/${location}"
+    cp "$repo_dir/konata.sh" "$cli_dir/konata.sh"
+    cp "$payload_dir/konata-cli.js" "$cli_dir/${location}/konata-cli.js"
+    result=0
+    printf 'status\nquit\n' | env PATH="$cli_bin:$PATH" \
+        "$cli_dir/konata.sh" --cli --jsonl -- 'trace with spaces.log' > "$test_dir/cli.out" || result=$?
+    test "$result" -eq 7
+    printf '%s\n' "$cli_dir/${location:+$location/}konata-cli.js" '--jsonl' '--' \
+        'trace with spaces.log' 'status' 'quit' > "$test_dir/cli-expected.out"
+    cmp "$test_dir/cli-expected.out" "$test_dir/cli.out"
+done
+if "$source_install/konata.sh" --cli --help > "$test_dir/no-cli.out" 2> "$test_dir/no-cli.err"; then
+    echo "The launcher accepted a missing CLI bundle." >&2
+    exit 1
+fi
+grep -q 'make cli-build' "$test_dir/no-cli.err"
+
+# browser利用者にはNodeを要求せず、CLI指定時の不足だけを明確なerrorにする。
+no_node_bin="$test_dir/no node bin"
+mkdir -p "$no_node_bin"
+ln -s "$(command -v realpath)" "$no_node_bin/realpath"
+ln -s "$(command -v dirname)" "$no_node_bin/dirname"
+if PATH="$no_node_bin" /bin/bash "$install_dir/konata.sh" --cli --help \
+    > "$test_dir/no-node.out" 2> "$test_dir/no-node.err"; then
+    echo "The CLI launcher accepted a missing Node.js runtime." >&2
+    exit 1
+fi
+grep -q 'requires Node.js' "$test_dir/no-node.err"
 
 # 未指定時は空きportを選び、実際のURLとSSH tunnelへ反映する。
 server_dir="$test_dir/server install"

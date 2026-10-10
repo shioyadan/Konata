@@ -1,5 +1,6 @@
 *.log
 dist-web
+dist-cli
 dist-release
 work
 node_modules

@@ -12,7 +12,7 @@ const licenseDocument = fs.readFileSync(
     "utf8",
 );
 
-// これらはdevDependencyだが、loaderやWebpackのランタイムコードが生成HTMLへ入る。
+// これらはdevDependencyだが、loaderやWebpackのランタイムコードが配布物へ入る。
 // 単なるビルド・テスト用パッケージは列挙せず、配布物に含まれるものだけを監査する。
 const bundledBuildPackages = [
     "css-loader",
@@ -48,7 +48,7 @@ const expectedPackages = [...new Set([...productionPackages, ...bundledBuildPack
 assert.deepEqual(
     [...documentedPackages.keys()].sort(),
     expectedPackages,
-    "THIRD_PARTY_LICENSES.md does not match the packages included in the production HTML.",
+    "THIRD_PARTY_LICENSES.md does not match the packages included in the distribution.",
 );
 
 for (const name of expectedPackages) {

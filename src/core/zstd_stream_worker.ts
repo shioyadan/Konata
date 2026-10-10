@@ -105,5 +105,5 @@ if (typeof workerGlobal.postMessage === "function" && workerGlobal.document === 
 }
 
 // worker-loaderがbrowser bundleではWorker constructorへ置き換える。
-// Node.jsの単体テストでは実体を使わず、zstd_stream.tsの同期fallbackを通る。
+// Node.jsのCLIと単体テストでは実体を使わず、zstd_stream.tsの同期fallbackを通る。
 export default null as unknown as { new (): Worker };

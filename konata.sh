@@ -2,6 +2,7 @@
 
 # リモートやWSL上のtraceを、SSH port forwarding先のbrowserからKonataで開く。
 # PythonでHTMLと指定traceだけを固定URLへ対応付け、元のdirectory全体は公開しない。
+# --cliではNode用bundleへ入出力をそのまま渡し、Web serverやbrowserを起動しない。
 # 配布済みdirectoryでは、Pages上の検証済みlatest archiveから自分自身を更新できる。
 set -eu
 
@@ -11,6 +12,7 @@ build=0-source-unknown
 usage() {
     echo "Usage:" >&2
     echo "  $0 TRACE [TRACE ...] (up to 10 files)" >&2
+    echo "  $0 --cli [--jsonl] [--] [TRACE]" >&2
     echo "  $0 --update" >&2
     exit 2
 }
@@ -18,6 +20,23 @@ usage() {
 # symlink経由でも配布本体を更新し、起動時にも同じHTMLを参照する。
 script_path="$(realpath -- "$0")"
 script_dir="$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)"
+
+if [ "$#" -gt 0 ] && [ "$1" = "--cli" ]; then
+    shift
+    if [ -f "$script_dir/konata-cli.js" ]; then
+        cli_file="$script_dir/konata-cli.js"
+    elif [ -f "$script_dir/dist-cli/konata-cli.js" ]; then
+        cli_file="$script_dir/dist-cli/konata-cli.js"
+    else
+        echo "konata-cli.js was not found. Run --update in an extracted distribution, or make cli-build in a source checkout." >&2
+        exit 1
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+        echo "Konata CLI requires Node.js 18 or later. Install Node.js and try again." >&2
+        exit 1
+    fi
+    exec node "$cli_file" "$@"
+fi
 
 if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
     index_path="$script_dir/index.html"
@@ -42,10 +61,12 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
     fi
 
     payload_dir="$update_dir/konata-latest"
+    cli_path="$script_dir/konata-cli.js"
     payload_build="$(sed -n 's/^build=//p' "$payload_dir/konata.sh" 2>/dev/null || true)"
     if [[ ! "$payload_build" =~ ^[0-9]+-[0-9a-f]+-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] ||
         [ "$(head -n 1 "$payload_dir/konata.sh")" != '#!/usr/bin/env bash' ] ||
         ! bash -n "$payload_dir/konata.sh" ||
+        ! head -c 64 "$payload_dir/konata-cli.js" | grep -q 'Konata CLI' ||
         ! head -c 64 "$payload_dir/index.html" | grep -qi '^<!doctype html>'; then
         echo "The downloaded Konata update is invalid." >&2
         exit 1
@@ -56,6 +77,7 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
     printf 'Installed build: %s (%s)\n' "$current_hash" "$current_date"
     printf 'Available build: %s (%s)\n' "$payload_hash" "$payload_date"
     if cmp -s "$payload_dir/konata.sh" "$script_path" &&
+        cmp -s "$payload_dir/konata-cli.js" "$cli_path" &&
         cmp -s "$payload_dir/index.html" "$index_path"; then
         echo "Konata is already up to date."
         exit 0
@@ -68,6 +90,7 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
         echo "The available Konata build differs from this copy:"
     fi
     cmp -s "$payload_dir/konata.sh" "$script_path" || echo "  konata.sh"
+    cmp -s "$payload_dir/konata-cli.js" "$cli_path" || echo "  konata-cli.js"
     cmp -s "$payload_dir/index.html" "$index_path" || echo "  index.html"
     printf 'Install this update? [y/N] ' >&2
     if ! read -r answer; then
@@ -83,10 +106,12 @@ if [ "$#" -eq 1 ] && [ "$1" = "--update" ]; then
     esac
 
     chmod 755 "$payload_dir/konata.sh"
+    chmod 644 "$payload_dir/konata-cli.js"
     chmod 644 "$payload_dir/index.html"
 
-    # scriptを先に置換し、2つ目で中断しても--updateを再実行できるようにする。
+    # scriptを先に置換し、残りで中断しても--updateを再実行できるようにする。
     mv -f "$payload_dir/konata.sh" "$script_path"
+    mv -f "$payload_dir/konata-cli.js" "$cli_path"
     mv -f "$payload_dir/index.html" "$index_path"
     echo "Konata was updated to the latest development build."
     exit 0

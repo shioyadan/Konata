@@ -16,8 +16,8 @@ site. The `stable` branch should only move to a tested release commit.
 The workflow also runs `make latest-archive` for `master` and publishes the result as
 `https://shioyadan.github.io/Konata/konata-latest.zip`. This fixed name always represents the latest
 tested development version. An extracted distribution uses this archive for `konata.sh --update`
-and asks before replacing only its adjacent `index.html` and `konata.sh` when they differ. The
-archive embeds the source commit time, abbreviated hash, and date in `konata.sh`, allowing the
+and asks before replacing its adjacent `index.html`, `konata-cli.js`, and `konata.sh` when they differ.
+The archive embeds the source commit time, abbreviated hash, and date in `konata.sh`, allowing the
 updater to identify both builds and report whether the available build is newer or older than the
 installed copy.
 Versioned archives remain attached to GitHub Releases.
@@ -44,10 +44,17 @@ dist-release/konata-v1.0.0.zip
 └── konata-v1.0.0/
     ├── index.html
     ├── konata.sh
+    ├── konata-cli.js
     ├── README.md
     ├── LICENSE.md
     └── THIRD_PARTY_LICENSES.md
 ```
+
+The browser application remains a single HTML file. The separate CLI is a single JavaScript bundle
+with its dependencies and license notices included. `konata.sh --cli` runs it using Node.js 18 or
+later; Node.js is not required for the browser launcher or updater.
+An older launcher copies only HTML and the launcher itself during its first update. Run `--update`
+again using the updated launcher to install the CLI bundle.
 
 ## Publish a release
 

@@ -126,6 +126,30 @@ compatible Chromium-based browsers. Other browsers still support file selection 
 Remote traces opened with `konata.sh` can be reloaded manually. Automatic external-change detection
 is not available for them. Loading arbitrary URLs or paths is intentionally disabled.
 
+### Command-line trace inspection (prototype)
+
+Downloaded distributions include `konata-cli.js`. With Node.js 18 or later installed, run:
+
+```bash
+./konata.sh --cli trace.log.zst
+```
+
+This is a line-oriented CLI, not a full-screen TUI. Enter commands such as `show`,
+`find stage ID min 3`, `detail`, and `quit`; `help` lists all commands. It keeps the trace and
+inspection state between commands. Currently it supports one Kanata trace at a time (plain text,
+gzip, or Zstandard), keeps the whole trace in memory, and does not support gem5 traces.
+
+Commands can also be supplied through standard input. `--jsonl` returns one JSON response per
+command, without prompts:
+
+```bash
+printf 'show\nfind stage ID min 3\ndetail\n' | ./konata.sh --cli --jsonl trace.log.zst
+```
+
+The CLI does not start a browser or Web server and needs no npm packages at runtime. From a source
+checkout, run `make cli-build` first. You can also run the bundle directly with
+`node dist-cli/konata-cli.js trace.log`.
+
 ## Distribution and updates
 
 ### Update a downloaded copy
@@ -136,6 +160,8 @@ is not available for them. Loading arbitrary URLs or paths is intentionally disa
 
 The script downloads the latest tested development build from Konata Web and updates the extracted
 copy after confirmation.
+When updating an older copy whose launcher did not include CLI support, run `--update` a second
+time to install `konata-cli.js` as well.
 
 ### Other ways to run
 
@@ -183,5 +209,5 @@ procedures.
 Copyright (C) 2016-2026 Ryota Shioya <shioya@ci.i.u-tokyo.ac.jp>
 
 Konata is released under the BSD 3-Clause License. See [LICENSE.md](LICENSE.md).
-The Web application includes third-party packages under their respective licenses. See
+The Web application and CLI bundle include third-party packages under their respective licenses. See
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

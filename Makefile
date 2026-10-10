@@ -2,6 +2,7 @@
 
 # Electronは製品には使わず、production HTMLをChromium上で検証するテスト実行器としてだけ使う。
 ELECTRON := ./node_modules/.bin/electron
+NODE := node
 WEBPACK := ./node_modules/.bin/webpack
 TSC := ./node_modules/.bin/tsc
 TSX := ./node_modules/.bin/tsx
@@ -18,14 +19,14 @@ ARCHIVE_ROOT := dist-release
 ARCHIVE_DIR := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME)
 ARCHIVE_PATH := $(ARCHIVE_ROOT)/$(ARCHIVE_NAME).zip
 
-.PHONY: all production check versions init test typecheck license-check launcher-check serve cli browser-regression \
+.PHONY: all production check versions init test typecheck license-check launcher-check serve cli cli-build browser-regression \
 	web-regression production-regression benchmark-rendering benchmark-op-store release-version-check archive release-archive \
 	latest-archive clean distclean
 
 all:
 	$(WEBPACK) --mode development
 
-production: license-check
+production: license-check cli-build
 	$(WEBPACK) --mode production
 
 # 型・単体・起動script・単一HTML・browser回帰を順番に検証する正式な確認入口。
@@ -54,11 +55,14 @@ typecheck:
 	$(TSC) --project tsconfig.json --noEmit
 	$(TSC) --project tsconfig.cli.json --noEmit
 
-# 試作CLIはNode上で既存Parserを共有し、GUIと単一HTMLの配布内容には含めない。
+# sourceから直接試す入口と、npm依存なしで配布・実行できる単一JSのbuildを分ける。
 cli:
-	@node --import tsx src/cli/main.ts $(CLI_ARGS)
+	@$(NODE) --import tsx src/cli/main.ts $(CLI_ARGS)
 
-# production依存と配布HTMLへ入るloader runtimeが、監査済み一覧と一致することを確認する。
+cli-build: license-check
+	$(WEBPACK) --config webpack.cli.config.js
+
+# production依存と配布物へ入るloader runtimeが、監査済み一覧と一致することを確認する。
 license-check:
 	node tools/check_third_party_licenses.js
 
@@ -94,17 +98,18 @@ web-regression: all
 # 配布形式の軽量smoke検査に加え、production成果物のbrowser回帰も確認する。
 production-regression: production
 	node test/single_html_smoke.js
+	$(NODE) test/cli_bundle_smoke.js
 	$(MAKE) browser-regression
 
 # package.jsonをバージョンの基準とし、lockfileとの不一致を配布前に検出する。
 release-version-check:
 	node -e 'const packageJSON = require("./package.json"); const lock = require("./package-lock.json"); if (packageJSON.version !== lock.version || packageJSON.version !== lock.packages[""].version) { throw new Error("package.json and package-lock.json versions do not match."); }'
 
-# 検証済みの単一HTML、remote起動script、利用・ライセンス文書をZIPへまとめる。
+# 検証済みの単一HTML、単一CLI JS、起動script、利用・ライセンス文書をZIPへまとめる。
 archive:
 	rm -rf "$(ARCHIVE_DIR)" "$(ARCHIVE_PATH)"
 	mkdir -p "$(ARCHIVE_DIR)"
-	cp dist-web/index.html konata.sh README.md LICENSE.md THIRD_PARTY_LICENSES.md "$(ARCHIVE_DIR)/"
+	cp dist-web/index.html dist-cli/konata-cli.js konata.sh README.md LICENSE.md THIRD_PARTY_LICENSES.md "$(ARCHIVE_DIR)/"
 	sed -i 's/^build=0-source-unknown$$/build=$(BUILD_ID)/' "$(ARCHIVE_DIR)/konata.sh"
 	grep -qx 'build=$(BUILD_ID)' "$(ARCHIVE_DIR)/konata.sh"
 	cd "$(ARCHIVE_ROOT)" && zip -q -r "$(ARCHIVE_NAME).zip" "$(ARCHIVE_NAME)"
@@ -119,7 +124,7 @@ latest-archive: check
 	$(MAKE) archive ARCHIVE_NAME=konata-latest
 
 clean:
-	rm dist-web dist-release -r -f
+	rm dist-web dist-cli dist-release -r -f
 
 distclean: clean
 	rm node_modules -r -f

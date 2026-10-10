@@ -28,7 +28,7 @@ async function main(): Promise<void> {
         return response.result?.kind === "quit";
     };
     if (flags.includes("--help") || flags.includes("-h")) {
-        if (!json) process.stdout.write("Usage: make cli CLI_ARGS='[--jsonl] [trace.log]'\n\n");
+        if (!json) process.stdout.write("Usage: konata.sh --cli [--jsonl] [--] [trace.log]\n\n");
         await run("help");
         return;
     }

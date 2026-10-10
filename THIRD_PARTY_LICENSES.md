@@ -1,7 +1,7 @@
 # Third-Party Licenses
 
-This document lists third-party software included in Konata's production HTML. Development-only
-tools whose code is not distributed with the application are not listed.
+This document lists third-party software included in Konata's production HTML and CLI bundle.
+Development-only tools whose code is not distributed with the application are not listed.
 
 ## Bundled npm packages
 
@@ -23,6 +23,9 @@ tools whose code is not distributed with the application are not listed.
 `css-loader`, `style-loader`, `webpack`, and `worker-loader` are build dependencies, but portions of
 their runtime code are included in the generated HTML. Other build and test dependencies are not
 part of the distributed application.
+
+The CLI bundle includes `@hpcc-js/wasm-zstd` (with fzstd and Zstandard) and Webpack's runtime;
+the React, icon, CSS, and Web Worker runtimes are used only by the Web application.
 
 ## Embedded components
 

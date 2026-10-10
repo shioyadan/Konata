@@ -48,7 +48,7 @@ const MAX_PAGE_COMPRESSION_WORKERS = 4;
 const MAX_PENDING_PAGE_COMPRESSIONS = 8;
 
 async function acquireLocalZstd(mode: ZstdStreamMode): Promise<() => void> {
-    // Node.jsの単体テストにはWeb Workerがないため、従来のsingletonを直列化して使う。
+    // Node.jsのCLIと単体テストにはWeb Workerがないため、singletonを直列化して使う。
     // browserでは入力展開とpage圧縮が別Workerなので、この待ち合わせは発生しない。
     const previous = mode === "compress" ? localCompressionTail : localDecompressionTail;
     let release: () => void = () => undefined;
@@ -218,7 +218,7 @@ class WorkerZstdStreamBackend implements ZstdStreamBackend {
 }
 
 function createBackend(mode: ZstdStreamMode): ZstdStreamBackend {
-    // 製品browserはWorkerへ分離し、Node.jsの単体テストだけmain threadで通す。
+    // browserはWorkerへ分離し、Node.jsのCLIと単体テストはmain threadで通す。
     return typeof Worker === "undefined"
         ? new LocalZstdStreamBackend(mode)
         : new WorkerZstdStreamBackend(mode);
