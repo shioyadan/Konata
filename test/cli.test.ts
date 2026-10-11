@@ -70,6 +70,13 @@ function overview(response: CliResponse) {
     return response.result;
 }
 
+function count(response: CliResponse) {
+    assert.equal(response.ok, true, response.error?.message);
+    assert.equal(response.result?.kind, "count");
+    if (response.result?.kind !== "count") throw new Error("Expected count.");
+    return response.result;
+}
+
 function match(response: CliResponse): number {
     const id = timeline(response).matchID;
     assert.notEqual(id, undefined, "Search results must identify the matching instruction.");
@@ -126,6 +133,9 @@ test("CLI auto-detects gem5, shares GUI identities and keeps raw ticks without c
         assert.equal(detail(await cli.execute("detail gid 12")).instruction.gid, 12);
         assert.deepEqual(detail(await cli.execute("detail gid 12 stage Rt")).stages.map((stage) =>
             [stage.name, stage.begin, stage.end, stage.duration]), [["Rt", 4, 4, 0]]);
+        assert.deepEqual(count(await cli.execute("count instructions where stage Cm duration >= 2 group by pc")).groups,
+            [{ pc: "0x12", count: 1, maximumDuration: 2 }]);
+        assert.equal(count(await cli.execute("count instructions where stage Rt duration >= 1")).matchedInstructions, 0);
     }
     finally { gui.close(); }
 });
@@ -161,6 +171,7 @@ test("CLI open defaults to background loading and --sync explicitly waits for co
     const unavailable = await cli.execute("show");
     assert.equal(unavailable.error?.code, "loading");
     assert.match(formatCliText(unavailable), /Try show again.*wait/);
+    assert.equal((await cli.execute("count instructions where stage EX duration >= 5")).error?.code, "loading");
     requests.get("first.log")!({ ...trace, source: "first.log" });
     assert.equal((await cli.execute("wait")).state.file, "first.log");
 
@@ -199,6 +210,9 @@ test("CLI background loading keeps the current investigation responsive and repl
     assert.equal(opening.state.file, "old.log");
     assert.equal(opening.state.loading?.status, "loading");
     const snapshot = cli.state;
+    const oldCount = count(await cli.execute("count instructions where stage EX duration >= 5"));
+    assert.equal(oldCount.scope.source, "old.log");
+    assert.equal(oldCount.scope.complete, true);
     options!.onProgress!(0.4);
     assert.equal(snapshot.loading!.progress, 0);
     const progress = await cli.execute("status");
@@ -329,6 +343,11 @@ test("CLI inspects a held Kanata stream before EOF and preserves the view as lat
     assert.equal(first.state.loading!.status, "loading");
     assert.deepEqual(timeline(first).rows.map((op) => op.id), [1]);
     assert.match(formatCliText(first), /loading.*showing available instructions/);
+    const partialCount = await cli.execute("count instructions where stage IF duration >= 3 group by pc");
+    assert.equal(count(partialCount).matchedInstructions, 1);
+    assert.equal(count(partialCount).totalInstructions, 1);
+    assert.equal(count(partialCount).scope.complete, false);
+    const savedCount = JSON.stringify(partialCount);
     await cli.execute("filter thread 1");
     await cli.execute("find needle");
     await cli.execute("zoom 2");
@@ -353,6 +372,12 @@ test("CLI inspects a held Kanata stream before EOF and preserves the view as lat
     assert.equal(unfinished.instruction.end, null);
     assert.equal(unfinished.stages[0].end, null);
     await cli.execute("filter clear");
+    assert.equal(JSON.stringify(partialCount), savedCount);
+    const completeCount = count(await cli.execute("count instructions where stage ID duration >= 3"));
+    assert.equal(completeCount.scope.complete, true);
+    assert.equal(completeCount.totalInstructions, 3);
+    assert.equal(completeCount.matchedInstructions, 1);
+    assert.equal(completeCount.unfinishedInstructions, 1);
     assert.equal(timeline(await cli.execute("goto cycle 150")).rows[0].id, 0);
     assert.equal((await cli.execute("goto rid 1")).state.window.begin, 100);
 });
@@ -428,7 +453,9 @@ test("CLI retains published instructions after cancel or read failure and ignore
     assert.equal(cli.state.instructionCount, 3);
     assert.equal(cli.state.window.begin, 100);
     assert.equal(timeline(await cli.execute("show")).rows.length, 3);
+    assert.equal(count(await cli.execute("count instructions where stage EX duration >= 5")).scope.complete, false);
     await cli.execute("open second");
+    assert.equal(count(await cli.execute("count instructions where stage EX duration >= 5")).scope.complete, false);
     const second = requests.get("second")!;
     second.options.onUpdate!({ ...trace, source: "second", instructions: trace.instructions.slice(2, 4) });
     await cli.execute("goto id 4");
@@ -440,6 +467,7 @@ test("CLI retains published instructions after cancel or read failure and ignore
     first.options.onUpdate!({ ...trace, instructions: trace.instructions });
     assert.equal(cli.state.file, "second");
     assert.equal(detail(await cli.execute("detail 4")).instruction.id, 4);
+    assert.equal(count(await cli.execute("count instructions where stage IF duration >= 0")).scope.complete, false);
 });
 
 test("CLI publishes gzip and Zstandard chunks before EOF and keeps final records identical", { timeout: 10000 }, async () => {
@@ -796,6 +824,161 @@ test("CLI overview updates partial samples during loading and keeps earlier resp
     assert.equal(overview(await cli.execute("overview")).totalInstructions, 2);
 });
 
+test("CLI counts the full instruction scope and inclusive ID ranges without moving the view or search cursor", async () => {
+    const cli = await session();
+    await cli.execute("find dload4");
+    await cli.execute("goto cycle 500");
+    await cli.execute("zoom 4");
+    await cli.execute("show 7");
+    const before = cli.state;
+    const response = await cli.execute("count instructions where stage EX duration >= 5");
+    assert.deepEqual(count(response), {
+        kind: "count", scope: { source: "fixture.log", idRange: null, thread: null, complete: true },
+        condition: { stage: "EX", minimumDuration: 5 }, totalInstructions: 5, matchedInstructions: 1,
+        percentage: 20, unfinishedInstructions: 0, maximumDuration: 100,
+        groupBy: null, groups: [], totalGroups: 0, top: null,
+    });
+    assert.deepEqual(response.state, before);
+    assert.equal(response.truncated, false);
+    assert.equal(response.nextRow, null);
+    assert.match(formatCliText(response), /input: complete\nScope: all available instructions/);
+    assert.match(formatCliText(response), /Matched: 1 \/ 5 \(20\.00%\)/);
+    assert.match(formatCliText(response), /Maximum matching duration: 100 cycles/);
+    assert.equal(match(await cli.execute("next")), 3);
+
+    const range = count(await cli.execute("count instructions range id 3 20 where stage ID duration >= 3"));
+    assert.deepEqual(range.scope.idRange, { first: 3, last: 20 });
+    assert.equal(range.totalInstructions, 4);
+    assert.equal(range.matchedInstructions, 2);
+    assert.equal(range.percentage, 50);
+    assert.equal(range.maximumDuration, 3);
+    await cli.execute("filter thread 1");
+    const flushed = count(await cli.execute("count instructions range id 3 20 where stage ID duration >= 3"));
+    assert.equal(flushed.scope.thread, 1);
+    assert.equal(flushed.totalInstructions, 1);
+    assert.equal(flushed.matchedInstructions, 1);
+    assert.equal(flushed.percentage, 100);
+    const empty = await cli.execute("count instructions range id 20 20 where stage ID duration >= 0 group by pc");
+    assert.equal(count(empty).totalInstructions, 0);
+    assert.equal(count(empty).percentage, null);
+    assert.equal(count(empty).maximumDuration, null);
+    assert.deepEqual(count(empty).groups, []);
+    assert.match(formatCliText(empty), /Matched: 0 \/ 0 \(n\/a\)/);
+    await cli.execute("filter clear");
+    const unfinished = count(await cli.execute("count instructions where stage IF duration >= 0"));
+    assert.equal(unfinished.scope.complete, true); // 全量読込み済みでも、EOF時に開いたstageは未完了。
+    assert.equal(unfinished.unfinishedInstructions, 1);
+    assert.equal(unfinished.matchedInstructions, 3);
+    assert.equal(count(await cli.execute("count instructions where stage Rt duration >= 0")).maximumDuration, 0);
+    assert.equal(count(await cli.execute("count instructions where stage ex duration >= 0")).matchedInstructions, 0);
+});
+
+test("CLI counts one instruction per stage match and groups explicit PCs without rounding or merging intervals", async () => {
+    const base = await inspectCliTrace(input(source));
+    const ex = (begin: number, end: number | null, lane = "0") => ({ lane, name: "EX", label: "", begin, end });
+    const records = [
+        { label: "  0X0002: load", stages: [ex(0, 7), ex(7, 12), ex(12, null, "aux")] },
+        { label: "0x2 load", stages: [ex(0, 6)] },
+        { label: "0x10 f", stages: [ex(0, 9)] },
+        { label: "0x20000000000001 high", stages: [ex(0, 10)] },
+        { label: "0x20000000000000 high", stages: [ex(0, 8)] },
+        { label: "text 0x2", stages: [ex(0, 11)] },
+        { label: "0x3Bad! malformed", stages: [ex(0, 12)] },
+        { label: "no pc", stages: [ex(0, 3), ex(3, 6), ex(0, 3, "aux")] },
+        { label: "0x20 open", stages: [ex(0, null)] },
+        { label: "0x02z", stages: [{ lane: "0", name: "phase with space", label: "", begin: 0, end: 0 }] },
+    ];
+    const cli = new CliSession(async () => ({ ...base, source: "count\x1b[2J.log", range: { begin: 0, end: 20 },
+        instructions: records.map((record, id) => ({ ...base.instructions[0], id, ...record, begin: 0, end: null })) }));
+    await cli.execute("open --sync fixture.log");
+    const response = await cli.execute("count instructions where stage EX duration >= 5 group by pc");
+    const result = count(response);
+    assert.equal(result.totalInstructions, 10);
+    assert.equal(result.matchedInstructions, 7);
+    assert.equal(result.percentage, 70);
+    assert.equal(result.unfinishedInstructions, 2);
+    assert.equal(result.maximumDuration, 12);
+    assert.equal(result.top, 10);
+    assert.deepEqual(result.groups, [
+        { pc: "0x2", count: 2, maximumDuration: 7 },
+        { pc: null, count: 2, maximumDuration: 12 },
+        { pc: "0x10", count: 1, maximumDuration: 9 },
+        { pc: "0x20000000000000", count: 1, maximumDuration: 8 },
+        { pc: "0x20000000000001", count: 1, maximumDuration: 10 },
+    ]);
+    assert.equal(response.truncated, false);
+    assert.match(formatCliText(response), /Unfinished EX: 2 instructions/);
+    assert.match(formatCliText(response), /both a matching closed interval and an unfinished interval/);
+    assert.match(formatCliText(response), /unknown \| 2 \| 12/);
+    assert.doesNotMatch(formatCliText(response), /\x1b/);
+    const absent = count(await cli.execute("count instructions where stage EX duration >= 13"));
+    assert.equal(absent.matchedInstructions, 0);
+    assert.equal(absent.maximumDuration, null);
+    assert.equal(absent.unfinishedInstructions, 2);
+    assert.deepEqual(count(await cli.execute('count instructions where stage "phase with space" duration >= 0 group by pc')).groups,
+        [{ pc: null, count: 1, maximumDuration: 0 }]);
+});
+
+test("CLI PC rankings cap output without changing totals and use deterministic numeric tie ordering", async () => {
+    const base = await inspectCliTrace(input(source));
+    const cli = new CliSession(async () => ({ ...base,
+        instructions: Array.from({ length: 12 }, (_, id) => ({ ...base.instructions[0], id,
+            label: `0x${(12 - id).toString(16)}`, stages: [{ lane: "0", name: "EX", label: "", begin: 0, end: 5 }] })) }));
+    await cli.execute("open --sync fixture.log");
+    const response = await cli.execute("count instructions where stage EX duration >= 5 group by pc");
+    assert.equal(count(response).totalGroups, 12);
+    assert.equal(count(response).groups.length, 10);
+    assert.equal(response.truncated, true);
+    assert.equal(response.nextRow, null);
+    assert.match(formatCliText(response), /2 more PC groups.*Totals include all groups/);
+    const top = await cli.execute("count instructions where stage EX duration >= 5 group by pc top 1");
+    assert.equal(count(top).totalInstructions, 12);
+    assert.equal(count(top).matchedInstructions, 12);
+    assert.equal(count(top).percentage, 100);
+    assert.deepEqual(count(top).groups, [{ pc: "0x1", count: 1, maximumDuration: 5 }]);
+    assert.equal(top.truncated, true);
+    const all = await cli.execute("count instructions where stage EX duration >= 5 group by pc top 256");
+    assert.equal(count(all).groups.length, 12);
+    assert.equal(all.truncated, false);
+    assert.deepEqual(count(all).groups.slice(0, 10), count(response).groups);
+});
+
+test("CLI rejects malformed count clauses and unsafe numbers atomically", async () => {
+    const cli = await session();
+    await cli.execute("find dload4");
+    await cli.execute("goto cycle 300");
+    const before = cli.state;
+    for (const command of [
+        "count", "count instructions", "count instructions stage EX duration >= 5",
+        "count instructions range gid 0 20 where stage EX duration >= 5",
+        'count instructions where stage "" duration >= 5',
+        "count instructions where stage EX duration > 5", "count instructions where stage EX duration >=",
+        "count instructions where stage EX duration >= 5 top 2",
+        "count instructions where stage EX duration >= 5 group by thread",
+        "count instructions where stage EX duration >= 5 group by pc top",
+        "count instructions where stage EX duration >= 5 group by pc extra",
+        "count instructions where stage EX duration >= 5 or stage ID duration >= 3",
+    ]) {
+        const response = await cli.execute(command);
+        assert.equal(response.error?.code, "invalid_command", command);
+        assert.deepEqual(cli.state, before, command);
+    }
+    for (const command of [
+        "count instructions range id -1 20 where stage EX duration >= 5",
+        "count instructions range id 20 3 where stage EX duration >= 5",
+        "count instructions range id 0 where stage EX duration >= 5",
+        "count instructions range id 0 9007199254740993 where stage EX duration >= 5",
+        "count instructions where stage EX duration >= 1.5", "count instructions where stage EX duration >= -1",
+        "count instructions where stage EX duration >= 9007199254740993",
+        "count instructions where stage EX duration >= 5 group by pc top 0",
+        "count instructions where stage EX duration >= 5 group by pc top 257",
+    ]) {
+        assert.equal((await cli.execute(command)).error?.code, "invalid_number", command);
+        assert.deepEqual(cli.state, before, command);
+    }
+    assert.equal(match(await cli.execute("next")), 3);
+});
+
 test("CLI preserves zero-cycle closure and stage reentry without inventing unfinished durations", async () => {
     const cli = await session([
         "Kanata\t0004", "I\t0\t10\t0", "S\t0\t0\tID", "E\t0\t0\tID", "C\t2", "R\t0\t0\t0",
@@ -1052,6 +1235,7 @@ test("CLI command-specific help works without a trace and invalid arguments repo
     }
     assert.match(formatCliText(await empty.execute("help find")), /find stage NAME min N/);
     assert.match(formatCliText(await empty.execute("help detail")), /\[stage NAME\]/);
+    assert.match(formatCliText(await empty.execute("help count")), /range id FIRST LAST.*where stage NAME duration >= N.*group by pc/);
     assert.equal((await empty.execute("help missing")).error?.code, "invalid_command");
     assert.equal((await empty.execute("help constructor")).ok, false);
     assert.equal((await empty.execute("help find extra")).ok, false);
@@ -1108,6 +1292,25 @@ test("CLI completion follows argument positions and caches only recorded stage n
     await check('find stage "I', ['"ID" ', '"IF" '], '"I');
     await check("find stage ID m", ["min "], "m");
     await check("find stage ID min ", [], "");
+    await check("count ", ["instructions "], "");
+    await check("count instructions ", ["range ", "where "], "");
+    await check("count instructions range ", ["id "], "");
+    await check("count instructions range id ", [], "");
+    await check("count instructions range id 3 ", [], "");
+    await check("count instructions range id 3 20 ", ["where "], "");
+    await check("count instructions where ", ["stage "], "");
+    await check("count instructions range id 3 20 where stage I", ["ID ", "IF "], "I");
+    await check('count instructions where stage "I', ['"ID" ', '"IF" '], '"I');
+    await check("count instructions where stage EX ", ["duration "], "");
+    await check("count instructions where stage EX duration ", [">= "], "");
+    await check("count instructions where stage EX duration >= ", [], "");
+    await check("count instructions where stage EX duration >= 5 ", ["group "], "");
+    await check("count instructions where stage EX duration >= 5 group ", ["by "], "");
+    await check("count instructions where stage EX duration >= 5 group by ", ["pc "], "");
+    await check("count instructions where stage EX duration >= 5 group by pc ", ["top "], "");
+    await check("count instructions where stage EX duration >= 5 group by pc top ", [], "");
+    await check("count instructions where stage EX duration >= 5 group by pc top 10 ", [], "");
+    await check("count instructions where EX ", [], "");
     await check("goto id ", [], "");
     await check("unknown ", [], "");
     assert.deepEqual(cli.state, before);
@@ -1125,6 +1328,7 @@ test("CLI completion follows argument positions and caches only recorded stage n
     assert.deepEqual(changing.completionValues, { stages: ["new stage"], threads: ["12"] });
     assert.deepEqual(await completeCliCommand("find stage n", changing.completionValues), [['"new stage" '], "n"]);
     assert.deepEqual(await completeCliCommand("detail 0 stage n", changing.completionValues), [['"new stage" '], "n"]);
+    assert.deepEqual(await completeCliCommand("count instructions where stage n", changing.completionValues), [['"new stage" '], "n"]);
     assert.deepEqual(await completeCliCommand("find stage ", { stages: ["safe", "\x1b[2Junsafe"], threads: [] }),
         [["safe "], ""]);
     assert.deepEqual(await completeCliCommand("find stage ", { stages: [""], threads: [] }), [['"" '], ""]);

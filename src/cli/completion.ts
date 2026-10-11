@@ -57,6 +57,24 @@ export async function completeCliCommand(line: string, values: CliCompletionValu
         else if (tokens[1] === "stage" && index === 2) words = values.stages;
         else if (tokens[1] === "stage" && index === 3) words = ["min"];
     }
+    else if (tokens[0] === "count") {
+        if (index === 1) words = ["instructions"];
+        else if (tokens[1] === "instructions") {
+            if (index === 2) words = ["range", "where"];
+            else if (tokens[2] === "range" && index === 3) words = ["id"];
+            else if (tokens[2] !== "range" || tokens[3] === "id") {
+                // 省略できるID範囲の後はhelpと同じ固定順序。stage名だけをログから補う。
+                const start = tokens[2] === "range" ? 6 : 2;
+                const syntax = ["where", "stage", null, "duration", ">=", null, "group", "by", "pc", "top"];
+                const offset = index - start;
+                if (offset >= 0 && offset < syntax.length &&
+                    syntax.slice(0, offset).every((word, part) => word === null || tokens[start + part] === word)) {
+                    const word = syntax[offset];
+                    words = offset === 2 ? values.stages : word === null ? [] : [word];
+                }
+            }
+        }
+    }
     if (tokens[0] === "open" && (index === 1 || ((tokens[1] === "--sync" || tokens[1] === "--async") && index === 2))) {
         candidates = index === 1 && active.value.startsWith("--") ?
             ["--sync", "--async"].filter((word) => word.startsWith(active.value)).map((value) => ({ value })) :

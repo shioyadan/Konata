@@ -101,11 +101,28 @@ export interface CliOverviewRow {
     cells: string[];
 }
 
+// 集計対象と分母を応答に残し、時間窓や読込み後の更新によって結果の意味を変えない。
+export interface CliCountResult {
+    kind: "count";
+    scope: { source: string; idRange: { first: number; last: number } | null; thread: number | null; complete: boolean };
+    condition: { stage: string; minimumDuration: number };
+    totalInstructions: number;
+    matchedInstructions: number;
+    percentage: number | null;
+    unfinishedInstructions: number;
+    maximumDuration: number | null;
+    groupBy: "pc" | null;
+    groups: { pc: string | null; count: number; maximumDuration: number }[];
+    totalGroups: number;
+    top: number | null;
+}
+
 export type CliResult =
     | { kind: "status"; attributes?: string[] }
     | { kind: "timeline"; rows: CliRow[]; totalRows: number; matchID?: number }
     | { kind: "overview"; rows: CliOverviewRow[]; totalInstructions: number;
         axis: { begin: number; end: number; cyclesPerColumn: number } | null }
+    | CliCountResult
     | { kind: "detail"; instruction: Omit<CliInstruction, "stages">;
         stages: (CliStage & { duration: number | null })[]; stageFilter: string | null;
         totalStages: number; nextStageOffset: number | null }
@@ -130,6 +147,7 @@ export const CLI_HELP = [
     "wait | cancel                 Wait for or cancel a background load; status shows progress",
     "show [row-offset]              Show overlapping instructions (24 rows, 32 columns)",
     "overview [first-id last-id]    Sample instruction lifetimes on a shared, non-wrapping axis",
+    "count instructions ...        Count stage-duration matches; use help count for syntax",
     "goto cycle N                  Move the left edge to cycle N",
     "goto id|gid|rid N              Move to an instruction's beginning",
     "pan N                         Move by N cycles",
@@ -145,7 +163,7 @@ export const CLI_HELP = [
     "Notes: C= uses absolute log cycles; show/search use start cycle then ID; overview uses ID order.",
     "Unknown ends remain null; unfinished stages are drawn only through the observed input.",
     "While loading, show and searches use the available instructions; wait reads through EOF.",
-    "This prototype keeps one log in memory; PC extraction and automatic diagnosis are not supported.",
+    "This prototype keeps one log in memory; automatic diagnosis is not supported.",
     "Integers outside the JavaScript safe integer range are rejected, never rounded.",
 ] as const;
 
@@ -172,6 +190,19 @@ const COMMAND_HELP = {
         "Group counts cover all matches; sampled lifetimes are not averages or maxima. Unknown ends remain null.",
         "Unfinished bars extend only through the observed input. The window, zoom and search cursor are unchanged.",
         "Example: overview 0 999"],
+    count: ["Usage: count instructions [range id FIRST LAST] where stage NAME duration >= N [group by pc [top N]]",
+        "Count each instruction once if any closed interval of the exact stage name lasts at least N cycles (N >= 0).",
+        "range: Inclusive nonnegative file-local IDs; default is all available instructions, not the visible window.",
+        "The current thread filter applies. The percentage denominator is every instruction in that scope.",
+        "Unfinished stages are counted separately, without invented ends; these instructions may also have a matching closed interval.",
+        "Maximum duration covers closed matching intervals; reentries and parallel lanes are not summed.",
+        "group by pc: Rank matches by count, then numeric PC; unknown PCs form a separate group.",
+        "PCs are read only from a leading hexadecimal 0x address followed by whitespace, a colon or the label end.",
+        "top: Show 1-256 PC groups (default 10); omitted groups do not change the totals.",
+        "During loading, count only the published snapshot. Results state whether the input is complete.",
+        "The window, zoom and search cursor are unchanged.",
+        "Examples: count instructions where stage EX duration >= 5",
+        "  count instructions range id 1000 1999 where stage EX duration >= 5 group by pc top 10"],
     goto: ["Usage: goto cycle N | goto id|gid|rid N",
         "Move the window to cycle N, or to an instruction's beginning. The search cursor is unchanged.",
         "id is file-local, gid is the log's global ID, and rid is the retired instruction number.",
@@ -358,6 +389,13 @@ function overlaps(start: number, end: number | null, begin: number, finish: numb
     return end === start ? begin <= start && start < finish : start < finish && (end === null || end > begin);
 }
 
+// 自由ラベル内の任意のhex値をPCと推定しない。Kanataの先頭addressとgem5の
+// address: disassembly形式だけを読み、64bit以上のPCもNumberへ変換せず保持する。
+function instructionPC(label: string): string | null {
+    const address = /^\s*0x([\da-f]+)(?=\s|:|$)/i.exec(label);
+    return address === null ? null : `0x${address[1].toLowerCase().replace(/^0+(?=.)/, "")}`;
+}
+
 type Search = { kind: "label"; text: string } | { kind: "stage"; name: string; minimum: number };
 
 interface LoadJob {
@@ -371,6 +409,8 @@ interface LoadJob {
 // 読込み済みログと索引を再利用する操作本体。失敗したcommandで直前の調査状態を失わない。
 export class CliSession {
     private trace_: CliTrace | null = null;
+    // 次のopenが未公開の間も、現在のtraceが全量か途中かを独立して保持する。
+    private traceComplete_ = false;
     private intervals_: IntervalNode | null = null;
     private ids_ = new Map<number, number>();
     private gids_ = new Map<number, number[]>();
@@ -511,6 +551,8 @@ export class CliSession {
             if (firstID > lastID) fail("invalid_number", "The first ID must not exceed the last ID.");
             return this.overview_(firstID, lastID);
         }
+        case "count":
+            return this.aggregate_(args, response);
         case "goto": {
             this.count_(args, 3);
             const [kind, value] = [args[1], args[2]];
@@ -670,6 +712,7 @@ export class CliSession {
             this.liveStages_ = new Set(); this.liveThreads_ = new Set();
             this.completionDirty_ = true;
             this.resetView_(update);
+            this.traceComplete_ = false;
             job.published = true;
         }
         for (const op of update.instructions) this.updateInstruction_(op);
@@ -700,6 +743,7 @@ export class CliSession {
                     }
                 }
                 this.publishUpdate_(job, { ...trace, instructions: [] });
+                this.traceComplete_ = true;
                 job.state.status = "ready";
                 job.state.progress = 1;
                 return;
@@ -733,6 +777,7 @@ export class CliSession {
             signal.throwIfAborted();
             if (job !== this.loadJob_) return;
             this.trace_ = trace;
+            this.traceComplete_ = true;
             this.intervals_ = intervals;
             this.ids_ = ids; this.gids_ = gids; this.rids_ = rids;
             this.liveInstructions_ = [];
@@ -772,6 +817,82 @@ export class CliSession {
 
     private matchesFilter_(op: CliInstruction): boolean {
         return this.state_.filters.thread === undefined || this.state_.filters.thread === op.thread;
+    }
+
+    // 専用構文を順番に読むだけとし、SQL engineや汎用式評価器は導入しない。
+    // 同期の一回の走査中は途中通知を挟まず、実行開始時の公開範囲を集計する。
+    private aggregate_(args: string[], response: CliResponse): CliCountResult {
+        const usage = () => fail("invalid_command", `Invalid arguments. ${commandHelp("count")![0]}`);
+        if (args[1] !== "instructions") usage();
+        let index = 2;
+        let idRange: CliCountResult["scope"]["idRange"] = null;
+        if (args[index] === "range") {
+            if (args[index + 1] !== "id" || args.length < index + 4) usage();
+            const first = integer(args[index + 2]);
+            const last = integer(args[index + 3]);
+            if (first < 0 || last < first) fail("invalid_number", "Expected nonnegative IDs with FIRST <= LAST.");
+            idRange = { first, last };
+            index += 4;
+        }
+        if (args[index] !== "where" || args[index + 1] !== "stage" || args[index + 2] === undefined ||
+            args[index + 3] !== "duration" || args[index + 4] !== ">=" || args[index + 5] === undefined) usage();
+        const stageName = args[index + 2];
+        if (stageName === "") fail("invalid_command", "Stage names cannot be empty.");
+        const minimumDuration = integer(args[index + 5]);
+        if (minimumDuration < 0) fail("invalid_number", "The minimum duration cannot be negative.");
+        index += 6;
+        let groupBy: "pc" | null = null;
+        let top: number | null = null;
+        if (args[index] === "group") {
+            if (args[index + 1] !== "by" || args[index + 2] !== "pc") usage();
+            groupBy = "pc";
+            top = 10;
+            index += 3;
+            if (args[index] === "top") {
+                if (args[index + 1] === undefined) usage();
+                top = integer(args[index + 1], true);
+                if (top > 256) fail("invalid_number", "top cannot exceed 256 PC groups.");
+                index += 2;
+            }
+        }
+        if (index !== args.length) usage();
+        const trace = this.requireTrace_();
+        const result: CliCountResult = { kind: "count",
+            scope: { source: trace.source, idRange, thread: this.state_.filters.thread ?? null, complete: this.traceComplete_ },
+            condition: { stage: stageName, minimumDuration }, totalInstructions: 0, matchedInstructions: 0,
+            percentage: null, unfinishedInstructions: 0, maximumDuration: null,
+            groupBy, groups: [], totalGroups: 0, top };
+        const groups = new Map<string | null, CliCountResult["groups"][number]>();
+        for (const op of trace.instructions) {
+            if (!this.matchesFilter_(op) || (idRange !== null && (op.id < idRange.first || op.id > idRange.last))) continue;
+            result.totalInstructions++;
+            let maximum: number | null = null;
+            let unfinished = false;
+            for (const stage of op.stages) {
+                if (stage.name !== stageName) continue;
+                if (stage.end === null) { unfinished = true; continue; }
+                const duration = safe(stage.end - stage.begin);
+                if (duration >= minimumDuration) maximum = Math.max(maximum ?? duration, duration);
+            }
+            if (unfinished) result.unfinishedInstructions++;
+            if (maximum === null) continue;
+            result.matchedInstructions++;
+            result.maximumDuration = Math.max(result.maximumDuration ?? maximum, maximum);
+            if (groupBy !== null) {
+                const pc = instructionPC(op.label);
+                const group = groups.get(pc);
+                if (group === undefined) groups.set(pc, { pc, count: 1, maximumDuration: maximum });
+                else { group.count++; group.maximumDuration = Math.max(group.maximumDuration, maximum); }
+            }
+        }
+        result.percentage = result.totalInstructions === 0 ? null : result.matchedInstructions / result.totalInstructions * 100;
+        result.totalGroups = groups.size;
+        // 同件数は正規化したhexの桁数・文字列で数値順にする。不明PCは同件数の最後。
+        result.groups = [...groups.values()].sort((a, b) => b.count - a.count ||
+            (a.pc === null ? b.pc === null ? 0 : 1 : b.pc === null ? -1 :
+                a.pc.length - b.pc.length || (a.pc < b.pc ? -1 : a.pc > b.pc ? 1 : 0))).slice(0, top ?? 0);
+        response.truncated = result.groups.length < result.totalGroups;
+        return result;
     }
 
     // 時間窓とは独立した縮小表示。疎なIDの差ではなく実際の命令数で区切り、入力配列は並べ替えない。

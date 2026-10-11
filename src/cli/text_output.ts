@@ -1,6 +1,6 @@
 /**
  * CliResponseを人間向けの通常テキストへ整形する表示層。
- * sessionが決めた時間窓・命令・セルを表示し、ラベルの省略と端末制御文字の除去を担う。
+ * sessionが決めた時間窓・命令・集計結果を表示し、ラベルの省略と端末制御文字の除去を担う。
  * ログ解析・検索・状態変更は行わず、端末幅にも依存しない。JSON出力では使わない。
  */
 import type { CliResponse, CliState } from "./session";
@@ -72,6 +72,22 @@ export function formatCliText(response: CliResponse): string {
             });
             lines.push("Middle instruction per ID group; lifetimes are samples, not averages or maxima.",
                 ". outside lifetime | * retired | x flushed | ? incomplete through observed input | R/F/O group counts");
+        }
+    }
+    else if (result?.kind === "count") {
+        const { scope, condition } = result;
+        const range = scope.idRange === null ? "all available instructions" : `ID ${scope.idRange.first}-${scope.idRange.last} (inclusive)`;
+        lines.push(`Count instructions | source: ${text(scope.source)} | input: ${scope.complete ? "complete" : "partial"}`,
+            `Scope: ${range} | filter: ${scope.thread === null ? "none" : `thread ${scope.thread}`}`,
+            `Condition: stage ${text(condition.stage)} duration >= ${condition.minimumDuration} cycles`,
+            `Matched: ${result.matchedInstructions} / ${result.totalInstructions} (${result.percentage === null ? "n/a" : result.percentage.toFixed(2) + "%"})`,
+            `Unfinished ${text(condition.stage)}: ${result.unfinishedInstructions} instructions (not evaluated as closed intervals)`,
+            `Maximum matching duration: ${result.maximumDuration === null ? "n/a" : result.maximumDuration + " cycles"}`);
+        if (result.unfinishedInstructions > 0) lines.push("An instruction may have both a matching closed interval and an unfinished interval.");
+        if (result.groupBy === "pc") {
+            lines.push(`PC groups: ${result.groups.length} / ${result.totalGroups} | count | maximum duration (cycles)`);
+            for (const group of result.groups) lines.push(`  ${group.pc ?? "unknown"} | ${group.count} | ${group.maximumDuration}`);
+            if (response.truncated) lines.push(`${result.totalGroups - result.groups.length} more PC groups; increase top (maximum 256). Totals include all groups.`);
         }
     }
     else if (result?.kind === "detail") {
