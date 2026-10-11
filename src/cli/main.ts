@@ -5,8 +5,9 @@
  * ログ解析や検索の規則は持たず、GUI／Electronを起動しない。
  */
 import process from "node:process";
-import { createInterface } from "node:readline";
+import { createInterface, type AsyncCompleter } from "node:readline";
 
+import { completeCliCommand } from "./completion";
 import { CliSession } from "./session";
 import { formatCliText } from "./text_output";
 import { loadCliTrace } from "./trace_loader";
@@ -42,17 +43,31 @@ async function main(): Promise<void> {
     }
     if (paths.length > 1) throw new Error("The prototype accepts one trace file at a time.");
     if (paths.length === 1) await run(`open "${paths[0].replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
-    else if (interactive) process.stdout.write('Konata CLI prototype. Use open "path" or help.\n');
+    else if (interactive) process.stdout.write('Konata CLI prototype. Use open "path" or help. Tab completes input.\n');
 
+    // terminal機能は人間向けTTYだけで使う。JSON／pipeにはprompt・echo・履歴を混ぜない。
+    // 履歴はreadline内のメモリだけに保持し、ログのpathや検索語をdiskへ保存しない。
+    const completer: AsyncCompleter = (line, callback) => {
+        void completeCliCommand(line, session.completionValues).then(
+            (result) => callback(null, result),
+            () => callback(null, [[], line]),
+        );
+    };
+    const input = createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: interactive,
+        ...(interactive ? { output: process.stdout, prompt: "konata> ", completer,
+            historySize: 100, removeHistoryDuplicates: true } : {}) });
+    let closed = false;
+    input.on("close", () => { closed = true; });
     // EOFで自然に終了し、入力済みcommandも逐次awaitしてsessionの操作順を固定する。
-    const input = createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false });
     try {
-        if (interactive) process.stdout.write("konata> ");
+        if (interactive) input.prompt();
         for await (const line of input) {
+            // commandの出力中は次の入力を止め、完了後のpromptで再開する。
+            if (interactive) input.pause();
             if (line.trim() !== "" || json) {
                 if (await run(line)) break;
             }
-            if (interactive) process.stdout.write("konata> ");
+            if (interactive && !closed) input.prompt();
         }
     }
     finally {

@@ -102,12 +102,59 @@ export const CLI_HELP = [
     "find stage NAME min N         Find a closed stage lasting at least N cycles",
     "next | prev                   Repeat the last search without wrapping",
     "detail [stage-offset]         Show selected instruction and up to 256 stages",
-    "status | help | quit",
+    "status | help [command] | quit",
+    "Interactive input: Tab completes commands and arguments; Up/Down recalls session history.",
     "Notes: C= uses absolute log cycles; rows are ordered by start cycle, then file-local ID.",
     "Unknown ends remain null; unfinished stages are drawn only through the observed input.",
     "This prototype keeps one log in memory; gem5, PC extraction and automatic diagnosis are not supported.",
     "Integers outside the JavaScript safe integer range are rejected, never rounded.",
 ] as const;
+
+// 個別helpと引数不足時のusageを共有する。補完にもこの一覧を使い、command名のずれを防ぐ。
+const COMMAND_HELP = {
+    open: ['Usage: open "path/to/trace.log"',
+        "Open one Kanata trace (plain, gzip or Zstandard). Replace the current trace only after loading succeeds.",
+        "Selection, filters and search are reset on success."],
+    show: ["Usage: show [row-offset]",
+        "Show instructions overlapping the current window, up to 24 rows and 32 columns.",
+        "Use the reported row offset to read the next page."],
+    goto: ["Usage: goto cycle N | goto id|gid|rid N",
+        "Move the window to cycle N, or select an instruction and move to its beginning.",
+        "id is file-local, gid is the log's global ID, and rid is the retired instruction number.",
+        "Example: goto id 413"],
+    select: ["Usage: select [id|gid|rid] N",
+        "Select an instruction without moving the window. The default namespace is id.",
+        "A selection hidden by the current filter is reported, not replaced."],
+    pan: ["Usage: pan N", "Move the window by N cycles; negative values move backwards.", "Example: pan -20"],
+    rows: ["Usage: rows N", "Move by N rows within the current window; negative values move backwards."],
+    zoom: ["Usage: zoom N", "Set a positive integer number of cycles per column. The window has 32 columns."],
+    filter: ["Usage: filter thread N | filter clear",
+        "Filter by a recorded thread ID, or clear the filter. Other attributes are not supported yet."],
+    find: ['Usage: find "text" | find stage NAME min N',
+        "Find a case-sensitive label, or a closed stage lasting at least N cycles.",
+        "Start at the current window's left edge and follow the current filter; do not wrap.",
+        'Examples: find "dload4"; find stage ID min 3',
+        "Use next or prev to repeat the last successful search."],
+    next: ["Usage: next", "Repeat the last search forwards, without wrapping."],
+    prev: ["Usage: prev", "Repeat the last search backwards, without wrapping."],
+    detail: ["Usage: detail [stage-offset]",
+        "Show the selected instruction's complete label and up to 256 stage intervals.",
+        "Use the reported stage offset to read the next page. Unrecorded ends remain unknown."],
+    status: ["Usage: status", "Show the trace, window, scale, row position, filters and selection."],
+    help: ["Usage: help [command]", "List commands, or show help for one command.", "Example: help find"],
+    quit: ["Usage: quit", "Exit the CLI. EOF also exits without changing the trace file."],
+} as const;
+
+export const CLI_COMMAND_NAMES: readonly string[] = Object.keys(COMMAND_HELP);
+
+function commandHelp(name: string): readonly string[] | undefined {
+    return Object.hasOwn(COMMAND_HELP, name) ? COMMAND_HELP[name as keyof typeof COMMAND_HELP] : undefined;
+}
+
+export interface CliCompletionValues {
+    readonly stages: readonly string[];
+    readonly threads: readonly string[];
+}
 
 class CommandError extends Error {
     constructor(readonly code: string, message: string) { super(message); }
@@ -128,12 +175,14 @@ function safe(value: number): number {
     return value;
 }
 
-// shellへ渡さず文字列を分割する。Windows pathのbackslashも、引用符のescape以外は保持する。
-export function tokenizeCommand(command: string): string[] {
+// 入力途中の引用符も扱い、補完対象の生文字列の位置を返す。実行時の検査はtokenizeCommandで行う。
+// shellへ渡さず分割し、Windows pathのbackslashも引用符のescape以外は保持する。
+export function scanCommandInput(command: string) {
     const tokens: string[] = [];
     let token = "";
     let quote = "";
     let started = false;
+    let start = 0;
     for (let index = 0; index < command.length; index++) {
         const character = command[index];
         if (quote !== "") {
@@ -146,11 +195,17 @@ export function tokenizeCommand(command: string): string[] {
         else if (character === '"' || character === "'") { quote = character; started = true; }
         else if (/\s/.test(character)) {
             if (started) { tokens.push(token); token = ""; started = false; }
+            start = index + 1;
         }
         else { token += character; started = true; }
     }
-    if (quote !== "") fail("invalid_command", "Unterminated quoted argument.");
-    if (started) tokens.push(token);
+    return { tokens, active: { value: token, start, quote, started } };
+}
+
+export function tokenizeCommand(command: string): string[] {
+    const { tokens, active } = scanCommandInput(command);
+    if (active.quote !== "") fail("invalid_command", "Unterminated quoted argument.");
+    if (active.started) tokens.push(active.value);
     return tokens;
 }
 
@@ -194,6 +249,7 @@ export class CliSession {
     private ids_ = new Map<number, number>();
     private gids_ = new Map<number, number[]>();
     private rids_ = new Map<number, number[]>();
+    private completionValues_: CliCompletionValues = { stages: [], threads: [] };
     private search_: Search | null = null;
     private state_: CliState = {
         file: null, range: null, window: { begin: 0, end: 32 }, cyclesPerColumn: 1,
@@ -207,6 +263,9 @@ export class CliSession {
         return { ...this.state_, window: { ...this.state_.window },
             range: this.state_.range === null ? null : { ...this.state_.range }, filters: { ...this.state_.filters } };
     }
+
+    // 大きいログをTabごとに走査しないよう、成功したopenで集めた候補を再利用する。
+    get completionValues(): CliCompletionValues { return this.completionValues_; }
 
     async execute(command: string): Promise<CliResponse> {
         const previous = this.state;
@@ -235,14 +294,22 @@ export class CliSession {
     }
 
     private count_(args: string[], count: number): void {
-        if (args.length !== count) fail("invalid_command", "Invalid arguments; use help for command syntax.");
+        if (args.length !== count) {
+            fail("invalid_command", `Invalid arguments. ${commandHelp(args[0])?.[0] ?? "Use help for command syntax."}`);
+        }
     }
 
     private async dispatch_(args: string[], response: CliResponse): Promise<CliResult> {
         const name = args[0];
-        if (name === "help" || name === "quit") {
+        if (name === "help") {
+            if (args.length !== 1 && args.length !== 2) this.count_(args, 1);
+            const commands = args.length === 1 ? CLI_HELP : commandHelp(args[1]);
+            if (commands === undefined) fail("invalid_command", `Unknown help topic: ${args[1]}. Use help to list commands.`);
+            return { kind: "help", commands };
+        }
+        if (name === "quit") {
             this.count_(args, 1);
-            return name === "help" ? { kind: "help", commands: CLI_HELP } : { kind: "quit" };
+            return { kind: "quit" };
         }
         if (name === "open") {
             this.count_(args, 2);
@@ -252,8 +319,12 @@ export class CliSession {
             const ids = new Map<number, number>();
             const gids = new Map<number, number[]>();
             const rids = new Map<number, number[]>();
+            const stages = new Set<string>();
+            const threads = new Set<number>();
             trace.instructions.forEach((op, index) => {
                 ids.set(op.id, index);
+                for (const stage of op.stages) stages.add(stage.name);
+                if (op.thread !== null) threads.add(op.thread);
                 for (const [map, key] of [[gids, op.gid], [rids, op.status === "retired" ? op.rid : null]] as const) {
                     if (key !== null) {
                         const bucket = map.get(key);
@@ -266,6 +337,10 @@ export class CliSession {
             this.trace_ = trace;
             this.intervals_ = intervals;
             this.ids_ = ids; this.gids_ = gids; this.rids_ = rids;
+            this.completionValues_ = {
+                stages: Object.freeze([...stages].sort()),
+                threads: Object.freeze([...threads].sort((a, b) => a - b).map(String)),
+            };
             this.search_ = null;
             this.state_ = {
                 file: trace.source, range: { ...trace.range }, window: { begin: trace.range.begin, end: windowEnd },
@@ -274,7 +349,7 @@ export class CliSession {
             };
             response.warnings.push(...trace.warnings);
             return { kind: "status", attributes: ["id", "gid", "rid", "label", "lane", "stage",
-                ...(trace.instructions.some((op) => op.thread !== null) ? ["thread"] : [])] };
+                ...(threads.size > 0 ? ["thread"] : [])] };
         }
         const trace = this.requireTrace_();
         switch (name) {

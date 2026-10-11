@@ -13,7 +13,8 @@ import { gzipSync } from "node:zlib";
 
 import { Zstd } from "@hpcc-js/wasm-zstd";
 
-import { CliSession, tokenizeCommand, type CliResponse, type CliTrace } from "../src/cli/session";
+import { completeCliCommand } from "../src/cli/completion";
+import { CLI_COMMAND_NAMES, CliSession, tokenizeCommand, type CliResponse, type CliTrace } from "../src/cli/session";
 import { formatCliText } from "../src/cli/text_output";
 import { inspectCliTrace, loadCliTrace } from "../src/cli/trace_loader";
 import { FileLineReader } from "../src/core/file_line_reader";
@@ -307,6 +308,129 @@ test("CLI tokenization handles quoted paths without a shell and text output remo
     assert.ok(JSON.stringify(response).includes("\\u001b"));
 });
 
+test("CLI command-specific help works without a trace and invalid arguments report usage without moving", async () => {
+    const empty = new CliSession(loadCliTrace);
+    for (const command of CLI_COMMAND_NAMES) {
+        const response = await empty.execute(`help ${command}`);
+        assert.equal(response.ok, true);
+        assert.equal(response.result?.kind, "help");
+        assert.match(formatCliText(response), new RegExp(`^Usage: ${command}(?:\\s|$)`));
+    }
+    assert.match(formatCliText(await empty.execute("help find")), /find stage NAME min N/);
+    assert.equal((await empty.execute("help missing")).error?.code, "invalid_command");
+    assert.equal((await empty.execute("help constructor")).ok, false);
+    assert.equal((await empty.execute("help find extra")).ok, false);
+    assert.equal(empty.state.file, null);
+
+    const cli = await session();
+    await cli.execute("goto id 4");
+    await cli.execute("filter thread 0");
+    const before = cli.state;
+    for (const command of ["open", "goto", "goto id", "select", "pan", "rows", "zoom", "filter thread", "find stage ID"]) {
+        const response = await cli.execute(command);
+        assert.equal(response.ok, false);
+        assert.match(response.error!.message, new RegExp(`Usage: ${command.split(" ")[0]} `));
+        assert.deepEqual(cli.state, before);
+    }
+    assert.equal((await cli.execute("help find")).ok, true);
+    assert.deepEqual(cli.state, before);
+});
+
+test("CLI completion follows argument positions and caches only recorded stage names and thread IDs", async () => {
+    const empty = new CliSession(loadCliTrace);
+    assert.deepEqual(await completeCliCommand("go", empty.completionValues), [["goto "], "go"]);
+    assert.deepEqual((await completeCliCommand("", empty.completionValues))[0],
+        [...CLI_COMMAND_NAMES].sort().map((name) => name + " "));
+    const cli = await session();
+    assert.deepEqual(cli.completionValues, { stages: ["EX", "ID", "IF", "Rt"], threads: ["0", "1"] });
+    const before = cli.state;
+    const check = async (command: string, candidates: string[], fragment: string) =>
+        assert.deepEqual(await completeCliCommand(command, cli.completionValues), [candidates, fragment]);
+    await check("goto ", ["cycle ", "gid ", "id ", "rid "], "");
+    await check("  goto   cy", ["cycle "], "cy");
+    await check("select r", ["rid "], "r");
+    await check("help fi", ["filter ", "find "], "fi");
+    await check("filter ", ["clear ", "thread "], "");
+    await check("filter thread ", ["0 ", "1 "], "");
+    await check("filter clear ", [], "");
+    await check("find st", ["stage "], "st");
+    await check('find "st', [], '"st');
+    await check("find stage I", ["ID ", "IF "], "I");
+    await check('find stage "I', ['"ID" ', '"IF" '], '"I');
+    await check("find stage ID m", ["min "], "m");
+    await check("find stage ID min ", [], "");
+    await check("goto id ", [], "");
+    await check("unknown ", [], "");
+    assert.deepEqual(cli.state, before);
+    await cli.execute("filter thread 1");
+    assert.deepEqual(cli.completionValues.threads, ["0", "1"]);
+    const cached = cli.completionValues;
+    assert.equal((await cli.execute('open "bad.log"')).ok, false);
+    assert.equal(cli.completionValues, cached);
+
+    const first = await inspectCliTrace(input(source));
+    const second = await inspectCliTrace(input("Kanata\t0004\nI\t0\t0\t12\nS\t0\t0\tnew stage"));
+    const changing = new CliSession(async (file) => file === "first" ? first : second);
+    await changing.execute("open first");
+    await changing.execute("open second");
+    assert.deepEqual(changing.completionValues, { stages: ["new stage"], threads: ["12"] });
+    assert.deepEqual(await completeCliCommand("find stage n", changing.completionValues), [['"new stage" '], "n"]);
+    assert.deepEqual(await completeCliCommand("find stage ", { stages: ["safe", "\x1b[2Junsafe"], threads: [] }),
+        [["safe "], ""]);
+    assert.deepEqual(await completeCliCommand("find stage ", { stages: [""], threads: [] }), [['"" '], ""]);
+});
+
+test("CLI path completion preserves relative paths, quotes and directory continuation without using a shell", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "konata-cli-completion-"));
+    const values = { stages: [], threads: [] };
+    const complete = (line: string) => completeCliCommand(line, values, directory);
+    try {
+        fs.mkdirSync(path.join(directory, "sub dir"));
+        fs.writeFileSync(path.join(directory, "sub dir", "trace.log"), "");
+        const names = ["trace.log", "trace with spaces.log", "quote's.log", ".hidden.log"];
+        if (process.platform !== "win32") names.push('double"quote.log');
+        for (const name of names) {
+            fs.writeFileSync(path.join(directory, name), "");
+        }
+        assert.deepEqual(await complete("open tra"), [['"trace with spaces.log" ', '"trace.log" '], "tra"]);
+        assert.deepEqual(await complete("open sub"), [['"sub dir' + path.sep], "sub"]);
+        const [directories] = await complete("open sub");
+        const [files] = await complete("open " + directories[0]);
+        assert.equal(files.length, 1);
+        assert.deepEqual(tokenizeCommand("open " + files[0]), ["open", path.join("sub dir", "trace.log")]);
+        assert.deepEqual(await complete('open "trace with'), [['"trace with spaces.log" '], '"trace with']);
+        assert.deepEqual(await complete("open './trace w"), [["'./trace with spaces.log' "], "'./trace w"]);
+        for (const [prefix, file] of [["quo", "quote's.log"], ["dou", 'double"quote.log']] as const) {
+            if (process.platform === "win32" && file.includes('"')) continue;
+            const [candidates] = await complete("open " + prefix);
+            assert.deepEqual(tokenizeCommand("open " + candidates[0]), ["open", file]);
+        }
+        const [singleQuoted] = await complete("open 'quo");
+        assert.deepEqual(tokenizeCommand("open " + singleQuoted[0]), ["open", "quote's.log"]);
+        assert.deepEqual(await complete("open missing/"), [[], "missing/"]);
+        assert.deepEqual(await complete("open trace.log "), [[], ""]);
+        const [visible] = await complete("open ");
+        assert.ok(visible.every((candidate) => !candidate.includes(".hidden.log")));
+        assert.deepEqual(await complete("open .h"), [[".hidden.log "], ".h"]);
+        assert.deepEqual(await complete("open .."), [[".." + path.sep], ".."]);
+        const absolute = path.join(directory, "trace");
+        const [absoluteFiles, fragment] = await complete("open " + absolute);
+        assert.equal(fragment, absolute);
+        assert.deepEqual(tokenizeCommand("open " + absoluteFiles[0]), ["open", path.join(directory, "trace with spaces.log")]);
+        // POSIXで許されるescape／制御文字を含む名前も、補完でshell展開や端末操作を起こさない。
+        if (process.platform !== "win32") {
+            fs.writeFileSync(path.join(directory, "back\\slash space.log"), "");
+            fs.writeFileSync(path.join(directory, "unsafe\x1b.log"), "");
+            fs.symlinkSync(path.join(directory, "sub dir"), path.join(directory, "linked"));
+            const [backslash] = await complete("open back");
+            assert.deepEqual(tokenizeCommand("open " + backslash[0]), ["open", "back\\slash space.log"]);
+            assert.deepEqual(await complete("open unsafe"), [[], "unsafe"]);
+            assert.deepEqual(await complete("open link"), [["linked/"], "link"]);
+        }
+    }
+    finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("CLI JSON Lines returns one clean response per command, stays deterministic and sets batch exit status", async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "konata-cli-"));
     const file = path.join(directory, "trace with spaces.log");
@@ -345,6 +469,9 @@ test("CLI JSON Lines returns one clean response per command, stays deterministic
         const options = run("80", "", ["--unknown"]);
         assert.equal(options.status, 1);
         assert.equal(JSON.parse(options.stdout).error.code, "startup_error");
+        const help = run("80", "help find\n");
+        assert.equal(help.status, 0, help.stderr);
+        assert.deepEqual(JSON.parse(help.stdout), await new CliSession(loadCliTrace).execute("help find"));
         const positional = run("80", "quit\n", ["--", "--help"]);
         assert.equal(positional.status, 1);
         assert.equal(JSON.parse(positional.stdout.split("\n")[0]).error.code, "read_error");

@@ -78,6 +78,13 @@ async function run() {
         const jsonHelp = replies(invoke(true, ["--jsonl", "--help"], ""));
         assert.equal(jsonHelp.length, 1);
         assert.equal(jsonHelp[0].result.kind, "help");
+        const commandHelp = invoke(true, [], "help find\n");
+        assert.equal(commandHelp.status, 0, commandHelp.stderr);
+        assert.match(commandHelp.stdout, /^Usage: find "text" \| find stage NAME min N/);
+        assert.doesNotMatch(commandHelp.stdout, /\x1b|konata>/);
+        const commandJsonHelp = replies(invoke(true, ["--jsonl"], "help find\n"));
+        assert.equal(commandJsonHelp.length, 1);
+        assert.equal(commandJsonHelp[0].result.kind, "help");
 
         const file = path.join(directory, "trace with spaces.log");
         const text = invoke(true, [file], "show\ngoto id 1\ndetail\n");

@@ -139,6 +139,8 @@ This is a line-oriented CLI, not a full-screen TUI. Enter commands such as `show
 inspection state between commands. Currently it supports one Kanata trace at a time (plain text,
 gzip, or Zstandard), keeps the whole trace in memory, and does not support gem5 traces.
 
+Interactive terminals support Tab completion and session history. Use `help <command>` for details.
+
 Commands can also be supplied through standard input. `--jsonl` returns one JSON response per
 command, without prompts:
 
