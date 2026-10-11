@@ -64,6 +64,13 @@ function detail(response: CliResponse) {
     return response.result;
 }
 
+function overview(response: CliResponse) {
+    assert.equal(response.ok, true, response.error?.message);
+    assert.equal(response.result?.kind, "overview");
+    if (response.result?.kind !== "overview") throw new Error("Expected overview.");
+    return response.result;
+}
+
 function match(response: CliResponse): number {
     const id = timeline(response).matchID;
     assert.notEqual(id, undefined, "Search results must identify the matching instruction.");
@@ -620,6 +627,176 @@ test("CLI window queries retain long lifetimes, terminal events and parallel lan
     assert.equal(scaled.rows.find((op) => op.id === 20)!.cells[0], "*");
 });
 
+test("CLI overview follows file-local IDs and filters without changing navigation or the search cursor", async () => {
+    const cli = await session();
+    assert.equal(match(await cli.execute('find "dload4"')), 20);
+    await cli.execute("zoom 4");
+    await cli.execute("show 2");
+    const before = cli.state;
+    const response = await cli.execute("overview");
+    const result = overview(response);
+    assert.deepEqual(result.rows.map((row) => row.representative.id), [3, 4, 5, 20, 900000000000]);
+    assert.equal(result.totalInstructions, 5);
+    assert.deepEqual(result.axis, { begin: 100, end: 205, cyclesPerColumn: 105 / 32 });
+    assert.deepEqual(cli.state, before);
+    assert.equal(response.truncated, false);
+    assert.equal(response.nextRow, null);
+    assert.equal(match(await cli.execute("next")), 3);
+    const text = formatCliText(response);
+    assert.match(text, /lifetimes are samples, not averages or maxima/);
+    assert.match(text, /ID 20 t0 retired 100 -> 204 \(104\)/);
+    assert.match(text, /ID 5 t\? incomplete 204 -> unknown \(unknown\)/);
+
+    await cli.execute("filter thread 0");
+    assert.deepEqual(overview(await cli.execute("overview 3 20")).rows.map((row) => row.representative.id), [4, 20]);
+    assert.equal(overview(await cli.execute("overview 20 20")).rows[0].representative.id, 20);
+    assert.deepEqual(overview(await cli.execute("overview 21 100")),
+        { kind: "overview", rows: [], totalInstructions: 0, axis: null });
+    const filtered = cli.state;
+    for (const command of ["overview 20 3", "overview 1.5 10", "overview 0 9007199254740993"]) {
+        assert.equal((await cli.execute(command)).error?.code, "invalid_number");
+        assert.deepEqual(cli.state, filtered);
+    }
+});
+
+test("CLI overview groups actual sparse instructions into bounded equal-count ID samples", async () => {
+    const base = await inspectCliTrace(input(source));
+    const instructions = Array.from({ length: 73 }, (_, index) => ({ ...base.instructions[0],
+        id: index * 1000, begin: index * 2, end: index % 3 === 2 ? null : index * 2 + 8, thread: index % 2,
+        status: (["retired", "flushed", "incomplete"] as const)[index % 3] }));
+    const trace = { ...base, instructions: [...instructions].reverse(), range: { begin: 0, end: 152 } };
+    const cli = new CliSession(async () => trace);
+    await cli.execute("open --sync samples.log");
+    const result = overview(await cli.execute("overview"));
+    assert.equal(result.rows.length, 24);
+    assert.equal(result.totalInstructions, 73);
+    result.rows.forEach((row, index) => {
+        const begin = Math.floor(index * 73 / 24);
+        const end = Math.floor((index + 1) * 73 / 24);
+        assert.equal(row.firstID, instructions[begin].id);
+        assert.equal(row.lastID, instructions[end - 1].id);
+        assert.equal(row.representative.id, instructions[begin + Math.floor((end - begin) / 2)].id);
+        assert.equal(row.instructionCount, end - begin);
+        for (const status of ["retired", "flushed", "incomplete"] as const) {
+            assert.equal(row[status], instructions.slice(begin, end).filter((op) => op.status === status).length);
+        }
+        assert.equal(row.cells.length, 32);
+    });
+    assert.equal(result.rows.reduce((sum, row) => sum + row.instructionCount, 0), 73);
+    assert.deepEqual(trace.instructions, [...instructions].reverse());
+    await cli.execute("filter thread 0");
+    const filtered = overview(await cli.execute("overview"));
+    assert.equal(filtered.totalInstructions, 37);
+    assert.ok(filtered.rows.every((row) => row.representative.thread === 0));
+});
+
+test("CLI overview preserves fetch offsets and late middle-row ends without wrapping and shows points", async () => {
+    const base = await inspectCliTrace(input(source));
+    const times = [[100, 104], [108, 164], [116, 120], [164, 164]];
+    const trace = { ...base, range: { begin: 100, end: 164 },
+        instructions: times.map(([begin, end], id) => ({ ...base.instructions[0], id, begin, end,
+            status: id === 1 ? "flushed" as const : "retired" as const })) };
+    const cli = new CliSession(async () => trace);
+    await cli.execute("open --sync bars.log");
+    const result = overview(await cli.execute("overview"));
+    assert.deepEqual(result.axis, { begin: 100, end: 164, cyclesPerColumn: 2 });
+    assert.deepEqual(result.rows.map((row) => row.cells.join("")), [
+        "**" + ".".repeat(30), ".".repeat(4) + "x".repeat(28),
+        ".".repeat(8) + "**" + ".".repeat(22), ".".repeat(31) + "*",
+    ]);
+    assert.deepEqual(result.rows.map((row) => row.representative.duration), [4, 56, 4, 0]);
+    // 最後の行の終了だけでは、中間命令の寿命を切ってしまう。
+    const subset = overview(await cli.execute("overview 0 2"));
+    assert.equal(subset.axis!.end, 164);
+    assert.equal(subset.rows[1].cells.at(-1), "x");
+    const unordered = new CliSession(async () => ({ ...trace,
+        instructions: [trace.instructions[2], trace.instructions[0], trace.instructions[1]]
+            .map((op, id) => ({ ...op, id })) }));
+    await unordered.execute("open --sync unordered.log");
+    const shifted = overview(await unordered.execute("overview"));
+    assert.equal(shifted.axis!.begin, 100);
+    assert.equal(shifted.rows[0].cells.slice(0, 8).join(""), ".".repeat(8));
+    assert.equal(shifted.rows[1].cells[0], "*");
+});
+
+test("CLI overview keeps incomplete ends unknown, handles zero-span axes and uses gem5 recorded cycles", async () => {
+    const cli = await session("Kanata\t0004\nC=\t100\nI\t0\t0\t0\nS\t0\t0\tID\nC\t4");
+    const result = overview(await cli.execute("overview"));
+    assert.deepEqual(result.axis, { begin: 100, end: 105, cyclesPerColumn: 5 / 32 });
+    assert.equal(result.rows[0].cells.join(""), "?".repeat(32));
+    assert.equal(result.rows[0].representative.end, null);
+    assert.equal(result.rows[0].representative.duration, null);
+    const point = await session("Kanata\t0004\nC=\t100\nI\t0\t0\t0\nS\t0\t0\tRt\nR\t0\t0\t0");
+    const zero = overview(await point.execute("overview"));
+    assert.deepEqual(zero.axis, { begin: 100, end: 100, cyclesPerColumn: 0 });
+    assert.equal(zero.rows[0].cells.join(""), "*" + ".".repeat(31));
+    assert.equal(zero.rows[0].representative.duration, 0);
+    const empty = await session("Kanata\t0004\nC=\t100");
+    assert.equal(overview(await empty.execute("overview")).axis, null);
+    const gem5 = await session(gem5Source);
+    const samples = overview(await gem5.execute("overview"));
+    assert.deepEqual(samples.rows.map((row) => [row.representative.id, row.representative.end]),
+        [[0, 3], [1, 2], [2, 4], [3, null]]);
+    assert.equal(samples.axis!.end, 7);
+});
+
+test("CLI overview maps large cycle coordinates exactly and rejects unsafe axis spans atomically", async () => {
+    const base = await inspectCliTrace(input(source));
+    const maximum = Number.MAX_SAFE_INTEGER;
+    const trace = { ...base, range: { begin: maximum - 64, end: maximum },
+        instructions: [[maximum - 64, maximum - 63], [maximum - 2, maximum], [maximum, maximum]]
+            .map(([begin, end], id) => ({ ...base.instructions[0], id, begin, end })) };
+    const cli = new CliSession(async () => trace);
+    await cli.execute("open --sync large.log");
+    const result = overview(await cli.execute("overview"));
+    assert.equal(result.axis!.cyclesPerColumn, 2);
+    assert.deepEqual(result.rows.map((row) => row.cells.join("")),
+        ["*" + ".".repeat(31), ".".repeat(31) + "*", ".".repeat(31) + "*"]);
+    const middle = Math.floor(maximum / 2);
+    const long = new CliSession(async () => ({ ...base, range: { begin: 0, end: maximum },
+        instructions: [[0, 0], [middle, middle + 1], [maximum, maximum]]
+            .map(([begin, end], id) => ({ ...base.instructions[0], id, begin, end })) }));
+    await long.execute("open --sync long.log");
+    assert.equal(overview(await long.execute("overview")).rows[1].cells.join(""),
+        ".".repeat(15) + "**" + ".".repeat(15));
+    const wide = new CliSession(async () => ({ ...base, range: { begin: -maximum, end: maximum },
+        instructions: [-maximum, maximum].map((begin, id) => ({ ...base.instructions[0], id, begin, end: begin })) }));
+    await wide.execute("open --sync wide.log");
+    const before = wide.state;
+    assert.equal((await wide.execute("overview")).error?.code, "overflow");
+    assert.deepEqual(wide.state, before);
+});
+
+test("CLI overview updates partial samples during loading and keeps earlier responses immutable", async () => {
+    const base = await inspectCliTrace(input(source));
+    let options!: CliLoadOptions;
+    let complete!: (trace: CliTrace) => void;
+    const cli = new CliSession((_file, loadOptions) => {
+        options = loadOptions!;
+        return new Promise((resolve) => { complete = resolve; });
+    });
+    await cli.execute("open live.log");
+    const partial = { ...base, instructions: [{ ...base.instructions[0], id: 0, end: null, status: "incomplete" as const }],
+        range: { begin: 100, end: 120 } };
+    options.onUpdate!(partial);
+    const response = await cli.execute("overview");
+    const first = overview(response);
+    assert.equal(first.axis!.end, 120);
+    assert.equal(first.rows[0].representative.end, null);
+    assert.match(formatCliText(response), /Load: loading.*showing available instructions/);
+    const final = { ...partial, range: { begin: 100, end: 132 }, instructions: [
+        { ...partial.instructions[0], end: 132, status: "retired" as const },
+        { ...base.instructions[0], id: 1, begin: 130, end: 131 },
+    ] };
+    options.onUpdate!(final);
+    assert.equal(overview(await cli.execute("overview")).axis!.end, 132);
+    assert.equal(first.axis!.end, 120);
+    assert.equal(first.rows[0].representative.end, null);
+    complete(final);
+    await cli.execute("wait");
+    assert.equal(overview(await cli.execute("overview")).totalInstructions, 2);
+});
+
 test("CLI preserves zero-cycle closure and stage reentry without inventing unfinished durations", async () => {
     const cli = await session([
         "Kanata\t0004", "I\t0\t10\t0", "S\t0\t0\tID", "E\t0\t0\tID", "C\t2", "R\t0\t0\t0",
@@ -898,7 +1075,8 @@ test("CLI command-specific help works without a trace and invalid arguments repo
     const before = cli.state;
     for (const command of ["open", "open --sync", "open --sync --async fixture.log", "open --unknown fixture.log",
         "goto", "goto id", "detail", "detail id", "detail id 20 0 extra", "detail id 20 stage",
-        "detail 20 stage", "detail id 20 stage EX 0 extra", "pan", "rows", "zoom", "filter thread", "find stage ID"]) {
+        "detail 20 stage", "detail id 20 stage EX 0 extra", "overview 0", "overview 0 10 extra",
+        "pan", "rows", "zoom", "filter thread", "find stage ID"]) {
         const response = await cli.execute(command);
         assert.equal(response.ok, false);
         assert.match(response.error!.message, new RegExp(`Usage: ${command.split(" ")[0]} `));
@@ -911,6 +1089,8 @@ test("CLI command-specific help works without a trace and invalid arguments repo
 test("CLI completion follows argument positions and caches only recorded stage names and thread IDs", async () => {
     const empty = new CliSession(loadCliTrace);
     assert.deepEqual(await completeCliCommand("go", empty.completionValues), [["goto "], "go"]);
+    assert.deepEqual(await completeCliCommand("ov", empty.completionValues), [["overview "], "ov"]);
+    assert.deepEqual(await completeCliCommand("help ov", empty.completionValues), [["overview "], "ov"]);
     assert.deepEqual((await completeCliCommand("", empty.completionValues))[0],
         [...CLI_COMMAND_NAMES].sort().map((name) => name + " "));
     const cli = await session();
@@ -1026,7 +1206,7 @@ test("CLI JSON Lines returns one clean response per command, stays deterministic
         const trace: CliTrace = await loadCliTrace(file);
         assert.equal(trace.source, file);
         const entry = path.resolve(import.meta.dirname, "../src/cli/main.ts");
-        const commands = `open --sync ${JSON.stringify(file)}\nshow\nfind stage ID min 3\ndetail id 20\ndetail id 20 stage EX\nstatus\n`;
+        const commands = `open --sync ${JSON.stringify(file)}\nshow\nfind stage ID min 3\ndetail id 20\ndetail id 20 stage EX\noverview\nstatus\n`;
         const run = (columns: string, inputText = commands, extras: string[] = []) => spawnSync(process.execPath,
             ["--import", "tsx", entry, "--jsonl", ...extras], {
                 input: inputText, encoding: "utf8", timeout: 10000,
@@ -1038,7 +1218,8 @@ test("CLI JSON Lines returns one clean response per command, stays deterministic
         assert.equal(first.stderr, "");
         assert.equal(first.stdout, run("200").stdout);
         const replies = first.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(replies.length, 6);
+        assert.equal(replies.length, 7);
+        assert.equal(overview(replies[5]).totalInstructions, 5);
         assert.equal(detail(replies[4]).stageFilter, "EX");
         assert.deepEqual(detail(replies[4]).stages.map((stage) => [stage.name, stage.duration]), [["EX", 100]]);
         assert.ok(replies.every((reply) => reply.ok && reply.schemaVersion === 1));

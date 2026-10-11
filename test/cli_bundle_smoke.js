@@ -84,6 +84,12 @@ async function run() {
                 assert.equal(shown.state.loading.status, "loading");
                 assert.equal(shown.result.rows[0].id, 1);
                 assert.ok(shown.ok);
+                const overview = await command("overview");
+                assert.ok(overview.ok);
+                assert.equal(overview.result.kind, "overview");
+                assert.deepEqual(overview.result.axis, { begin: 100, end: 105, cyclesPerColumn: 5 / 32 });
+                assert.equal(overview.result.rows[0].cells.join(""), "*".repeat(32));
+                assert.deepEqual(overview.state, shown.state);
                 const found = await command("find stage ID min 3");
                 assert.ok(found.ok);
                 assert.equal(found.result.matchID, 1);
@@ -121,17 +127,20 @@ async function run() {
         ]) {
             const file = path.join(directory, `trace with spaces.${extension}`);
             fs.writeFileSync(file, bytes);
-            const commands = "show\nfind stage ID min 3\ndetail id 1\ndetail id 1 stage EX\nstatus\nquit\n";
+            const commands = "show\nfind stage ID min 3\ndetail id 1\ndetail id 1 stage EX\noverview 1 1\nstatus\nquit\n";
             const direct = invoke(false, ["--jsonl", "--sync", file], commands);
             const responses = replies(direct);
             assert.equal(direct.stderr, "");
-            assert.equal(responses.length, 7);
+            assert.equal(responses.length, 8);
             assert.ok(responses.every((reply) => reply.ok && reply.schemaVersion === 1));
             assert.equal(responses[1].result.rows[0].label, "0x1160 dload4");
             assert.equal(responses[3].result.stages[0].duration, 3);
             assert.equal(responses[3].result.stages[1].duration, 2);
             assert.equal(responses[4].result.stageFilter, "EX");
             assert.deepEqual(responses[4].result.stages.map((stage) => [stage.name, stage.duration]), [["EX", 2]]);
+            assert.equal(responses[5].result.kind, "overview");
+            assert.equal(responses[5].result.rows[0].representative.duration, 5);
+            assert.deepEqual(responses[5].state, responses[4].state);
             const launched = invoke(true, ["--jsonl", "--sync", file], commands);
             replies(launched);
             assert.equal(launched.stdout, direct.stdout);
@@ -145,16 +154,18 @@ async function run() {
         ]) {
             const file = path.join(directory, `gem5.${extension}`);
             fs.writeFileSync(file, bytes);
-            const commands = "show\ngoto gid 10\ndetail gid 10\ndetail gid 10 stage Rt\n";
+            const commands = "show\ngoto gid 10\ndetail gid 10\ndetail gid 10 stage Rt\noverview\n";
             const direct = invoke(false, ["--jsonl", "--sync", file], commands);
             const responses = replies(direct);
-            assert.equal(responses.length, 5);
+            assert.equal(responses.length, 6);
             assert.ok(responses.every((reply) => reply.ok));
             assert.equal(responses[0].state.format, "gem5");
             assert.equal(responses[3].result.instruction.gid, 10);
             assert.equal(responses[3].result.instruction.end, 6);
             assert.equal(responses[3].result.stages.at(-1).duration, 0);
             assert.deepEqual(responses[4].result.stages.map((stage) => [stage.name, stage.duration]), [["Rt", 0]]);
+            assert.equal(responses[5].result.kind, "overview");
+            assert.equal(responses[5].result.rows[0].representative.end, 6);
             assert.match(direct.stderr, /Detected ticks per clock: 1000/);
             const launched = invoke(true, ["--jsonl", "--sync", file], commands);
             replies(launched);
@@ -176,6 +187,7 @@ async function run() {
         assert.equal(help.status, 0, help.stderr);
         assert.match(help.stdout, /^Usage: konata\.sh --cli/);
         assert.match(help.stdout, /find stage NAME min N/);
+        assert.match(help.stdout, /overview \[first-id last-id\]/);
         assert.doesNotMatch(help.stdout, /\x1b|Konata URL:|konata>/);
         const jsonHelp = replies(invoke(true, ["--jsonl", "--help"], ""));
         assert.equal(jsonHelp.length, 1);
@@ -189,11 +201,13 @@ async function run() {
         assert.equal(commandJsonHelp[0].result.kind, "help");
 
         const file = path.join(directory, "trace with spaces.log");
-        const text = invoke(true, [file], "wait\nshow\ngoto id 1\ndetail id 1\ndetail id 1 stage EX\n");
+        const text = invoke(true, [file], "wait\nshow\ngoto id 1\ndetail id 1\ndetail id 1 stage EX\noverview\n");
         assert.equal(text.status, 0, text.stderr);
         assert.match(text.stdout, /Window \[100, 132\)/);
         assert.match(text.stdout, /lane 0 \| ID \| 100 -> 103 \| duration 3/);
         assert.match(text.stdout, /Stage filter: EX \| 1 matching interval\n  lane 0 \| EX \| 103 -> 105 \| duration 2/);
+        assert.match(text.stdout, /Instruction overview \| 1 matching instructions/);
+        assert.match(text.stdout, /\*{32} ID 1 t0 retired 100 -> 105 \(5\)/);
         const opened = replies(invoke(true, ["--jsonl"], `open --sync ${JSON.stringify(file)}\nstatus\n`));
         assert.equal(opened.length, 2);
         assert.equal(opened[1].state.file, file);

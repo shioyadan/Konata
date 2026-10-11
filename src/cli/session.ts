@@ -87,9 +87,25 @@ export interface CliRow {
     cells: string[];
 }
 
+// 命令ID順の各群から中央の1命令を代表として描く。件数は群全体、寿命は代表だけの値。
+export interface CliOverviewRow {
+    firstID: number;
+    lastID: number;
+    instructionCount: number;
+    retired: number;
+    flushed: number;
+    incomplete: number;
+    representative: Pick<CliInstruction, "id" | "gid" | "rid" | "thread" | "status" | "begin" | "end"> & {
+        duration: number | null;
+    };
+    cells: string[];
+}
+
 export type CliResult =
     | { kind: "status"; attributes?: string[] }
     | { kind: "timeline"; rows: CliRow[]; totalRows: number; matchID?: number }
+    | { kind: "overview"; rows: CliOverviewRow[]; totalInstructions: number;
+        axis: { begin: number; end: number; cyclesPerColumn: number } | null }
     | { kind: "detail"; instruction: Omit<CliInstruction, "stages">;
         stages: (CliStage & { duration: number | null })[]; stageFilter: string | null;
         totalStages: number; nextStageOffset: number | null }
@@ -113,6 +129,7 @@ export const CLI_HELP = [
     'open [--sync] "path"          Load a Kanata or gem5 trace in the background (plain, gzip or Zstandard)',
     "wait | cancel                 Wait for or cancel a background load; status shows progress",
     "show [row-offset]              Show overlapping instructions (24 rows, 32 columns)",
+    "overview [first-id last-id]    Sample instruction lifetimes on a shared, non-wrapping axis",
     "goto cycle N                  Move the left edge to cycle N",
     "goto id|gid|rid N              Move to an instruction's beginning",
     "pan N                         Move by N cycles",
@@ -125,7 +142,7 @@ export const CLI_HELP = [
     "detail [id|gid|rid] N [stage NAME] [stage-offset]  Inspect an instruction without moving (default: id)",
     "status | help [command] | quit",
     "Interactive input: Tab completes commands and arguments; Up/Down recalls session history.",
-    "Notes: C= uses absolute log cycles; rows are ordered by start cycle, then file-local ID.",
+    "Notes: C= uses absolute log cycles; show/search use start cycle then ID; overview uses ID order.",
     "Unknown ends remain null; unfinished stages are drawn only through the observed input.",
     "While loading, show and searches use the available instructions; wait reads through EOF.",
     "This prototype keeps one log in memory; PC extraction and automatic diagnosis are not supported.",
@@ -147,6 +164,14 @@ const COMMAND_HELP = {
     show: ["Usage: show [row-offset]",
         "Show instructions overlapping the current window, up to 24 rows and 32 columns.",
         "Use the reported row offset to read the next page."],
+    overview: ["Usage: overview [first-id last-id]",
+        "Summarize all available instructions, or an inclusive file-local ID range, with the current filter.",
+        "Split matching instructions in ID order into at most 24 equal-count groups; sample the middle instruction of each.",
+        "Show 32-column fetch-to-end bars on one shared axis, from the earliest sampled fetch to the latest sampled end.",
+        "Bars never wrap. Short and zero-duration lifetimes occupy at least one cell; exact times remain alongside them.",
+        "Group counts cover all matches; sampled lifetimes are not averages or maxima. Unknown ends remain null.",
+        "Unfinished bars extend only through the observed input. The window, zoom and search cursor are unchanged.",
+        "Example: overview 0 999"],
     goto: ["Usage: goto cycle N | goto id|gid|rid N",
         "Move the window to cycle N, or to an instruction's beginning. The search cursor is unchanged.",
         "id is file-local, gid is the log's global ID, and rid is the retired instruction number.",
@@ -479,6 +504,13 @@ export class CliSession {
             }
             else this.count_(args, 1);
             return this.timeline_(response);
+        case "overview": {
+            if (args.length !== 1 && args.length !== 3) this.count_(args, 3);
+            const firstID = args.length === 3 ? integer(args[1]) : -Infinity;
+            const lastID = args.length === 3 ? integer(args[2]) : Infinity;
+            if (firstID > lastID) fail("invalid_number", "The first ID must not exceed the last ID.");
+            return this.overview_(firstID, lastID);
+        }
         case "goto": {
             this.count_(args, 3);
             const [kind, value] = [args[1], args[2]];
@@ -740,6 +772,48 @@ export class CliSession {
 
     private matchesFilter_(op: CliInstruction): boolean {
         return this.state_.filters.thread === undefined || this.state_.filters.thread === op.thread;
+    }
+
+    // 時間窓とは独立した縮小表示。疎なIDの差ではなく実際の命令数で区切り、入力配列は並べ替えない。
+    // 全行で原点・縮尺を共有し、中間行が遅く終了しても切れないよう代表命令の最大endを使う。
+    private overview_(firstID: number, lastID: number): Extract<CliResult, { kind: "overview" }> {
+        const trace = this.requireTrace_();
+        const matches = trace.instructions.filter((op) => firstID <= op.id && op.id <= lastID && this.matchesFilter_(op))
+            .sort((a, b) => a.id - b.id);
+        const groupCount = Math.min(this.state_.rowLimit, matches.length);
+        const rows: CliOverviewRow[] = [];
+        for (let index = 0; index < groupCount; index++) {
+            const begin = Math.floor(index * matches.length / groupCount);
+            const end = Math.floor((index + 1) * matches.length / groupCount);
+            const op = matches[begin + Math.floor((end - begin) / 2)];
+            const counts = { retired: 0, flushed: 0, incomplete: 0 };
+            for (let item = begin; item < end; item++) counts[matches[item].status]++;
+            rows.push({ firstID: matches[begin].id, lastID: matches[end - 1].id,
+                instructionCount: end - begin, ...counts,
+                representative: { id: op.id, gid: op.gid, rid: op.rid, thread: op.thread,
+                    status: op.status, begin: op.begin, end: op.end,
+                    duration: op.end === null ? null : safe(op.end - op.begin) }, cells: [] });
+        }
+        if (rows.length === 0) return { kind: "overview", rows, totalInstructions: 0, axis: null };
+        const observedEnd = (op: CliOverviewRow["representative"]) => op.end ?? Math.max(op.begin, trace.range.end);
+        const begin = Math.min(...rows.map((row) => row.representative.begin));
+        const end = Math.max(...rows.map((row) => observedEnd(row.representative)));
+        const span = safe(end - begin);
+        const columns = this.state_.columns;
+        for (const row of rows) {
+            const op = row.representative;
+            // 表示列へのfloor／ceilは整数比で求め、大きいcycleでも境界の丸めで1列ずらさない。
+            // span=0は一点だけを表示し、終了時刻やdurationを架空の1cycleへ広げない。
+            const scale = BigInt(span || 1);
+            const left = BigInt(safe(op.begin - begin)) * BigInt(columns);
+            const right = BigInt(safe(observedEnd(op) - begin)) * BigInt(columns);
+            const start = Math.min(columns - 1, Number(left / scale));
+            const finish = Math.min(columns, Math.max(start + 1, Number((right + scale - 1n) / scale)));
+            const marker = op.status === "flushed" ? "x" : op.status === "incomplete" ? "?" : "*";
+            row.cells = Array.from({ length: columns }, (_, column) => start <= column && column < finish ? marker : ".");
+        }
+        return { kind: "overview", rows, totalInstructions: matches.length,
+            axis: { begin, end, cyclesPerColumn: span / columns } };
     }
 
     // 窓と交差する命令を索引で集め、filter・paginationとセル化を両出力方式へ共通適用する。

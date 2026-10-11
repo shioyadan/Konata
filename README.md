@@ -134,7 +134,7 @@ Downloaded distributions include `konata-cli.js`. With Node.js 18 or later insta
 ./konata.sh --cli trace.log.zst
 ```
 
-This is a line-oriented CLI, not a full-screen TUI. Enter commands such as `show`,
+This is a line-oriented CLI, not a full-screen TUI. Enter commands such as `show`, `overview`,
 `find stage ID min 3`, `detail id 413`, and `quit`; `help` lists all commands. It keeps the trace and
 inspection state between commands. It supports one Kanata or gem5 O3PipeView trace at a time
 (plain text, gzip, or Zstandard) and keeps the whole trace in memory.

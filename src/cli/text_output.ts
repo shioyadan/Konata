@@ -57,6 +57,23 @@ export function formatCliText(response: CliResponse): string {
             lines.push(`${result.totalRows - response.nextRow} more rows; use show ${response.nextRow}.`);
         }
     }
+    else if (result?.kind === "overview") {
+        lines.push(`Instruction overview | ${result.totalInstructions} matching instructions | filter: ${response.state.filters.thread === undefined ? "none" : `thread ${response.state.filters.thread}`}`);
+        if (result.axis === null) lines.push("(no matching instructions)");
+        else {
+            const axis = result.axis;
+            lines.push(`Cycle axis: ${axis.begin} -> ${axis.end} | ${axis.cyclesPerColumn} cycles/column`);
+            const prefixes = result.rows.map((row) => `${row.firstID}-${row.lastID} (${row.instructionCount}; R${row.retired}/F${row.flushed}/O${row.incomplete})`);
+            const width = Math.max(9, ...prefixes.map((prefix) => prefix.length));
+            lines.push(`${"ID group".padEnd(width)} ${"lifetime".padEnd(response.state.columns)} Representative: ID thread status fetch -> end (cycles)`);
+            result.rows.forEach((row, index) => {
+                const op = row.representative;
+                lines.push(`${prefixes[index].padEnd(width)} ${row.cells.join("")} ID ${op.id} t${op.thread ?? "?"} ${op.status} ${op.begin} -> ${op.end ?? "unknown"} (${op.duration ?? "unknown"})`);
+            });
+            lines.push("Middle instruction per ID group; lifetimes are samples, not averages or maxima.",
+                ". outside lifetime | * retired | x flushed | ? incomplete through observed input | R/F/O group counts");
+        }
+    }
     else if (result?.kind === "detail") {
         const op = result.instruction;
         lines.push(`ID ${op.id} | GID ${op.gid} | RID ${op.rid ?? "unknown"} | thread ${op.thread ?? "unknown"} | ${op.status}`,
