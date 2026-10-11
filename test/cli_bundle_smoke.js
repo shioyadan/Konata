@@ -2,6 +2,7 @@
 
 // build済みJSとlauncherだけをrepo外へコピーし、tsx・node_modules・HTMLなしで検証する。
 // unit testとは別に、配布時の単一file契約と圧縮入力・stdin・終了codeの接続を確認する。
+// CLI入口のprocess検査はここへ集約し、source版で同じ起動ケースを重ねない。
 const assert = require("node:assert/strict");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -31,10 +32,10 @@ async function run() {
         fs.mkdirSync(bin);
         fs.symlinkSync(process.execPath, path.join(bin, "node"));
         const env = { ...process.env, NODE_PATH: "", NODE_OPTIONS: "", PATH: `${bin}:${process.env.PATH}` };
-        const invoke = (viaLauncher, args, input = "quit\n") => spawnSync(
+        const invoke = (viaLauncher, args, input = "quit\n", columns = "80") => spawnSync(
             viaLauncher ? launcher : process.execPath,
             viaLauncher ? ["--cli", ...args] : [entry, ...args],
-            { cwd: directory, env, input, encoding: "utf8", timeout: 15000 },
+            { cwd: directory, env: { ...env, COLUMNS: columns }, input, encoding: "utf8", timeout: 15000 },
         );
         const replies = (result, status = 0) => {
             assert.equal(result.error, undefined);
@@ -103,7 +104,6 @@ async function run() {
                 const ready = await command("wait");
                 assert.equal(ready.state.loading.status, "ready");
                 assert.equal(ready.state.window.begin, found.state.window.begin);
-                assert.equal("selectedID" in ready.state, false);
                 assert.equal((await command("next")).error.code, "not_found");
                 await command("quit");
                 child.stdin.end();
@@ -133,6 +133,7 @@ async function run() {
             assert.equal(direct.stderr, "");
             assert.equal(responses.length, 8);
             assert.ok(responses.every((reply) => reply.ok && reply.schemaVersion === 1));
+            assert.deepEqual(responses.slice(1).map((reply) => reply.command), commands.trim().split("\n"));
             assert.equal(responses[1].result.rows[0].label, "0x1160 dload4");
             assert.equal(responses[3].result.stages[0].duration, 3);
             assert.equal(responses[3].result.stages[1].duration, 2);
@@ -141,10 +142,16 @@ async function run() {
             assert.equal(responses[5].result.kind, "overview");
             assert.equal(responses[5].result.rows[0].representative.duration, 5);
             assert.deepEqual(responses[5].state, responses[4].state);
-            const launched = invoke(true, ["--jsonl", "--sync", file], commands);
-            replies(launched);
-            assert.equal(launched.stdout, direct.stdout);
-            assert.equal(launched.stderr, "");
+            // launcherの転送と端末幅からの独立性は代表入力で一度だけ確認する。
+            if (extension === "log") {
+                const launched = invoke(true, ["--jsonl", "--sync", file], commands, "40");
+                const wide = invoke(false, ["--jsonl", "--sync", file], commands, "200");
+                replies(launched);
+                replies(wide);
+                assert.equal(launched.stdout, direct.stdout);
+                assert.equal(wide.stdout, direct.stdout);
+                assert.equal(launched.stderr, "");
+            }
             await verifyLive(file);
         }
 
@@ -167,21 +174,24 @@ async function run() {
             assert.equal(responses[5].result.kind, "overview");
             assert.equal(responses[5].result.rows[0].representative.end, 6);
             assert.match(direct.stderr, /Detected ticks per clock: 1000/);
-            const launched = invoke(true, ["--jsonl", "--sync", file], commands);
-            replies(launched);
-            assert.equal(launched.stdout, direct.stdout);
-            const background = replies(invoke(true, ["--jsonl"],
-                `open ${JSON.stringify(file)}\nstatus\nwait\nshow\n`));
-            assert.equal(background.length, 4);
-            assert.equal(background[0].state.loading.status, "loading");
-            assert.equal(background[2].state.loading.status, "ready");
-            assert.equal(background[3].result.rows[0].gid, 10);
-            const startup = replies(invoke(true, ["--jsonl", file], "wait\nshow\n"));
-            assert.equal(startup.length, 3);
-            assert.equal(startup[0].state.loading.status, "loading");
-            assert.equal(startup[1].state.loading.status, "ready");
-            assert.equal(startup[2].result.rows[0].gid, 10);
         }
+
+        // 非同期open／起動引数／EOFの接続は圧縮方式に依存しないため、平文gem5で確認する。
+        const gem5File = path.join(directory, "gem5.log");
+        const gem5Background = replies(invoke(true, ["--jsonl"],
+            `open ${JSON.stringify(gem5File)}\nstatus\nwait\nshow\n`));
+        assert.equal(gem5Background.length, 4);
+        assert.equal(gem5Background[0].state.loading.status, "loading");
+        assert.equal(gem5Background[2].state.loading.status, "ready");
+        assert.equal(gem5Background[3].result.rows[0].gid, 10);
+        const startup = replies(invoke(true, ["--jsonl", gem5File], "wait\nshow\n"));
+        assert.equal(startup.length, 3);
+        assert.equal(startup[0].state.loading.status, "loading");
+        assert.equal(startup[1].state.loading.status, "ready");
+        assert.equal(startup[2].result.rows[0].gid, 10);
+        const eof = invoke(false, ["--jsonl"], `open ${JSON.stringify(gem5File)}\n`);
+        assert.equal(replies(eof).length, 1);
+        assert.match(eof.stderr, /Detected ticks per clock/);
 
         const help = invoke(true, ["--help"], "");
         assert.equal(help.status, 0, help.stderr);
@@ -230,8 +240,12 @@ async function run() {
         assert.equal(failed.length, 4);
         assert.equal(failed[1].ok, false);
         assert.equal(failed[2].state.file, file);
+        assert.equal(replies(invoke(true, ["--jsonl"], "\n"), 1)[0].ok, false);
         assert.equal(replies(invoke(true, ["--jsonl", "--unknown"], ""), 1)[0].error.code, "startup_error");
         assert.equal(replies(invoke(true, ["--jsonl", "--sync", "--", "--help"]), 1)[0].error.code, "read_error");
+        const optionLikePath = invoke(true, ["--sync", "--", "--jsonl"]);
+        assert.equal(optionLikePath.status, 1, optionLikePath.stderr);
+        assert.match(optionLikePath.stdout, /^Error \[read_error\]/);
 
         const partial = path.join(directory, "partial.log");
         fs.writeFileSync(partial, "Kanata\t0004\nI\t0\t0\t0\nS\t0\t0\tID\nE\t0");

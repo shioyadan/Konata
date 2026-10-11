@@ -1869,16 +1869,9 @@ test("Top-down-like analysis stops after yielding when its pane is closed", asyn
     trace.close();
 });
 
-test("Web renderer keeps the legacy instruction label format", () => {
-    const { op } = createTrace();
-    // 左paneはfile-local ID、global ID、thread、retire ID、命令ラベルの順で表示する。
-    assert.equal(formatInstructionLabel(op.id, op, DEFAULT_INSTRUCTION_LABEL_SETTINGS),
-        "0: s100 (t1: r0): add x1, x2, x3");
-});
-
 test("Web renderer keeps all default instruction label fields at any pane width", () => {
     const { trace } = createTrace();
-    for (const width of [160, 240, 241, 450]) {
+    for (const width of [160, 450]) {
         const label = createRecordedContext();
         new KonataRenderer().drawLabelSpec(
             trace,

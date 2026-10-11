@@ -104,8 +104,6 @@ cmp "$payload_dir/index.html" "$install_dir/index.html"
 cmp "$payload_dir/konata.sh" "$install_dir/konata.sh"
 cmp "$payload_dir/konata-cli.js" "$install_dir/konata-cli.js"
 grep -q 'Install this update' "$test_dir/update.err"
-cmp "$payload_dir/index.html" "$install_dir/index.html"
-cmp "$payload_dir/konata.sh" "$install_dir/konata.sh"
 test -x "$install_dir/konata.sh"
 
 # 同じarchiveを再確認した場合は、確認を求めず最新であることを表示する。

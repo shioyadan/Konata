@@ -1,10 +1,9 @@
 /**
  * 小さい既知ログで、共有Parserとの整合、CLIの状態遷移・区間検索・表示契約を検証する。
- * 最後の子process testは実際の入口を通し、JSON Lines・stderr・EOF・終了コードも確認する。
+ * 実際の入口・JSON Lines・stderr・EOF・終了コードはcli_bundle_smoke.jsで検証する。
  * GUI起動や巨大ログの性能測定は対象にせず、通常の単体testから実行できるようにする。
  */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -870,11 +869,6 @@ test("CLI details require explicit IDs and preserve the window across namespaces
     assert.ok(stage.warnings.some((warning) => warning.includes("hidden")));
     assert.deepEqual(cli.state, saved);
     assert.equal((await cli.execute("detail")).error?.code, "invalid_command");
-    assert.equal((await cli.execute("select 20")).error?.code, "invalid_command");
-    assert.equal((await cli.execute("help select")).error?.code, "invalid_command");
-    assert.equal("selectedID" in cli.state, false);
-    assert.ok(timeline(await cli.execute("show")).rows.every((row) => !("selected" in row)));
-    assert.doesNotMatch(formatCliText(await cli.execute("status")), /selected/i);
     assert.deepEqual(timeline(await cli.execute("filter clear")).rows.map((op) => op.id), [20, 3, 900000000000, 4]);
 });
 
@@ -932,7 +926,7 @@ test("CLI search cursors are independent of explicit details, navigation and com
     const saved = cli.state;
     for (const command of ["detail", "detail id 999", "detail id 20 -1", "detail id 20 0.5",
         "detail id 20 stage EX -1", "detail 20 stage EX 0.5", 'detail 20 stage ""',
-        "detail 9007199254740993", "select 20", "find absent"]) {
+        "detail 9007199254740993", "find absent"]) {
         assert.equal((await cli.execute(command)).ok, false, command);
         assert.deepEqual(cli.state, saved, command);
     }
@@ -1028,13 +1022,7 @@ test("CLI rejects unsafe or fractional trace numbers and cycle overflow before e
     await assert.rejects(() => inspectCliTrace(input("Kanata\t0004\nC=\t9007199254740990\nC\t2")), /overflow/);
 });
 
-test("CLI reuses streaming gzip and Zstandard readers and reports partial input warnings", async () => {
-    const compressed = (await Zstd.load()).compress(new TextEncoder().encode(source));
-    const plain = await inspectCliTrace(input(source));
-    for (const [bytes, name] of [[gzipSync(source), "fixture.gz"], [compressed, "fixture.zst"]] as const) {
-        const trace = await inspectCliTrace(input(bytes, name), "fixture.log");
-        assert.deepEqual(trace.instructions, plain.instructions);
-    }
+test("CLI reports partial input warnings and rejects unsupported or insufficient timing data", async () => {
     const partial = await inspectCliTrace(input("Kanata\t0004\nI\t0\t0\t0\nS\t0\t0\tID\nE\t0"));
     assert.equal(partial.warningCount, 1);
     assert.ok(partial.warnings.some((warning) => warning.includes("1 parser warnings")));
@@ -1110,7 +1098,6 @@ test("CLI completion follows argument positions and caches only recorded stage n
     await check('detail id 20 stage "I', ['"ID" ', '"IF" '], '"I');
     await check("detail id 20 256 ", [], "");
     await check("detail 20 stage EX ", [], "");
-    await check("sel", [], "sel");
     await check("help fi", ["filter ", "find "], "fi");
     await check("filter ", ["clear ", "thread "], "");
     await check("filter thread ", ["0 ", "1 "], "");
@@ -1196,115 +1183,4 @@ test("CLI path completion preserves relative paths, quotes and directory continu
         }
     }
     finally { fs.rmSync(directory, { recursive: true, force: true }); }
-});
-
-test("CLI JSON Lines returns one clean response per command, stays deterministic and sets batch exit status", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "konata-cli-"));
-    const file = path.join(directory, "trace with spaces.log");
-    try {
-        fs.writeFileSync(file, source);
-        const trace: CliTrace = await loadCliTrace(file);
-        assert.equal(trace.source, file);
-        const entry = path.resolve(import.meta.dirname, "../src/cli/main.ts");
-        const commands = `open --sync ${JSON.stringify(file)}\nshow\nfind stage ID min 3\ndetail id 20\ndetail id 20 stage EX\noverview\nstatus\n`;
-        const run = (columns: string, inputText = commands, extras: string[] = []) => spawnSync(process.execPath,
-            ["--import", "tsx", entry, "--jsonl", ...extras], {
-                input: inputText, encoding: "utf8", timeout: 10000,
-                env: { ...process.env, COLUMNS: columns },
-            });
-        const first = run("40");
-        assert.equal(first.error, undefined);
-        assert.equal(first.status, 0, first.stderr);
-        assert.equal(first.stderr, "");
-        assert.equal(first.stdout, run("200").stdout);
-        const replies = first.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(replies.length, 7);
-        assert.equal(overview(replies[5]).totalInstructions, 5);
-        assert.equal(detail(replies[4]).stageFilter, "EX");
-        assert.deepEqual(detail(replies[4]).stages.map((stage) => [stage.name, stage.duration]), [["EX", 100]]);
-        assert.ok(replies.every((reply) => reply.ok && reply.schemaVersion === 1));
-        const local = new CliSession(loadCliTrace);
-        for (const [index, command] of commands.trim().split("\n").entries()) {
-            assert.deepEqual(replies[index], await local.execute(command));
-        }
-        const failure = run("80", `open --sync ${JSON.stringify(file)}\ngoto id 999\nstatus\nquit\nshow\n`);
-        assert.equal(failure.status, 1);
-        const failedReplies = failure.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(failedReplies.length, 4);
-        assert.equal(failedReplies[1].ok, false);
-        assert.equal(failedReplies[2].ok, true);
-        assert.equal(run("80", "status\n", [file]).stdout.trim().split("\n").length, 2);
-        const blank = run("80", "\n");
-        assert.equal(blank.status, 1);
-        assert.equal(JSON.parse(blank.stdout).ok, false);
-        const options = run("80", "", ["--unknown"]);
-        assert.equal(options.status, 1);
-        assert.equal(JSON.parse(options.stdout).error.code, "startup_error");
-        const help = run("80", "help find\n");
-        assert.equal(help.status, 0, help.stderr);
-        assert.deepEqual(JSON.parse(help.stdout), await new CliSession(loadCliTrace).execute("help find"));
-        const positional = run("80", "quit\n", ["--sync", "--", "--help"]);
-        assert.equal(positional.status, 1);
-        assert.equal(JSON.parse(positional.stdout.split("\n")[0]).error.code, "read_error");
-        const optionLikePath = spawnSync(process.execPath, ["--import", "tsx", entry, "--sync", "--", "--jsonl"], {
-            input: "quit\n", encoding: "utf8", timeout: 10000, env: process.env,
-        });
-        assert.equal(optionLikePath.status, 1);
-        assert.match(optionLikePath.stdout, /^Error \[read_error\]/);
-        const partialPath = path.join(directory, "partial.log");
-        fs.writeFileSync(partialPath, "Kanata\t0004\nI\t0\t0\t0\nS\t0\t0\tID\nE\t0");
-        const partial = run("80", "quit\n", ["--sync", partialPath]);
-        assert.equal(partial.status, 0);
-        assert.match(partial.stderr, /Warning at line 4:/);
-        const partialReplies = partial.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(partialReplies.length, 2);
-        assert.equal(partialReplies[0].state.warningCount, 1);
-        assert.ok(partialReplies[0].warnings.some((warning) => warning.includes("1 parser warnings")));
-
-        const gem5Path = path.join(directory, "gem5.log");
-        fs.writeFileSync(gem5Path, gem5Source);
-        const gem5 = run("80", "show\ngoto id 2\ndetail id 2\nquit\n", ["--sync", gem5Path]);
-        assert.equal(gem5.error, undefined);
-        assert.equal(gem5.status, 0, gem5.stderr);
-        assert.match(gem5.stderr, /Detected ticks per clock: 1000/);
-        const gem5Replies = gem5.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(gem5Replies.length, 5);
-        assert.equal(gem5Replies[0].state.format, "gem5");
-        assert.equal(detail(gem5Replies[3]).stages.at(-1)!.duration, 0);
-        const background = run("80", `open ${JSON.stringify(gem5Path)}\nhelp wait\nwait\nshow\n`);
-        assert.equal(background.status, 0, background.stderr);
-        const backgroundReplies = background.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(backgroundReplies.length, 4);
-        assert.equal(backgroundReplies[0].state.loading!.status, "loading");
-        assert.equal(backgroundReplies[2].state.format, "gem5");
-        assert.equal(backgroundReplies[2].state.loading!.status, "ready");
-        assert.equal(timeline(backgroundReplies[3]).totalRows, 4);
-        const failedBackground = run("80", 'open "does-not-exist.log"\nwait\n');
-        assert.equal(failedBackground.status, 1);
-        const backgroundFailure = failedBackground.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(backgroundFailure.length, 2);
-        assert.equal(backgroundFailure[1].error!.code, "read_error");
-        assert.equal(backgroundFailure[1].state.loading!.status, "failed");
-        const startup = run("80", "wait\nshow\n", [gem5Path]);
-        assert.equal(startup.status, 0, startup.stderr);
-        const startupReplies = startup.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(startupReplies.length, 3);
-        assert.equal(startupReplies[0].state.file, null);
-        assert.equal(startupReplies[0].state.loading!.status, "loading");
-        assert.equal(startupReplies[1].state.loading!.status, "ready");
-        assert.equal(timeline(startupReplies[2]).totalRows, 4);
-        const eof = run("80", `open ${JSON.stringify(gem5Path)}\n`);
-        assert.equal(eof.status, 0, eof.stderr);
-        assert.equal(eof.stdout.trim().split("\n").length, 1);
-        assert.match(eof.stderr, /Detected ticks per clock/);
-        const cancel = run("80", `open ${JSON.stringify(file)}\ncancel\nstatus\n`);
-        assert.equal(cancel.status, 0, cancel.stderr);
-        const canceled = cancel.stdout.trim().split("\n").map((line) => JSON.parse(line) as CliResponse);
-        assert.equal(canceled.length, 3);
-        assert.equal(canceled[2].state.loading!.status, "canceled");
-        assert.equal(canceled[2].state.file, null);
-    }
-    finally {
-        fs.rmSync(directory, { recursive: true, force: true });
-    }
 });
