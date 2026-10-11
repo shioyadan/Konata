@@ -1,6 +1,7 @@
 /**
  * CLIのデータ・応答契約と、1ログに対する対話状態・command処理をまとめる。
- * 時間窓、倍率、行位置、選択、filter、検索条件と索引を保持し、構造化した結果を返す。
+ * 時間窓、倍率、行位置、filter、検索条件と検索cursor、索引を保持し、構造化した結果を返す。
+ * 命令の調査対象はcommandごとに指定し、暗黙の選択状態には依存させない。
  * ファイル読込みは注入された関数へ任せ、Nodeの入出力・端末幅・GUIには依存しない。
  * テキスト表示とJSON Linesの両方がこの同じ処理を使い、表示方式による操作差を作らない。
  */
@@ -30,6 +31,7 @@ export interface CliInstruction {
 }
 
 export interface CliTrace {
+    readonly format?: "kanata" | "gem5";
     readonly source: string;
     readonly instructions: readonly CliInstruction[];
     readonly range: { readonly begin: number; readonly end: number };
@@ -37,15 +39,35 @@ export interface CliTrace {
     readonly warningCount: number;
 }
 
+// 途中通知は変更された命令だけを運ぶ。全命令のコピーや再索引を更新ごとに繰り返さない。
+export type CliTraceUpdate = Omit<CliTrace, "instructions"> & {
+    readonly instructions: readonly CliInstruction[];
+};
+
+// loaderのcancel／進捗／部分結果を共有し、Nodeのstreamや端末をsessionへ持ち込まない。
+export interface CliLoadOptions {
+    readonly signal?: AbortSignal;
+    readonly onProgress?: (progress: number) => void;
+    readonly onUpdate?: (update: CliTraceUpdate) => void;
+}
+
+export interface CliLoadingState {
+    file: string;
+    status: "loading" | "ready" | "failed" | "canceled";
+    progress: number;
+    error: { code: string; message: string } | null;
+}
+
 export interface CliState {
     file: string | null;
+    format: "kanata" | "gem5" | null;
+    loading: CliLoadingState | null;
     range: { begin: number; end: number } | null;
     window: { begin: number; end: number };
     cyclesPerColumn: number;
     columns: number;
     rowOffset: number;
     rowLimit: number;
-    selectedID: number | null;
     filters: { thread?: number };
     instructionCount: number;
     warningCount: number;
@@ -60,7 +82,6 @@ export interface CliRow {
     status: CliInstruction["status"];
     begin: number;
     end: number | null;
-    selected: boolean;
     continuesBefore: boolean;
     continuesAfter: boolean;
     cells: string[];
@@ -68,10 +89,10 @@ export interface CliRow {
 
 export type CliResult =
     | { kind: "status"; attributes?: string[] }
-    | { kind: "timeline"; rows: CliRow[]; totalRows: number }
-    | { kind: "selection"; id: number; label: string; hiddenByFilter: boolean }
+    | { kind: "timeline"; rows: CliRow[]; totalRows: number; matchID?: number }
     | { kind: "detail"; instruction: Omit<CliInstruction, "stages">;
-        stages: (CliStage & { duration: number | null })[]; totalStages: number; nextStageOffset: number | null }
+        stages: (CliStage & { duration: number | null })[]; stageFilter: string | null;
+        totalStages: number; nextStageOffset: number | null }
     | { kind: "help"; commands: readonly string[] }
     | { kind: "quit" };
 
@@ -89,11 +110,11 @@ export interface CliResponse {
 }
 
 export const CLI_HELP = [
-    'open "path/to/trace.log"       Open one Kanata trace (plain, gzip or Zstandard)',
+    'open [--sync] "path"          Load a Kanata or gem5 trace in the background (plain, gzip or Zstandard)',
+    "wait | cancel                 Wait for or cancel a background load; status shows progress",
     "show [row-offset]              Show overlapping instructions (24 rows, 32 columns)",
     "goto cycle N                  Move the left edge to cycle N",
-    "goto id|gid|rid N              Select an instruction and move to its beginning",
-    "select [id|gid|rid] N          Select without moving the window (default: id)",
+    "goto id|gid|rid N              Move to an instruction's beginning",
     "pan N                         Move by N cycles",
     "rows N                        Move by N rows within the current window",
     "zoom N                        Set positive integer cycles per column",
@@ -101,30 +122,35 @@ export const CLI_HELP = [
     'find "text"                   Find a case-sensitive label from the current position',
     "find stage NAME min N         Find a closed stage lasting at least N cycles",
     "next | prev                   Repeat the last search without wrapping",
-    "detail [stage-offset]         Show selected instruction and up to 256 stages",
+    "detail [id|gid|rid] N [stage NAME] [stage-offset]  Inspect an instruction without moving (default: id)",
     "status | help [command] | quit",
     "Interactive input: Tab completes commands and arguments; Up/Down recalls session history.",
     "Notes: C= uses absolute log cycles; rows are ordered by start cycle, then file-local ID.",
     "Unknown ends remain null; unfinished stages are drawn only through the observed input.",
-    "This prototype keeps one log in memory; gem5, PC extraction and automatic diagnosis are not supported.",
+    "While loading, show and searches use the available instructions; wait reads through EOF.",
+    "This prototype keeps one log in memory; PC extraction and automatic diagnosis are not supported.",
     "Integers outside the JavaScript safe integer range are rejected, never rounded.",
 ] as const;
 
 // 個別helpと引数不足時のusageを共有する。補完にもこの一覧を使い、command名のずれを防ぐ。
 const COMMAND_HELP = {
-    open: ['Usage: open "path/to/trace.log"',
-        "Open one Kanata trace (plain, gzip or Zstandard). Replace the current trace only after loading succeeds.",
-        "Selection, filters and search are reset on success."],
+    open: ['Usage: open [--sync] "path/to/trace.log"',
+        "Detect Kanata or gem5 O3PipeView (plain, gzip or Zstandard).",
+        "Loading is asynchronous by default; show and searches use instructions already published by the parser.",
+        "--sync waits for completion before returning, useful for command sequences in scripts.",
+        "Use status for progress, wait for completion, or cancel to stop. A new open cancels the previous load.",
+        "The first available instructions replace the old trace and reset its view; later updates preserve your view.",
+        "Cancellation or failure keeps the published portion; before publication the old trace is preserved.",
+        "gem5 uses GUI-relative cycles and stage names; raw ticks remain in details and missing threads default to 0."],
+    wait: ["Usage: wait", "Wait for the latest background load, including indexing. Report loading errors."],
+    cancel: ["Usage: cancel", "Stop loading and keep the available instructions and inspection state."],
     show: ["Usage: show [row-offset]",
         "Show instructions overlapping the current window, up to 24 rows and 32 columns.",
         "Use the reported row offset to read the next page."],
     goto: ["Usage: goto cycle N | goto id|gid|rid N",
-        "Move the window to cycle N, or select an instruction and move to its beginning.",
+        "Move the window to cycle N, or to an instruction's beginning. The search cursor is unchanged.",
         "id is file-local, gid is the log's global ID, and rid is the retired instruction number.",
         "Example: goto id 413"],
-    select: ["Usage: select [id|gid|rid] N",
-        "Select an instruction without moving the window. The default namespace is id.",
-        "A selection hidden by the current filter is reported, not replaced."],
     pan: ["Usage: pan N", "Move the window by N cycles; negative values move backwards.", "Example: pan -20"],
     rows: ["Usage: rows N", "Move by N rows within the current window; negative values move backwards."],
     zoom: ["Usage: zoom N", "Set a positive integer number of cycles per column. The window has 32 columns."],
@@ -135,14 +161,17 @@ const COMMAND_HELP = {
         "Start at the current window's left edge and follow the current filter; do not wrap.",
         'Examples: find "dload4"; find stage ID min 3',
         "Use next or prev to repeat the last successful search."],
-    next: ["Usage: next", "Repeat the last search forwards, without wrapping."],
-    prev: ["Usage: prev", "Repeat the last search backwards, without wrapping."],
-    detail: ["Usage: detail [stage-offset]",
-        "Show the selected instruction's complete label and up to 256 stage intervals.",
-        "Use the reported stage offset to read the next page. Unrecorded ends remain unknown."],
-    status: ["Usage: status", "Show the trace, window, scale, row position, filters and selection."],
+    next: ["Usage: next", "Repeat the last search forwards from its last match, without wrapping."],
+    prev: ["Usage: prev", "Repeat the last search backwards from its last match, without wrapping."],
+    detail: ["Usage: detail [id|gid|rid] N [stage NAME] [stage-offset]",
+        "Show the specified instruction's complete label and up to 256 stage intervals. The default namespace is id.",
+        "stage NAME filters by exact, case-sensitive name and retains each reentry or parallel-lane interval.",
+        "The window and search cursor are unchanged; instructions hidden by the filter can still be inspected.",
+        "Examples: detail 413; detail gid 120; detail id 413 stage EX; detail id 413 stage EX 256",
+        "Offsets count matching intervals when filtered; no matches returns an empty list. Unrecorded ends remain unknown."],
+    status: ["Usage: status", "Show the trace, window, scale, filters and latest load progress or error."],
     help: ["Usage: help [command]", "List commands, or show help for one command.", "Example: help find"],
-    quit: ["Usage: quit", "Exit the CLI. EOF also exits without changing the trace file."],
+    quit: ["Usage: quit", "Cancel any pending load and exit. EOF waits for pending loading before exiting."],
 } as const;
 
 export const CLI_COMMAND_NAMES: readonly string[] = Object.keys(COMMAND_HELP);
@@ -210,29 +239,93 @@ export function tokenizeCommand(command: string): string[] {
 }
 
 interface IntervalNode {
-    readonly index: number;
-    readonly maximumEnd: number;
-    readonly left: IntervalNode | null;
-    readonly right: IntervalNode | null;
+    index: number;
+    begin: number;
+    id: number;
+    ownEnd: number;
+    maximumEnd: number;
+    height: number;
+    left: IntervalNode | null;
+    right: IntervalNode | null;
 }
 
 // 開始時刻の二分探索だけでは、左で始まった長い命令が抜ける。部分木の最大終端で枝刈りする。
-function buildIntervals(ops: readonly CliInstruction[], observedEnd: number, first = 0, end = ops.length): IntervalNode | null {
+// 未完了の終端は索引内だけInfinityとし、観測範囲の伸長ごとに全nodeを更新しない。
+function intervalNode(index: number, op: CliInstruction): IntervalNode {
+    let ownEnd = Math.max(op.end ?? Infinity, op.begin + 1);
+    for (const stage of op.stages) {
+        if (stage.begin === stage.end) ownEnd = Math.max(ownEnd, stage.begin + 1);
+    }
+    return { index, begin: op.begin, id: op.id, ownEnd, maximumEnd: ownEnd,
+        height: 1, left: null, right: null };
+}
+
+function refreshInterval(node: IntervalNode): IntervalNode {
+    node.height = 1 + Math.max(node.left?.height ?? 0, node.right?.height ?? 0);
+    node.maximumEnd = Math.max(node.ownEnd, node.left?.maximumEnd ?? -Infinity, node.right?.maximumEnd ?? -Infinity);
+    return node;
+}
+
+function rotateInterval(node: IntervalNode, left: boolean): IntervalNode {
+    const root = (left ? node.right : node.left)!;
+    if (left) { node.right = root.left; root.left = refreshInterval(node); }
+    else { node.left = root.right; root.right = refreshInterval(node); }
+    return refreshInterval(root);
+}
+
+function balanceInterval(node: IntervalNode): IntervalNode {
+    refreshInterval(node);
+    const difference = (node.left?.height ?? 0) - (node.right?.height ?? 0);
+    if (difference > 1) {
+        if ((node.left!.left?.height ?? 0) < (node.left!.right?.height ?? 0)) {
+            node.left = rotateInterval(node.left!, true);
+        }
+        return rotateInterval(node, false);
+    }
+    if (difference < -1) {
+        if ((node.right!.right?.height ?? 0) < (node.right!.left?.height ?? 0)) {
+            node.right = rotateInterval(node.right!, false);
+        }
+        return rotateInterval(node, true);
+    }
+    return node;
+}
+
+function comparePosition(a: { begin: number; id: number }, b: { begin: number; id: number }): number {
+    return a.begin - b.begin || a.id - b.id;
+}
+
+// AVL区間索引を差分更新する。時刻順でない追加、同じ命令の後続ラベル更新にも対応する。
+function insertInterval(root: IntervalNode | null, node: IntervalNode): IntervalNode {
+    if (root === null) return node;
+    if (comparePosition(node, root) < 0) root.left = insertInterval(root.left, node);
+    else root.right = insertInterval(root.right, node);
+    return balanceInterval(root);
+}
+
+function removeInterval(root: IntervalNode | null, key: { begin: number; id: number }): IntervalNode | null {
+    if (root === null) return null;
+    const order = comparePosition(key, root);
+    if (order < 0) root.left = removeInterval(root.left, key);
+    else if (order > 0) root.right = removeInterval(root.right, key);
+    else {
+        if (root.left === null) return root.right;
+        if (root.right === null) return root.left;
+        let next = root.right;
+        while (next.left !== null) next = next.left;
+        root.index = next.index; root.begin = next.begin; root.id = next.id; root.ownEnd = next.ownEnd;
+        root.right = removeInterval(root.right, next);
+    }
+    return balanceInterval(root);
+}
+
+function buildIntervals(ops: readonly CliInstruction[], first = 0, end = ops.length): IntervalNode | null {
     if (first === end) return null;
     const index = Math.floor((first + end) / 2);
-    const left = buildIntervals(ops, observedEnd, first, index);
-    const right = buildIntervals(ops, observedEnd, index + 1, end);
-    const op = ops[index];
-    let maximumEnd = Math.max(op.end ?? observedEnd, op.begin + 1);
-    // 命令の半開区間の右端でS/Rが重なる場合も、そのcycleの点eventを索引へ含める。
-    for (const stage of op.stages) {
-        if (stage.begin === stage.end) maximumEnd = Math.max(maximumEnd, stage.begin + 1);
-    }
-    return {
-        index, left, right,
-        maximumEnd: Math.max(maximumEnd,
-            left?.maximumEnd ?? -Infinity, right?.maximumEnd ?? -Infinity),
-    };
+    const node = intervalNode(index, ops[index]);
+    node.left = buildIntervals(ops, first, index);
+    node.right = buildIntervals(ops, index + 1, end);
+    return refreshInterval(node);
 }
 
 function overlaps(start: number, end: number | null, begin: number, finish: number): boolean {
@@ -242,6 +335,14 @@ function overlaps(start: number, end: number | null, begin: number, finish: numb
 
 type Search = { kind: "label"; text: string } | { kind: "stage"; name: string; minimum: number };
 
+interface LoadJob {
+    state: CliLoadingState;
+    controller: AbortController;
+    done: Promise<void>;
+    live: boolean;
+    published: boolean;
+}
+
 // 読込み済みログと索引を再利用する操作本体。失敗したcommandで直前の調査状態を失わない。
 export class CliSession {
     private trace_: CliTrace | null = null;
@@ -250,37 +351,67 @@ export class CliSession {
     private gids_ = new Map<number, number[]>();
     private rids_ = new Map<number, number[]>();
     private completionValues_: CliCompletionValues = { stages: [], threads: [] };
+    private liveInstructions_: CliInstruction[] = [];
+    private liveStages_ = new Set<string>();
+    private liveThreads_ = new Set<number>();
+    private completionDirty_ = false;
+    private loadJob_: LoadJob | null = null;
     private search_: Search | null = null;
-    private state_: CliState = {
-        file: null, range: null, window: { begin: 0, end: 32 }, cyclesPerColumn: 1,
-        columns: 32, rowOffset: 0, rowLimit: 24, selectedID: null, filters: {},
+    private searchCursorID_: number | null = null;
+    private state_: Omit<CliState, "loading"> = {
+        file: null, format: null, range: null, window: { begin: 0, end: 32 }, cyclesPerColumn: 1,
+        columns: 32, rowOffset: 0, rowLimit: 24, filters: {},
         instructionCount: 0, warningCount: 0,
     };
 
-    constructor(private readonly load_: (path: string) => Promise<CliTrace>) {}
+    constructor(private readonly load_: (path: string, options?: CliLoadOptions) => Promise<CliTrace>) {}
 
     get state(): CliState {
-        return { ...this.state_, window: { ...this.state_.window },
+        const loading = this.loadJob_?.state;
+        return { ...this.state_, loading: loading === undefined ? null : { ...loading,
+            error: loading.error === null ? null : { ...loading.error } }, window: { ...this.state_.window },
             range: this.state_.range === null ? null : { ...this.state_.range }, filters: { ...this.state_.filters } };
     }
 
-    // 大きいログをTabごとに走査しないよう、成功したopenで集めた候補を再利用する。
-    get completionValues(): CliCompletionValues { return this.completionValues_; }
+    // 大きいログをTabごとに走査せず、差分通知で集めた候補を必要時だけ整列する。
+    get completionValues(): CliCompletionValues {
+        if (this.completionDirty_) {
+            this.completionValues_ = { stages: Object.freeze([...this.liveStages_].sort()),
+                threads: Object.freeze([...this.liveThreads_].sort((a, b) => a - b).map(String)) };
+            this.completionDirty_ = false;
+        }
+        return this.completionValues_;
+    }
+
+    // EOFはバックグラウンド読込みの成否を待つが、command外のJSON応答は生成しない。
+    async finishLoading(): Promise<void> { await this.loadJob_?.done; }
 
     async execute(command: string): Promise<CliResponse> {
         const previous = this.state;
         const previousSearch = this.search_;
+        const previousCursor = this.searchCursorID_;
+        let name = "";
         const response: CliResponse = {
             schemaVersion: 1, command, ok: true, state: previous, result: null, error: null,
             warnings: [], truncated: false, nextRow: null,
         };
         try {
             const args = tokenizeCommand(command);
-            response.result = await this.dispatch_(args, response);
+            name = args[0];
+            // 即時commandはawaitを挟まず、結果とstateを同じ時点で写す。途中通知がその間に
+            // 別ログ／別rangeを公開して、古いshowに新しいstateが付くことを避ける。
+            const result = this.dispatch_(args, response);
+            response.result = result instanceof Promise ? await result : result;
         }
         catch (error) {
-            this.state_ = previous;
-            this.search_ = previousSearch;
+            // openは最初の部分結果または成功時に置換する。wait中の新open／cancelで、古いsnapshotを
+            // 戻して現在のtraceや調査操作を消さない。通常の操作errorだけを巻き戻す。
+            if (name !== "open" && name !== "wait") {
+                const { loading: _loading, ...saved } = previous;
+                this.state_ = saved;
+                this.search_ = previousSearch;
+                this.searchCursorID_ = previousCursor;
+            }
             response.ok = false;
             response.error = { code: error instanceof CommandError ? error.code : "read_error",
                 message: error instanceof Error ? error.message : String(error) };
@@ -290,7 +421,11 @@ export class CliSession {
     }
 
     private requireTrace_(): CliTrace {
-        return this.trace_ ?? fail("no_trace", 'Open a trace first with open "path".');
+        if (this.trace_ !== null) return this.trace_;
+        if (this.loadJob_?.state.status === "loading") {
+            fail("loading", "No instructions are available yet. Try show again as loading progresses, or use wait.");
+        }
+        return fail("no_trace", 'Open a trace first with open "path".');
     }
 
     private count_(args: string[], count: number): void {
@@ -299,7 +434,7 @@ export class CliSession {
         }
     }
 
-    private async dispatch_(args: string[], response: CliResponse): Promise<CliResult> {
+    private dispatch_(args: string[], response: CliResponse): CliResult | Promise<CliResult> {
         const name = args[0];
         if (name === "help") {
             if (args.length !== 1 && args.length !== 2) this.count_(args, 1);
@@ -309,53 +444,33 @@ export class CliSession {
         }
         if (name === "quit") {
             this.count_(args, 1);
+            this.cancelLoad_();
             return { kind: "quit" };
         }
         if (name === "open") {
-            this.count_(args, 2);
-            // 成功するまで既存のsessionを触らず、失敗したopenでも調査位置を失わない。
-            const trace = await this.load_(args[1]);
-            const intervals = buildIntervals(trace.instructions, trace.range.end);
-            const ids = new Map<number, number>();
-            const gids = new Map<number, number[]>();
-            const rids = new Map<number, number[]>();
-            const stages = new Set<string>();
-            const threads = new Set<number>();
-            trace.instructions.forEach((op, index) => {
-                ids.set(op.id, index);
-                for (const stage of op.stages) stages.add(stage.name);
-                if (op.thread !== null) threads.add(op.thread);
-                for (const [map, key] of [[gids, op.gid], [rids, op.status === "retired" ? op.rid : null]] as const) {
-                    if (key !== null) {
-                        const bucket = map.get(key);
-                        if (bucket === undefined) map.set(key, [index]);
-                        else bucket.push(index);
-                    }
-                }
+            const hasMode = args[1] === "--sync" || args[1] === "--async";
+            this.count_(args, hasMode ? 3 : 2);
+            const previousJob = this.loadJob_;
+            this.cancelLoad_();
+            const job: LoadJob = { state: { file: args[hasMode ? 2 : 1], status: "loading", progress: 0, error: null },
+                controller: new AbortController(), done: Promise.resolve(), live: args[1] !== "--sync", published: false };
+            this.loadJob_ = job;
+            job.done = this.loadTrace_(job);
+            if (args[1] !== "--sync") return { kind: "status" };
+            return this.waitForLoad_(job, response).catch((error: unknown) => {
+                // 従来の同期open失敗では、最新loadの表示も含めて以前の状態を保つ。
+                if (this.loadJob_ === job) this.loadJob_ = previousJob;
+                throw error;
             });
-            const windowEnd = safe(Math.min(Number.MAX_SAFE_INTEGER, trace.range.begin + 32));
-            this.trace_ = trace;
-            this.intervals_ = intervals;
-            this.ids_ = ids; this.gids_ = gids; this.rids_ = rids;
-            this.completionValues_ = {
-                stages: Object.freeze([...stages].sort()),
-                threads: Object.freeze([...threads].sort((a, b) => a - b).map(String)),
-            };
-            this.search_ = null;
-            this.state_ = {
-                file: trace.source, range: { ...trace.range }, window: { begin: trace.range.begin, end: windowEnd },
-                cyclesPerColumn: 1, columns: 32, rowOffset: 0, rowLimit: 24, selectedID: null, filters: {},
-                instructionCount: trace.instructions.length, warningCount: trace.warningCount,
-            };
-            response.warnings.push(...trace.warnings);
-            return { kind: "status", attributes: ["id", "gid", "rid", "label", "lane", "stage",
-                ...(threads.size > 0 ? ["thread"] : [])] };
+        }
+        if (name === "status" || name === "wait" || name === "cancel") {
+            this.count_(args, 1);
+            if (name === "cancel") this.cancelLoad_();
+            if (name === "wait" && this.loadJob_ !== null) return this.waitForLoad_(this.loadJob_, response);
+            return { kind: "status" };
         }
         const trace = this.requireTrace_();
         switch (name) {
-        case "status":
-            this.count_(args, 1);
-            return { kind: "status" };
         case "show":
             if (args.length === 2) {
                 const offset = integer(args[1]);
@@ -364,23 +479,18 @@ export class CliSession {
             }
             else this.count_(args, 1);
             return this.timeline_(response);
-        case "goto":
-        case "select": {
-            const [kind, value] = name === "select" && args.length === 2 ? ["id", args[1]] : [args[1], args[2]];
-            this.count_(args, name === "select" && args.length === 2 ? 2 : 3);
-            if (kind === "cycle" && name === "goto") {
+        case "goto": {
+            this.count_(args, 3);
+            const [kind, value] = [args[1], args[2]];
+            if (kind === "cycle") {
                 this.move_(integer(value));
                 return this.timeline_(response);
             }
             const op = this.lookup_(kind, integer(value));
-            this.state_.selectedID = op.id;
             const hiddenByFilter = !this.matchesFilter_(op);
             if (hiddenByFilter) response.warnings.push(`Instruction ${op.id} is hidden by the current filter.`);
-            if (name === "goto") {
-                this.move_(op.begin);
-                return this.timeline_(response);
-            }
-            return { kind: "selection", id: op.id, label: op.label, hiddenByFilter };
+            this.move_(op.begin);
+            return this.timeline_(response);
         }
         case "pan":
             this.count_(args, 2);
@@ -428,19 +538,184 @@ export class CliSession {
             this.count_(args, 1);
             return this.find_(name === "next" ? 1 : -1, true, response);
         case "detail": {
-            if (args.length !== 1 && args.length !== 2) this.count_(args, 1);
-            const offset = args.length === 2 ? integer(args[1]) : 0;
+            const named = ["id", "gid", "rid"].includes(args[1]);
+            const stageIndex = named ? 3 : 2;
+            const filtered = args[stageIndex] === "stage";
+            const count = stageIndex + (filtered ? 2 : 0);
+            if (args.length !== count && args.length !== count + 1) this.count_(args, count);
+            const stageFilter = filtered ? args[stageIndex + 1] : null;
+            if (stageFilter === "") fail("invalid_command", "Stage names cannot be empty.");
+            const offset = args.length === count + 1 ? integer(args[count]) : 0;
             if (offset < 0) fail("invalid_number", "Stage offsets cannot be negative.");
-            if (this.state_.selectedID === null) fail("no_selection", "Select an instruction first.");
-            const { stages, ...instruction } = this.lookup_("id", this.state_.selectedID);
-            const page = stages.slice(offset, offset + 256).map((stage) => ({ ...stage,
+            const op = this.lookup_(named ? args[1] : "id", integer(args[named ? 2 : 1]));
+            if (!this.matchesFilter_(op)) response.warnings.push(`Instruction ${op.id} is hidden by the current filter.`);
+            const { stages, ...instruction } = op;
+            // laneや再入場の区間を併合せず、対象命令内の一致区間を絞ってからpageを切る。
+            const matching = stageFilter === null ? stages : stages.filter((stage) => stage.name === stageFilter);
+            const page = matching.slice(offset, offset + 256).map((stage) => ({ ...stage,
                 duration: stage.end === null ? null : safe(stage.end - stage.begin) }));
-            const nextStageOffset = offset + page.length < stages.length ? offset + page.length : null;
+            const nextStageOffset = offset + page.length < matching.length ? offset + page.length : null;
             response.truncated = nextStageOffset !== null;
-            return { kind: "detail", instruction, stages: page, totalStages: stages.length, nextStageOffset };
+            return { kind: "detail", instruction, stages: page, stageFilter, totalStages: matching.length, nextStageOffset };
         }
         default:
             fail("invalid_command", "Unknown command; use help for command syntax.");
+        }
+    }
+
+    private cancelLoad_(): void {
+        const job = this.loadJob_;
+        if (job?.state.status !== "loading") return;
+        job.state.status = "canceled";
+        job.controller.abort();
+    }
+
+    private async waitForLoad_(job: LoadJob, response: CliResponse): Promise<CliResult> {
+        await job.done;
+        if (job !== this.loadJob_ || job.state.status === "canceled") {
+            fail("load_canceled", "File loading was canceled or replaced.");
+        }
+        if (job.state.error !== null) fail(job.state.error.code, job.state.error.message);
+        response.warnings.push(...this.requireTrace_().warnings);
+        return { kind: "status", attributes: ["id", "gid", "rid", "label", "lane", "stage",
+            ...(this.completionValues.threads.length > 0 ? ["thread"] : [])] };
+    }
+
+    private resetView_(trace: CliTrace): void {
+        this.search_ = null;
+        this.searchCursorID_ = null;
+        this.state_ = {
+            file: trace.source, format: trace.format ?? "kanata", range: { ...trace.range },
+            window: { begin: trace.range.begin, end: safe(Math.min(Number.MAX_SAFE_INTEGER, trace.range.begin + 32)) },
+            cyclesPerColumn: 1, columns: 32, rowOffset: 0, rowLimit: 24, filters: {},
+            instructionCount: trace.instructions.length, warningCount: trace.warningCount,
+        };
+    }
+
+    private updateInstruction_(op: CliInstruction): void {
+        let index = this.ids_.get(op.id);
+        if (index !== undefined) {
+            const previous = this.liveInstructions_[index];
+            if (previous === op) return;
+            this.intervals_ = removeInterval(this.intervals_, previous);
+            for (const [map, key] of [[this.gids_, previous.gid],
+                [this.rids_, previous.status === "retired" ? previous.rid : null]] as const) {
+                if (key === null) continue;
+                const remaining = map.get(key)!.filter((entry) => entry !== index);
+                if (remaining.length === 0) map.delete(key);
+                else map.set(key, remaining);
+            }
+            this.liveInstructions_[index] = op;
+        }
+        else {
+            index = this.liveInstructions_.length;
+            this.liveInstructions_.push(op);
+            this.ids_.set(op.id, index);
+        }
+        for (const [map, key] of [[this.gids_, op.gid],
+            [this.rids_, op.status === "retired" ? op.rid : null]] as const) {
+            if (key === null) continue;
+            const bucket = map.get(key);
+            if (bucket === undefined) map.set(key, [index]);
+            else bucket.push(index);
+        }
+        this.intervals_ = insertInterval(this.intervals_, intervalNode(index, op));
+        for (const stage of op.stages) {
+            if (!this.liveStages_.has(stage.name)) { this.liveStages_.add(stage.name); this.completionDirty_ = true; }
+        }
+        if (op.thread !== null && !this.liveThreads_.has(op.thread)) {
+            this.liveThreads_.add(op.thread); this.completionDirty_ = true;
+        }
+    }
+
+    private publishUpdate_(job: LoadJob, update: CliTraceUpdate): void {
+        if (job !== this.loadJob_ || job.controller.signal.aborted ||
+            (!job.published && update.instructions.length === 0)) return;
+        if (!job.published) {
+            this.liveInstructions_ = [];
+            this.ids_ = new Map(); this.gids_ = new Map(); this.rids_ = new Map();
+            this.intervals_ = null;
+            this.liveStages_ = new Set(); this.liveThreads_ = new Set();
+            this.completionDirty_ = true;
+            this.resetView_(update);
+            job.published = true;
+        }
+        for (const op of update.instructions) this.updateInstruction_(op);
+        this.trace_ = { ...update, instructions: this.liveInstructions_ };
+        this.state_.range = { ...update.range };
+        this.state_.instructionCount = this.liveInstructions_.length;
+        this.state_.warningCount = update.warningCount;
+    }
+
+    private async loadTrace_(job: LoadJob): Promise<void> {
+        const signal = job.controller.signal;
+        try {
+            const trace = await this.load_(job.state.file, { signal, onProgress: (progress) => {
+                if (job === this.loadJob_ && !signal.aborted && Number.isFinite(progress)) {
+                    job.state.progress = Math.max(job.state.progress, Math.min(0.95, Math.max(0, progress)));
+                }
+            }, onUpdate: job.live ? (update) => this.publishUpdate_(job, update) : undefined });
+            signal.throwIfAborted();
+            if (job !== this.loadJob_) return;
+            if (job.published) {
+                // 通常は途中通知で全差分を反映済み。EOFで届く一式も照合し、同じobjectは
+                // 再索引せず、最後の通知がないloaderにも対応する。調査位置は初期化しない。
+                for (let index = 0; index < trace.instructions.length; index++) {
+                    this.updateInstruction_(trace.instructions[index]);
+                    if ((index + 1) % 8192 === 0) {
+                        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                        signal.throwIfAborted();
+                    }
+                }
+                this.publishUpdate_(job, { ...trace, instructions: [] });
+                job.state.status = "ready";
+                job.state.progress = 1;
+                return;
+            }
+            const ids = new Map<number, number>();
+            const gids = new Map<number, number[]>();
+            const rids = new Map<number, number[]>();
+            const stages = new Set<string>();
+            const threads = new Set<number>();
+            // 索引を作る途中にも入力／cancelへ制御を返す。準備済みの一式だけを公開し、
+            // 読込み中のshow／findを部分索引や別ログの命令へ向けない。
+            for (let index = 0; index < trace.instructions.length; index++) {
+                const op = trace.instructions[index];
+                ids.set(op.id, index);
+                for (const stage of op.stages) stages.add(stage.name);
+                if (op.thread !== null) threads.add(op.thread);
+                for (const [map, key] of [[gids, op.gid], [rids, op.status === "retired" ? op.rid : null]] as const) {
+                    if (key !== null) {
+                        const bucket = map.get(key);
+                        if (bucket === undefined) map.set(key, [index]);
+                        else bucket.push(index);
+                    }
+                }
+                if ((index + 1) % 8192 === 0) {
+                    job.state.progress = Math.max(job.state.progress, 0.95 + 0.04 * (index + 1) / trace.instructions.length);
+                    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                    signal.throwIfAborted();
+                }
+            }
+            const intervals = buildIntervals(trace.instructions);
+            signal.throwIfAborted();
+            if (job !== this.loadJob_) return;
+            this.trace_ = trace;
+            this.intervals_ = intervals;
+            this.ids_ = ids; this.gids_ = gids; this.rids_ = rids;
+            this.liveInstructions_ = [];
+            this.liveStages_.clear(); this.liveThreads_.clear();
+            this.completionValues_ = { stages: Object.freeze([...stages].sort()),
+                threads: Object.freeze([...threads].sort((a, b) => a - b).map(String)) };
+            this.completionDirty_ = false;
+            this.resetView_(trace);
+            job.state.status = "ready";
+            job.state.progress = 1;
+        }
+        catch (error) {
+            if (signal.aborted || job !== this.loadJob_) return;
+            job.state.status = "failed";
+            job.state.error = { code: "read_error", message: error instanceof Error ? error.message : String(error) };
         }
     }
 
@@ -469,7 +744,7 @@ export class CliSession {
 
     // 窓と交差する命令を索引で集め、filter・paginationとセル化を両出力方式へ共通適用する。
     // 未終了stageの表示には観測範囲を使うが、記録データのend=nullは変更しない。
-    private timeline_(response: CliResponse): CliResult {
+    private timeline_(response: CliResponse): Extract<CliResult, { kind: "timeline" }> {
         const trace = this.requireTrace_();
         const { begin, end } = this.state_.window;
         const matches: CliInstruction[] = [];
@@ -507,7 +782,7 @@ export class CliSession {
                     `${stages[0].begin === stages[0].end ? "@" : ""}${stages[0].name}`);
             }
             return { id: op.id, gid: op.gid, rid: op.rid, thread: op.thread, label: op.label,
-                status: op.status, begin: op.begin, end: op.end, selected: op.id === this.state_.selectedID,
+                status: op.status, begin: op.begin, end: op.end,
                 continuesBefore: op.begin < begin, continuesAfter: op.end === null || op.end > end, cells };
         }) };
     }
@@ -515,27 +790,26 @@ export class CliSession {
     private find_(direction: number, repeat: boolean, response: CliResponse): CliResult {
         const trace = this.requireTrace_();
         const search = this.search_ ?? fail("no_search", "Run find before next or prev.");
-        const selected = this.state_.selectedID === null ? undefined : this.ids_.get(this.state_.selectedID);
-        let index: number;
-        if (repeat && selected !== undefined) index = selected + direction;
-        else {
-            // 新しい検索は、選択ではなく現在窓の左端から開始時刻順に調べる。
-            let first = 0, end = trace.instructions.length;
-            while (first < end) {
-                const middle = Math.floor((first + end) / 2);
-                if (trace.instructions[middle].begin < this.state_.window.begin) first = middle + 1;
-                else end = middle;
-            }
-            index = direction > 0 ? first : first - 1;
+        const cursor = this.searchCursorID_ === null ? undefined : this.ids_.get(this.searchCursorID_);
+        const key = repeat && cursor !== undefined ? trace.instructions[cursor] :
+            { begin: this.state_.window.begin, id: -Infinity };
+        // 入力の到着順ではなく、区間木の開始時刻・ID順で検索する。新しい検索は窓の左端、
+        // 続きの検索は最後の一致命令から始める。goto／detailによる調査で起点を変えない。
+        function* candidates(node: IntervalNode | null): Generator<CliInstruction> {
+            if (node === null) return;
+            const order = comparePosition(node, key) * direction;
+            const eligible = order > 0 || (order === 0 && !repeat && direction > 0);
+            if (eligible) yield* candidates(direction > 0 ? node.left : node.right);
+            if (eligible) yield trace.instructions[node.index];
+            yield* candidates(direction > 0 ? node.right : node.left);
         }
-        for (; index >= 0 && index < trace.instructions.length; index += direction) {
-            const op = trace.instructions[index];
+        for (const op of candidates(this.intervals_)) {
             const found = search.kind === "label" ? op.label.includes(search.text) : op.stages.some((stage) =>
                 stage.name === search.name && stage.end !== null && stage.end - stage.begin >= search.minimum);
             if (this.matchesFilter_(op) && found) {
-                this.state_.selectedID = op.id;
+                this.searchCursorID_ = op.id;
                 this.move_(op.begin);
-                return this.timeline_(response);
+                return { ...this.timeline_(response), matchID: op.id };
             }
         }
         return fail("not_found", "No matching instruction in this direction; the search does not wrap.");

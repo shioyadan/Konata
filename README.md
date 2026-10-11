@@ -135,17 +135,19 @@ Downloaded distributions include `konata-cli.js`. With Node.js 18 or later insta
 ```
 
 This is a line-oriented CLI, not a full-screen TUI. Enter commands such as `show`,
-`find stage ID min 3`, `detail`, and `quit`; `help` lists all commands. It keeps the trace and
-inspection state between commands. Currently it supports one Kanata trace at a time (plain text,
-gzip, or Zstandard), keeps the whole trace in memory, and does not support gem5 traces.
+`find stage ID min 3`, `detail id 413`, and `quit`; `help` lists all commands. It keeps the trace and
+inspection state between commands. It supports one Kanata or gem5 O3PipeView trace at a time
+(plain text, gzip, or Zstandard) and keeps the whole trace in memory.
 
 Interactive terminals support Tab completion and session history. Use `help <command>` for details.
+Loading is asynchronous by default; `show` and searches use the available instructions while loading.
+Use `status`, `wait`, or `cancel` to manage it, or `open --sync "path"` to wait.
 
 Commands can also be supplied through standard input. `--jsonl` returns one JSON response per
 command, without prompts:
 
 ```bash
-printf 'show\nfind stage ID min 3\ndetail\n' | ./konata.sh --cli --jsonl trace.log.zst
+printf 'wait\nshow\nfind stage ID min 3\n' | ./konata.sh --cli --jsonl trace.log.zst
 ```
 
 The CLI does not start a browser or Web server and needs no npm packages at runtime. From a source

@@ -12,10 +12,14 @@ function text(value: string, multiline = false): string {
 
 function status(state: CliState): string[] {
     return [
-        `File: ${state.file === null ? "(none)" : text(state.file)}`,
+        `File: ${state.file === null ? "(none)" : text(state.file)}${state.format === null ? "" : ` | format: ${state.format}`}`,
         `Input: ${state.range === null ? "unknown" : `[${state.range.begin}, ${state.range.end})`} | instructions: ${state.instructionCount} | parser warnings: ${state.warningCount}`,
         `Window: [${state.window.begin}, ${state.window.end}) | cycles/column: ${state.cyclesPerColumn} | row offset: ${state.rowOffset}`,
-        `Filter: ${state.filters.thread === undefined ? "none" : `thread ${state.filters.thread}`} | selected ID: ${state.selectedID ?? "none"}`,
+        `Filter: ${state.filters.thread === undefined ? "none" : `thread ${state.filters.thread}`}`,
+        ...(state.loading === null ? [] : [
+            `Load: ${text(state.loading.file)} | ${state.loading.status} | ${Math.floor(state.loading.progress * 100)}%` +
+            (state.loading.error === null ? "" : ` | ${text(state.loading.error.message)}`),
+        ]),
     ];
 }
 
@@ -35,14 +39,12 @@ export function formatCliText(response: CliResponse): string {
             lines.push(`Available: ${result.attributes.join(", ")}`, "Use show to view the timeline; help lists commands.");
         }
     }
-    else if (result?.kind === "selection") {
-        lines.push(`Selected ID ${result.id}${result.hiddenByFilter ? " (hidden by filter)" : ""}: ${text(result.label)}`);
-    }
     else if (result?.kind === "timeline") {
         const state = response.state;
+        if (result.matchID !== undefined) lines.push(`Match: ID ${result.matchID}`);
         lines.push(`Window [${state.window.begin}, ${state.window.end}) | ${state.cyclesPerColumn} cycles/column | ${result.totalRows} matching instructions`);
         const prefixes = result.rows.map((row) =>
-            `${row.selected ? ">" : " "} ${row.id} t${row.thread ?? "?"} ${row.status === "flushed" ? "[flush]" : row.status === "incomplete" ? "[open]" : "[ret]"} ${clipped(row.label, 30)} ${row.continuesBefore ? "<" : " "}`);
+            `${row.id} t${row.thread ?? "?"} ${row.status === "flushed" ? "[flush]" : row.status === "incomplete" ? "[open]" : "[ret]"} ${clipped(row.label, 30)} ${row.continuesBefore ? "<" : " "}`);
         const prefixWidth = Math.max(16, ...prefixes.map((prefix) => prefix.length));
         const cellWidth = Math.max(3, Math.min(5, ...result.rows.flatMap((row) => row.cells.map((cell) => text(cell).length + 1))));
         lines.push(`${"cycle".padEnd(prefixWidth + 1)}${state.window.begin} (+${state.cyclesPerColumn} per cell)`);
@@ -62,13 +64,24 @@ export function formatCliText(response: CliResponse): string {
             `Lifetime: ${op.begin} -> ${op.end ?? "unknown"}`,
             `Label: ${text(op.label, true)}`);
         if (op.detail !== "") lines.push(`Details: ${text(op.detail, true)}`);
+        if (result.stageFilter !== null) {
+            lines.push(`Stage filter: ${text(result.stageFilter)} | ${result.totalStages} matching interval${result.totalStages === 1 ? "" : "s"}`);
+            if (result.totalStages === 0) lines.push("No matching stages.");
+        }
         for (const stage of result.stages) {
             lines.push(`  lane ${text(stage.lane)} | ${text(stage.name)} | ${stage.begin} -> ${stage.end ?? "unknown"} | duration ${stage.duration ?? "unknown"}`);
             if (stage.label !== "") lines.push(`    ${text(stage.label, true)}`);
         }
         if (result.nextStageOffset !== null) {
-            lines.push(`More stages (${result.totalStages} total); use detail ${result.nextStageOffset}.`);
+            // 引用符・backslash・空白を含む名前も、同じfilterを指定して続きへ進める。
+            const stage = result.stageFilter === null ? "" : ` stage ${JSON.stringify(result.stageFilter)}`;
+            lines.push(`More stages (${result.totalStages} total); use detail id ${op.id}${stage} ${result.nextStageOffset}.`);
         }
+    }
+    if (result !== null && result.kind !== "status" && result.kind !== "help" && result.kind !== "quit" &&
+        response.state.loading !== null && response.state.loading.status !== "ready") {
+        const loading = response.state.loading;
+        lines.push(`Load: ${loading.status} (${Math.floor(loading.progress * 100)}%); showing available instructions.`);
     }
     for (const warning of response.warnings) lines.push(`Warning: ${text(warning)}`);
     return lines.join("\n");

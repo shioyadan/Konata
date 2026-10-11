@@ -29,7 +29,7 @@ async function main(): Promise<void> {
         return response.result?.kind === "quit";
     };
     if (flags.includes("--help") || flags.includes("-h")) {
-        if (!json) process.stdout.write("Usage: konata.sh --cli [--jsonl] [--] [trace.log]\n\n");
+        if (!json) process.stdout.write("Usage: konata.sh --cli [--jsonl] [--sync] [--] [trace.log]\n\n");
         await run("help");
         return;
     }
@@ -37,12 +37,13 @@ async function main(): Promise<void> {
     let positional = false;
     for (const arg of args) {
         if (arg === "--" && !positional) positional = true;
-        else if (!positional && arg === "--jsonl") continue;
+        else if (!positional && (arg === "--jsonl" || arg === "--sync")) continue;
         else if (!positional && arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
         else paths.push(arg);
     }
     if (paths.length > 1) throw new Error("The prototype accepts one trace file at a time.");
-    if (paths.length === 1) await run(`open "${paths[0].replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+    // 起動引数のfileもopenと同じ非同期defaultにし、promptとCtrl+Cをすぐ使えるようにする。
+    if (paths.length === 1) await run(`open ${flags.includes("--sync") ? "--sync " : ""}"${paths[0].replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
     else if (interactive) process.stdout.write('Konata CLI prototype. Use open "path" or help. Tab completes input.\n');
 
     // terminal機能は人間向けTTYだけで使う。JSON／pipeにはprompt・echo・履歴を混ぜない。
@@ -57,21 +58,38 @@ async function main(): Promise<void> {
         ...(interactive ? { output: process.stdout, prompt: "konata> ", completer,
             historySize: 100, removeHistoryDuplicates: true } : {}) });
     let closed = false;
+    let executing = false;
     input.on("close", () => { closed = true; });
+    // Ctrl+Cは読込み中ならcancel、idleなら従来どおり終了する。background loadから
+    // 自発的なstdout出力は行わず、編集途中の入力やJSONの1command／1応答を崩さない。
+    if (interactive) input.on("SIGINT", () => {
+        if (session.state.loading?.status === "loading") {
+            // waitの解除後は通常loopがpromptを出すため、割込み側では重ねて出さない。
+            const commandRunning = executing;
+            void run("cancel").then(() => { if (!closed && !commandRunning) input.prompt(); });
+        }
+        else input.close();
+    });
     // EOFで自然に終了し、入力済みcommandも逐次awaitしてsessionの操作順を固定する。
     try {
         if (interactive) input.prompt();
         for await (const line of input) {
-            // commandの出力中は次の入力を止め、完了後のpromptで再開する。
-            if (interactive) input.pause();
+            // commandは逐次実行するが、wait中にもCtrl+Cを受け取れるようstdinは止めない。
             if (line.trim() !== "" || json) {
-                if (await run(line)) break;
+                executing = true;
+                try { if (await run(line)) break; }
+                finally { executing = false; }
             }
             if (interactive && !closed) input.prompt();
         }
     }
     finally {
         input.close();
+        await session.finishLoading();
+    }
+    if (session.state.loading?.status === "failed") {
+        if (!failed) process.stderr.write(`Konata CLI: ${session.state.loading.error?.message}\n`);
+        failed = true;
     }
     if (failed && !interactive) process.exitCode = 1;
 }

@@ -69,7 +69,11 @@ export class Gem5O3PipeViewParser {
     // 現行版と同じく、最初は100行、その後は16K行ごとに完了命令をdrainする。
     private updateTimer_ = 100;
 
-    constructor(private readonly opStore_: MutableOpStore = new ArrayOpStore()) {}
+    // GUIの従来出力を保ちつつ、CLIでは診断文をJSON応答と別の出力先へ送れるようにする。
+    constructor(private readonly opStore_: MutableOpStore = new ArrayOpStore(),
+        private readonly diagnostic_: (message: string) => void = (message) => console.log(message)) {}
+
+    get ticksPerClock(): number { return this.ticksPerClock_; }
 
     async parse(
         reader: FileLineReader,
@@ -242,7 +246,7 @@ export class Gem5O3PipeViewParser {
             this.ticksPerClock_ = minDelta;
             this.cycleBegin_ = sortedTicks[0] / minDelta;
             this.gidBegin_ = minSeqNum;
-            console.log(`Detected ticks per clock: ${minDelta}`);
+            this.diagnostic_(`Detected ticks per clock: ${minDelta}`);
         }
     }
 
@@ -279,7 +283,7 @@ export class Gem5O3PipeViewParser {
             this.parsingOps_.delete(seqNum);
 
             if (this.lastGID_ > seqNum) {
-                console.log(
+                this.diagnostic_(
                     `Miss parsed op: seqNum: ${seqNum} lastGID: ${this.lastGID_}. ` +
                     "BUFFERED_SIZE must be bigger.",
                 );

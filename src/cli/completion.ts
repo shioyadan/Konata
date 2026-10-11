@@ -43,7 +43,12 @@ export async function completeCliCommand(line: string, values: CliCompletionValu
     if (index === 0) words = CLI_COMMAND_NAMES;
     else if (tokens[0] === "help" && index === 1) words = CLI_COMMAND_NAMES;
     else if (tokens[0] === "goto" && index === 1) words = ["cycle", "id", "gid", "rid"];
-    else if (tokens[0] === "select" && index === 1) words = ["id", "gid", "rid"];
+    else if (tokens[0] === "detail") {
+        const stageIndex = ["id", "gid", "rid"].includes(tokens[1]) ? 3 : 2;
+        if (index === 1) words = ["id", "gid", "rid"];
+        else if (index === stageIndex) words = ["stage"];
+        else if (index === stageIndex + 1 && tokens[stageIndex] === "stage") words = values.stages;
+    }
     else if (tokens[0] === "filter" && index === 1) words = ["thread", "clear"];
     else if (tokens[0] === "filter" && tokens[1] === "thread" && index === 2) words = values.threads;
     else if (tokens[0] === "find") {
@@ -52,7 +57,11 @@ export async function completeCliCommand(line: string, values: CliCompletionValu
         else if (tokens[1] === "stage" && index === 2) words = values.stages;
         else if (tokens[1] === "stage" && index === 3) words = ["min"];
     }
-    if (tokens[0] === "open" && index === 1) candidates = await fileCandidates(active.value, cwd);
+    if (tokens[0] === "open" && (index === 1 || ((tokens[1] === "--sync" || tokens[1] === "--async") && index === 2))) {
+        candidates = index === 1 && active.value.startsWith("--") ?
+            ["--sync", "--async"].filter((word) => word.startsWith(active.value)).map((value) => ({ value })) :
+            await fileCandidates(active.value, cwd);
+    }
     else candidates = words.filter((word) => word.startsWith(active.value)).map((value) => ({ value }));
 
     // readlineは候補を直接端末へ出すので、ログ名・ファイル名の制御文字を通さない。
