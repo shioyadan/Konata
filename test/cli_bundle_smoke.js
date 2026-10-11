@@ -208,10 +208,14 @@ async function run() {
         assert.match(help.stdout, /^Usage: konata\.sh --cli/);
         assert.match(help.stdout, /find stage NAME min N/);
         assert.match(help.stdout, /overview \[first-id last-id\]/);
+        assert.match(help.stdout, /\nLoad:\n/);
+        assert.match(help.stdout, /\nCount:\n  count instructions/);
         assert.doesNotMatch(help.stdout, /\x1b|Konata URL:|konata>/);
         const jsonHelp = replies(invoke(true, ["--jsonl", "--help"], ""));
         assert.equal(jsonHelp.length, 1);
         assert.equal(jsonHelp[0].result.kind, "help");
+        assert.equal(help.stdout.slice(help.stdout.indexOf("Konata CLI commands")).trimEnd(),
+            jsonHelp[0].result.commands.join("\n"));
         const commandHelp = invoke(true, [], "help find\n");
         assert.equal(commandHelp.status, 0, commandHelp.stderr);
         assert.match(commandHelp.stdout, /^Usage: find "text" \| find stage NAME min N/);
@@ -232,6 +236,7 @@ async function run() {
         assert.match(text.stdout, /Matched: 1 \/ 1 \(100\.00%\)/);
         assert.match(text.stdout, /0x1160 \| 1 \| 2/);
         assert.match(text.stdout, /Usage: count instructions \[range id FIRST LAST\] where stage NAME duration >= N/);
+        assert.match(text.stdout, /\nCondition and totals:\n  Match/);
         const opened = replies(invoke(true, ["--jsonl"], `open --sync ${JSON.stringify(file)}\nstatus\n`));
         assert.equal(opened.length, 2);
         assert.equal(opened[1].state.file, file);

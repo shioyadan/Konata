@@ -1227,15 +1227,38 @@ test("CLI tokenization handles quoted paths without a shell and text output remo
 
 test("CLI command-specific help works without a trace and invalid arguments report usage without moving", async () => {
     const empty = new CliSession(loadCliTrace);
+    const beforeHelp = empty.state;
+    const overviewHelp = await empty.execute("help");
+    assert.equal(overviewHelp.ok, true);
+    assert.equal(overviewHelp.result?.kind, "help");
+    if (overviewHelp.result?.kind !== "help") throw new Error("Expected help.");
+    const helpText = formatCliText(overviewHelp);
+    assert.equal(helpText, overviewHelp.result.commands.join("\n"));
+    assert.match(helpText, /Use help COMMAND.*\[\] = optional.*\| = alternatives/);
+    assert.deepEqual(overviewHelp.result.commands.filter((line) => line.endsWith(":")),
+        ["Load:", "View:", "Move:", "Filter and search:", "Count:", "Session:"]);
+    for (const command of CLI_COMMAND_NAMES) {
+        assert.ok(overviewHelp.result.commands.some((line) => line.startsWith("  ") &&
+            new RegExp(`\\b${command}\\b`).test(line)), command);
+    }
+    assert.deepEqual(empty.state, beforeHelp);
     for (const command of CLI_COMMAND_NAMES) {
         const response = await empty.execute(`help ${command}`);
         assert.equal(response.ok, true);
         assert.equal(response.result?.kind, "help");
         assert.match(formatCliText(response), new RegExp(`^Usage: ${command}(?:\\s|$)`));
+        if (["open", "overview", "count", "detail"].includes(command)) {
+            assert.match(formatCliText(response), /^Usage: [^\n]+\n\n/);
+            assert.match(formatCliText(response), /\n\nExamples:\n  /);
+        }
     }
     assert.match(formatCliText(await empty.execute("help find")), /find stage NAME min N/);
     assert.match(formatCliText(await empty.execute("help detail")), /\[stage NAME\]/);
     assert.match(formatCliText(await empty.execute("help count")), /range id FIRST LAST.*where stage NAME duration >= N.*group by pc/);
+    const countHelp = formatCliText(await empty.execute("help count"));
+    assert.match(countHelp, /\n\nScope:\n  /);
+    assert.match(countHelp, /\n\nCondition and totals:\n  /);
+    assert.match(countHelp, /\n\nPC ranking \(optional\):\n  /);
     assert.equal((await empty.execute("help missing")).error?.code, "invalid_command");
     assert.equal((await empty.execute("help constructor")).ok, false);
     assert.equal((await empty.execute("help find extra")).ok, false);
