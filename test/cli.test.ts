@@ -20,6 +20,7 @@ import { FileLineReader } from "../src/core/file_line_reader";
 import { Gem5O3PipeViewParser } from "../src/core/gem5_o3_pipe_view_parser";
 import type { Stage } from "../src/core/model";
 import { OnikiriParser } from "../src/core/onikiri_parser";
+import { buildCycleNavigatorData, getCycleNavigatorTopDown } from "../src/core/trace_navigator_analysis";
 
 const source = [
     "Kanata\t0004", "C=\t100",
@@ -76,6 +77,235 @@ function count(response: CliResponse) {
     if (response.result?.kind !== "count") throw new Error("Expected count.");
     return response.result;
 }
+
+function topdown(response: CliResponse) {
+    assert.equal(response.ok, true, response.error?.message);
+    assert.equal(response.result?.kind, "topdown");
+    if (response.result?.kind !== "topdown") throw new Error("Expected topdown.");
+    return response.result;
+}
+
+const topDownSource = fs.readFileSync(path.join(process.cwd(), "test/fixtures/topdown-kanata.txt"), "utf8").trimEnd();
+
+test("CLI Top-down-like shares Web classification and preserves scope, navigation and search", async () => {
+    const cli = await session(topDownSource);
+    const gui = await new OnikiriParser().parse(new FileLineReader(input(topDownSource)));
+    try {
+        // CLIの観測範囲は最終cycleも含む半開区間。Webにも同じ終端を明示して比較する。
+        gui.updateLastCycle(129);
+        const data = await buildCycleNavigatorData(gui, { binCycleCount: 1 });
+        assert.ok(data?.topDown);
+        await cli.execute("find add");
+        await cli.execute("goto cycle 900");
+        const before = cli.state;
+        const response = await cli.execute("topdown");
+        const result = topdown(response);
+        assert.ok(result.available);
+        assert.deepEqual(result.scope, { source: "fixture.log", requestedRange: null, range: { begin: 101, end: 129 },
+            complete: true, instructionCount: 5, excludedIncompleteInstructions: 1 });
+        assert.deepEqual(result.analysis!.allocation, { lane: "main", stages: ["queue"] });
+        assert.deepEqual(result.analysis!.execution, { lane: "main", stages: ["execute"] });
+        assert.equal(result.analysis!.allocationWidth, 2);
+        const expected = getCycleNavigatorTopDown(data!, 101, 129)!;
+        assert.equal(result.totals!.totalSlots, expected.totalSlots);
+        assert.equal(result.totals!.retiring.slots, expected.retiringSlots);
+        assert.equal(result.totals!.frontendBound.slots, expected.frontendBound);
+        assert.equal(result.totals!.backendBound.slots, expected.backendBound);
+        assert.equal(result.totals!.badSpeculation.squashedSlots, expected.squashedSlots);
+        assert.equal(result.totals!.badSpeculation.recoveryBubbleSlots, expected.recoveryBubbleSlots);
+        assert.equal(result.totals!.unresolved.slots, expected.unresolvedSlots);
+        assert.equal(result.totals!.retiring.percentage, expected.retiringSlots / expected.totalSlots * 100);
+        assert.equal(result.analysis!.interpolated, false);
+        assert.deepEqual(response.state, before);
+        assert.deepEqual(cli.state, before);
+        const allocated = topdown(await cli.execute("topdown range cycle 102 103"));
+        assert.equal(allocated.totals!.retiring.slots, 2);
+        assert.equal(allocated.totals!.totalSlots, 2);
+        const clipped = topdown(await cli.execute("topdown range cycle 0 110"));
+        assert.deepEqual(clipped.scope.requestedRange, { begin: 0, end: 110 });
+        assert.deepEqual(clipped.scope.range, { begin: 101, end: 110 });
+        assert.equal(clipped.totals!.totalSlots, 18);
+        assert.match(formatCliText(response), /Top-down-like.*input: complete/);
+        assert.match(formatCliText(response), /Normalization: 28 cycles x 2.*56 slots/);
+        assert.match(formatCliText(response), /excluded incomplete: 1/);
+        assert.equal(match(await cli.execute("next")), 1);
+    }
+    finally { gui.close(); }
+});
+
+test("CLI Top-down-like normalizes huge cycles and sparse IDs and discloses bin interpolation", async () => {
+    const trace = await inspectCliTrace(input(topDownSource));
+    const shift = Number.MAX_SAFE_INTEGER - 1000;
+    const shifted: CliTrace = { ...trace, range: { begin: trace.range.begin + shift, end: trace.range.end + shift },
+        instructions: trace.instructions.map((op) => ({ ...op, id: op.id * 1000000000000,
+            begin: op.begin + shift, end: op.end === null ? null : op.end + shift,
+            stages: op.stages.map((stage) => ({ ...stage, begin: stage.begin + shift,
+                end: stage.end === null ? null : stage.end + shift })) })) };
+    const cli = new CliSession(async () => shifted);
+    await cli.execute("open --sync fixture.log");
+    const original = topdown(await (await session(topDownSource)).execute("topdown"));
+    const actual = topdown(await cli.execute("topdown"));
+    assert.deepEqual(actual.totals, original.totals);
+    assert.deepEqual(actual.analysis, { ...original.analysis, binOrigin: shifted.range.begin });
+    assert.deepEqual(actual.scope.range, shifted.range);
+    assert.equal(detail(await cli.execute("detail 4000000000000")).instruction.end, null);
+    // 同じcycleの0長区間と別laneを、sentinelや主pipelineへ混ぜない。
+    const auxiliary = new CliSession(async () => ({ ...trace, source: "\x1b[2Jfixture.log",
+        instructions: trace.instructions.map((op, index) => index === 0 ? { ...op,
+            stages: [...op.stages, { lane: "\x1b[2Jaux", name: "point", label: "",
+                begin: 101, end: 101 }] } : op) }));
+    await auxiliary.execute("open --sync fixture.log");
+    const auxiliaryResponse = await auxiliary.execute("topdown");
+    assert.deepEqual(topdown(auxiliaryResponse).totals, original.totals);
+    assert.deepEqual(topdown(auxiliaryResponse).analysis, original.analysis);
+    assert.doesNotMatch(formatCliText(auxiliaryResponse), /\x1b/);
+    const binned = await session(topDownSource + "\nC\t128");
+    const full = topdown(await binned.execute("topdown"));
+    assert.equal(full.analysis!.interpolated, false);
+    const partial = topdown(await binned.execute("topdown range cycle 102 103"));
+    assert.equal(partial.analysis!.binCycles, 32);
+    assert.equal(partial.analysis!.binOrigin, 101);
+    assert.equal(partial.analysis!.interpolated, true);
+    assert.equal(partial.totals!.retiring.slots, 3 / 32);
+    assert.equal(partial.totals!.badSpeculation.squashedSlots, 1 / 32);
+    assert.equal(partial.totals!.totalSlots, 2);
+    assert.match(formatCliText(await binned.execute("topdown range cycle 102 103")), /interpolated boundaries/);
+});
+
+test("CLI Top-down-like supports gem5 stages without counting terminal drawing widths", async () => {
+    const log = [
+        "O3PipeView:fetch:1000:0x10:0:10: add", "O3PipeView:decode:2000", "O3PipeView:rename:3000",
+        "O3PipeView:issue:11000", "O3PipeView:complete:12000", "O3PipeView:retire:13000",
+        "O3PipeView:fetch:1000:0x11:0:11: add", "O3PipeView:decode:2000", "O3PipeView:rename:3000",
+        "O3PipeView:issue:5000", "O3PipeView:complete:6000", "O3PipeView:retire:7000",
+        "O3PipeView:fetch:2000:0x12:0:12: add", "O3PipeView:decode:3000", "O3PipeView:rename:4000",
+        "O3PipeView:issue:8000", "O3PipeView:complete:9000", "O3PipeView:retire:10000",
+    ].join("\n");
+    const cli = await session(log);
+    const result = topdown(await cli.execute("topdown range cycle 2 3"));
+    assert.ok(result.available);
+    assert.deepEqual(result.analysis!.allocation.stages, ["Rn"]);
+    assert.deepEqual(result.analysis!.execution.stages, ["Is"]);
+    assert.equal(result.totals!.retiring.slots, 2);
+    assert.equal(result.totals!.totalSlots, 2);
+    assert.equal(detail(await cli.execute("detail 0 stage Rt")).stages[0].duration, 0);
+});
+
+test("CLI Top-down-like rejects invalid requests and reports unavailable data without inventing totals", async () => {
+    const cli = await session(topDownSource);
+    const before = cli.state;
+    for (const command of ["topdown range", "topdown range id 0 10", "topdown range cycle 1 2 extra", "topdown interval 100"]) {
+        assert.equal((await cli.execute(command)).error?.code, "invalid_command");
+    }
+    for (const command of ["topdown range cycle 2 2", "topdown range cycle 2 1", "topdown range cycle 1.5 2",
+        "topdown range cycle 0 9007199254740993", "topdown range cycle -9007199254740991 9007199254740991"]) {
+        assert.equal((await cli.execute(command)).error?.code, "invalid_number");
+    }
+    assert.deepEqual(cli.state, before);
+    await cli.execute("filter thread 0");
+    const filtered = cli.state;
+    assert.equal((await cli.execute("topdown")).error?.code, "unsupported_filter");
+    assert.deepEqual(cli.state, filtered);
+    await cli.execute("filter clear");
+    const empty = topdown(await cli.execute("topdown range cycle 800 900"));
+    assert.equal(empty.reason?.code, "empty_range");
+    assert.equal(empty.scope.range, null);
+    const unsupported = topdown(await (await session()).execute("topdown"));
+    assert.equal(unsupported.available, false);
+    assert.equal(unsupported.reason?.code, "unavailable");
+    const trace = await inspectCliTrace(input(topDownSource));
+    const limited = new CliSession(async () => ({ ...trace, range: { begin: 101, end: 8000000 } }));
+    await limited.execute("open --sync fixture.log");
+    const tooLarge = topdown(await limited.execute("topdown range cycle 102 103"));
+    assert.equal(tooLarge.reason?.code, "analysis_limit");
+    for (const result of [empty, unsupported, tooLarge]) {
+        assert.equal(result.totals, null);
+        assert.equal(result.analysis, null);
+    }
+    assert.equal((await new CliSession(loadCliTrace).execute("topdown")).error?.code, "no_trace");
+});
+
+test("CLI Top-down-like exposes supported recovery bubbles separately from squashed work", async () => {
+    const instructions: CliTrace["instructions"][number][] = [];
+    const add = (base: number, duration: number, label: string, status: "retired" | "flushed" = "retired") => {
+        const id = instructions.length;
+        const end = base + duration + 3;
+        instructions.push({ id, gid: id, rid: status === "retired" ? id : null, thread: 0, label, detail: "",
+            begin: base, end, status, source: { file: "recovery.log", line: id + 1 },
+            stages: [["entry", base, base + 1], ["queue", base + 1, base + duration],
+                ["execute", base + duration, base + duration + 1],
+                ["complete", base + duration + 1, base + duration + 2],
+                ["tail", base + duration + 2, end]].map(([name, begin, end]) => ({
+                    lane: "0", name: String(name), label: "", begin: Number(begin), end: Number(end) })) });
+    };
+    for (let index = 0; index < 10; index++) {
+        const base = index * 20;
+        add(base, 2, "beq x1, x2, target");
+        add(base + 1, 2, "add", "flushed");
+        add(base + 5, 2, "add");
+    }
+    add(200, 7, "add");
+    add(201, 3, "add"); // 後の命令が先にqueueを出る観測を入れる。
+    const trace: CliTrace = { source: "recovery.log", instructions, range: { begin: 0, end: 211 }, warnings: [], warningCount: 0 };
+    const cli = new CliSession(async () => trace);
+    await cli.execute("open --sync recovery.log");
+    const result = topdown(await cli.execute("topdown"));
+    assert.equal(result.analysis!.minimumRecoveryCycles, 3);
+    assert.equal(result.analysis!.minimumRecoverySampleCount, 10);
+    assert.equal(result.totals!.badSpeculation.squashedSlots, 10);
+    assert.equal(result.totals!.badSpeculation.recoveryBubbleSlots, 30);
+    assert.equal(result.totals!.badSpeculation.slots, 40);
+    const totals = result.totals!;
+    assert.equal(totals.retiring.slots + totals.frontendBound.slots + totals.backendBound.slots +
+        totals.badSpeculation.slots + totals.unresolved.slots, totals.totalSlots);
+    assert.match(formatCliText(await cli.execute("topdown")), /10 squashed slots \+ 30 inferred recovery-bubble slots/);
+    const unknownThreads = new CliSession(async () => ({ ...trace,
+        instructions: trace.instructions.map((op) => ({ ...op, thread: null })) }));
+    await unknownThreads.execute("open --sync unknown.log");
+    const unknown = topdown(await unknownThreads.execute("topdown"));
+    assert.equal(unknown.totals!.badSpeculation.squashedSlots, 10);
+    assert.equal(unknown.totals!.badSpeculation.recoveryBubbleSlots, 0);
+    assert.equal(unknown.analysis!.minimumRecoveryCycles, null);
+});
+
+test("CLI Top-down-like fixes live snapshots and cancels replacement without rolling back new state", async () => {
+    const small = await inspectCliTrace(input(topDownSource));
+    const large = { ...small, instructions: [...small.instructions, ...Array.from({ length: 8192 }, (_, id) => ({
+        ...small.instructions.at(-1)!, id: id + 100, stages: [],
+    }))] };
+    let publish: CliLoadOptions["onUpdate"];
+    let resolveLoad: (trace: CliTrace) => void = () => undefined;
+    const cli = new CliSession(async (file, options) => {
+        if (file === "second") return { ...small, source: "second.log" };
+        publish = options!.onUpdate;
+        return new Promise<CliTrace>((resolve) => { resolveLoad = resolve; });
+    });
+    await cli.execute("open first");
+    publish!(large);
+    const before = cli.state;
+    const pending = cli.execute("topdown");
+    publish!({ ...small, range: { begin: 101, end: 200 }, instructions: [] });
+    resolveLoad({ ...large, range: { begin: 101, end: 200 } });
+    const response = await pending;
+    const result = topdown(response);
+    assert.ok(result.available);
+    assert.equal(result.scope.complete, false);
+    assert.deepEqual(result.scope.range, { begin: 101, end: 129 });
+    assert.equal(result.scope.instructionCount, large.instructions.length);
+    assert.deepEqual(response.state, before);
+    await cli.execute("wait");
+    assert.equal(topdown(await cli.execute("topdown")).scope.complete, true);
+    const replacing = cli.execute("topdown");
+    await cli.execute("open --sync second");
+    await cli.execute("goto cycle 900");
+    const current = cli.state;
+    const canceled = topdown(await replacing);
+    assert.equal(canceled.reason?.code, "canceled");
+    assert.equal(canceled.scope.source, "fixture.log");
+    assert.deepEqual(cli.state, current);
+    assert.equal(cli.state.file, "second.log");
+    assert.equal(cli.state.window.begin, 900);
+});
 
 function match(response: CliResponse): number {
     const id = timeline(response).matchID;
@@ -1255,6 +1485,7 @@ test("CLI command-specific help works without a trace and invalid arguments repo
     assert.match(formatCliText(await empty.execute("help find")), /find stage NAME min N/);
     assert.match(formatCliText(await empty.execute("help detail")), /\[stage NAME\]/);
     assert.match(formatCliText(await empty.execute("help count")), /range id FIRST LAST.*where stage NAME duration >= N.*group by pc/);
+    assert.match(formatCliText(await empty.execute("help topdown")), /range cycle BEGIN END/);
     const countHelp = formatCliText(await empty.execute("help count"));
     assert.match(countHelp, /\n\nScope:\n  /);
     assert.match(countHelp, /\n\nCondition and totals:\n  /);
@@ -1306,6 +1537,10 @@ test("CLI completion follows argument positions and caches only recorded stage n
     await check("detail id 20 256 ", [], "");
     await check("detail 20 stage EX ", [], "");
     await check("help fi", ["filter ", "find "], "fi");
+    await check("topdown ", ["range "], "");
+    await check("topdown range ", ["cycle "], "");
+    await check("topdown range cycle ", [], "");
+    await check("topdown range cycle 0 32 ", [], "");
     await check("filter ", ["clear ", "thread "], "");
     await check("filter thread ", ["0 ", "1 "], "");
     await check("filter clear ", [], "");

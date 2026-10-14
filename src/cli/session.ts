@@ -6,6 +6,8 @@
  * テキスト表示とJSON Linesの両方がこの同じ処理を使い、表示方式による操作差を作らない。
  */
 
+import { analyzeCliTopDown, type CliTopDownResult } from "./top_down";
+
 // loaderから受け取る記録値。区間は原則[begin, end)、nullは未記録の終了を表す。
 // begin=endのstageは点eventとして扱い、GUIの表示用幅を実際の滞在時間へ持ち込まない。
 export interface CliStage {
@@ -123,6 +125,7 @@ export type CliResult =
     | { kind: "overview"; rows: CliOverviewRow[]; totalInstructions: number;
         axis: { begin: number; end: number; cyclesPerColumn: number } | null }
     | CliCountResult
+    | CliTopDownResult
     | { kind: "detail"; instruction: Omit<CliInstruction, "stages">;
         stages: (CliStage & { duration: number | null })[]; stageFilter: string | null;
         totalStages: number; nextStageOffset: number | null }
@@ -169,6 +172,7 @@ export const CLI_HELP = [
     "",
     "Count:",
     "  count instructions ...       Count stage-duration matches (help count)",
+    "  topdown [range cycle B E]    Get Top-down-like slot counts and ratios",
     "",
     "Session:",
     "  status                       Show the view, filter and loading progress",
@@ -249,6 +253,26 @@ const COMMAND_HELP = {
         "  group by pc: rank matches by count, then numeric PC; unknown PCs form a separate group.",
         "  Only leading 0x hexadecimal addresses followed by whitespace, a colon or label end are PCs.",
         "  top N: show 1-256 groups (default 10); omitted groups do not change the totals."],
+    topdown: ["Usage: topdown [range cycle BEGIN END]",
+        "", "Get the shared Web analyzer's Top-down-like slot counts and ratios, not a CPU diagnosis.",
+        "", "Examples:", "  topdown", "  topdown range cycle 1000 2000",
+        "", "Scope:",
+        "  Default: all available cycles, not the visible window. Ranges are half-open [BEGIN, END).",
+        "  Model detection uses all available instructions, even for a range query.",
+        "  Requested ranges are clipped to observed input; no overlap returns unavailable.",
+        "  While loading, use the published snapshot; results mark input as complete or partial.",
+        "  Thread filters are rejected; use filter clear before running topdown.",
+        "  The window, zoom and search cursor are unchanged.",
+        "", "Method:",
+        "  Denominator: cycles times observed allocation width (a lower bound on physical capacity).",
+        "  Report detected stages, counts and percentages; retain unresolved slots in the denominator.",
+        "  Bad speculation separates squashed slots from model-inferred recovery bubbles.",
+        "  Instructions with unknown threads do not establish recovery causality.",
+        "  32-cycle bins may interpolate range boundaries; results state whether interpolation was used.",
+        "  Bins start at the input's first cycle; the bin origin is included in the result.",
+        "  Unfinished instructions and unclosed stage intervals are excluded; ends are never invented.",
+        "  Unsupported structure or an available span above 4000000 cycles returns unavailable.",
+        "  Each invocation rebuilds from the snapshot; new input can change the detected model."],
     goto: ["Usage: goto cycle N | goto id|gid|rid N",
         "Move the window to cycle N, or to an instruction's beginning. The search cursor is unchanged.",
         "id is file-local, gid is the log's global ID, and rid is the retired instruction number.",
@@ -470,6 +494,7 @@ export class CliSession {
     private trace_: CliTrace | null = null;
     // 次のopenが未公開の間も、現在のtraceが全量か途中かを独立して保持する。
     private traceComplete_ = false;
+    private traceGeneration_ = 0;
     private intervals_: IntervalNode | null = null;
     private ids_ = new Map<number, number>();
     private gids_ = new Map<number, number[]>();
@@ -530,7 +555,7 @@ export class CliSession {
         catch (error) {
             // openは最初の部分結果または成功時に置換する。wait中の新open／cancelで、古いsnapshotを
             // 戻して現在のtraceや調査操作を消さない。通常の操作errorだけを巻き戻す。
-            if (name !== "open" && name !== "wait") {
+            if (name !== "open" && name !== "wait" && name !== "topdown") {
                 const { loading: _loading, ...saved } = previous;
                 this.state_ = saved;
                 this.search_ = previousSearch;
@@ -540,7 +565,8 @@ export class CliSession {
             response.error = { code: error instanceof CommandError ? error.code : "read_error",
                 message: error instanceof Error ? error.message : String(error) };
         }
-        response.state = this.state;
+        // 非同期解析中の通知でstateは進んでも、応答は解析開始時のsnapshotと対応させる。
+        response.state = name === "topdown" ? previous : this.state;
         return response;
     }
 
@@ -612,6 +638,20 @@ export class CliSession {
         }
         case "count":
             return this.aggregate_(args, response);
+        case "topdown": {
+            if (args.length !== 1 && (args.length !== 5 || args[1] !== "range" || args[2] !== "cycle")) this.count_(args, 1);
+            const range = args.length === 5 ? { begin: integer(args[3]), end: integer(args[4]) } : null;
+            if (range !== null && (range.end <= range.begin || !Number.isSafeInteger(range.end - range.begin))) {
+                fail("invalid_number", "Expected a safe cycle range with BEGIN < END.");
+            }
+            if (this.state_.filters.thread !== undefined) {
+                fail("unsupported_filter", "Top-down-like analysis cannot use a thread filter; use filter clear.");
+            }
+            const trace = this.requireTrace_();
+            const generation = this.traceGeneration_;
+            response.warnings.push(...trace.warnings);
+            return analyzeCliTopDown(trace, this.traceComplete_, range, () => generation !== this.traceGeneration_);
+        }
         case "goto": {
             this.count_(args, 3);
             const [kind, value] = [args[1], args[2]];
@@ -715,6 +755,7 @@ export class CliSession {
     }
 
     private resetView_(trace: CliTrace): void {
+        this.traceGeneration_++;
         this.search_ = null;
         this.searchCursorID_ = null;
         this.state_ = {

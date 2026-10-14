@@ -1,0 +1,49 @@
+Kanata	0004
+C	101
+I	0	100	0
+L	0	0	add
+S	0	main	entry
+I	1	101	0
+L	1	0	add
+S	1	main	entry
+C	1
+S	0	main	queue
+S	1	main	queue
+I	2	102	0
+L	2	0	add
+S	2	main	entry
+C	1
+S	2	main	queue
+C	1
+S	1	main	execute
+C	1
+S	1	main	tail
+C	1
+R	1	0	0
+C	1
+S	2	main	execute
+C	1
+S	2	main	tail
+I	3	103	0
+L	3	0	wrong path
+S	3	main	entry
+C	1
+R	2	1	0
+S	3	main	queue
+C	1
+S	0	main	execute
+C	1
+S	0	main	tail
+S	3	main	execute
+C	1
+R	0	2	0
+S	3	main	tail
+C	1
+R	3	-1	1
+C	2
+I	4	104	0
+L	4	0	unfinished
+S	4	main	entry
+C	1
+S	4	main	queue
+C	12

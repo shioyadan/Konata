@@ -90,6 +90,31 @@ export function formatCliText(response: CliResponse): string {
             if (response.truncated) lines.push(`${result.totalGroups - result.groups.length} more PC groups; increase top (maximum 256). Totals include all groups.`);
         }
     }
+    else if (result?.kind === "topdown") {
+        const { scope, analysis, totals } = result;
+        const range = scope.range === null ? "none" : `[${scope.range.begin}, ${scope.range.end})`;
+        lines.push(`Top-down-like | source: ${text(scope.source)} | input: ${scope.complete ? "complete" : "partial"}`,
+            `Scope: cycles ${range} | model instructions: ${scope.instructionCount} | excluded incomplete: ${scope.excludedIncompleteInstructions}`);
+        if (scope.requestedRange !== null) lines.push(`Requested: [${scope.requestedRange.begin}, ${scope.requestedRange.end})`);
+        if (!result.available || analysis === null || totals === null) {
+            lines.push(`Unavailable [${result.reason?.code}]: ${text(result.reason?.message ?? "Unknown reason")}`);
+        }
+        else {
+            lines.push(`Model: ${result.model} | allocation: ${text(analysis.allocation.lane)}/${analysis.allocation.stages.map((name) => text(name)).join("/")}`,
+                `Execution: ${text(analysis.execution.lane)}/${analysis.execution.stages.map((name) => text(name)).join("/")} | transition coverage: ${(analysis.transitionCoverage * 100).toFixed(2)}%`,
+                `Normalization: ${totals.cycles} cycles x ${analysis.allocationWidth} observed slots/cycle = ${totals.totalSlots} slots`,
+                `Precision: ${analysis.interpolated ? "interpolated boundaries" : "exact counts"} | ${analysis.binCycles}-cycle bins | origin: ${analysis.binOrigin}`,
+                "Category             slots       percent");
+            for (const [name, share] of [["Retiring", totals.retiring], ["Frontend bound", totals.frontendBound],
+                ["Backend bound", totals.backendBound], ["Bad speculation", totals.badSpeculation],
+                ["Unresolved", totals.unresolved]] as const) {
+                lines.push(`${name.padEnd(20)} ${String(share.slots).padStart(10)} ${share.percentage.toFixed(2).padStart(10)}%`);
+            }
+            lines.push(`Bad speculation: ${totals.badSpeculation.squashedSlots} squashed slots + ${totals.badSpeculation.recoveryBubbleSlots} inferred recovery-bubble slots`,
+                `Recovery model: minimum ${analysis.minimumRecoveryCycles ?? "unknown"} cycles | supporting samples: ${analysis.minimumRecoverySampleCount}`,
+                "Observed width is a lower bound on capacity. This is a trace-based model, not a measured CPU diagnosis.");
+        }
+    }
     else if (result?.kind === "detail") {
         const op = result.instruction;
         lines.push(`ID ${op.id} | GID ${op.gid} | RID ${op.rid ?? "unknown"} | thread ${op.thread ?? "unknown"} | ${op.status}`,

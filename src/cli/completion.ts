@@ -42,6 +42,10 @@ export async function completeCliCommand(line: string, values: CliCompletionValu
     let candidates: Candidate[];
     if (index === 0) words = CLI_COMMAND_NAMES;
     else if (tokens[0] === "help" && index === 1) words = CLI_COMMAND_NAMES;
+    else if (tokens[0] === "topdown") {
+        if (index === 1) words = ["range"];
+        else if (tokens[1] === "range" && index === 2) words = ["cycle"];
+    }
     else if (tokens[0] === "goto" && index === 1) words = ["cycle", "id", "gid", "rid"];
     else if (tokens[0] === "detail") {
         const stageIndex = ["id", "gid", "rid"].includes(tokens[1]) ? 3 : 2;

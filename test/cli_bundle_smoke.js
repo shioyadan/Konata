@@ -224,6 +224,31 @@ async function run() {
         assert.equal(commandJsonHelp.length, 1);
         assert.equal(commandJsonHelp[0].result.kind, "help");
 
+        // 数値解析も単一bundleからWeb coreを呼ぶ。小さい実fixtureをtext／JSONで確認する。
+        const topDownFile = path.join(directory, "topdown.log");
+        fs.copyFileSync(path.join(root, "test/fixtures/topdown-kanata.txt"), topDownFile);
+        const topDownCommands = "topdown\ntopdown range cycle 102 103\nhelp topdown\n";
+        const topDownReplies = replies(invoke(true, ["--jsonl", "--sync", topDownFile], topDownCommands));
+        assert.equal(topDownReplies.length, 4);
+        assert.ok(topDownReplies.every((reply) => reply.ok));
+        assert.equal(topDownReplies[1].result.kind, "topdown");
+        assert.equal(topDownReplies[1].result.model, "konata-top-down-like-v1");
+        assert.equal(topDownReplies[1].result.scope.complete, true);
+        assert.deepEqual(topDownReplies[1].result.scope.range, { begin: 101, end: 129 });
+        assert.deepEqual(topDownReplies[1].result.analysis.allocation, { lane: "main", stages: ["queue"] });
+        assert.equal(topDownReplies[1].result.totals.totalSlots, 56);
+        assert.equal(topDownReplies[2].result.totals.retiring.slots, 2);
+        assert.equal(topDownReplies[2].result.analysis.interpolated, false);
+        assert.deepEqual(topDownReplies[2].state, topDownReplies[0].state);
+        assert.equal(topDownReplies[3].result.commands[0], "Usage: topdown [range cycle BEGIN END]");
+        const topDownText = invoke(true, ["--sync", topDownFile], topDownCommands);
+        assert.equal(topDownText.status, 0, topDownText.stderr);
+        assert.equal(topDownText.stderr, "");
+        assert.match(topDownText.stdout, /Top-down-like.*input: complete/);
+        assert.match(topDownText.stdout, /Normalization: 28 cycles x 2.*56 slots/);
+        assert.match(topDownText.stdout, /1 squashed slots \+ 0 inferred recovery-bubble slots/);
+        assert.match(topDownText.stdout, /Usage: topdown \[range cycle BEGIN END\]/);
+
         const file = path.join(directory, "trace with spaces.log");
         const text = invoke(true, [file], "wait\nshow\ngoto id 1\ndetail id 1\ndetail id 1 stage EX\noverview\ncount instructions where stage EX duration >= 2 group by pc\nhelp count\n");
         assert.equal(text.status, 0, text.stderr);
