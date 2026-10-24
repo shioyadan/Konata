@@ -4349,6 +4349,42 @@ async function verifyInteraction(window) {
         tabState.remainingLabelWidth !== 280) {
         throw new Error(`Trace tabs are incomplete: ${JSON.stringify(tabState)}`);
     }
+    await verifyIssueNavigator(window);
+}
+
+async function verifyIssueNavigator(window) {
+    await dropFixture(window, path.join(__dirname, "fixtures", "inorder-kanata.txt"), "text/plain");
+    const state = await window.webContents.executeJavaScript(`(async () => {
+        const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const toggle = document.querySelector('.trace-navigator-toggle');
+        for (let attempt = 0; attempt < 2 && toggle.dataset.display !== 'expanded'; attempt++) {
+            toggle.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowUp', bubbles: true}));
+            await frame();
+        }
+        const deadline = performance.now() + 3000;
+        while (document.querySelector('.trace-navigator-cycle-status') && performance.now() < deadline) {
+            await new Promise(r => setTimeout(r, 5));
+        }
+        const select = document.querySelector('select[aria-label="Cycle navigator mode"]');
+        if (!select) throw new Error('The issue-based navigator was not created.');
+        const options = [...select.options].map(o => ({value: o.value, label: o.textContent, disabled: o.disabled}));
+        // 分類・描画の詳細はrenderer testで確認し、ここではUIと保存設定の接続を見る。
+        const modes = [];
+        for (const option of options.filter(o => !o.disabled)) {
+            select.value = option.value;
+            select.dispatchEvent(new Event('change', {bubbles: true}));
+            await frame();
+            modes.push({selected: select.value,
+                stored: JSON.parse(localStorage.getItem('konata.viewSettings'))?.traceNavigator?.mode});
+        }
+        return {options, modes};
+    })()`);
+    if (state.options.some(option => option.disabled) ||
+        state.options[0].label !== "Top-down (issue)" ||
+        state.modes.length !== 6 || state.modes.some((mode, index) =>
+            mode.selected !== state.options[index].value || mode.stored !== mode.selected)) {
+        throw new Error(`Issue-based navigator rendering is incomplete: ${JSON.stringify(state)}`);
+    }
 }
 
 async function verifyReferences(window) {

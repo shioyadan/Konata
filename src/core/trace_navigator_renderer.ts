@@ -216,10 +216,10 @@ function drawLabels(
             return;
         }
         const info = activityInfo[mode];
-        const prefix = mode === "issue" && topDown !== null
+        const prefix = (mode === "issue" || mode === "flush" && topDown?.basis === "issue-cycles") && topDown !== null
             ? `${topDown.executionStage.label} · `
             : mode === "latency" && topDown !== null
-                ? `${topDown.executionStage.label} → completion · `
+                ? `${topDown.executionStage.label} residency · `
                 : "";
         const maximumValue = activityMaximum ??
             getCycleNavigatorActivityMaximum(data, mode);
@@ -257,8 +257,10 @@ function drawLabels(
     if (showDetails) {
         context.font = `${style.fontStyle} 11px ${style.fontFamily}`;
         context.fillText(
-            `AUTO · ${topDown.allocationStage.label} ` +
-                `≥${format(topDown.allocationWidth)}/c → ${topDown.executionStage.label}`,
+            topDown.basis === "issue-cycles"
+                ? `ISSUE · ${topDown.allocationStage.label} → ${topDown.executionStage.label} · cycles`
+                : `AUTO · ${topDown.allocationStage.label} ` +
+                    `≥${format(topDown.allocationWidth)}/c → ${topDown.executionStage.label}`,
             detailLeft,
             detailCenter,
             Math.max(1, legendLeft - detailLeft - 10),
@@ -269,7 +271,7 @@ function drawLabels(
         ["Bad spec", colors.badSpeculation],
         ["Front", colors.frontendBound],
         ["Back", colors.backendBound],
-        ["Retire", colors.retiring],
+        [topDown.basis === "issue-cycles" ? "Issued" : "Retire", colors.retiring],
     ] as const;
     context.font = `${style.fontStyle} 11px ${style.fontFamily}`;
     legends.forEach(([label, color], index) => {

@@ -26,11 +26,14 @@ interface DetectedExecutionPath {
 
 export interface DetectedStageObservation {
     readonly allocationCycle: number | null;
-    readonly issueCycle: number | null;
-    readonly executionLatency: number | null;
+    // allocationは一度だけ、発行activityは投機的な試行とreplayもそれぞれ数える。
+    readonly executionAttempts: readonly { readonly issueCycle: number; readonly latency: number }[];
+    // 後で上流へ戻った試行の完了は、recoveryの起点に使わない。
     readonly completionCycle: number | null;
     readonly admissionStallStartCycle: number | null;
     readonly admissionStallEndCycle: number | null;
+    // 発行基準では、bufferの占有区間と最短通過時間を別に扱う。
+    readonly issueBufferRanges?: readonly { readonly startCycle: number; readonly endCycle: number }[];
 }
 
 export class DetectedStageStructure {
@@ -41,13 +44,18 @@ export class DetectedStageStructure {
         readonly admissionStages: readonly Readonly<DetectedAdmissionStage>[],
         // 命令ごとの観測方法を非公開にし、Top-down分類へstage構造を漏らさない。
         private readonly executionPaths_: readonly Readonly<DetectedExecutionPath>[],
+        readonly basis: "allocation-slots" | "issue-cycles" = "allocation-slots",
+        readonly minimumBufferLatency: number = 0,
     ) {}
 
     observe(op: Readonly<Op>): DetectedStageObservation {
+        if (this.basis === "issue-cycles") {
+            return observeIssueBuffer(op, this.allocationStage, this.executionStage);
+        }
         const allocationNames = this.allocationStage.stageNames;
         let allocationCycle: number | null = null;
-        let issueCycle: number | null = null;
-        let executionLatency: number | null = null;
+        const executionAttempts: { issueCycle: number; latency: number }[] = [];
+        const prefixNames = new Set<string>();
         let completionCycle: number | null = null;
         let admissionStallStartCycle: number | null = null;
         let admissionStallEndCycle: number | null = null;
@@ -56,18 +64,23 @@ export class DetectedStageStructure {
         let previousRange: Readonly<StageRange> | null = null;
 
         visitStageRanges(op, this.allocationStage.laneID, (range) => {
+            // 初回発行より前のstageへ戻ったら、以前の完了は取り消す。
+            // Schへの再選択だけでなく、より上流へのmemory-order replayも含む。
+            if (prefixNames.has(range.name)) {
+                completionCycle = null;
+                awaitingCompletion = false;
+            }
             if (awaitingCompletion) {
                 if (selectedPath?.completionStageNames.includes(range.name)) {
                     completionCycle = range.startCycle;
                 }
                 awaitingCompletion = false;
             }
-            if (allocationCycle === null && allocationNames.includes(range.name)) {
-                allocationCycle = range.startCycle;
+            if (allocationNames.includes(range.name)) {
                 selectedPath = this.executionPaths_.find(
                     (path) => path.allocationStageName === range.name,
                 ) ?? null;
-                if (previousRange !== null) {
+                if (allocationCycle === null && previousRange !== null) {
                     const admission = this.admissionStages.find(
                         (stage) => stage.laneID === this.allocationStage.laneID &&
                             stage.stageName === previousRange?.name,
@@ -81,18 +94,26 @@ export class DetectedStageStructure {
                         );
                     }
                 }
-            } else if (issueCycle === null && selectedPath !== null &&
+                allocationCycle ??= range.startCycle;
+                completionCycle = null;
+                awaitingCompletion = false;
+            } else if (selectedPath !== null &&
                 range.name === selectedPath.executionStageName) {
-                issueCycle = range.startCycle;
-                executionLatency = Math.max(0, range.endCycle - range.startCycle);
+                executionAttempts.push({
+                    issueCycle: range.startCycle,
+                    latency: Math.max(0, range.endCycle - range.startCycle),
+                });
+                completionCycle = null;
                 awaitingCompletion = true;
+            }
+            if (executionAttempts.length === 0) {
+                prefixNames.add(range.name);
             }
             previousRange = range;
         });
         return {
             allocationCycle,
-            issueCycle,
-            executionLatency,
+            executionAttempts,
             completionCycle,
             admissionStallStartCycle,
             admissionStallEndCycle,
@@ -110,12 +131,15 @@ interface StageState extends DetectedStage {
     hasRetiredSample: boolean;
     invalid: boolean;
     exitInverted: boolean;
+    minimumLatency: number;
+    maximumLatency: number;
 }
 
 interface StageTransition {
     readonly from: StageState;
     readonly to: StageState;
     count: number;
+    hasRetiredSample: boolean;
     readonly latencies: Map<number, number>;
 }
 
@@ -165,6 +189,38 @@ function visitStageRanges(
     }
 }
 
+// 検証中の候補と確定済み構造で同じ観測を使い、検証用の仮構造は作らない。
+function observeIssueBuffer(
+    op: Readonly<Op>,
+    bufferStage: Readonly<DetectedStageGroup>,
+    executionStage: Readonly<DetectedStageGroup>,
+): DetectedStageObservation {
+    let allocationCycle: number | null = null;
+    const issueBufferRanges: { startCycle: number; endCycle: number }[] = [];
+    const executionAttempts: { issueCycle: number; latency: number }[] = [];
+    let buffer: { startCycle: number; endCycle: number } | null = null;
+    visitStageRanges(op, bufferStage.laneID, (range) => {
+        if (bufferStage.stageNames.includes(range.name)) {
+            allocationCycle ??= range.startCycle;
+            if (buffer !== null && buffer.endCycle === range.startCycle) {
+                buffer.endCycle = range.endCycle;
+            } else {
+                buffer = { startCycle: range.startCycle, endCycle: range.endCycle };
+                issueBufferRanges.push(buffer);
+            }
+        } else {
+            if (buffer !== null && buffer.endCycle === range.startCycle &&
+                executionStage.stageNames.includes(range.name)) {
+                executionAttempts.push({ issueCycle: range.startCycle,
+                    latency: Math.max(0, range.endCycle - range.startCycle) });
+            }
+            buffer = null;
+        }
+    });
+    return { allocationCycle, executionAttempts, completionCycle: null,
+        admissionStallStartCycle: null, admissionStallEndCycle: null, issueBufferRanges };
+}
+
 function getTypicalLatency(histogram: ReadonlyMap<number, number>): number {
     let typicalLatency = 0;
     let typicalCount = -1;
@@ -183,12 +239,54 @@ function mergeHistogram(target: Map<number, number>, source: ReadonlyMap<number,
     }
 }
 
+// 再帰や全stage対の到達表を使わず、戻り合う状態を線形memoryでまとめる。
+function getStageComponents(states: readonly StageState[], edges: readonly StageTransition[]): StageState[][] {
+    const forward = new Map(states.map((state) => [state, [] as StageState[]]));
+    const backward = new Map(states.map((state) => [state, [] as StageState[]]));
+    for (const edge of edges) {
+        forward.get(edge.from)!.push(edge.to);
+        backward.get(edge.to)!.push(edge.from);
+    }
+    const visited = new Set<StageState>();
+    const order: StageState[] = [];
+    for (const state of states) {
+        const pending: [StageState, boolean][] = [[state, false]];
+        while (pending.length > 0) {
+            const [current, expanded] = pending.pop()!;
+            if (expanded) { order.push(current); continue; }
+            if (visited.has(current)) continue;
+            visited.add(current);
+            pending.push([current, true]);
+            for (const next of forward.get(current)!) pending.push([next, false]);
+        }
+    }
+    const components: StageState[][] = [];
+    visited.clear();
+    const positions = new Map(states.map((state, index) => [state, index]));
+    for (const state of order.reverse()) {
+        if (visited.has(state)) continue;
+        const group: StageState[] = [];
+        const pending = [state];
+        while (pending.length > 0) {
+            const current = pending.pop()!;
+            if (visited.has(current)) continue;
+            visited.add(current);
+            group.push(current);
+            pending.push(...backward.get(current)!);
+        }
+        components.push(group.sort((a, b) => positions.get(a)! - positions.get(b)!));
+    }
+    return components;
+}
+
 /**
  * 候補stage集合が一つのallocation frontierになるかを再走査で検証する。
  * 候補ごとの最大幅を足さず、集合への実際の新規投入数から幅を求める。
  */
 export class StageStructureMeasurement {
     private readonly allocationNames_: ReadonlySet<string>;
+    private readonly replayGroups_ = new Map<string, string>();
+    private readonly serialPairs_ = new Map<string, Set<string>>();
     private lastWidthCycle_ = Number.NEGATIVE_INFINITY;
     private startsInCycle_ = 0;
     private width_ = 0;
@@ -196,6 +294,9 @@ export class StageStructureMeasurement {
 
     constructor(private readonly draft_: Readonly<StageStructureDraft>) {
         this.allocationNames_ = new Set(draft_.allocationStage.stageNames);
+        for (const name of this.allocationNames_) {
+            this.replayGroups_.set(name, name);
+        }
     }
 
     observe(op: Readonly<Op>): void {
@@ -203,19 +304,40 @@ export class StageStructureMeasurement {
             return;
         }
         let firstStartCycle: number | null = null;
-        let allocationStageCount = 0;
+        let firstStageName: string | null = null;
+        let lastAllocationName: string | null = null;
+        // stageを初めて通った時点の直近の候補を覚え、戻り先が同じ下流経路かを調べる。
+        // 最初の候補へ一律に結び付けると、上流にある独立した直列queueまで混ざる。
+        const visited = new Map<string, string | null>();
+        const normal = op.retired && !op.flush;
         visitStageRanges(op, this.draft_.allocationStage.laneID, (range) => {
-            if (!this.allocationNames_.has(range.name)) {
-                return;
+            if (normal && visited.has(range.name)) {
+                const previousAllocation = visited.get(range.name)!;
+                if (previousAllocation !== null && lastAllocationName !== null) {
+                    this.replayGroups_.set(this.getReplayGroup_(lastAllocationName),
+                        this.getReplayGroup_(previousAllocation));
+                }
             }
-            allocationStageCount++;
-            firstStartCycle ??= range.startCycle;
+            if (this.allocationNames_.has(range.name)) {
+                lastAllocationName = range.name;
+                // 後の命令で戻り経路が見つかる場合もあるため、直列関係の判定は
+                // sampleを読み終えてから行う。flush／EOFだけを根拠には統合しない。
+                if (firstStageName !== null && range.name !== firstStageName && normal) {
+                    let pairs = this.serialPairs_.get(firstStageName);
+                    if (pairs === undefined) {
+                        pairs = new Set<string>();
+                        this.serialPairs_.set(firstStageName, pairs);
+                    }
+                    pairs.add(range.name);
+                }
+                firstStageName ??= range.name;
+                firstStartCycle ??= range.startCycle;
+            }
+            if (normal && !visited.has(range.name)) {
+                visited.set(range.name, lastAllocationName);
+            }
         });
 
-        // 正常経路で複数候補を直列に通る場合は、代替状態の集合とはみなさない。
-        if (op.retired && !op.flush && allocationStageCount > 1) {
-            this.invalid_ = true;
-        }
         if (firstStartCycle === null) {
             return;
         }
@@ -235,6 +357,11 @@ export class StageStructureMeasurement {
         if (this.invalid_ || this.width_ <= 0) {
             return null;
         }
+        for (const [first, following] of this.serialPairs_) {
+            if ([...following].some((name) => this.getReplayGroup_(first) !== this.getReplayGroup_(name))) {
+                return null;
+            }
+        }
         return new DetectedStageStructure(
             {
                 ...this.draft_.allocationStage,
@@ -246,6 +373,15 @@ export class StageStructureMeasurement {
             this.draft_.executionPaths,
         );
     }
+
+    private getReplayGroup_(name: string): string {
+        let group = name;
+        while (this.replayGroups_.get(group) !== group) {
+            group = this.replayGroups_.get(group)!;
+        }
+        this.replayGroups_.set(name, group);
+        return group;
+    }
 }
 
 /**
@@ -253,43 +389,51 @@ export class StageStructureMeasurement {
  *
  * Opをfile-local ID順に入力すると、各stageについて次のqueueらしい性質を調べる。
  *
- * - 命令がID順にstageへ入る（startCycleが逆転しない）
- * - 後の命令が先にstageを出ることがある（endCycleが一度でも逆転する）
+ * - 命令がID順にstageへ初めて入る（startCycleが逆転しない）
+ * - 初回の退出について、後の命令が先に出ることがある
  *
- * 同じlaneに複数候補がある場合は、二回目の走査で一命令が候補を一つだけ通ることと
- * 集合全体の投入順を確認し、ready／waitなどの代替状態を一つのfrontierにまとめる。
+ * 同じlaneの複数候補は、二回目の走査で代替状態または同じ下流へのreplayを確認し、
+ * 一つのfrontierにまとめる。独立した直列queueは拒否し、初回投入の順序と幅を測る。
  * 前後遷移のない補助laneは候補にせず、命令列やcycle列は保持しない。
  */
 export class StageStructureDetector {
     private readonly states_ = new Map<string, StageState>();
     private readonly transitions_ = new Map<string, StageTransition>();
     private observedOps_ = 0;
+    private readonly normalThreads_ = new Set<number>();
 
     observe(op: Readonly<Op>): void {
         if (op.eof) {
             return;
         }
         const observedOp = this.observedOps_++;
-        // laneごとに、この命令が通過した各stageの滞留区間と直接遷移を観測する。
+        if (op.retired && !op.flush) {
+            this.normalThreads_.add(op.tid);
+        }
+        // 初回訪問だけでqueueの順序性を調べ、再投入を新規命令と混同しない。
         for (let laneID = 0; laneID < op.lanes.length; laneID++) {
             let previousState: StageState | null = null;
             let previousRange: StageRange | null = null;
             visitStageRanges(op, laneID, (range) => {
-                const state = this.observeStage_(
+                const state = this.getState_(laneID, range.name);
+                const firstVisit = state.lastOp !== observedOp;
+                this.observeStage_(
                     op,
                     observedOp,
-                    laneID,
-                    range.name,
+                    state,
                     range.startCycle,
                     range.endCycle,
                 );
-                if (previousState !== null && previousRange !== null) {
+                // 戻り先への遷移を学習すると、queueや前段を実行／完了と誤認する。
+                // 各stageの初回入口への直接遷移だけを、各命令で一度ずつ学習する。
+                if (firstVisit && previousState !== null && previousRange !== null) {
                     this.observeTransition_(
                         previousState,
                         state,
                         previousRange.startCycle,
                         previousRange.endCycle,
                         range.startCycle,
+                        op.retired && !op.flush,
                     );
                 }
                 previousState = state;
@@ -398,6 +542,32 @@ export class StageStructureDetector {
         });
     }
 
+    /**
+     * OoO frontierが確定しないときの候補。名前ではなく、可変滞留bufferと
+     * その直後のID順実行入口を探す。複数候補／複数threadを任意には選ばない。
+     */
+    finishIssue(): IssueCycleMeasurement | null {
+        if (this.normalThreads_.size !== 1) {
+            return null;
+        }
+        const states = [...this.states_.values()].filter((state) => state.hasRetiredSample);
+        const edges = [...this.transitions_.values()].filter((edge) => edge.hasRetiredSample);
+        const candidates: IssueCandidate[] = [];
+        for (const group of getStageComponents(states, edges)) {
+            // 待機／ready状態が入れ替わるbufferも一つの連結成分として扱う。
+            if (!group.some((member) => member.maximumLatency > member.minimumLatency) ||
+                !edges.some((edge) => group.includes(edge.to) && !group.includes(edge.from))) continue;
+            const successors = [...new Set(edges.filter((edge) => group.includes(edge.from) &&
+                !group.includes(edge.to)).map((edge) => edge.to))];
+            if (successors.length === 0 || successors.some((next) => next.invalid)) continue;
+            candidates.push({ buffer: { laneID: group[0].laneID,
+                stageNames: group.map((member) => member.stageName) },
+                execution: { laneID: group[0].laneID,
+                    stageNames: successors.map((member) => member.stageName) } });
+        }
+        return candidates.length === 0 ? null : new IssueCycleMeasurement(candidates);
+    }
+
     private getState_(laneID: number, stageName: string): StageState {
         const key = `${laneID}\u0000${stageName}`;
         let state = this.states_.get(key);
@@ -413,6 +583,8 @@ export class StageStructureDetector {
                 hasRetiredSample: false,
                 invalid: false,
                 exitInverted: false,
+                minimumLatency: Number.POSITIVE_INFINITY,
+                maximumLatency: 0,
             };
             this.states_.set(key, state);
         }
@@ -422,22 +594,18 @@ export class StageStructureDetector {
     private observeStage_(
         op: Readonly<Op>,
         observedOp: number,
-        laneID: number,
-        stageName: string,
+        state: StageState,
         startCycle: number,
         endCycle: number,
-    ): StageState {
-        const state = this.getState_(laneID, stageName);
+    ): void {
         if (state.lastOp === observedOp) {
-            // 正常経路で同じstageが離れて再登場する構造は、単純なqueueとはみなさない。
-            state.invalid ||= op.retired && !op.flush;
-            return state;
+            return;
         }
         state.lastOp = observedOp;
         state.startCount++;
 
         if (!op.retired || op.flush) {
-            return state;
+            return;
         }
         // 投入／退出順はsquash時刻に左右されない正常経路だけで判定する。
         if (!Number.isFinite(startCycle) || !Number.isFinite(endCycle) ||
@@ -450,8 +618,9 @@ export class StageStructureDetector {
         }
         state.lastStartCycle = Math.max(state.lastStartCycle, startCycle);
         state.maximumEndCycle = Math.max(state.maximumEndCycle, endCycle);
+        state.minimumLatency = Math.min(state.minimumLatency, endCycle - startCycle);
+        state.maximumLatency = Math.max(state.maximumLatency, endCycle - startCycle);
         state.hasRetiredSample = true;
-        return state;
     }
 
     private observeTransition_(
@@ -460,14 +629,16 @@ export class StageStructureDetector {
         fromStartCycle: number,
         fromEndCycle: number,
         toStartCycle: number,
+        normal: boolean,
     ): void {
         const key = `${from.key}\u0001${to.key}`;
         let transition = this.transitions_.get(key);
         if (transition === undefined) {
-            transition = { from, to, count: 0, latencies: new Map<number, number>() };
+            transition = { from, to, count: 0, hasRetiredSample: false, latencies: new Map<number, number>() };
             this.transitions_.set(key, transition);
         }
         transition.count++;
+        transition.hasRetiredSample ||= normal;
         const latency = Math.min(fromEndCycle, toStartCycle) - fromStartCycle;
         if (Number.isFinite(latency) && latency >= 0) {
             transition.latencies.set(
@@ -475,5 +646,58 @@ export class StageStructureDetector {
                 (transition.latencies.get(latency) ?? 0) + 1,
             );
         }
+    }
+}
+
+interface IssueCandidate {
+    readonly buffer: DetectedStageGroup;
+    readonly execution: DetectedStageGroup;
+}
+
+/** 二回目の走査で実行入口全体の順序、coverage、最短buffer通過時間を検証する。 */
+class IssueCycleMeasurement {
+    private normalCount_ = 0;
+    private readonly candidates_;
+
+    constructor(candidates: readonly IssueCandidate[]) {
+        this.candidates_ = candidates.map((candidate) => ({
+            ...candidate,
+            count: 0, invalid: false, lastIssue: Number.NEGATIVE_INFINITY, minimumLatency: Number.POSITIVE_INFINITY,
+            maximumLatency: 0,
+        }));
+    }
+
+    observe(op: Readonly<Op>): void {
+        if (op.eof || !op.retired || op.flush) return;
+        this.normalCount_++;
+        for (const candidate of this.candidates_) {
+            if (candidate.invalid) continue;
+            const observed = observeIssueBuffer(op, candidate.buffer, candidate.execution);
+            if (observed.executionAttempts.length === 0) continue;
+            const issue = observed.executionAttempts[0].issueCycle;
+            const entry = observed.allocationCycle!;
+            const buffers = observed.issueBufferRanges!;
+            if (observed.executionAttempts.length !== 1 || buffers.length !== 1 ||
+                !Number.isFinite(entry) || !Number.isFinite(issue) || issue < entry ||
+                buffers[0].endCycle !== issue || issue < candidate.lastIssue) {
+                candidate.invalid = true;
+                continue;
+            }
+            candidate.count++;
+            candidate.lastIssue = issue;
+            candidate.minimumLatency = Math.min(candidate.minimumLatency, issue - entry);
+            candidate.maximumLatency = Math.max(candidate.maximumLatency, issue - entry);
+        }
+    }
+
+    finish(): DetectedStageStructure | null {
+        const candidates = this.candidates_.filter((candidate) => !candidate.invalid &&
+            candidate.count >= 3 && candidate.count / this.normalCount_ >= 0.95 &&
+            candidate.maximumLatency > candidate.minimumLatency);
+        if (candidates.length !== 1) return null;
+        const candidate = candidates[0];
+        return new DetectedStageStructure({ ...candidate.buffer, width: 1 },
+            candidate.execution, candidate.count / this.normalCount_, [], [],
+            "issue-cycles", candidate.minimumLatency);
     }
 }

@@ -100,17 +100,25 @@ export function formatCliText(response: CliResponse): string {
             lines.push(`Unavailable [${result.reason?.code}]: ${text(result.reason?.message ?? "Unknown reason")}`);
         }
         else {
-            lines.push(`Model: ${result.model} | allocation: ${text(analysis.allocation.lane)}/${analysis.allocation.stages.map((name) => text(name)).join("/")}`,
+            const issueBased = analysis.basis === "issue-cycles";
+            lines.push(`Model: ${result.model} | ${issueBased ? "issue buffer" : "allocation"}: ${text(analysis.allocation.lane)}/${analysis.allocation.stages.map((name) => text(name)).join("/")}`,
                 `Execution: ${text(analysis.execution.lane)}/${analysis.execution.stages.map((name) => text(name)).join("/")} | transition coverage: ${(analysis.transitionCoverage * 100).toFixed(2)}%`,
-                `Normalization: ${totals.cycles} cycles x ${analysis.allocationWidth} observed slots/cycle = ${totals.totalSlots} slots`,
+                issueBased
+                    ? `Normalization: ${totals.cycles} cycles (issue-based; no issue-width estimate)`
+                    : `Normalization: ${totals.cycles} cycles x ${analysis.allocationWidth} observed slots/cycle = ${totals.totalSlots} slots`,
                 `Precision: ${analysis.interpolated ? "interpolated boundaries" : "exact counts"} | ${analysis.binCycles}-cycle bins | origin: ${analysis.binOrigin}`,
-                "Category             slots       percent");
+                `Category             ${totals.unit.padEnd(6)}      percent`);
             for (const [name, share] of [["Retiring", totals.retiring], ["Frontend bound", totals.frontendBound],
                 ["Backend bound", totals.backendBound], ["Bad speculation", totals.badSpeculation],
                 ["Unresolved", totals.unresolved]] as const) {
                 lines.push(`${name.padEnd(20)} ${String(share.slots).padStart(10)} ${share.percentage.toFixed(2).padStart(10)}%`);
             }
-            lines.push(`Bad speculation: ${totals.badSpeculation.squashedSlots} squashed slots + ${totals.badSpeculation.recoveryBubbleSlots} inferred recovery-bubble slots`,
+            if (issueBased) lines.push(
+                `Bad speculation: ${totals.badSpeculation.squashedSlots} flushed-issue cycles; mixed retire/flush cycles are unresolved.`,
+                `Buffer transit: observed minimum ${analysis.minimumBufferLatency} cycles; transit-only cycles are unresolved.`,
+                "Retiring counts cycles with retired issues, not instructions. No recovery bubbles or partial issue-slot losses are inferred.",
+                "Frontend/backend are inferred supply/waiting categories, not confirmed CPU causes.");
+            else lines.push(`Bad speculation: ${totals.badSpeculation.squashedSlots} squashed slots + ${totals.badSpeculation.recoveryBubbleSlots} inferred recovery-bubble slots`,
                 `Recovery model: minimum ${analysis.minimumRecoveryCycles ?? "unknown"} cycles | supporting samples: ${analysis.minimumRecoverySampleCount}`,
                 "Observed width is a lower bound on capacity. This is a trace-based model, not a measured CPU diagnosis.");
         }

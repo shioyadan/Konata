@@ -366,6 +366,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
         "top-down",
         ...modeSources,
     ) !== "top-down";
+    const navigatorBases = new Set(modeSources.flatMap((source) =>
+        source?.topDown == null ? [] : [source.topDown.basis]));
+    const topDownLabel = navigatorBases.size > 1 ? "Top-down (mixed)"
+        : navigatorBases.has("issue-cycles") ? "Top-down (issue)" : "Top-down";
     const traceNavigatorDataReady = navigatorData !== null &&
         (comparisonMode === null || baselineNavigatorData !== null);
     const navigatorSampleReady = trace !== null && (loadState === "ready" ||
@@ -1732,7 +1736,10 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                             <option
                                 value="top-down"
                                 disabled={cycleNavigatorAnalysisUnavailable}
-                            >Top-down</option>
+                                title={navigatorBases.size > 1
+                                    ? "Allocation-slot and issue-cycle models cannot be compared in Top-down mode."
+                                    : undefined}
+                            >{topDownLabel}</option>
                             <option value="fetch">Fetch</option>
                             <option
                                 value="issue"

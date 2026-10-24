@@ -1,0 +1,37 @@
+Kanata	0004
+C	1
+I	0	0	0
+I	1	1	0
+S	0	main	source
+S	1	main	source
+C	1
+I	2	2	0
+I	3	3	0
+S	0	main	buffer
+S	1	main	buffer
+S	2	main	source
+S	3	main	source
+C	1
+S	0	main	alu
+S	2	main	buffer
+S	3	main	buffer
+C	1
+S	0	main	complete
+C	1
+R	0	0	0
+S	1	main	alu
+S	2	main	load
+S	3	main	load
+C	1
+S	1	main	complete
+S	2	main	complete
+R	3	0	1
+C	1
+R	1	1	0
+R	2	2	0
+C	1
+I	4	4	0
+S	4	main	source
+C	1
+S	4	main	buffer
+C	3

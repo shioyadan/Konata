@@ -12,6 +12,7 @@ import {
     buildCycleNavigatorData,
     getCycleNavigatorActivity,
     getCycleNavigatorTopDown,
+    resolveCycleNavigatorMode,
     updateCycleNavigatorData,
 } from "../src/core/trace_navigator_analysis";
 import {
@@ -706,6 +707,7 @@ function appendTopDownBreakdownOp(
     trace: ParsedTrace,
     id: number,
     ranges: readonly (readonly [string, number, number])[],
+    flush = false,
 ): void {
     const laneID = trace.stageLevelMap.getLaneID("0");
     assert.ok(laneID !== undefined);
@@ -714,7 +716,8 @@ function appendTopDownBreakdownOp(
     op.gid = id;
     op.rid = id;
     op.tid = 0;
-    op.retired = true;
+    op.retired = !flush;
+    op.flush = flush;
     op.fetchedCycle = ranges[0]?.[1] ?? 0;
     op.retiredCycle = ranges.at(-1)?.[2] ?? op.fetchedCycle;
     const lane = new Lane();
@@ -729,7 +732,7 @@ function appendTopDownBreakdownOp(
     op.lanes[laneID] = lane;
     const store = trace.opStore as ArrayOpStore;
     store.setOp(id, op);
-    store.setRetiredOp(op.rid, op);
+    if (op.retired) store.setRetiredOp(op.rid, op);
     trace.updateLastCycle(Math.max(trace.lastCycle, op.retiredCycle));
 }
 
@@ -787,6 +790,7 @@ function createAllocationBlockedTrace(): ParsedTrace {
 function createRecoveryBubbleTrace(
     recoveryLatencies: readonly number[],
     firstWindowHasAllocationBackpressure = false,
+    replayCause = false,
 ): ParsedTrace {
     const store = new ArrayOpStore();
     const levelMap = new StageLevelMap();
@@ -843,7 +847,12 @@ function createRecoveryBubbleTrace(
             ["arbitrary-reservoir", base + 1, base + 4],
             ["arbitrary-event", base + 4, base + 5],
             ["arbitrary-complete", base + 5, base + 6],
-            ["arbitrary-tail", base + 6, base + 7],
+            ...(replayCause ? [
+                ["arbitrary-reservoir", base + 6, base + 6],
+                ["arbitrary-event", base + 6, base + 7],
+                ["arbitrary-complete", base + 7, base + 8],
+            ] as const : []),
+            ["arbitrary-tail", base + (replayCause ? 8 : 6), base + (replayCause ? 9 : 7)],
         ]);
         const wrongPathSourceEnd = eventIndex === 0 && firstWindowHasAllocationBackpressure
             ? base + 4
@@ -1515,6 +1524,132 @@ test("Cycle navigator resumes bounded updates without sealing unfinished cycles"
     trace.close();
 });
 
+test("Cycle navigator counts replay attempts without reallocating in batch and live analysis", async () => {
+    const trace = new ParsedTrace("replay.log", new ArrayOpStore(), new StageLevelMap(), 1);
+    trace.stageLevelMap.getOrCreateLaneID("0");
+    appendTopDownBreakdownOp(trace, 0, [
+        ["source", 1, 2], ["queue", 2, 8], ["execution", 8, 9], ["complete", 9, 10],
+        ["source", 10, 11], ["queue", 11, 13], ["execution", 13, 15],
+        ["complete", 15, 16], ["tail", 16, 20],
+    ]);
+    appendTopDownBreakdownOp(trace, 1, [
+        ["source", 1, 2], ["queue", 2, 6], ["execution", 6, 7],
+        ["complete", 7, 8], ["tail", 8, 20],
+    ]);
+    // 終了時にflushされた命令でも、実際の試行はactivityへ残す。
+    appendTopDownBreakdownOp(trace, 2, [
+        ["source", 2, 3], ["queue", 3, 7], ["execution", 7, 8],
+        ["queue", 8, 13], ["execution", 13, 16], ["complete", 16, 17], ["tail", 17, 20],
+    ], true);
+    const live = await buildCycleNavigatorData(trace, { live: true, binCycleCount: 1 });
+    assert.ok(live?.topDown);
+    assert.equal(live.topDown.allocationWidth, 2);
+    appendTopDownBreakdownOp(trace, 3, [
+        ["source", 21, 22], ["queue", 22, 24], ["execution", 24, 26], ["complete", 26, 27],
+        ["source", 27, 28], ["queue", 28, 30], ["execution", 30, 31],
+        ["complete", 31, 32], ["tail", 32, 35],
+    ]);
+    const updated = updateCycleNavigatorData(live, trace, true, Infinity);
+    const batch = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(batch?.topDown);
+    const slots = getCycleNavigatorTopDown(batch, 0, 35)!;
+    assert.equal(slots.retiringSlots, 3);
+    assert.equal(slots.squashedSlots, 1);
+    assert.equal(slots.backendBound, 0);
+    assert.deepEqual(getCycleNavigatorTopDown(updated, 0, 35), slots);
+    for (const mode of ["fetch", "issue", "commit", "flush", "latency"] as const) {
+        assert.deepEqual(getCycleNavigatorActivity(updated, mode, 0, 35),
+            getCycleNavigatorActivity(batch, mode, 0, 35));
+    }
+    const issue = getCycleNavigatorActivity(batch, "issue", 0, 35)!;
+    assert.equal(issue.average * 35, 7);
+    assert.equal(issue.flushedAverage * 35, 2);
+    const retry = getCycleNavigatorActivity(batch, "issue", 13, 14)!;
+    assert.equal(retry.average, 2);
+    assert.equal(retry.flushedAverage, 1);
+    assert.equal(getCycleNavigatorActivity(batch, "latency", 13, 14)!.maximum, 3);
+    assert.equal(getCycleNavigatorTopDown(batch, 28, 29)!.retiringSlots, 0);
+    trace.close();
+});
+
+function createIssueCycleTrace(): ParsedTrace {
+    const trace = new ParsedTrace("issue-cycles.log", new ArrayOpStore(), new StageLevelMap(), 1);
+    trace.stageLevelMap.getOrCreateLaneID("0");
+    for (const [id, begin, entry, issue] of [[0, 1, 2, 3], [1, 1, 2, 5], [2, 2, 3, 5]]) {
+        appendTopDownBreakdownOp(trace, id, [["source", begin, entry], ["buffer", entry, issue],
+            ["execute", issue, issue + 1], ["complete", issue + 1, issue + 2]]);
+    }
+    return trace;
+}
+
+test("Issue-based Top-down counts cycles once and separates waiting, transit and empty buffers", async () => {
+    const trace = createIssueCycleTrace();
+    const data = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(data?.topDown);
+    assert.equal(data.topDown.basis, "issue-cycles");
+    assert.equal(data.topDown.structure.minimumBufferLatency, 1);
+    assert.equal(getCycleNavigatorTopDown(data, 2, 3)!.unresolvedSlots, 1);
+    assert.equal(getCycleNavigatorTopDown(data, 3, 4)!.retiringSlots, 1);
+    assert.equal(getCycleNavigatorTopDown(data, 4, 5)!.backendBound, 1);
+    const issued = getCycleNavigatorTopDown(data, 5, 6)!;
+    assert.equal(issued.totalSlots, 1);
+    assert.equal(issued.retiringSlots, 1); // 同cycleに2命令を発行しても1 cycle。
+    assert.equal(getCycleNavigatorActivity(data, "issue", 5, 6)!.average, 2);
+    assert.equal(getCycleNavigatorTopDown(data, 6, 7)!.frontendBound, 1);
+    const labels = createRecordedContext();
+    drawCycleNavigator(data, DEFAULT_KONATA_RENDER_SPEC, createCanvas(labels.context, 600, 128),
+        createCanvas(createRecordedContext().context, 320, 128), "top-down", true);
+    assert.ok(labels.fillTexts.some(([text]) => text === "ISSUE · buffer → execute · cycles"));
+    assert.ok(labels.fillTexts.some(([text]) => text === "Issued"));
+    const allocationTrace = createTopDownBreakdownTrace();
+    const allocation = await buildCycleNavigatorData(allocationTrace);
+    assert.ok(allocation?.topDown);
+    assert.equal(resolveCycleNavigatorMode("top-down", data, allocation), "commit");
+    assert.equal(resolveCycleNavigatorMode("issue", data, allocation), "issue");
+    allocationTrace.close();
+
+    trace.updateLastCycle(96);
+    const binned = await buildCycleNavigatorData(trace);
+    assert.ok(binned?.topDown);
+    assert.equal(getCycleNavigatorTopDown(binned, 0, 96)!.retiringSlots, 2);
+    assert.equal(getCycleNavigatorTopDown(binned, 4, 5)!.backendBound, 1 / 32);
+    trace.close();
+});
+
+test("Issue-based live cycles preserve mixed issues, flushed activity and binned batch equivalence", async () => {
+    const trace = createIssueCycleTrace();
+    let live = await buildCycleNavigatorData(trace, { live: true, binCycleCount: 8 });
+    assert.ok(live?.topDown);
+    for (const [id, begin, issue, flush] of [[3, 2, 5, true], [4, 7, 9, true],
+        [5, 70, 72, false], [6, 72, 74, false]] as const) {
+        appendTopDownBreakdownOp(trace, id, [["source", begin, begin + 1],
+            ["buffer", begin + 1, issue], ["execute", issue, issue + 1], ["complete", issue + 1, issue + 2]], flush);
+    }
+    while (live.sourceLastID < trace.lastID) live = updateCycleNavigatorData(live, trace, true, 0);
+    const batch = await buildCycleNavigatorData(trace, { binCycleCount: 8 });
+    assert.ok(batch?.topDown);
+    const total = getCycleNavigatorTopDown(batch, 0, trace.lastCycle)!;
+    assert.equal(total.retiringSlots, 3);
+    assert.equal(total.squashedSlots, 1);
+    assert.equal(total.recoveryBubbleSlots, 0);
+    assert.equal(total.totalSlots, total.sampledCycleCount);
+    assert.equal(total.retiringSlots + total.squashedSlots + total.frontendBound +
+        total.backendBound + total.unresolvedSlots, total.totalSlots);
+    assert.deepEqual(getCycleNavigatorTopDown(live, 0, trace.lastCycle), total);
+    for (const mode of ["fetch", "issue", "commit", "flush", "latency"] as const) {
+        assert.deepEqual(getCycleNavigatorActivity(live, mode, 0, trace.lastCycle),
+            getCycleNavigatorActivity(batch, mode, 0, trace.lastCycle));
+    }
+    assert.equal(getCycleNavigatorActivity(batch, "issue", 0, 8)!.maximum, 3);
+    assert.equal(getCycleNavigatorActivity(batch, "flush", 8, 16)!.average, 1 / 8);
+
+    // 固定したモデルで対応不能な後続命令を、Frontendと断定しない。
+    appendTopDownBreakdownOp(trace, 7, [["unmapped", 80, 85]]);
+    live = updateCycleNavigatorData(live, trace, true, Infinity);
+    assert.equal(getCycleNavigatorTopDown(live, 80, 85)!.unresolvedSlots, 5);
+    trace.close();
+});
+
 test("Cycle navigator keeps stage-independent activity when stage structure is unavailable", async () => {
     const trace = createLatencyTrace([[2, 9], [3, 9]]);
     const data = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
@@ -1656,7 +1791,7 @@ test("Cycle navigator counts throughput, flushed work, and latency", async () =>
         true,
     );
     assert.ok(labels.fillTexts.some(([text]) =>
-        text === "arbitrary-event → completion · max 4 cycles"));
+        text === "arbitrary-event residency · max 4 cycles"));
     assert.ok(navigator.fillStyles.includes("hsl(280,35%,55%)"));
     trace.close();
 });
@@ -1833,6 +1968,20 @@ test("Top-down-like view retrospectively classifies supported recovery bubbles",
     assert.equal(cappedOutlier.recoveryBubbleSlots, 0);
     assert.equal(cappedOutlier.frontendBound, 1);
 
+    trace.close();
+});
+
+test("Top-down-like recovery uses completion after the last replayed issue", async () => {
+    const trace = createRecoveryBubbleTrace(Array(10).fill(3), false, true);
+    const data = await buildCycleNavigatorData(trace, { binCycleCount: 1 });
+    assert.ok(data?.topDown);
+    // 初回の完了はbase+5だがreplay後はbase+7。correct allocationはbase+8。
+    assert.equal(data.topDown.minimumRecoveryCycles, 1);
+    assert.equal(data.topDown.minimumRecoverySampleCount, 10);
+    const premature = getCycleNavigatorTopDown(data, 15, 17)!;
+    assert.equal(premature.recoveryBubbleSlots, 0);
+    assert.equal(getCycleNavigatorTopDown(data, 17, 18)!.recoveryBubbleSlots, 1);
+    assert.equal(getCycleNavigatorTopDown(data, 0, trace.lastCycle)!.recoveryBubbleSlots, 10);
     trace.close();
 });
 

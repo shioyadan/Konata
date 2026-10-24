@@ -14,16 +14,19 @@ const MAX_TRACE_CYCLES = 4_000_000;
 
 export interface CliTopDownResult {
     kind: "topdown";
-    model: "konata-top-down-like-v1";
+    model: "konata-top-down-like-v1" | "konata-issue-cycles-v1";
     available: boolean;
     reason: { code: string; message: string } | null;
     scope: { source: string; requestedRange: CycleRange | null; range: CycleRange | null;
         complete: boolean; instructionCount: number; excludedIncompleteInstructions: number };
-    analysis: { allocation: { lane: string; stages: readonly string[] };
-        execution: { lane: string; stages: readonly string[] }; allocationWidth: number;
+    analysis: { basis: "allocation-slots" | "issue-cycles";
+        allocation: { lane: string; stages: readonly string[] };
+        execution: { lane: string; stages: readonly string[] }; allocationWidth: number | null;
+        minimumBufferLatency: number | null;
         transitionCoverage: number; binCycles: number; binOrigin: number; interpolated: boolean;
         minimumRecoveryCycles: number | null; minimumRecoverySampleCount: number } | null;
-    totals: { cycles: number; totalSlots: number; retiring: Share; frontendBound: Share;
+    // slots名は既存JSONとの互換用。unit=cyclesでは1 cell=1 cycleであり、命令数ではない。
+    totals: { unit: "slots" | "cycles"; cycles: number; totalSlots: number; retiring: Share; frontendBound: Share;
         backendBound: Share; unresolved: Share;
         badSpeculation: Share & { squashedSlots: number; recoveryBubbleSlots: number } } | null;
 }
@@ -99,18 +102,24 @@ export async function analyzeCliTopDown(trace: CliTrace, complete: boolean,
             lane: levels.getLaneName(group.laneID)!, stages: [...group.stageNames],
         });
         const share = (slots: number): Share => ({ slots, percentage: slots / sample.totalSlots * 100 });
+        const issueBased = topDown.basis === "issue-cycles";
         result.available = true;
+        if (issueBased) result.model = "konata-issue-cycles-v1";
         result.analysis = {
+            basis: topDown.basis,
             allocation: stageGroup(topDown.structure.allocationStage),
             execution: stageGroup(topDown.structure.executionStage),
-            allocationWidth: topDown.allocationWidth, transitionCoverage: topDown.transitionCoverage,
+            allocationWidth: issueBased ? null : topDown.allocationWidth,
+            minimumBufferLatency: issueBased ? topDown.structure.minimumBufferLatency : null,
+            transitionCoverage: topDown.transitionCoverage,
             binCycles: binCycleCount, binOrigin: trace.range.begin,
             interpolated: sample.startCycle < sealedCycle &&
                 (sample.startCycle % binCycleCount !== 0 || Math.min(sample.endCycle, sealedCycle) % binCycleCount !== 0),
             minimumRecoveryCycles: topDown.minimumRecoveryCycles,
             minimumRecoverySampleCount: topDown.minimumRecoverySampleCount,
         };
-        result.totals = { cycles: sample.sampledCycleCount, totalSlots: sample.totalSlots,
+        result.totals = { unit: issueBased ? "cycles" : "slots",
+            cycles: sample.sampledCycleCount, totalSlots: sample.totalSlots,
             retiring: share(sample.retiringSlots), frontendBound: share(sample.frontendBound),
             backendBound: share(sample.backendBound), unresolved: share(sample.unresolvedSlots),
             badSpeculation: { ...share(sample.squashedSlots + sample.recoveryBubbleSlots),

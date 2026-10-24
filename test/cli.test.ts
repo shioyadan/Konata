@@ -133,6 +133,81 @@ test("CLI Top-down-like shares Web classification and preserves scope, navigatio
     finally { gui.close(); }
 });
 
+test("CLI in-order Top-down reports issue-cycle units and shares Web classification", async () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "test/fixtures/inorder-kanata.txt"), "utf8");
+    const cli = await session(source);
+    assert.equal(cli.state.warningCount, 0);
+    const before = cli.state;
+    const response = await cli.execute("topdown");
+    const result = topdown(response);
+    assert.equal(result.available, true);
+    assert.equal(result.model, "konata-issue-cycles-v1");
+    assert.equal(result.analysis!.basis, "issue-cycles");
+    assert.equal(result.analysis!.allocationWidth, null);
+    assert.equal(result.analysis!.minimumBufferLatency, 1);
+    assert.deepEqual(result.analysis!.allocation, { lane: "main", stages: ["buffer"] });
+    assert.deepEqual(result.analysis!.execution, { lane: "main", stages: ["alu", "load"] });
+    assert.equal(result.totals!.unit, "cycles");
+    assert.equal(result.totals!.totalSlots, result.totals!.cycles);
+    assert.equal(result.totals!.retiring.slots, 1);
+    assert.equal(result.totals!.badSpeculation.slots, 0);
+    assert.equal(result.scope.excludedIncompleteInstructions, 1);
+    assert.deepEqual(cli.state, before);
+    const mixed = topdown(await cli.execute("topdown range cycle 5 6"));
+    assert.equal(mixed.totals!.unresolved.slots, 1);
+    assert.equal(mixed.totals!.totalSlots, 1);
+    assert.equal(topdown(await cli.execute("topdown range cycle 4 5")).totals!.backendBound.slots, 1);
+    assert.match(formatCliText(response), /Normalization: \d+ cycles \(issue-based; no issue-width estimate\)/);
+    assert.match(formatCliText(response), /Category\s+cycles/);
+    assert.doesNotMatch(formatCliText(response), /observed slots\/cycle|squashed slots/);
+    const gui = await new OnikiriParser().parse(new FileLineReader(input(source)));
+    try {
+        gui.updateLastCycle(result.scope.range!.end);
+        const data = await buildCycleNavigatorData(gui, { binCycleCount: 1 });
+        assert.equal(data?.topDown?.basis, "issue-cycles");
+        const expected = getCycleNavigatorTopDown(data!, result.scope.range!.begin, result.scope.range!.end)!;
+        assert.equal(result.totals!.retiring.slots, expected.retiringSlots);
+        assert.equal(result.totals!.unresolved.slots, expected.unresolvedSlots);
+        assert.equal(result.totals!.backendBound.slots, expected.backendBound);
+        assert.equal(result.totals!.frontendBound.slots, expected.frontendBound);
+    } finally { gui.close(); }
+});
+
+test("CLI Top-down-like counts shared replay states as one allocation frontier", async () => {
+    const paths: (readonly [string, number, number])[][] = [
+        [["source", 1, 2], ["queue", 2, 8], ["execute", 8, 10],
+            ["retry", 10, 18], ["execute", 18, 19], ["tail", 19, 30]],
+        [["source", 1, 2], ["queue", 2, 6], ["execute", 6, 10],
+            ["retry", 10, 17], ["execute", 17, 19], ["tail", 19, 30]],
+        [["source", 9, 10], ["retry", 10, 16], ["execute", 16, 19], ["tail", 19, 30]],
+    ];
+    const events: [number, string][] = [];
+    paths.forEach((stages, id) => {
+        events.push([stages[0][1], `I\t${id}\t${id}\t0`]);
+        for (const [name, begin, end] of stages) {
+            events.push([begin, `S\t${id}\t0\t${name}`], [end, `E\t${id}\t0\t${name}`]);
+        }
+        events.push([30, `R\t${id}\t${id}\t0`]);
+    });
+    const cli = await session(["Kanata\t0004", ...events.sort((a, b) => a[0] - b[0])
+        .flatMap(([cycle, line]) => [`C=\t${cycle}`, line])].join("\n"));
+    assert.equal(cli.state.warningCount, 0);
+    const result = topdown(await cli.execute("topdown"));
+    assert.equal(result.available, true);
+    assert.deepEqual(result.analysis!.allocation, { lane: "0", stages: ["queue", "retry"] });
+    assert.deepEqual(result.analysis!.execution, { lane: "0", stages: ["execute"] });
+    assert.equal(result.analysis!.allocationWidth, 2);
+    assert.equal(result.totals!.retiring.slots, 3);
+    const retries = topdown(await cli.execute("topdown range cycle 10 11"));
+    // 2命令の再試行と1命令の新規投入が重なるが、allocated slotは後者の1件だけ。
+    assert.equal(retries.totals!.retiring.slots, 1);
+    assert.equal(retries.totals!.frontendBound.slots, 1);
+    const retryOnly = topdown(await cli.execute("topdown range cycle 18 19"));
+    assert.equal(retryOnly.totals!.retiring.slots, 0);
+    assert.equal(retryOnly.totals!.backendBound.slots, 0);
+    assert.equal(retryOnly.totals!.frontendBound.slots, 2);
+});
+
 test("CLI Top-down-like normalizes huge cycles and sparse IDs and discloses bin interpolation", async () => {
     const trace = await inspectCliTrace(input(topDownSource));
     const shift = Number.MAX_SAFE_INTEGER - 1000;
