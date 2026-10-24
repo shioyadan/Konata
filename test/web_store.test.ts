@@ -831,7 +831,7 @@ test("Store restores and publishes persistent view settings", () => {
         tiledRenderingEnabled: true,
         textCacheEnabled: true,
         traceNavigator: {
-            display: "expanded",
+            cycleDisplay: "expanded",
             mode: "issue",
             rangeMode: "follow",
             height: 144,
@@ -862,7 +862,7 @@ test("Store restores and publishes persistent view settings", () => {
     assert.equal(restored.splitLanes, false);
     assert.equal(restored.fixOpHeight, false);
     assert.deepEqual(restored.traceNavigator, {
-        display: "expanded",
+        cycleDisplay: "expanded",
         mode: "issue",
         rangeMode: "follow",
         height: 144,
@@ -900,7 +900,7 @@ test("Store restores and publishes persistent view settings", () => {
     store.dispatch({
         type: "KONATA_SET_TRACE_NAVIGATOR",
         settings: {
-            display: "compact",
+            cycleDisplay: "compact",
             mode: "commit",
             rangeMode: "overview",
             height: 180,
@@ -917,7 +917,7 @@ test("Store restores and publishes persistent view settings", () => {
         tiledRenderingEnabled: false,
         textCacheEnabled: false,
         traceNavigator: {
-            display: "compact",
+            cycleDisplay: "compact",
             mode: "commit",
             rangeMode: "overview",
             height: 180,
@@ -937,7 +937,7 @@ test("Store restores and publishes persistent view settings", () => {
     // Tab固有設定やsession内だけの設定では、永続化通知を増やさない。
     assert.equal(changes.filter((change) => change.type === "VIEW_SETTINGS_UPDATE").length, 11);
     assert.deepEqual(store.getSnapshot().settings.traceNavigator, {
-        display: "compact",
+        cycleDisplay: "compact",
         mode: "commit",
         rangeMode: "overview",
         height: 180,
@@ -1120,7 +1120,7 @@ test("Store restores View defaults without moving the trace or discarding custom
     store.dispatch({ type: "KONATA_SPLIT_LANES", enabled: true });
     store.dispatch({
         type: "KONATA_SET_TRACE_NAVIGATOR",
-        settings: { ...defaults.traceNavigator, display: "expanded", mode: "issue", rangeMode: "follow", height: 144,
+        settings: { ...defaults.traceNavigator, cycleDisplay: "expanded", mode: "issue", rangeMode: "follow", height: 144,
             instructionVisible: false, instructionWidth: 96 },
     });
     store.dispatch({ type: "KONATA_CHANGE_ZOOM_SPEED", speed: "fast" });

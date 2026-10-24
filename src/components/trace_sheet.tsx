@@ -350,9 +350,9 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     const comparisonOpacity = comparison?.opacity ?? 1;
     const traceNavigatorAvailable = trace !== null &&
         (!comparisonActive || baselineTrace !== null);
-    const traceNavigatorVisible = traceNavigatorAvailable && traceNavigator.display !== "hidden";
+    const traceNavigatorVisible = traceNavigatorAvailable && traceNavigator.cycleDisplay !== "hidden";
     // コンパクト表示は常に全体を示すが、詳細表示の範囲設定は上書きしない。
-    const cycleNavigatorRangeMode = traceNavigator.display === "compact" ? "overview" : traceNavigator.rangeMode;
+    const cycleNavigatorRangeMode = traceNavigator.cycleDisplay === "compact" ? "overview" : traceNavigator.rangeMode;
     const modeSources = comparisonMode === "baseline"
         ? [baselineNavigatorData]
         : comparisonMode === "overlay"
@@ -994,7 +994,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
             ...traceNavigator,
             // dragで畳んでも、clickでgesture開始前の詳細サイズへ戻せるようにする。
             ...(cycle
-                ? { display: expanded ? "expanded" : size >= COMPACT_TRACE_NAVIGATOR_HEIGHT ? "compact" : "hidden",
+                ? { cycleDisplay: expanded ? "expanded" : size >= COMPACT_TRACE_NAVIGATOR_HEIGHT ? "compact" : "hidden",
                     height: expanded ? expandedSize : original.height }
                 : { instructionVisible: expanded,
                     instructionWidth: expanded ? expandedSize : original.instructionWidth }),
@@ -1534,7 +1534,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
     return (
         <div
             ref={viewerRef}
-            className={`viewer${trace === null ? " is-empty" : ""}${traceNavigatorAvailable ? " has-trace-navigator" : ""}${traceNavigatorVisible ? ` is-trace-navigator-${traceNavigator.display}` : ""}${traceNavigatorAvailable && traceNavigator.instructionVisible ? " is-instruction-navigator-visible" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}${resizingNavigator === "cycle" ? " is-resizing-trace-navigator" : ""}${resizingNavigator === "instruction" ? " is-resizing-instruction-navigator" : ""}`}
+            className={`viewer${trace === null ? " is-empty" : ""}${traceNavigatorAvailable ? " has-trace-navigator" : ""}${traceNavigatorVisible ? ` is-trace-navigator-${traceNavigator.cycleDisplay}` : ""}${traceNavigatorAvailable && traceNavigator.instructionVisible ? " is-instruction-navigator-visible" : ""}${isPanning ? " is-panning" : ""}${isResizing ? " is-resizing" : ""}${resizingNavigator === "cycle" ? " is-resizing-trace-navigator" : ""}${resizingNavigator === "instruction" ? " is-resizing-instruction-navigator" : ""}`}
             // 保存したdesktop幅を維持したまま、狭い画面ではCSS側だけで表示幅を制限する。
             style={{
                 "--label-pane-width": `${splitterPosition}px`,
@@ -1647,7 +1647,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                 <>
                     {(["cycle", "instruction"] as const).map((axis) => {
                         const cycle = axis === "cycle";
-                        const display = cycle ? traceNavigator.display
+                        const display = cycle ? traceNavigator.cycleDisplay
                             : traceNavigator.instructionVisible ? "expanded" : "hidden";
                         const visible = display !== "hidden";
                         const size = cycle
@@ -1672,7 +1672,7 @@ export const TraceSheet = forwardRef<TraceSheetHandle, TraceSheetProps>(function
                                     if (event.detail === 0 || !traceNavigatorResizeRef.current.dragged) {
                                         setToolTip(null);
                                         onSetTraceNavigator({ ...traceNavigator,
-                                            ...(cycle ? { display: display === "expanded" ? "compact"
+                                            ...(cycle ? { cycleDisplay: display === "expanded" ? "compact"
                                                 : display === "compact" ? "hidden" : "expanded" }
                                                 : { instructionVisible: !visible }) });
                                     }

@@ -70,7 +70,7 @@ export const MIN_INSTRUCTION_NAVIGATOR_WIDTH = 32;
 
 export interface TraceNavigatorSettings {
     // 下部は詳細・簡易・非表示の3段階。heightは詳細表示の高さを保持する。
-    readonly display: "expanded" | "compact" | "hidden";
+    readonly cycleDisplay: "expanded" | "compact" | "hidden";
     readonly mode: CycleNavigatorMode;
     readonly rangeMode: CycleNavigatorRangeMode;
     readonly height: number;
@@ -80,7 +80,7 @@ export interface TraceNavigatorSettings {
 }
 
 export const DEFAULT_TRACE_NAVIGATOR_SETTINGS: Readonly<TraceNavigatorSettings> = {
-    display: "hidden",
+    cycleDisplay: "compact",
     mode: "top-down",
     rangeMode: "overview",
     height: MIN_TRACE_NAVIGATOR_HEIGHT,

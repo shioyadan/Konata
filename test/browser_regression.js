@@ -645,7 +645,14 @@ async function verifyIncrementalRendering(window) {
                 const navigatorToggle = document.querySelector(".trace-navigator-toggle");
                 if (!navigatorRequested && navigatorToggle instanceof HTMLButtonElement) {
                     navigatorRequested = true;
-                    navigatorToggle.click();
+                    if (navigatorToggle.dataset.display === "compact") {
+                        navigatorToggle.dispatchEvent(new KeyboardEvent("keydown", {
+                            key: "ArrowUp", bubbles: true,
+                        }));
+                    }
+                    else {
+                        navigatorToggle.click();
+                    }
                 }
                 const navigatorPane = document.querySelector(".trace-navigator-cycle-pane");
                 const navigatorStatus = navigatorPane?.querySelector(".trace-navigator-cycle-status");
@@ -2024,7 +2031,7 @@ async function prepareViewSettings(window, instructionVisible = true) {
             textLabelMinimumLaneHeight: 3,
             traceNavigator: {
                 ...stored.traceNavigator,
-                display: "hidden",
+                cycleDisplay: "hidden",
                 mode: "commit",
                 rangeMode: "overview",
                 height: 180,
@@ -2262,6 +2269,11 @@ async function verifyLoading(window) {
 
 async function verifyInteraction(window) {
     await dropFixture(window, plainFixture, "text/plain");
+    // このgroupは非表示からの開閉・resizeを検査する。既定の簡易表示はsettingsで確認する。
+    await window.webContents.executeJavaScript(`new Promise((resolve) => {
+        document.querySelector('.trace-navigator-toggle').click();
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    })`);
     const plainState = await readRenderedState(window);
     if (plainState.loadState !== "ready" ||
         plainState.fileName !== "kanata-basic.txt" ||
@@ -3678,7 +3690,7 @@ async function verifyInteraction(window) {
         navigatorState.resized.position !== "180" ||
         navigatorState.resized.cursor !== "row-resize" ||
         navigatorState.resized.capturedPointers !== 0 ||
-        navigatorState.storedNavigator?.display !== "expanded" ||
+        navigatorState.storedNavigator?.cycleDisplay !== "expanded" ||
         navigatorState.storedNavigator?.mode !== "commit" ||
         navigatorState.storedNavigator?.rangeMode !== "overview" ||
         navigatorState.storedNavigator?.height !== 180 ||
@@ -5736,7 +5748,7 @@ async function verifyRendering(window) {
         await nextFrame();
         const current = settings();
         check(!current.instructionVisible && current.instructionWidth === 80 &&
-            current.display === initialCycleSettings.display && current.height === initialCycleSettings.height &&
+            current.cycleDisplay === initialCycleSettings.cycleDisplay && current.height === initialCycleSettings.height &&
             current.mode === initialCycleSettings.mode && current.rangeMode === initialCycleSettings.rangeMode,
             'Instruction navigator settings must not modify cycle navigator settings.');
         delete resizer.setPointerCapture;
@@ -5913,7 +5925,58 @@ async function verifyInstructionLabels(window) {
 
 async function verifySettings(window) {
     await verifyInstructionLabels(window);
+    // 保存値がなければgraphだけを控えめに表示し、既存の非表示設定の復元とは区別する。
+    await window.webContents.executeJavaScript(`localStorage.removeItem("konata.viewSettings")`);
+    await window.loadFile(webFile);
+    await dropFixture(window, plainFixture, "text/plain");
+    const defaultNavigator = await window.webContents.executeJavaScript(`(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return {
+            display: document.querySelector('.trace-navigator-toggle')?.dataset.display,
+            height: document.querySelector('.trace-navigator-cycle-pane')?.getBoundingClientRect().height,
+            graph: document.querySelector('canvas[aria-label="Cycle navigator canvas"]')?.width ?? 0,
+            legendVisible: (() => {
+                const label = document.querySelector('canvas[aria-label="Cycle navigator labels canvas"]');
+                return label !== null && getComputedStyle(label).display !== 'none';
+            })()
+        };
+    })()`);
+    if (defaultNavigator.display !== "compact" || defaultNavigator.height !== 22 ||
+        defaultNavigator.graph <= 1 || defaultNavigator.legendVisible) {
+        throw new Error(`Navigator default display is incomplete: ${JSON.stringify(defaultNavigator)}`);
+    }
     await prepareViewSettings(window, false);
+    // 旧版の非表示だけを一度リセットし、高さ・解析mode・右側の設定は引き継ぐ。
+    await window.webContents.executeJavaScript(`(() => {
+        const stored = JSON.parse(localStorage.getItem('konata.viewSettings'));
+        const {cycleDisplay, ...navigator} = stored.traceNavigator;
+        localStorage.setItem('konata.viewSettings', JSON.stringify({
+            ...stored, traceNavigator: {...navigator, display: 'hidden'},
+        }));
+    })()`);
+    await window.loadFile(webFile);
+    await dropFixture(window, plainFixture, "text/plain");
+    await window.webContents.executeJavaScript(`(async () => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await frame();
+        const grip = document.querySelector('.trace-navigator-toggle');
+        const pane = document.querySelector('.trace-navigator-cycle-pane');
+        if (grip?.dataset.display !== 'compact' || pane?.getBoundingClientRect().height !== 22 ||
+            document.querySelector('.instruction-navigator-toggle')?.getAttribute('aria-expanded') !== 'false') {
+            throw new Error('Legacy navigator visibility was not reset independently.');
+        }
+        grip.click();
+        await frame();
+        const stored = JSON.parse(localStorage.getItem('konata.viewSettings'));
+        const navigator = stored.traceNavigator;
+        if (navigator.cycleDisplay !== 'hidden' || 'display' in navigator || 'visible' in navigator ||
+            navigator.height !== 180 || navigator.mode !== 'commit' || navigator.rangeMode !== 'overview' ||
+            navigator.instructionVisible !== false || navigator.instructionWidth !== 80 ||
+            stored.splitterPosition !== 280) {
+            throw new Error('New navigator settings did not preserve other preferences.');
+        }
+    })()`);
+    await window.loadFile(webFile);
     await dropFixture(window, plainFixture, "text/plain");
     // 非既定のthemeとWebGL設定を保存し、Tab表示だけのlane分割は保存値へ混ぜない。
     const viewSettingsSetupState = await window.webContents.executeJavaScript(`new Promise((resolve) => {
@@ -5932,6 +5995,9 @@ async function verifySettings(window) {
             !(textCaching instanceof HTMLInputElement) ||
             !(navigator instanceof HTMLButtonElement)) {
             throw new Error("The view settings controls were not found.");
+        }
+        if (navigator.dataset.display !== "hidden") {
+            throw new Error("An explicitly hidden navigator was reset again after migration.");
         }
         theme.value = "light";
         theme.dispatchEvent(new Event("change", {bubbles: true}));
@@ -5970,7 +6036,7 @@ async function verifySettings(window) {
         viewSettingsSetupState.stored?.webGLEnabled !== false ||
         viewSettingsSetupState.stored?.tiledRenderingEnabled !== false ||
         viewSettingsSetupState.stored?.textCacheEnabled !== false ||
-        viewSettingsSetupState.stored?.traceNavigator?.display !== "expanded" ||
+        viewSettingsSetupState.stored?.traceNavigator?.cycleDisplay !== "expanded" ||
         viewSettingsSetupState.stored?.traceNavigator?.mode !== "commit" ||
         viewSettingsSetupState.stored?.traceNavigator?.rangeMode !== "overview" ||
         viewSettingsSetupState.stored?.traceNavigator?.height !== 180 ||

@@ -15,7 +15,7 @@ test("View settings retain valid values without persisting tab-local state", () 
         textCacheEnabled: false,
         textLabelMinimumLaneHeight: 3,
         traceNavigator: {
-            display: "compact",
+            cycleDisplay: "compact",
             mode: "commit",
             rangeMode: "follow",
             height: 180,
@@ -88,6 +88,33 @@ test("View settings preserve custom labels and recover malformed or missing fiel
     } })?.instructionLabels, settings.instructionLabels);
 });
 
+test("View settings reset legacy navigator visibility once and retain new display choices", () => {
+    assert.equal(DEFAULT_TRACE_NAVIGATOR_SETTINGS.cycleDisplay, "compact");
+    assert.equal(DEFAULT_TRACE_NAVIGATOR_SETTINGS.height, 64);
+    for (const [traceNavigator, display] of [
+        [undefined, "compact"],
+        [{}, "compact"],
+        [{cycleDisplay: "invalid"}, "compact"],
+        [{display: "hidden", height: 180}, "compact"],
+        [{display: "expanded", height: 180}, "compact"],
+        [{display: "compact", height: 180}, "compact"],
+        [{visible: false}, "compact"],
+        [{visible: true}, "compact"],
+        [{cycleDisplay: "hidden", display: "expanded", visible: true}, "hidden"],
+        [{cycleDisplay: "expanded", display: "hidden"}, "expanded"],
+        [{cycleDisplay: "compact", visible: false}, "compact"],
+    ] as const) {
+        const parsed = parsePersistedViewSettings({...DEFAULT_PERSISTED_VIEW_SETTINGS, traceNavigator});
+        assert.equal(parsed?.traceNavigator.cycleDisplay, display, JSON.stringify(traceNavigator));
+        assert.equal(parsed?.traceNavigator.height,
+            traceNavigator && "height" in traceNavigator ? traceNavigator.height : 64);
+        assert.ok(parsed);
+        assert.equal("display" in parsed.traceNavigator, false);
+        assert.equal("visible" in parsed.traceNavigator, false);
+        assert.deepEqual(parsePersistedViewSettings(JSON.parse(JSON.stringify(parsed))), parsed);
+    }
+});
+
 test("View settings reject invalid required fields", () => {
     for (const value of [null, undefined, false, [], {}, "dark"]) {
         assert.equal(parsePersistedViewSettings(value), null);
@@ -119,7 +146,7 @@ test("View settings recover malformed optional values without losing valid setti
     const parsed = parsePersistedViewSettings({
         ...DEFAULT_PERSISTED_VIEW_SETTINGS,
         traceNavigator: {
-            display: "invalid", mode: "invalid", rangeMode: "invalid",
+            cycleDisplay: "invalid", mode: "invalid", rangeMode: "invalid",
             height: 63, instructionVisible: "false", instructionWidth: 31,
         },
     });
@@ -129,6 +156,6 @@ test("View settings recover malformed optional values without losing valid setti
         traceNavigator: {visible: true, height: 180.4, instructionWidth: 80.6},
     });
     assert.deepEqual(legacy?.traceNavigator, {
-        ...DEFAULT_TRACE_NAVIGATOR_SETTINGS, display: "expanded", height: 180, instructionWidth: 81,
+        ...DEFAULT_TRACE_NAVIGATOR_SETTINGS, height: 180, instructionWidth: 81,
     });
 });

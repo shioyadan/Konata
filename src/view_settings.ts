@@ -68,13 +68,15 @@ function parseTraceNavigatorSettings(value: unknown): Readonly<TraceNavigatorSet
     if (typeof value !== "object" || value === null) {
         return DEFAULT_TRACE_NAVIGATOR_SETTINGS;
     }
-    const settings = value as Partial<Record<keyof TraceNavigatorSettings | "visible", unknown>>;
+    const settings = value as Partial<Record<keyof TraceNavigatorSettings, unknown>>;
     const mode = settings.mode;
     const rangeMode = settings.rangeMode;
     return {
-        display: settings.display === "expanded" || settings.display === "compact" || settings.display === "hidden"
-            ? settings.display
-            : settings.visible === true ? "expanded" : DEFAULT_TRACE_NAVIGATOR_SETTINGS.display,
+        // 存在に気づけるよう、旧display／visibleは引き継がず一度だけ簡易表示へ戻す。
+        cycleDisplay: settings.cycleDisplay === "expanded" || settings.cycleDisplay === "compact" ||
+            settings.cycleDisplay === "hidden"
+            ? settings.cycleDisplay
+            : DEFAULT_TRACE_NAVIGATOR_SETTINGS.cycleDisplay,
         mode: mode === "top-down" || mode === "fetch" || mode === "issue" ||
             mode === "commit" || mode === "flush" || mode === "latency"
             ? mode
