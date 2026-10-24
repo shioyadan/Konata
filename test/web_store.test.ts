@@ -427,14 +427,23 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     // Store上の通常配色はA/Bへ同時に反映し、比較専用色から通常表示へ戻せるようにする。
     assert.equal(comparison.baselineRenderSpec.colorScheme, "DarkOrange");
     assert.equal(comparison.renderSpec.colorScheme, "DarkOrange");
-    assert.deepEqual(comparison.renderSpec.position, [25, 8]);
-    // 比較開始時は各元Tabの位置を保ち、overlayに必要な倍率だけを揃える。
-    assert.deepEqual(comparison.baselineRenderSpec.position, [12, 0]);
+    // 比較開始時に手動Alignと同じ位置へ揃えるが、元Tabは動かさない。
+    assert.deepEqual(comparison.renderSpec.position, [20, 0]);
+    assert.deepEqual(comparison.baselineRenderSpec.position, [10, 0]);
     assert.equal(comparison.baselineRenderSpec.zoomLevel, -1);
+    assert.deepEqual(baselineTab.renderSpec.position, [12, 0]);
+    assert.deepEqual(candidateTab.renderSpec.position, [25, 8]);
+    assert.equal(baselineTab.renderSpec.zoomLevel, 0);
     store.dispatch({ type: "COMPARISON_SET_MODE", tabID: comparison.id, mode: "baseline" });
     store.dispatch({ type: "COMPARISON_SET_OPACITY", tabID: comparison.id, opacity: 2 });
     assert.equal(comparison.mode, "baseline");
     assert.equal(comparison.opacity, 1);
+    store.dispatch({
+        type: "KONATA_SET_VIEW",
+        tabID: comparison.id,
+        view: { position: [25, 8], zoomLevel: -1 },
+        baselineView: { position: [12, 0], zoomLevel: -1 },
+    });
     store.dispatch({ type: "COMPARISON_ALIGN_TO_BASELINE", tabID: comparison.id });
     // まずAをAdjust positionでRID 0のfetchへ戻し、Bの同じRIDも左上へ置く。
     assert.deepEqual(comparison.baselineRenderSpec.position, [10, 0]);
@@ -485,6 +494,48 @@ test("Comparison tabs share source OpStores until the last view is closed", () =
     assert.equal(baseline.opStore.opCount, 0);
     assert.equal(candidate.opStore.opCount, 0);
     assert.equal(store.activeTab, null);
+});
+
+test("Comparison tabs align by RID across flushed rows and keep positions when no match exists", () => {
+    for (const hideFlushedOps of [false, true]) {
+        for (const commonRID of [false, true]) {
+            const store = new Store();
+            const open = (name: string, records: readonly (readonly [number, number, number, boolean])[]) => {
+                const opStore = new ArrayOpStore();
+                for (const [id, rid, cycle, flush] of records) {
+                    const op = new Op();
+                    Object.assign(op, {id, rid, fetchedCycle: cycle, flush, retired: !flush});
+                    opStore.setOp(id, op);
+                    if (op.retired) opStore.setRetiredOp(rid, op);
+                }
+                store.dispatch({ type: "FILE_OPEN", fileName: name });
+                const tab = store.activeTab!;
+                store.dispatch({ type: "FILE_LOAD_FINISH", tabID: tab.id,
+                    trace: new ParsedTrace(name, opStore, new StageLevelMap(), 100) });
+                return tab;
+            };
+            // Aのflush行と次のretire命令は同じRID。BではそのRIDが別の命令IDに対応する。
+            const baseline = open("baseline.log", [[0, 0, 10, false], [1, 1, 20, true], [2, 1, 30, false]]);
+            const candidate = open("candidate.log", commonRID
+                ? [[0, 0, 40, false], [1, 1, 60, false]] : [[0, 0, 40, false]]);
+            store.dispatch({ type: "KONATA_HIDE_FLUSHED_OPS", tabID: candidate.id, enabled: hideFlushedOps });
+            store.dispatch({ type: "KONATA_SET_VIEW", tabID: baseline.id,
+                view: {position: [35, 1], zoomLevel: 0} });
+            store.dispatch({ type: "KONATA_SET_VIEW", tabID: candidate.id,
+                view: {position: [95, 10], zoomLevel: -1} });
+            store.dispatch({ type: "COMPARISON_OPEN", baselineTabID: baseline.id, candidateTabID: candidate.id });
+            const comparison = store.activeTab;
+            assert.ok(comparison?.kind === "comparison");
+            assert.deepEqual(comparison.baselineRenderSpec.position,
+                commonRID ? [30, hideFlushedOps ? 1 : 2] : [35, 1]);
+            assert.deepEqual(comparison.renderSpec.position, commonRID ? [60, 1] : [95, 10]);
+            assert.equal(comparison.baselineRenderSpec.zoomLevel, -1);
+            assert.equal(comparison.baselineRenderSpec.hideFlushedOps, hideFlushedOps);
+            assert.deepEqual(baseline.renderSpec.position, [35, 1]);
+            assert.deepEqual(candidate.renderSpec.position, [95, 10]);
+            store.dispatch({ type: "STORE_CLOSE" });
+        }
+    }
 });
 
 test("Comparison tabs follow live source traces while loading", () => {

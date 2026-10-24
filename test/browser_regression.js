@@ -4038,8 +4038,6 @@ async function verifyInteraction(window) {
         document.querySelector('.trace-navigator-toggle').click();
         await nextFrame();
         comparisonLayerCompositions = [];
-        alignToA.click();
-        await nextFrame();
         const labelCanvas = document.querySelector('canvas[aria-label="Instruction labels canvas"]');
         if (!(labelCanvas instanceof HTMLCanvasElement)) {
             throw new Error("The comparison label canvas was not found.");
@@ -4066,9 +4064,11 @@ async function verifyInteraction(window) {
                 layerCompositions: comparisonLayerCompositions.slice(-2)
             };
         };
-        // A/B単独表示では、左側ラベルとtooltipも選択したtraceへ切り替わる。
+        // 手動Align前から位置が揃い、A/Bのラベルとtooltipが対応する命令を指すことを確認する。
         const baselineLabelToolTip = await readLabelToolTip(baselineMode);
         const candidateLabelToolTip = await readLabelToolTip(candidateMode);
+        alignToA.click();
+        await nextFrame();
         comparisonLayerCompositions = [];
         overlayMode.click();
         await nextFrame();

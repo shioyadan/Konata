@@ -891,8 +891,7 @@ export class Store {
                 return;
             }
 
-            // A/B単独表示では各元TabのView配色と位置をそのまま再現する。
-            // overlayの縮尺だけは最初から一致させ、同じ移動量が同じ画面距離になるようにする。
+            // 元TabのView配色を引き継ぎ、overlayの縮尺とflush表示はBへ揃える。
             const candidateRenderSpec = { ...candidate.renderSpec };
             const baselineRenderSpec = {
                 ...baseline.renderSpec,
@@ -912,6 +911,8 @@ export class Store {
                 candidateRenderSpec,
                 candidate.splitterPosition,
             );
+            // 公開前に手動Alignと同じ位置へ揃える。共通RIDがなければ元の位置を保つ。
+            comparison.alignCandidateToBaseline();
             this.tabs_.set(comparison.id, comparison);
             this.publish_(comparison.id, [
                 { type: "TAB_OPEN", tabID: comparison.id },
