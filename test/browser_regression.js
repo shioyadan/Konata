@@ -1396,8 +1396,13 @@ async function verifyReferenceGuides(window) {
         };
         const verifyMarkers = async () => {
             const toggle = document.querySelector('.trace-navigator-toggle');
-            toggle.click();
             try {
+                // 既定の簡易表示をclickすると閉じるため、詳細・範囲切替の検査には明示的に展開する。
+                for (let i = 0; i < 2 && toggle.dataset.display !== 'expanded'; i++) {
+                    toggle.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowUp', bubbles: true}));
+                    await frame();
+                }
+                check(toggle.dataset.display === 'expanded', 'Reference marker tests require an expanded navigator.');
                 const deadline = performance.now() + 2000;
                 while (performance.now() < deadline &&
                     (document.querySelector('.trace-navigator-cycle-status') !== null ||
@@ -1410,6 +1415,8 @@ async function verifyReferenceGuides(window) {
                 const cycles = document.querySelector('canvas[aria-label="Cycle navigator canvas"]');
                 const rangeButtons = [...document.querySelectorAll('[aria-label="Navigator view"] button')];
                 const originalRange = rangeButtons.find((button) => button.getAttribute('aria-pressed') === 'true');
+                check(originalRange instanceof HTMLButtonElement,
+                    'The expanded navigator range controls were not found.');
                 const pixels = (canvas, x, y) => [...canvas.getContext('2d').getImageData(
                     Math.round(x * devicePixelRatio), Math.round(y * devicePixelRatio), 2, 2).data];
                 try {
